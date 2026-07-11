@@ -5,17 +5,30 @@ include(CMakeFindDependencyMacro)
 set(Merlin_VERSION "@PROJECT_VERSION@")
 set(Merlin_WITH_VULKAN @MERLIN_ENABLE_VULKAN@)
 
-if(Merlin_WITH_VULKAN)
-  find_dependency(Vulkan 1.2)
-endif()
-
 include("${CMAKE_CURRENT_LIST_DIR}/MerlinTargets.cmake")
 
 set(Merlin_RenderWorld_FOUND TRUE)
 set(Merlin_RenderExtraction_FOUND TRUE)
 set(Merlin_Vulkan_FOUND FALSE)
-if(TARGET Merlin::Vulkan)
-  set(Merlin_Vulkan_FOUND TRUE)
+
+set(_merlin_load_vulkan FALSE)
+if(Merlin_WITH_VULKAN)
+  if(NOT Merlin_FIND_COMPONENTS OR Vulkan IN_LIST Merlin_FIND_COMPONENTS)
+    set(_merlin_load_vulkan TRUE)
+  endif()
+endif()
+
+if(_merlin_load_vulkan)
+  if(Merlin_FIND_REQUIRED_Vulkan)
+    find_dependency(Vulkan 1.2)
+  else()
+    find_package(Vulkan 1.2 QUIET)
+  endif()
+
+  if(Vulkan_FOUND)
+    include("${CMAKE_CURRENT_LIST_DIR}/MerlinVulkanTargets.cmake")
+    set(Merlin_Vulkan_FOUND TRUE)
+  endif()
 endif()
 
 set(_merlin_known_components RenderWorld RenderExtraction Vulkan)

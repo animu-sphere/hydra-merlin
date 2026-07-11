@@ -41,21 +41,25 @@ endif()
 
 set(_merlin_install_cmakedir "${CMAKE_INSTALL_LIBDIR}/cmake/Merlin")
 
-set(_merlin_public_targets
+set(_merlin_core_targets
   merlin-render-world
   merlin-render-extraction
 )
-if(TARGET merlin-vulkan)
-  list(APPEND _merlin_public_targets merlin-vulkan)
-endif()
 
-install(TARGETS ${_merlin_public_targets}
+install(TARGETS ${_merlin_core_targets}
   EXPORT MerlinTargets
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-  INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 )
+if(TARGET merlin-vulkan)
+  install(TARGETS merlin-vulkan
+    EXPORT MerlinVulkanTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  )
+endif()
 install(DIRECTORY core/merlin-render-world/include/
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 install(DIRECTORY core/merlin-render-extraction/include/
@@ -70,6 +74,13 @@ install(EXPORT MerlinTargets
   NAMESPACE Merlin::
   DESTINATION "${_merlin_install_cmakedir}"
 )
+if(TARGET merlin-vulkan)
+  install(EXPORT MerlinVulkanTargets
+    FILE MerlinVulkanTargets.cmake
+    NAMESPACE Merlin::
+    DESTINATION "${_merlin_install_cmakedir}"
+  )
+endif()
 
 configure_package_config_file(
   cmake/MerlinConfig.cmake.in

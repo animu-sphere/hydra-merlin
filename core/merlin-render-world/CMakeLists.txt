@@ -11,7 +11,7 @@ set_target_properties(merlin-render-world PROPERTIES
 target_include_directories(merlin-render-world
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_compile_features(merlin-render-world PUBLIC cxx_std_20)

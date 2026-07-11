@@ -11,7 +11,7 @@ set_target_properties(merlin-render-extraction PROPERTIES
 target_include_directories(merlin-render-extraction
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(merlin-render-extraction PUBLIC Merlin::RenderWorld)

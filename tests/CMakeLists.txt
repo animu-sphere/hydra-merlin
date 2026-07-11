@@ -50,6 +50,8 @@ if(TARGET merlin-headless)
   )
 endif()
 
+get_property(_merlin_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+
 add_test(
   NAME merlin-install-consumer
   COMMAND ${CMAKE_COMMAND}
@@ -61,6 +63,7 @@ add_test(
     "-DMERLIN_GENERATOR=${CMAKE_GENERATOR}"
     "-DMERLIN_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
     "-DMERLIN_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+    "-DMERLIN_MULTI_CONFIG=${_merlin_is_multi_config}"
     "-DMERLIN_CONFIG=$<CONFIG>"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/run_install_consumer.cmake"
 )
