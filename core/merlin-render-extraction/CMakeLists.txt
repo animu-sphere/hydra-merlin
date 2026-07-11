@@ -4,10 +4,14 @@ add_library(merlin-render-extraction STATIC
 
 add_library(Merlin::RenderExtraction ALIAS merlin-render-extraction)
 
+set_target_properties(merlin-render-extraction PROPERTIES
+  EXPORT_NAME RenderExtraction
+)
+
 target_include_directories(merlin-render-extraction
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(merlin-render-extraction PUBLIC Merlin::RenderWorld)
