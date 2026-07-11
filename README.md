@@ -53,3 +53,51 @@ uses Hydra's CPU RenderBuffer-to-Hgi upload path.
 
 The Vulkan path requires a Vulkan 1.2-capable graphics queue and `glslc`
 from the Vulkan SDK at build time.
+
+## Supported configurations
+
+The host-neutral libraries require CMake 3.24 and a C++20 compiler. Vulkan and
+Hydra are optional dependency layers:
+
+| Configuration | CMake options | Required dependencies |
+|---|---|---|
+| Core-only | `MERLIN_ENABLE_VULKAN=OFF` | C++20 compiler |
+| Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.2 loader/headers and `glslc` |
+| Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
+
+Windows with Visual Studio 2022 is the currently validated development path.
+The Core-only targets are intended to support Windows and Linux; CI coverage
+for both platforms is tracked as Milestone 0 work. GPU and Hydra tests report
+missing validation/device capabilities as skips where the test contract allows
+it. OpenUSD build configuration and C++ runtime ABI must match the consumer.
+
+## Install and consume
+
+Install a configured build into a staging prefix:
+
+```powershell
+cmake --install build --config Release --prefix C:/merlin
+```
+
+This installs the public headers, libraries, versioned CMake package files, and,
+when enabled, `merlin-headless` with its SPIR-V shaders. A downstream CMake
+project can consume the package without referring to the Merlin source tree:
+
+```cmake
+find_package(Merlin 0.1 REQUIRED COMPONENTS RenderExtraction)
+target_link_libraries(my-renderer PRIVATE Merlin::RenderExtraction)
+```
+
+Available package components and targets are `RenderWorld`
+(`Merlin::RenderWorld`), `RenderExtraction` (`Merlin::RenderExtraction`), and,
+for Vulkan-enabled builds, `Vulkan` (`Merlin::Vulkan`). The install-consumer
+CTest installs to an isolated prefix and verifies downstream configure, build,
+link, and execution.
+
+## Architecture boundary
+
+Dependencies flow from adapters into the host-neutral scene model, deterministic
+draw extraction, and then the offscreen backend. Public Core APIs do not expose
+OpenUSD, Hydra, Vulkan, Qt, or DCC types. Hydra owns host path/dirty-bit
+translation, while the Vulkan backend owns execution and CPU render-product
+readback without owning a native window or swapchain.

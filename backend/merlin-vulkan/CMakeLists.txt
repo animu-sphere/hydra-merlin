@@ -6,6 +6,10 @@ add_library(merlin-vulkan STATIC
 
 add_library(Merlin::Vulkan ALIAS merlin-vulkan)
 
+set_target_properties(merlin-vulkan PROPERTIES
+  EXPORT_NAME Vulkan
+)
+
 target_include_directories(merlin-vulkan
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

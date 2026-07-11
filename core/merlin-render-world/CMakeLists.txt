@@ -4,6 +4,10 @@ add_library(merlin-render-world STATIC
 
 add_library(Merlin::RenderWorld ALIAS merlin-render-world)
 
+set_target_properties(merlin-render-world PROPERTIES
+  EXPORT_NAME RenderWorld
+)
+
 target_include_directories(merlin-render-world
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
