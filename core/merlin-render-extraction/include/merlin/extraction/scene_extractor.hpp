@@ -47,6 +47,7 @@ class SceneExtractor {
   SceneExtractor& operator=(const SceneExtractor&) = delete;
 
   void Apply(const RenderWorld& world, const ChangeSet& changes);
+  void SetActiveCamera(CameraHandle camera);
   [[nodiscard]] const ExtractedScene& scene() const noexcept;
 
  private:

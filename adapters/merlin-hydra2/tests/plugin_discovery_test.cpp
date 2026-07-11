@@ -3,6 +3,7 @@
 #include <pxr/base/plug/registry.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
+#include <pxr/imaging/hd/pluginRenderDelegateUniqueHandle.h>
 
 #include <iostream>
 
@@ -21,6 +22,12 @@ int main(int argc, char** argv) {
   const TfToken plugin_id("HdMerlinRendererPlugin");
   if (!HdRendererPluginRegistry::GetInstance().IsRegisteredPlugin(plugin_id)) {
     std::cerr << "HdMerlinRendererPlugin was not discovered\n";
+    return 1;
+  }
+  auto delegate =
+      HdRendererPluginRegistry::GetInstance().CreateRenderDelegate(plugin_id);
+  if (!delegate) {
+    std::cerr << "HdMerlinRendererPlugin could not create a delegate\n";
     return 1;
   }
   return 0;
