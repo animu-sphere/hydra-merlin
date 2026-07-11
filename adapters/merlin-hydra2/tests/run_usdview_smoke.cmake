@@ -16,7 +16,7 @@ set(plugin_path
 set(scene
   "${MERLIN_STAGE_DIR}/${MERLIN_INSTALL_DATADIR}/merlin/tests/usdview-smoke.usda")
 set(image "${MERLIN_STAGE_DIR}/usdview-first-frame.png")
-set(marker "${MERLIN_STAGE_DIR}/merlin-first-frame.txt")
+set(marker "${MERLIN_STAGE_DIR}/merlin-regression.log")
 cmake_path(CONVERT "${MERLIN_PXR_ROOT}/bin;${MERLIN_PXR_ROOT}/lib;$ENV{PATH}"
            TO_NATIVE_PATH_LIST runtime_path NORMALIZE)
 
@@ -25,7 +25,8 @@ execute_process(
     "PXR_PLUGINPATH_NAME=${plugin_path}"
     "PYTHONPATH=${MERLIN_PXR_ROOT}/lib/python"
     "PATH=${runtime_path}"
-    "MERLIN_HYDRA2_FIRST_FRAME_MARKER=${marker}"
+    "MERLIN_HYDRA2_ENABLE_VALIDATION=1"
+    "MERLIN_HYDRA2_REGRESSION_LOG=${marker}"
     "MERLIN_HYDRA2_SMOKE_IMAGE=${image}"
     "${MERLIN_PYTHON}" "${MERLIN_TESTUSDVIEW}" "${scene}"
     --renderer Merlin --camera /Camera
@@ -39,24 +40,29 @@ if(NOT usdview_result EQUAL 0)
   message(FATAL_ERROR
     "usdview smoke failed (${usdview_result}):\n${usdview_output}\n${usdview_error}")
 endif()
-if(NOT EXISTS "${image}")
-  message(FATAL_ERROR
-    "usdview started but did not produce a first-frame image:\n${usdview_output}\n${usdview_error}")
-endif()
 if(NOT EXISTS "${marker}")
   message(FATAL_ERROR
-    "usdview created the delegate but Merlin did not complete a first frame:\n${usdview_output}\n${usdview_error}")
+    "usdview created the delegate but Merlin did not complete the regression sequence:\n${usdview_output}\n${usdview_error}")
 endif()
 file(READ "${marker}" marker_contents)
-string(REGEX MATCH "draw_count=([0-9]+)" draw_count_match
-       "${marker_contents}")
-if(NOT CMAKE_MATCH_1 STREQUAL "1" OR
-   NOT marker_contents MATCHES "buffers_written=2" OR
-   NOT marker_contents MATCHES "covered_pixels=[1-9][0-9]*")
-  message(FATAL_ERROR
-    "Merlin first frame did not contain rendered geometry:\n${marker_contents}")
-endif()
-file(SIZE "${image}" image_size)
-if(image_size LESS 100)
-  message(FATAL_ERROR "usdview first-frame image is unexpectedly small")
-endif()
+foreach(phase IN ITEMS
+    baseline points topology transform visibility camera resize)
+  if(NOT marker_contents MATCHES "phase=${phase} ")
+    message(FATAL_ERROR
+      "Merlin regression log is missing the ${phase} phase:\n${marker_contents}")
+  endif()
+  cmake_path(GET image STEM image_stem)
+  cmake_path(GET image EXTENSION image_extension)
+  cmake_path(GET image PARENT_PATH image_directory)
+  set(phase_image
+      "${image_directory}/${image_stem}-${phase}${image_extension}")
+  if(NOT EXISTS "${phase_image}")
+    message(FATAL_ERROR
+      "usdview did not produce the ${phase} regression image")
+  endif()
+  file(SIZE "${phase_image}" image_size)
+  if(image_size LESS 100)
+    message(FATAL_ERROR
+      "usdview ${phase} regression image is unexpectedly small")
+  endif()
+endforeach()

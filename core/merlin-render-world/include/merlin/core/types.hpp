@@ -65,12 +65,14 @@ struct MaterialTag;
 struct InstanceTag;
 struct CameraTag;
 struct LightTag;
+struct RenderSettingsTag;
 
 using MeshHandle = Handle<MeshTag>;
 using MaterialHandle = Handle<MaterialTag>;
 using InstanceHandle = Handle<InstanceTag>;
 using CameraHandle = Handle<CameraTag>;
 using LightHandle = Handle<LightTag>;
+using RenderSettingsHandle = Handle<RenderSettingsTag>;
 
 struct MeshDescriptor {
   std::string label;
@@ -113,6 +115,14 @@ struct LightDescriptor {
   Vec3 color{1.0F, 1.0F, 1.0F};
   float intensity{1.0F};
   Mat4 transform;
+};
+
+struct RenderSettingsDescriptor {
+  std::string label;
+  std::uint32_t width{};
+  std::uint32_t height{};
+  bool color_aov{true};
+  bool depth_aov{true};
 };
 
 }  // namespace merlin

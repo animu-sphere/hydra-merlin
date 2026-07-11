@@ -74,7 +74,8 @@ void WritePpm(const std::filesystem::path& path,
   if (!stream) {
     throw std::runtime_error("could not create output image: " + path.string());
   }
-  stream << "P6\n" << image.width << ' ' << image.height << "\n255\n";
+  stream << "P6\n" << image.product.width << ' ' << image.product.height
+         << "\n255\n";
   for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
     stream.write(reinterpret_cast<const char*>(image.pixels.data() + i), 3);
   }
@@ -84,23 +85,42 @@ void WritePpm(const std::filesystem::path& path,
 }
 
 void ValidateSmokeResult(const merlin::vulkan::RenderResult& result) {
+  merlin::vulkan::ValidateRenderResult(result);
   const auto& image = result.color;
-  const auto expected_size = static_cast<std::size_t>(image.width) * image.height * 4U;
+  const auto width = image.product.width;
+  const auto height = image.product.height;
+  const auto expected_size =
+      static_cast<std::size_t>(image.row_pitch_bytes) * height;
   if (image.pixels.size() != expected_size) {
     throw std::runtime_error("Vulkan readback returned an invalid byte count");
   }
   const std::size_t center =
-      (static_cast<std::size_t>(image.height / 2U) * image.width + image.width / 2U) * 4U;
+      (static_cast<std::size_t>(height / 2U) * width + width / 2U) * 4U;
   if (image.pixels[0] == image.pixels[center] &&
       image.pixels[1] == image.pixels[center + 1U] &&
       image.pixels[2] == image.pixels[center + 2U]) {
     throw std::runtime_error("offscreen smoke image does not contain the triangle");
   }
   const auto depth_center = result.depth.pixels[
-      static_cast<std::size_t>(image.height / 2U) * image.width + image.width / 2U];
+      static_cast<std::size_t>(height / 2U) * width + width / 2U];
   const auto depth_corner = result.depth.pixels.front();
   if (!(depth_center < depth_corner)) {
     throw std::runtime_error("depth AOV does not contain triangle depth");
+  }
+
+  std::size_t top_coverage{};
+  std::size_t bottom_coverage{};
+  for (std::uint32_t y = 0; y < height; ++y) {
+    for (std::uint32_t x = 0; x < width; ++x) {
+      const auto depth = result.depth.pixels[
+          static_cast<std::size_t>(y) * width + x];
+      if (depth < 1.0F) {
+        (y < height / 2U ? top_coverage : bottom_coverage)++;
+      }
+    }
+  }
+  if (top_coverage >= bottom_coverage) {
+    throw std::runtime_error("CPU readback does not use top-left image origin");
   }
 }
 
@@ -147,6 +167,11 @@ int main(int argc, char** argv) {
               << "RenderWorld revision: " << changes.revision << " ("
               << changes.changes.size() << " changes)\n";
 
+    if (arguments.validation && !capabilities.validation_enabled) {
+      std::cerr << "merlin-headless: Vulkan validation layer is unavailable\n";
+      return 77;
+    }
+
     if (!arguments.probe_only) {
       const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
       const merlin::vulkan::ShaderPaths shaders{
@@ -167,7 +192,8 @@ int main(int argc, char** argv) {
         throw std::runtime_error("Vulkan validation reported warnings or errors");
       }
       std::cout << "Wrote " << arguments.output.string() << " ("
-                << result.color.width << 'x' << result.color.height << ", "
+                << result.color.product.width << 'x'
+                << result.color.product.height << ", "
                 << statistics.frames_submitted << " frames, completion "
                 << result.completion_value << ")\n";
     }

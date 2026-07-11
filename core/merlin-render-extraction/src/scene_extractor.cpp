@@ -153,6 +153,10 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
       case ObjectKind::Light:
         // Lights are intentionally ignored until the basic PBR path lands.
         break;
+      case ObjectKind::RenderSettings:
+        // Render settings are frame/host state and are consumed outside the
+        // flattened draw extraction until render requests are introduced.
+        break;
     }
   }
 

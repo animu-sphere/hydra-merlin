@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -62,11 +63,13 @@ class Store {
       auto& slot = slots_[i];
       if (!slot.value) {
         slot.value = std::move(descriptor);
+        slot.revision = 1;
         return MakeHandle<HandleType>(i, slot.generation);
       }
     }
     Slot slot;
     slot.value = std::move(descriptor);
+    slot.revision = 1;
     slots_.push_back(std::move(slot));
     return MakeHandle<HandleType>(static_cast<std::uint32_t>(slots_.size() - 1U), 1U);
   }
@@ -90,28 +93,55 @@ class Store {
     return *slot.value;
   }
 
-  void Update(HandleType handle, Descriptor descriptor) {
+  std::uint64_t Update(HandleType handle, Descriptor descriptor) {
     Get(handle) = std::move(descriptor);
+    auto& slot = slots_[HandleIndex(handle)];
+    return BumpRevision(slot);
   }
 
-  void Remove(HandleType handle) {
+  std::uint64_t Remove(HandleType handle) {
     const auto index = HandleIndex(handle);
     (void)Get(handle);
     auto& slot = slots_[index];
+    const auto tombstone_revision = BumpRevision(slot);
     slot.value.reset();
     ++slot.generation;
     if (slot.generation == 0) {
       slot.generation = 1;
     }
+    return tombstone_revision;
+  }
+
+  std::uint64_t Revision(HandleType handle) const {
+    (void)Get(handle);
+    return slots_[HandleIndex(handle)].revision;
   }
 
  private:
   struct Slot {
     std::uint32_t generation{1};
+    std::uint64_t revision{};
     std::optional<Descriptor> value;
   };
+
+  static std::uint64_t BumpRevision(Slot& slot) {
+    if (slot.revision == std::numeric_limits<std::uint64_t>::max()) {
+      throw std::overflow_error("Merlin resource revision overflow");
+    }
+    return ++slot.revision;
+  }
+
   std::vector<Slot> slots_;
 };
+
+void ValidateChangeAspects(ObjectKind kind, ChangeAspect aspects) {
+  const auto allowed = DefaultChangeAspects(kind);
+  const auto bits = static_cast<std::uint32_t>(aspects);
+  const auto allowed_bits = static_cast<std::uint32_t>(allowed);
+  if (aspects == ChangeAspect::None || (bits & ~allowed_bits) != 0U) {
+    throw std::invalid_argument("change aspects do not match resource kind");
+  }
+}
 
 }  // namespace
 
@@ -121,22 +151,27 @@ class RenderWorld::Impl {
   HandleType Create(Store<Descriptor, HandleType>& store, ObjectKind kind,
                     Descriptor descriptor) {
     auto handle = store.Create(std::move(descriptor));
-    pending.push_back({kind, ChangeKind::Created, handle.value()});
+    pending.push_back({kind, ChangeKind::Created, handle.value(),
+                       DefaultChangeAspects(kind), store.Revision(handle)});
     return handle;
   }
 
   template <typename Descriptor, typename HandleType>
   void Update(Store<Descriptor, HandleType>& store, ObjectKind kind,
-              HandleType handle, Descriptor descriptor) {
-    store.Update(handle, std::move(descriptor));
-    pending.push_back({kind, ChangeKind::Updated, handle.value()});
+              HandleType handle, Descriptor descriptor,
+              ChangeAspect aspects) {
+    ValidateChangeAspects(kind, aspects);
+    const auto resource_revision = store.Update(handle, std::move(descriptor));
+    pending.push_back({kind, ChangeKind::Updated, handle.value(), aspects,
+                       resource_revision});
   }
 
   template <typename Descriptor, typename HandleType>
   void Remove(Store<Descriptor, HandleType>& store, ObjectKind kind,
               HandleType handle) {
-    store.Remove(handle);
-    pending.push_back({kind, ChangeKind::Removed, handle.value()});
+    const auto resource_revision = store.Remove(handle);
+    pending.push_back({kind, ChangeKind::Removed, handle.value(),
+                       DefaultChangeAspects(kind), resource_revision});
   }
 
   Store<MeshDescriptor, MeshHandle> meshes;
@@ -144,6 +179,7 @@ class RenderWorld::Impl {
   Store<InstanceDescriptor, InstanceHandle> instances;
   Store<CameraDescriptor, CameraHandle> cameras;
   Store<LightDescriptor, LightHandle> lights;
+  Store<RenderSettingsDescriptor, RenderSettingsHandle> render_settings;
   std::vector<Change> pending;
   std::uint64_t revision{};
 };
@@ -176,30 +212,81 @@ LightHandle RenderWorld::CreateLight(LightDescriptor descriptor) {
   return impl_->Create(impl_->lights, ObjectKind::Light, std::move(descriptor));
 }
 
-void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d) {
-  ValidateMesh(d);
-  impl_->Update(impl_->meshes, ObjectKind::Mesh, h, std::move(d));
+RenderSettingsHandle RenderWorld::CreateRenderSettings(
+    RenderSettingsDescriptor descriptor) {
+  return impl_->Create(impl_->render_settings, ObjectKind::RenderSettings,
+                       std::move(descriptor));
 }
-void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d) { impl_->Update(impl_->materials, ObjectKind::Material, h, std::move(d)); }
-void RenderWorld::UpdateInstance(InstanceHandle h, InstanceDescriptor d) {
+
+void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
+                             ChangeAspect aspects) {
+  ValidateMesh(d);
+  impl_->Update(impl_->meshes, ObjectKind::Mesh, h, std::move(d), aspects);
+}
+void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d,
+                                 ChangeAspect aspects) {
+  impl_->Update(impl_->materials, ObjectKind::Material, h, std::move(d),
+                aspects);
+}
+void RenderWorld::UpdateInstance(InstanceHandle h, InstanceDescriptor d,
+                                 ChangeAspect aspects) {
   (void)impl_->meshes.Get(d.mesh);
   (void)impl_->materials.Get(d.material);
-  impl_->Update(impl_->instances, ObjectKind::Instance, h, std::move(d));
+  impl_->Update(impl_->instances, ObjectKind::Instance, h, std::move(d),
+                aspects);
 }
-void RenderWorld::UpdateCamera(CameraHandle h, CameraDescriptor d) { impl_->Update(impl_->cameras, ObjectKind::Camera, h, std::move(d)); }
-void RenderWorld::UpdateLight(LightHandle h, LightDescriptor d) { impl_->Update(impl_->lights, ObjectKind::Light, h, std::move(d)); }
+void RenderWorld::UpdateCamera(CameraHandle h, CameraDescriptor d,
+                               ChangeAspect aspects) {
+  impl_->Update(impl_->cameras, ObjectKind::Camera, h, std::move(d), aspects);
+}
+void RenderWorld::UpdateLight(LightHandle h, LightDescriptor d,
+                              ChangeAspect aspects) {
+  impl_->Update(impl_->lights, ObjectKind::Light, h, std::move(d), aspects);
+}
+void RenderWorld::UpdateRenderSettings(RenderSettingsHandle h,
+                                       RenderSettingsDescriptor d,
+                                       ChangeAspect aspects) {
+  impl_->Update(impl_->render_settings, ObjectKind::RenderSettings, h,
+                std::move(d), aspects);
+}
 
 void RenderWorld::Remove(MeshHandle h) { impl_->Remove(impl_->meshes, ObjectKind::Mesh, h); }
 void RenderWorld::Remove(MaterialHandle h) { impl_->Remove(impl_->materials, ObjectKind::Material, h); }
 void RenderWorld::Remove(InstanceHandle h) { impl_->Remove(impl_->instances, ObjectKind::Instance, h); }
 void RenderWorld::Remove(CameraHandle h) { impl_->Remove(impl_->cameras, ObjectKind::Camera, h); }
 void RenderWorld::Remove(LightHandle h) { impl_->Remove(impl_->lights, ObjectKind::Light, h); }
+void RenderWorld::Remove(RenderSettingsHandle h) {
+  impl_->Remove(impl_->render_settings, ObjectKind::RenderSettings, h);
+}
 
 const MeshDescriptor& RenderWorld::Get(MeshHandle h) const { return impl_->meshes.Get(h); }
 const MaterialDescriptor& RenderWorld::Get(MaterialHandle h) const { return impl_->materials.Get(h); }
 const InstanceDescriptor& RenderWorld::Get(InstanceHandle h) const { return impl_->instances.Get(h); }
 const CameraDescriptor& RenderWorld::Get(CameraHandle h) const { return impl_->cameras.Get(h); }
 const LightDescriptor& RenderWorld::Get(LightHandle h) const { return impl_->lights.Get(h); }
+const RenderSettingsDescriptor& RenderWorld::Get(
+    RenderSettingsHandle h) const {
+  return impl_->render_settings.Get(h);
+}
+
+std::uint64_t RenderWorld::resource_revision(MeshHandle h) const {
+  return impl_->meshes.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(MaterialHandle h) const {
+  return impl_->materials.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(InstanceHandle h) const {
+  return impl_->instances.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(CameraHandle h) const {
+  return impl_->cameras.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(LightHandle h) const {
+  return impl_->lights.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(RenderSettingsHandle h) const {
+  return impl_->render_settings.Revision(h);
+}
 
 ChangeSet RenderWorld::Commit() {
   if (impl_->pending.empty()) {
@@ -217,6 +304,8 @@ ChangeSet RenderWorld::Commit() {
       compact.push_back(change);
       continue;
     }
+    existing->aspects |= change.aspects;
+    existing->resource_revision = change.resource_revision;
     if (existing->change_kind == ChangeKind::Created &&
         change.change_kind == ChangeKind::Removed) {
       compact.erase(existing);

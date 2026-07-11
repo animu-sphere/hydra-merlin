@@ -27,6 +27,17 @@ enum class PixelFormat {
 enum class ImageOrigin { TopLeft, BottomLeft };
 enum class ColorSpace { Linear, Srgb, NotApplicable };
 
+[[nodiscard]] constexpr std::uint32_t BytesPerPixel(
+    PixelFormat format) noexcept {
+  switch (format) {
+    case PixelFormat::Rgba8Unorm:
+    case PixelFormat::Depth32Float:
+    case PixelFormat::R32Uint:
+      return 4;
+  }
+  return 0;
+}
+
 [[nodiscard]] constexpr std::string_view AovName(Aov aov) noexcept {
   switch (aov) {
     case Aov::Color: return "color";
@@ -53,6 +64,9 @@ struct RenderProduct {
   // Zero means tightly packed. Non-zero values require each row pitch to be
   // aligned to this byte count.
   std::uint32_t row_pitch_alignment{};
+
+  friend constexpr bool operator==(const RenderProduct&,
+                                   const RenderProduct&) = default;
 };
 
 [[nodiscard]] constexpr RenderProduct MakeRenderProduct(
@@ -69,6 +83,24 @@ struct RenderProduct {
     result.color_space = ColorSpace::NotApplicable;
   }
   return result;
+}
+
+[[nodiscard]] constexpr std::uint64_t TightRowPitchBytes(
+    const RenderProduct& product) noexcept {
+  return static_cast<std::uint64_t>(product.width) *
+         BytesPerPixel(product.format);
+}
+
+[[nodiscard]] constexpr bool IsCanonicalRenderProduct(
+    const RenderProduct& product) noexcept {
+  if (product.width == 0 || product.height == 0 ||
+      product.origin != ImageOrigin::TopLeft ||
+      product.row_pitch_alignment != 0) {
+    return false;
+  }
+  const auto expected =
+      MakeRenderProduct(product.width, product.height, product.aov);
+  return product == expected;
 }
 
 }  // namespace merlin

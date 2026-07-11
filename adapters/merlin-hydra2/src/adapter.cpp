@@ -38,6 +38,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -91,11 +92,11 @@ std::filesystem::path PluginDirectory() {
 #endif
 }
 
-std::optional<std::filesystem::path> FirstFrameMarkerPath() {
+std::optional<std::filesystem::path> RegressionLogPath() {
 #ifdef _WIN32
   char* value{};
   std::size_t size{};
-  if (_dupenv_s(&value, &size, "MERLIN_HYDRA2_FIRST_FRAME_MARKER") != 0 ||
+  if (_dupenv_s(&value, &size, "MERLIN_HYDRA2_REGRESSION_LOG") != 0 ||
       value == nullptr) {
     return std::nullopt;
   }
@@ -104,10 +105,47 @@ std::optional<std::filesystem::path> FirstFrameMarkerPath() {
   return result;
 #else
   if (const char* value =
-          std::getenv("MERLIN_HYDRA2_FIRST_FRAME_MARKER")) {
+          std::getenv("MERLIN_HYDRA2_REGRESSION_LOG")) {
     return std::filesystem::path(value);
   }
   return std::nullopt;
+#endif
+}
+
+std::string RegressionPhase() {
+#ifdef _WIN32
+  char* value{};
+  std::size_t size{};
+  if (_dupenv_s(&value, &size, "MERLIN_HYDRA2_REGRESSION_PHASE") != 0 ||
+      value == nullptr) {
+    return "unlabeled";
+  }
+  std::string result(value);
+  std::free(value);
+  return result;
+#else
+  if (const char* value =
+          std::getenv("MERLIN_HYDRA2_REGRESSION_PHASE")) {
+    return value;
+  }
+  return "unlabeled";
+#endif
+}
+
+bool ValidationRequested() {
+#ifdef _WIN32
+  char* value{};
+  std::size_t size{};
+  if (_dupenv_s(&value, &size, "MERLIN_HYDRA2_ENABLE_VALIDATION") != 0 ||
+      value == nullptr) {
+    return false;
+  }
+  const bool result = std::string_view(value) == "1";
+  std::free(value);
+  return result;
+#else
+  const char* value = std::getenv("MERLIN_HYDRA2_ENABLE_VALIDATION");
+  return value != nullptr && std::string_view(value) == "1";
 #endif
 }
 
@@ -155,10 +193,17 @@ class SceneBridge {
     material.label = "Hydra fallback material";
     material.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
     fallback_material_ = world_.CreateMaterial(std::move(material));
+    render_settings_descriptor_.label = "Hydra render pass";
+    render_settings_descriptor_.color_aov = false;
+    render_settings_descriptor_.depth_aov = false;
+    render_settings_ =
+        world_.CreateRenderSettings(render_settings_descriptor_);
   }
 
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
-                const merlin::Mat4& transform, bool visible) {
+                const merlin::Mat4& transform, bool visible,
+                merlin::ChangeAspect mesh_aspects,
+                merlin::ChangeAspect instance_aspects) {
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
     auto found = meshes_.find(key);
@@ -187,11 +232,16 @@ class SceneBridge {
 
     auto& state = found->second;
     state.mesh_descriptor = std::move(mesh);
-    world_.UpdateMesh(state.mesh, state.mesh_descriptor);
+    if (mesh_aspects != merlin::ChangeAspect::None) {
+      world_.UpdateMesh(state.mesh, state.mesh_descriptor, mesh_aspects);
+    }
     state.instance_descriptor.transform = transform;
     state.instance_descriptor.visible = visible;
     state.authored_visible = visible;
-    world_.UpdateInstance(state.instance, state.instance_descriptor);
+    if (instance_aspects != merlin::ChangeAspect::None) {
+      world_.UpdateInstance(state.instance, state.instance_descriptor,
+                            instance_aspects);
+    }
   }
 
   void RemoveMesh(const SdfPath& path) {
@@ -203,12 +253,6 @@ class SceneBridge {
     world_.Remove(found->second.instance);
     world_.Remove(found->second.mesh);
     meshes_.erase(found);
-  }
-
-  void SyncCamera(const SdfPath& path, const merlin::Mat4& view,
-                  const merlin::Mat4& projection) {
-    std::scoped_lock lock(mutex_);
-    SyncCameraLocked(path.GetString(), view, projection);
   }
 
   void RemoveCamera(const SdfPath& path) {
@@ -236,7 +280,8 @@ class SceneBridge {
       const bool visible = mesh.authored_visible && selected;
       if (mesh.instance_descriptor.visible != visible) {
         mesh.instance_descriptor.visible = visible;
-        world_.UpdateInstance(mesh.instance, mesh.instance_descriptor);
+        world_.UpdateInstance(mesh.instance, mesh.instance_descriptor,
+                              merlin::ChangeAspect::Visibility);
       }
     }
 
@@ -249,38 +294,107 @@ class SceneBridge {
     }
     extractor_.SetActiveCamera(active_camera);
 
-    const auto changes = world_.Commit();
-    if (!changes.empty()) {
-      extractor_.Apply(world_, changes);
-    }
-
     std::uint32_t width{};
     std::uint32_t height{};
+    bool color_aov{};
+    bool depth_aov{};
     for (const auto& binding : bindings) {
+      color_aov = color_aov || binding.aovName == HdAovTokens->color;
+      depth_aov = depth_aov || HdAovHasDepthSemantic(binding.aovName);
       HdRenderBuffer* buffer = binding.renderBuffer;
       if (buffer == nullptr && !binding.renderBufferId.IsEmpty()) {
         buffer = dynamic_cast<HdRenderBuffer*>(render_index->GetBprim(
             HdPrimTypeTokens->renderBuffer, binding.renderBufferId));
       }
-      if (buffer != nullptr && buffer->GetWidth() != 0 &&
+      if (width == 0 && buffer != nullptr && buffer->GetWidth() != 0 &&
           buffer->GetHeight() != 0) {
         width = buffer->GetWidth();
         height = buffer->GetHeight();
-        break;
       }
     }
     if (width == 0 || height == 0) {
       return;
     }
+    if (render_settings_descriptor_.width != width ||
+        render_settings_descriptor_.height != height ||
+        render_settings_descriptor_.color_aov != color_aov ||
+        render_settings_descriptor_.depth_aov != depth_aov) {
+      render_settings_descriptor_.width = width;
+      render_settings_descriptor_.height = height;
+      render_settings_descriptor_.color_aov = color_aov;
+      render_settings_descriptor_.depth_aov = depth_aov;
+      world_.UpdateRenderSettings(render_settings_,
+                                  render_settings_descriptor_);
+    }
+
+    const auto changes = world_.Commit();
+    if (!changes.empty()) {
+      extractor_.Apply(world_, changes);
+    }
+
+    std::uint32_t mesh_aspects{};
+    std::uint32_t material_aspects{};
+    std::uint32_t instance_aspects{};
+    std::uint32_t camera_aspects{};
+    std::uint32_t render_settings_aspects{};
+    std::uint64_t mesh_resource_revision{};
+    std::uint64_t material_resource_revision{};
+    std::uint64_t instance_resource_revision{};
+    std::uint64_t camera_resource_revision{};
+    std::uint64_t render_settings_resource_revision{};
+    for (const auto& change : changes.changes) {
+      const auto aspects = static_cast<std::uint32_t>(change.aspects);
+      switch (change.object_kind) {
+        case merlin::ObjectKind::Mesh:
+          mesh_aspects |= aspects;
+          mesh_resource_revision =
+              std::max(mesh_resource_revision, change.resource_revision);
+          break;
+        case merlin::ObjectKind::Material:
+          material_aspects |= aspects;
+          material_resource_revision =
+              std::max(material_resource_revision, change.resource_revision);
+          break;
+        case merlin::ObjectKind::Instance:
+          instance_aspects |= aspects;
+          instance_resource_revision =
+              std::max(instance_resource_revision, change.resource_revision);
+          break;
+        case merlin::ObjectKind::Camera:
+          camera_aspects |= aspects;
+          camera_resource_revision =
+              std::max(camera_resource_revision, change.resource_revision);
+          break;
+        case merlin::ObjectKind::Light:
+          break;
+        case merlin::ObjectKind::RenderSettings:
+          render_settings_aspects |= aspects;
+          render_settings_resource_revision = std::max(
+              render_settings_resource_revision, change.resource_revision);
+          break;
+      }
+    }
 
     if (!renderer_) {
-      renderer_ = std::make_unique<merlin::vulkan::Renderer>();
+      const bool validation_requested = ValidationRequested();
+      renderer_ = std::make_unique<merlin::vulkan::Renderer>(
+          merlin::vulkan::RendererOptions{validation_requested});
+      if (validation_requested &&
+          !renderer_->capabilities().validation_enabled) {
+        throw std::runtime_error(
+            "Hydra regression requested unavailable Vulkan validation");
+      }
     }
     const auto shader_dir = PluginDirectory() / "shaders";
     const merlin::vulkan::ShaderPaths shaders{
         shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
     const auto result =
         renderer_->Render(extractor_.scene(), width, height, shaders);
+    const auto renderer_statistics = renderer_->statistics();
+    if (ValidationRequested() &&
+        renderer_statistics.validation_messages != 0) {
+      throw std::runtime_error("Vulkan validation reported Hydra warnings");
+    }
 
     std::size_t buffers_written{};
     for (const auto& binding : bindings) {
@@ -296,30 +410,66 @@ class SceneBridge {
       buffer->SetConverged(false);
       bool written{};
       if (binding.aovName == HdAovTokens->color) {
-        written = buffer->WriteColor(result.color.pixels, result.color.width,
-                                     result.color.height);
+        written = buffer->WriteColor(result.color.pixels,
+                                     result.color.product.width,
+                                     result.color.product.height);
       } else if (HdAovHasDepthSemantic(binding.aovName)) {
-        written = buffer->WriteDepth(result.depth.pixels, result.depth.width,
-                                     result.depth.height);
+        written = buffer->WriteDepth(result.depth.pixels,
+                                     result.depth.product.width,
+                                     result.depth.product.height);
       }
       buffer->SetConverged(written);
       buffers_written += written ? 1U : 0U;
     }
 
     if (buffers_written != 0) {
-      if (const auto marker_path = FirstFrameMarkerPath()) {
-        const auto covered_pixels = static_cast<std::size_t>(std::count_if(
-            result.depth.pixels.begin(), result.depth.pixels.end(),
-            [](float depth) { return depth < 1.0F; }));
+      if (const auto marker_path = RegressionLogPath()) {
+        std::size_t covered_pixels{};
+        std::uint64_t covered_x_sum{};
+        std::uint64_t covered_y_sum{};
+        for (std::uint32_t y = 0; y < result.depth.product.height; ++y) {
+          for (std::uint32_t x = 0; x < result.depth.product.width; ++x) {
+            const auto index =
+                static_cast<std::size_t>(y) * result.depth.product.width + x;
+            if (result.depth.pixels[index] < 1.0F) {
+              ++covered_pixels;
+              covered_x_sum += x;
+              covered_y_sum += y;
+            }
+          }
+        }
         if (marker_path->has_parent_path()) {
           std::filesystem::create_directories(marker_path->parent_path());
         }
-        std::ofstream stream(*marker_path, std::ios::trunc);
-        stream << "scene_revision=" << result.scene_revision << '\n'
-               << "completion_value=" << result.completion_value << '\n'
-               << "draw_count=" << extractor_.scene().draws.size() << '\n'
-               << "buffers_written=" << buffers_written << '\n'
-               << "covered_pixels=" << covered_pixels << '\n';
+        std::ofstream stream(*marker_path, std::ios::app);
+        stream << "phase=" << RegressionPhase()
+               << " scene_revision=" << result.scene_revision
+               << " completion_value=" << result.completion_value
+               << " draw_count=" << extractor_.scene().draws.size()
+               << " buffers_written=" << buffers_written
+               << " width=" << result.depth.product.width
+               << " height=" << result.depth.product.height
+               << " covered_pixels=" << covered_pixels
+               << " covered_x_sum=" << covered_x_sum
+               << " covered_y_sum=" << covered_y_sum
+               << " validation_enabled="
+               << renderer_->capabilities().validation_enabled
+               << " validation_messages="
+               << renderer_statistics.validation_messages
+               << " mesh_aspects=" << mesh_aspects
+               << " material_aspects=" << material_aspects
+               << " instance_aspects=" << instance_aspects
+               << " camera_aspects=" << camera_aspects
+               << " render_settings_aspects=" << render_settings_aspects
+               << " mesh_resource_revision=" << mesh_resource_revision
+               << " material_resource_revision="
+               << material_resource_revision
+               << " instance_resource_revision="
+               << instance_resource_revision
+               << " camera_resource_revision=" << camera_resource_revision
+               << " render_settings_resource_revision="
+               << render_settings_resource_revision
+               << '\n';
       }
     }
   }
@@ -345,7 +495,8 @@ class SceneBridge {
       auto descriptor = old;
       descriptor.view = view;
       descriptor.projection = projection;
-      world_.UpdateCamera(handle, std::move(descriptor));
+      world_.UpdateCamera(handle, std::move(descriptor),
+                          merlin::ChangeAspect::Camera);
     }
     return handle;
   }
@@ -355,6 +506,8 @@ class SceneBridge {
   merlin::extraction::SceneExtractor extractor_;
   std::unique_ptr<merlin::vulkan::Renderer> renderer_;
   merlin::MaterialHandle fallback_material_;
+  merlin::RenderSettingsHandle render_settings_;
+  merlin::RenderSettingsDescriptor render_settings_descriptor_;
   std::unordered_map<std::string, MeshState> meshes_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
 };
@@ -370,6 +523,8 @@ class HdMerlinMesh final : public HdMesh {
 
   HdDirtyBits GetInitialDirtyBitsMask() const override {
     return HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology |
+           HdChangeTracker::DirtyPrimvar |
+           HdChangeTracker::DirtyMaterialId |
            HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyVisibility |
            HdChangeTracker::DirtyRenderTag;
   }
@@ -382,7 +537,10 @@ class HdMerlinMesh final : public HdMesh {
         (*dirty_bits & HdChangeTracker::DirtyPoints) != 0;
     const bool topology_dirty =
         (*dirty_bits & HdChangeTracker::DirtyTopology) != 0;
+    merlin::ChangeAspect mesh_aspects = merlin::ChangeAspect::None;
+    merlin::ChangeAspect instance_aspects = merlin::ChangeAspect::None;
     if (points_dirty) {
+      mesh_aspects |= merlin::ChangeAspect::Points;
       const VtValue points = GetPoints(delegate);
       descriptor_.positions.clear();
       if (points.IsHolding<VtVec3fArray>()) {
@@ -401,18 +559,31 @@ class HdMerlinMesh final : public HdMesh {
       }
     }
     if (topology_dirty) {
+      mesh_aspects |= merlin::ChangeAspect::Topology;
       topology_ = GetMeshTopology(delegate);
+    }
+    if ((*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0) {
+      mesh_aspects |= merlin::ChangeAspect::Primvars;
     }
     if (points_dirty || topology_dirty) {
       RebuildIndices();
     }
     if ((*dirty_bits & HdChangeTracker::DirtyTransform) != 0) {
+      instance_aspects |= merlin::ChangeAspect::Transform;
       transform_ = ToMerlinMatrix(delegate->GetTransform(GetId()));
     }
     if ((*dirty_bits & HdChangeTracker::DirtyVisibility) != 0) {
+      instance_aspects |= merlin::ChangeAspect::Visibility;
       visible_ = delegate->GetVisible(GetId());
     }
-    bridge_->SyncMesh(GetId(), descriptor_, transform_, visible_);
+    if ((*dirty_bits & HdChangeTracker::DirtyMaterialId) != 0) {
+      instance_aspects |= merlin::ChangeAspect::MaterialBinding;
+    }
+    if ((*dirty_bits & HdChangeTracker::DirtyRenderTag) != 0) {
+      instance_aspects |= merlin::ChangeAspect::Visibility;
+    }
+    bridge_->SyncMesh(GetId(), descriptor_, transform_, visible_,
+                      mesh_aspects, instance_aspects);
     *dirty_bits = HdChangeTracker::Clean;
   }
 
@@ -490,8 +661,6 @@ class HdMerlinCamera final : public HdCamera {
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits) override {
     HdCamera::Sync(delegate, render_param, dirty_bits);
-    bridge_->SyncCamera(GetId(), ToMerlinMatrix(GetTransform().GetInverse()),
-                        ToMerlinMatrix(ComputeProjectionMatrix()));
   }
 
  private:

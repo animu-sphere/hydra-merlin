@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -922,9 +923,11 @@ class Renderer::Impl {
   }
 
   ImageRgba8 ReadColor(std::uint32_t width, std::uint32_t height) {
-    ImageRgba8 result{width, height,
-                      std::vector<std::uint8_t>(
-                          static_cast<std::size_t>(width) * height * 4U)};
+    ImageRgba8 result;
+    result.product = MakeRenderProduct(width, height, Aov::Color);
+    result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
+    result.pixels.resize(static_cast<std::size_t>(result.row_pitch_bytes) *
+                         height);
     void* mapped{};
     Check(vkMapMemory(device_, target_.color_readback.memory, 0,
                       target_.color_readback.size, 0, &mapped),
@@ -935,9 +938,10 @@ class Renderer::Impl {
   }
 
   ImageDepth32 ReadDepth(std::uint32_t width, std::uint32_t height) {
-    ImageDepth32 result{width, height,
-                        std::vector<float>(static_cast<std::size_t>(width) *
-                                           height)};
+    ImageDepth32 result;
+    result.product = MakeRenderProduct(width, height, Aov::Depth);
+    result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
+    result.pixels.resize(static_cast<std::size_t>(width) * height);
     void* mapped{};
     Check(vkMapMemory(device_, target_.depth_readback.memory, 0,
                       target_.depth_readback.size, 0, &mapped),
@@ -976,7 +980,7 @@ class Renderer::Impl {
   std::size_t next_frame_{};
   std::uint64_t uploaded_revision_{std::numeric_limits<std::uint64_t>::max()};
   const extraction::ExtractedScene* uploaded_scene_{};
-  DeviceCapabilities capabilities_;
+  RendererCapabilities capabilities_;
   RendererStatistics statistics_;
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
@@ -992,7 +996,7 @@ Renderer::~Renderer() = default;
 Renderer::Renderer(Renderer&&) noexcept = default;
 Renderer& Renderer::operator=(Renderer&&) noexcept = default;
 
-const DeviceCapabilities& Renderer::capabilities() const noexcept {
+const RendererCapabilities& Renderer::capabilities() const noexcept {
   return impl_->capabilities_;
 }
 
@@ -1003,10 +1007,49 @@ RendererStatistics Renderer::statistics() const noexcept {
   return result;
 }
 
+void ValidateRenderResult(const RenderResult& result) {
+  const auto& color = result.color;
+  const auto& depth = result.depth;
+  if (!IsCanonicalRenderProduct(color.product) ||
+      color.product.aov != Aov::Color) {
+    throw std::invalid_argument("invalid color render product metadata");
+  }
+  if (!IsCanonicalRenderProduct(depth.product) ||
+      depth.product.aov != Aov::Depth) {
+    throw std::invalid_argument("invalid depth render product metadata");
+  }
+  if (color.product.width != depth.product.width ||
+      color.product.height != depth.product.height) {
+    throw std::invalid_argument("color and depth extents do not match");
+  }
+  if (color.row_pitch_bytes != TightRowPitchBytes(color.product) ||
+      depth.row_pitch_bytes != TightRowPitchBytes(depth.product)) {
+    throw std::invalid_argument("render product row pitch is not tight");
+  }
+  const auto color_bytes = static_cast<std::uint64_t>(color.row_pitch_bytes) *
+                           color.product.height;
+  const auto depth_values =
+      static_cast<std::uint64_t>(depth.product.width) * depth.product.height;
+  if (color_bytes != color.pixels.size() ||
+      depth_values != depth.pixels.size()) {
+    throw std::invalid_argument("render product payload size is invalid");
+  }
+  if (std::any_of(depth.pixels.begin(), depth.pixels.end(), [](float value) {
+        return !std::isfinite(value) || value < 0.0F || value > 1.0F;
+      })) {
+    throw std::invalid_argument("depth render product contains invalid values");
+  }
+  if (result.completion_value == 0) {
+    throw std::invalid_argument("render result has no completion value");
+  }
+}
+
 RenderResult Renderer::Render(const extraction::ExtractedScene& scene,
                               std::uint32_t width, std::uint32_t height,
                               const ShaderPaths& shaders) {
-  return impl_->Render(scene, width, height, shaders);
+  auto result = impl_->Render(scene, width, height, shaders);
+  ValidateRenderResult(result);
+  return result;
 }
 
 }  // namespace merlin::vulkan
