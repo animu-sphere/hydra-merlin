@@ -48,6 +48,19 @@ int main() {
   extractor.Apply(world, world.Commit());
   assert(extractor.scene().draws.empty());
 
+  merlin::CameraDescriptor first_camera;
+  first_camera.view.values[12] = 1.0F;
+  const auto first_camera_handle = world.CreateCamera(first_camera);
+  merlin::CameraDescriptor second_camera;
+  second_camera.view.values[12] = 2.0F;
+  const auto second_camera_handle = world.CreateCamera(second_camera);
+  extractor.Apply(world, world.Commit());
+  assert(extractor.scene().view.values[12] == 0.0F);
+  extractor.SetActiveCamera(second_camera_handle);
+  assert(extractor.scene().view.values[12] == 2.0F);
+  extractor.SetActiveCamera(first_camera_handle);
+  assert(extractor.scene().view.values[12] == 1.0F);
+
   bool old_revision_rejected = false;
   try {
     extractor.Apply(world, {1, {}});

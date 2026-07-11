@@ -27,7 +27,7 @@ The renderer keeps three frame contexts by default, uploads an extracted scene
 only when its revision changes, and returns tightly packed top-left color and
 depth products under one completion value.
 
-## Hydra 2 adapter skeleton
+## Hydra 2 adapter
 
 The OpenUSD adapter is opt-in so Hydra never becomes a transitive dependency of
 the normal Core/Vulkan build. Point `CMAKE_PREFIX_PATH` at an OpenUSD 26.05 SDK:
@@ -40,9 +40,16 @@ cmake --build build-hydra2 --config Release
 ctest --test-dir build-hydra2 -C Release --output-on-failure
 ```
 
-The current Hydra slice provides the renderer plugin, delegate/pass skeleton,
-color/depth AOV descriptors, `plugInfo.json`, and a GPU-independent discovery
-test. Mesh/camera sync and render-buffer handoff are the next adapter slice.
+The Hydra slice provides mesh topology/transform/visibility and camera sync,
+an adapter-owned USD path to Merlin handle map, color/depth CPU render buffers,
+and a Vulkan-backed render pass. The test suite separately verifies plugin
+discovery and delegate creation, RenderBuffer resize/map lifetime, and an
+install-tree `testusdview` first frame with rendered geometry.
+
+The current mesh path fan-triangulates polygonal faces and uses the fallback
+material. Hydra instancing, subdivision refinement, authored materials, and
+zero-copy Vulkan/Hgi interop remain future work; usdview presentation currently
+uses Hydra's CPU RenderBuffer-to-Hgi upload path.
 
 The Vulkan path requires a Vulkan 1.2-capable graphics queue and `glslc`
 from the Vulkan SDK at build time.

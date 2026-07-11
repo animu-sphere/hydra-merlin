@@ -74,8 +74,12 @@ class SceneExtractor::Impl {
                        return lhs.instance_handle < rhs.instance_handle;
                      });
 
-    if (!cameras.empty()) {
-      const auto& camera = cameras.begin()->second;
+    auto camera_it = cameras.end();
+    if (active_camera.valid()) {
+      camera_it = cameras.find(active_camera.value());
+    }
+    if (camera_it != cameras.end()) {
+      const auto& camera = camera_it->second;
       output.view = camera.view;
       output.projection = camera.projection;
     } else {
@@ -88,6 +92,7 @@ class SceneExtractor::Impl {
   RecordMap<MaterialDescriptor> materials;
   RecordMap<InstanceDescriptor> instances;
   RecordMap<CameraDescriptor> cameras;
+  CameraHandle active_camera;
   ExtractedScene output;
 };
 
@@ -152,6 +157,14 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
   }
 
   impl_->output.revision = changes.revision;
+  impl_->Rebuild();
+}
+
+void SceneExtractor::SetActiveCamera(CameraHandle camera) {
+  if (impl_->active_camera == camera) {
+    return;
+  }
+  impl_->active_camera = camera;
   impl_->Rebuild();
 }
 
