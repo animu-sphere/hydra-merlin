@@ -15,6 +15,16 @@ int main() {
   mesh.indices = {0, 1, 2};
   const auto mesh_handle = world.CreateMesh(mesh);
 
+  bool bad_topology_rejected = false;
+  try {
+    auto invalid_mesh = mesh;
+    invalid_mesh.indices = {0, 1, 9};
+    (void)world.CreateMesh(std::move(invalid_mesh));
+  } catch (const std::invalid_argument&) {
+    bad_topology_rejected = true;
+  }
+  assert(bad_topology_rejected);
+
   merlin::MaterialDescriptor material;
   material.label = "fallback";
   const auto material_handle = world.CreateMaterial(material);
@@ -54,5 +64,15 @@ int main() {
   assert(world.Commit().empty());
   assert(world.revision() == 3);
   assert(merlin::AovName(merlin::Aov::PrimId) == std::string_view("primId"));
+  const auto depth = merlin::MakeRenderProduct(64, 32, merlin::Aov::Depth);
+  assert(depth.format == merlin::PixelFormat::Depth32Float);
+  assert(depth.origin == merlin::ImageOrigin::TopLeft);
+  assert(depth.color_space == merlin::ColorSpace::NotApplicable);
+
+  merlin::MeshDescriptor transient_mesh = mesh;
+  const auto transient = world.CreateMesh(std::move(transient_mesh));
+  world.Remove(transient);
+  assert(world.Commit().empty());
+  assert(world.revision() == 3);
   return 0;
 }

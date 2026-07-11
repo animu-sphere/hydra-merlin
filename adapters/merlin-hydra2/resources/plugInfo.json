@@ -1,0 +1,22 @@
+{
+  "Plugins": [
+    {
+      "Info": {
+        "Types": {
+          "HdMerlinRendererPlugin": {
+            "bases": [
+              "HdRendererPlugin"
+            ],
+            "displayName": "Merlin",
+            "priority": 0
+          }
+        }
+      },
+      "LibraryPath": "../hdMerlin.dll",
+      "Name": "hdMerlin",
+      "ResourcePath": "resources",
+      "Root": "..",
+      "Type": "library"
+    }
+  ]
+}

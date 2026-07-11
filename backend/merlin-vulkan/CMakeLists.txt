@@ -12,7 +12,11 @@ target_include_directories(merlin-vulkan
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(merlin-vulkan PUBLIC Vulkan::Vulkan)
+target_link_libraries(merlin-vulkan
+  PUBLIC
+    Merlin::RenderExtraction
+    Vulkan::Vulkan
+)
 target_compile_features(merlin-vulkan PUBLIC cxx_std_20)
 
 set(MERLIN_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")

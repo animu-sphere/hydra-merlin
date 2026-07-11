@@ -1,5 +1,6 @@
 #include <merlin/core/render_world.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <optional>
 #include <stdexcept>
@@ -20,6 +21,21 @@ struct HandleFactory {
 namespace {
 
 constexpr std::uint64_t kIndexMask = 0xffffffffULL;
+
+void ValidateMesh(const MeshDescriptor& descriptor) {
+  if (descriptor.positions.empty() || descriptor.indices.empty()) {
+    throw std::invalid_argument("mesh requires positions and indices");
+  }
+  if ((descriptor.indices.size() % 3U) != 0U) {
+    throw std::invalid_argument("mesh index count must describe triangles");
+  }
+  if (std::any_of(descriptor.indices.begin(), descriptor.indices.end(),
+                  [&](std::uint32_t index) {
+                    return index >= descriptor.positions.size();
+                  })) {
+    throw std::invalid_argument("mesh index is outside the position array");
+  }
+}
 
 template <typename HandleType>
 HandleType MakeHandle(std::uint32_t index, std::uint32_t generation) {
@@ -138,9 +154,7 @@ RenderWorld::RenderWorld(RenderWorld&&) noexcept = default;
 RenderWorld& RenderWorld::operator=(RenderWorld&&) noexcept = default;
 
 MeshHandle RenderWorld::CreateMesh(MeshDescriptor descriptor) {
-  if (descriptor.positions.empty() || descriptor.indices.empty()) {
-    throw std::invalid_argument("mesh requires positions and indices");
-  }
+  ValidateMesh(descriptor);
   return impl_->Create(impl_->meshes, ObjectKind::Mesh, std::move(descriptor));
 }
 
@@ -162,7 +176,10 @@ LightHandle RenderWorld::CreateLight(LightDescriptor descriptor) {
   return impl_->Create(impl_->lights, ObjectKind::Light, std::move(descriptor));
 }
 
-void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d) { impl_->Update(impl_->meshes, ObjectKind::Mesh, h, std::move(d)); }
+void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d) {
+  ValidateMesh(d);
+  impl_->Update(impl_->meshes, ObjectKind::Mesh, h, std::move(d));
+}
 void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d) { impl_->Update(impl_->materials, ObjectKind::Material, h, std::move(d)); }
 void RenderWorld::UpdateInstance(InstanceHandle h, InstanceDescriptor d) {
   (void)impl_->meshes.Get(d.mesh);
@@ -188,10 +205,31 @@ ChangeSet RenderWorld::Commit() {
   if (impl_->pending.empty()) {
     return {impl_->revision, {}};
   }
-  ++impl_->revision;
-  ChangeSet result{impl_->revision, std::move(impl_->pending)};
+  std::vector<Change> compact;
+  compact.reserve(impl_->pending.size());
+  for (const auto& change : impl_->pending) {
+    const auto existing = std::find_if(
+        compact.begin(), compact.end(), [&](const Change& candidate) {
+          return candidate.object_kind == change.object_kind &&
+                 candidate.handle == change.handle;
+        });
+    if (existing == compact.end()) {
+      compact.push_back(change);
+      continue;
+    }
+    if (existing->change_kind == ChangeKind::Created &&
+        change.change_kind == ChangeKind::Removed) {
+      compact.erase(existing);
+    } else if (existing->change_kind != ChangeKind::Created) {
+      existing->change_kind = change.change_kind;
+    }
+  }
   impl_->pending.clear();
-  return result;
+  if (compact.empty()) {
+    return {impl_->revision, {}};
+  }
+  ++impl_->revision;
+  return {impl_->revision, std::move(compact)};
 }
 
 std::uint64_t RenderWorld::revision() const noexcept { return impl_->revision; }
