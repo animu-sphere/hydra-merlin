@@ -48,7 +48,9 @@ if(NOT EXISTS "${marker}")
     "usdview created the delegate but Merlin did not complete a first frame:\n${usdview_output}\n${usdview_error}")
 endif()
 file(READ "${marker}" marker_contents)
-if(NOT marker_contents MATCHES "draw_count=[1-9][0-9]*" OR
+string(REGEX MATCH "draw_count=([0-9]+)" draw_count_match
+       "${marker_contents}")
+if(NOT CMAKE_MATCH_1 STREQUAL "1" OR
    NOT marker_contents MATCHES "buffers_written=2" OR
    NOT marker_contents MATCHES "covered_pixels=[1-9][0-9]*")
   message(FATAL_ERROR

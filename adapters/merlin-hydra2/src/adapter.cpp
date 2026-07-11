@@ -39,6 +39,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -115,7 +116,37 @@ struct MeshState {
   merlin::InstanceHandle instance;
   merlin::MeshDescriptor mesh_descriptor;
   merlin::InstanceDescriptor instance_descriptor;
+  bool authored_visible{true};
 };
+
+bool IsInCollection(const SdfPath& path,
+                    const HdRprimCollection& collection) {
+  const auto& roots = collection.GetRootPaths();
+  const bool included = std::any_of(
+      roots.begin(), roots.end(), [&path](const SdfPath& root) {
+        return path.HasPrefix(root);
+      });
+  if (!included) {
+    return false;
+  }
+  const auto& excludes = collection.GetExcludePaths();
+  return std::none_of(excludes.begin(), excludes.end(),
+                      [&path](const SdfPath& exclude) {
+                        return path.HasPrefix(exclude);
+                      });
+}
+
+bool HasRequestedRenderTag(const SdfPath& path,
+                           const TfTokenVector& render_tags,
+                           HdRenderIndex* render_index) {
+  if (render_tags.empty()) {
+    return true;
+  }
+  const HdRprim* rprim = render_index->GetRprim(path);
+  return rprim != nullptr &&
+         std::find(render_tags.begin(), render_tags.end(),
+                   rprim->GetRenderTag()) != render_tags.end();
+}
 
 class SceneBridge {
  public:
@@ -148,6 +179,7 @@ class SceneBridge {
       state.instance_descriptor.material = fallback_material_;
       state.instance_descriptor.transform = transform;
       state.instance_descriptor.visible = visible;
+      state.authored_visible = visible;
       state.instance = world_.CreateInstance(state.instance_descriptor);
       meshes_.emplace(key, std::move(state));
       return;
@@ -158,6 +190,7 @@ class SceneBridge {
     world_.UpdateMesh(state.mesh, state.mesh_descriptor);
     state.instance_descriptor.transform = transform;
     state.instance_descriptor.visible = visible;
+    state.authored_visible = visible;
     world_.UpdateInstance(state.instance, state.instance_descriptor);
   }
 
@@ -190,8 +223,22 @@ class SceneBridge {
 
   void Render(const HdRenderPassState& state,
               const HdRenderPassAovBindingVector& bindings,
+              const HdRprimCollection& collection,
+              const TfTokenVector& render_tags,
               HdRenderIndex* render_index) {
     std::scoped_lock lock(mutex_);
+
+    for (auto& [path_string, mesh] : meshes_) {
+      const SdfPath path(path_string);
+      const bool selected =
+          IsInCollection(path, collection) &&
+          HasRequestedRenderTag(path, render_tags, render_index);
+      const bool visible = mesh.authored_visible && selected;
+      if (mesh.instance_descriptor.visible != visible) {
+        mesh.instance_descriptor.visible = visible;
+        world_.UpdateInstance(mesh.instance, mesh.instance_descriptor);
+      }
+    }
 
     merlin::CameraHandle active_camera;
     if (const HdCamera* camera = state.GetCamera()) {
@@ -323,14 +370,19 @@ class HdMerlinMesh final : public HdMesh {
 
   HdDirtyBits GetInitialDirtyBitsMask() const override {
     return HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology |
-           HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyVisibility;
+           HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyVisibility |
+           HdChangeTracker::DirtyRenderTag;
   }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
     (void)render_param;
     (void)repr_token;
-    if ((*dirty_bits & HdChangeTracker::DirtyPoints) != 0) {
+    const bool points_dirty =
+        (*dirty_bits & HdChangeTracker::DirtyPoints) != 0;
+    const bool topology_dirty =
+        (*dirty_bits & HdChangeTracker::DirtyTopology) != 0;
+    if (points_dirty) {
       const VtValue points = GetPoints(delegate);
       descriptor_.positions.clear();
       if (points.IsHolding<VtVec3fArray>()) {
@@ -348,44 +400,11 @@ class HdMerlinMesh final : public HdMesh {
                 GetId().GetText());
       }
     }
-    if ((*dirty_bits & HdChangeTracker::DirtyTopology) != 0) {
-      const HdMeshTopology topology = GetMeshTopology(delegate);
-      const auto& counts = topology.GetFaceVertexCounts();
-      const auto& authored_indices = topology.GetFaceVertexIndices();
-      descriptor_.indices.clear();
-      std::size_t offset{};
-      bool valid = true;
-      for (const int count : counts) {
-        if (count < 0 || offset + static_cast<std::size_t>(count) >
-                             authored_indices.size()) {
-          valid = false;
-          break;
-        }
-        for (int corner = 1; corner + 1 < count; ++corner) {
-          const int triangle[3] = {authored_indices[offset],
-                                   authored_indices[offset + corner],
-                                   authored_indices[offset + corner + 1]};
-          for (const int index : triangle) {
-            if (index < 0 || static_cast<std::size_t>(index) >=
-                                 descriptor_.positions.size()) {
-              valid = false;
-              break;
-            }
-            descriptor_.indices.push_back(static_cast<std::uint32_t>(index));
-          }
-          if (!valid) {
-            break;
-          }
-        }
-        if (!valid) {
-          break;
-        }
-        offset += static_cast<std::size_t>(count);
-      }
-      if (!valid || offset != authored_indices.size()) {
-        descriptor_.indices.clear();
-        TF_WARN("Merlin mesh %s has invalid topology", GetId().GetText());
-      }
+    if (topology_dirty) {
+      topology_ = GetMeshTopology(delegate);
+    }
+    if (points_dirty || topology_dirty) {
+      RebuildIndices();
     }
     if ((*dirty_bits & HdChangeTracker::DirtyTransform) != 0) {
       transform_ = ToMerlinMatrix(delegate->GetTransform(GetId()));
@@ -408,8 +427,55 @@ class HdMerlinMesh final : public HdMesh {
   }
 
  private:
+  void RebuildIndices() {
+    const auto& counts = topology_.GetFaceVertexCounts();
+    const auto& authored_indices = topology_.GetFaceVertexIndices();
+    const auto& authored_holes = topology_.GetHoleIndices();
+    const std::unordered_set<int> holes(authored_holes.begin(),
+                                        authored_holes.end());
+    descriptor_.indices.clear();
+    std::size_t offset{};
+    int face_index{};
+    bool valid = true;
+    for (const int count : counts) {
+      if (count < 0 || static_cast<std::size_t>(count) >
+                           authored_indices.size() - offset) {
+        valid = false;
+        break;
+      }
+      if (!holes.contains(face_index)) {
+        for (int corner = 1; corner + 1 < count; ++corner) {
+          const int triangle[3] = {authored_indices[offset],
+                                   authored_indices[offset + corner],
+                                   authored_indices[offset + corner + 1]};
+          for (const int index : triangle) {
+            if (index < 0 || static_cast<std::size_t>(index) >=
+                                 descriptor_.positions.size()) {
+              valid = false;
+              break;
+            }
+            descriptor_.indices.push_back(static_cast<std::uint32_t>(index));
+          }
+          if (!valid) {
+            break;
+          }
+        }
+      }
+      if (!valid) {
+        break;
+      }
+      offset += static_cast<std::size_t>(count);
+      ++face_index;
+    }
+    if (!valid || offset != authored_indices.size()) {
+      descriptor_.indices.clear();
+      TF_WARN("Merlin mesh %s has invalid topology", GetId().GetText());
+    }
+  }
+
   std::shared_ptr<SceneBridge> bridge_;
   merlin::MeshDescriptor descriptor_;
+  HdMeshTopology topology_;
   merlin::Mat4 transform_;
   bool visible_{true};
 };
@@ -442,9 +508,8 @@ class HdMerlinRenderPass final : public HdRenderPass {
  private:
   void _Execute(const HdRenderPassStateSharedPtr& render_pass_state,
                 const TfTokenVector& render_tags) override {
-    (void)render_tags;
     bridge_->Render(*render_pass_state, render_pass_state->GetAovBindings(),
-                    GetRenderIndex());
+                    GetRprimCollection(), render_tags, GetRenderIndex());
   }
 
   std::shared_ptr<SceneBridge> bridge_;
