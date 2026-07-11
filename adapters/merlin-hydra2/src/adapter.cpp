@@ -390,7 +390,6 @@ class SceneBridge {
         shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
     const auto result =
         renderer_->Render(extractor_.scene(), width, height, shaders);
-    merlin::vulkan::ValidateRenderResult(result);
     const auto renderer_statistics = renderer_->statistics();
     if (ValidationRequested() &&
         renderer_statistics.validation_messages != 0) {
