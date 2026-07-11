@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include <merlin/core/render_product.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 
 namespace merlin::vulkan {
@@ -15,7 +16,7 @@ struct RendererOptions {
   std::uint32_t frames_in_flight{3};
 };
 
-struct DeviceCapabilities {
+struct RendererCapabilities {
   std::string device_name;
   std::uint32_t api_version{};
   std::uint32_t max_image_dimension_2d{};
@@ -39,14 +40,14 @@ struct ShaderPaths {
 };
 
 struct ImageRgba8 {
-  std::uint32_t width{};
-  std::uint32_t height{};
+  RenderProduct product;
+  std::uint32_t row_pitch_bytes{};
   std::vector<std::uint8_t> pixels;
 };
 
 struct ImageDepth32 {
-  std::uint32_t width{};
-  std::uint32_t height{};
+  RenderProduct product;
+  std::uint32_t row_pitch_bytes{};
   std::vector<float> pixels;
 };
 
@@ -56,6 +57,10 @@ struct RenderResult {
   std::uint64_t scene_revision{};
   std::uint64_t completion_value{};
 };
+
+// Throws std::invalid_argument when a backend result violates Merlin's Tier 0
+// CPU readback contract.
+void ValidateRenderResult(const RenderResult& result);
 
 class Renderer {
  public:
@@ -67,7 +72,7 @@ class Renderer {
   Renderer(const Renderer&) = delete;
   Renderer& operator=(const Renderer&) = delete;
 
-  [[nodiscard]] const DeviceCapabilities& capabilities() const noexcept;
+  [[nodiscard]] const RendererCapabilities& capabilities() const noexcept;
   [[nodiscard]] RendererStatistics statistics() const noexcept;
   [[nodiscard]] RenderResult Render(const extraction::ExtractedScene& scene,
                                     std::uint32_t width,
