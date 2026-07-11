@@ -1,18 +1,15 @@
 #version 450
 
-layout(location = 0) out vec3 color;
+layout(location = 0) in vec3 position;
 
-const vec2 positions[3] = vec2[](
-    vec2( 0.0, -0.72),
-    vec2( 0.72,  0.62),
-    vec2(-0.72,  0.62));
+layout(push_constant) uniform DrawConstants {
+  mat4 model_view_projection;
+  vec4 base_color;
+} draw_constants;
 
-const vec3 colors[3] = vec3[](
-    vec3(0.18, 0.78, 1.0),
-    vec3(0.72, 0.30, 1.0),
-    vec3(0.10, 1.0, 0.58));
+layout(location = 0) out vec4 color;
 
 void main() {
-  gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-  color = colors[gl_VertexIndex];
+  gl_Position = draw_constants.model_view_projection * vec4(position, 1.0);
+  color = draw_constants.base_color;
 }

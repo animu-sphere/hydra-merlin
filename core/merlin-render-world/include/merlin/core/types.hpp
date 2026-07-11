@@ -42,6 +42,12 @@ class Handle {
  public:
   constexpr Handle() = default;
 
+  // ChangeSet consumers receive serialized handle values. Rehydrating a handle
+  // does not make it valid; RenderWorld still performs generation validation.
+  [[nodiscard]] static constexpr Handle FromValue(std::uint64_t value) noexcept {
+    return Handle(value);
+  }
+
   [[nodiscard]] constexpr bool valid() const noexcept { return value_ != 0; }
   [[nodiscard]] constexpr std::uint64_t value() const noexcept { return value_; }
 

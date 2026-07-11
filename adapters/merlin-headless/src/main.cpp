@@ -1,4 +1,5 @@
 #include <merlin/core/render_world.hpp>
+#include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
 
 #include <vulkan/vulkan_core.h>
@@ -17,6 +18,7 @@ struct Arguments {
   std::filesystem::path output{"merlin.ppm"};
   std::uint32_t width{512};
   std::uint32_t height{512};
+  std::uint32_t frames{3};
   bool validation{};
   bool probe_only{};
 };
@@ -46,13 +48,15 @@ Arguments ParseArguments(int argc, char** argv) {
       result.width = ParseUnsigned(require_value(argument), argument);
     } else if (argument == "--height") {
       result.height = ParseUnsigned(require_value(argument), argument);
+    } else if (argument == "--frames") {
+      result.frames = ParseUnsigned(require_value(argument), argument);
     } else if (argument == "--validate") {
       result.validation = true;
     } else if (argument == "--probe") {
       result.probe_only = true;
     } else if (argument == "--help") {
       std::cout << "Usage: merlin-headless [--output FILE] [--width N] [--height N] "
-                   "[--validate] [--probe]\n";
+                   "[--frames N] [--validate] [--probe]\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(argument));
@@ -79,7 +83,8 @@ void WritePpm(const std::filesystem::path& path,
   }
 }
 
-void ValidateSmokeImage(const merlin::vulkan::ImageRgba8& image) {
+void ValidateSmokeResult(const merlin::vulkan::RenderResult& result) {
+  const auto& image = result.color;
   const auto expected_size = static_cast<std::size_t>(image.width) * image.height * 4U;
   if (image.pixels.size() != expected_size) {
     throw std::runtime_error("Vulkan readback returned an invalid byte count");
@@ -90,6 +95,12 @@ void ValidateSmokeImage(const merlin::vulkan::ImageRgba8& image) {
       image.pixels[1] == image.pixels[center + 1U] &&
       image.pixels[2] == image.pixels[center + 2U]) {
     throw std::runtime_error("offscreen smoke image does not contain the triangle");
+  }
+  const auto depth_center = result.depth.pixels[
+      static_cast<std::size_t>(image.height / 2U) * image.width + image.width / 2U];
+  const auto depth_corner = result.depth.pixels.front();
+  if (!(depth_center < depth_corner)) {
+    throw std::runtime_error("depth AOV does not contain triangle depth");
   }
 }
 
@@ -102,7 +113,8 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
   const auto mesh_handle = world.CreateMesh(std::move(mesh));
 
   merlin::MaterialDescriptor material;
-  material.label = "vertex-color-fallback";
+  material.label = "fallback";
+  material.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
   const auto material_handle = world.CreateMaterial(std::move(material));
 
   merlin::InstanceDescriptor instance;
@@ -120,6 +132,8 @@ int main(int argc, char** argv) {
     const auto arguments = ParseArguments(argc, argv);
     merlin::RenderWorld world;
     const auto changes = BuildSmokeWorld(world);
+    merlin::extraction::SceneExtractor extractor;
+    extractor.Apply(world, changes);
 
     merlin::vulkan::Renderer renderer({arguments.validation});
     const auto& capabilities = renderer.capabilities();
@@ -138,11 +152,24 @@ int main(int argc, char** argv) {
       const merlin::vulkan::ShaderPaths shaders{
           executable_dir / "shaders" / "triangle.vert.spv",
           executable_dir / "shaders" / "triangle.frag.spv"};
-      const auto image = renderer.RenderTriangle(arguments.width, arguments.height, shaders);
-      ValidateSmokeImage(image);
-      WritePpm(arguments.output, image);
-      std::cout << "Wrote " << arguments.output.string() << " (" << image.width << 'x'
-                << image.height << ")\n";
+      merlin::vulkan::RenderResult result;
+      for (std::uint32_t frame = 0; frame < arguments.frames; ++frame) {
+        result = renderer.Render(extractor.scene(), arguments.width,
+                                 arguments.height, shaders);
+      }
+      ValidateSmokeResult(result);
+      WritePpm(arguments.output, result.color);
+      const auto statistics = renderer.statistics();
+      if (statistics.scene_uploads != 1) {
+        throw std::runtime_error("unchanged scene was uploaded more than once");
+      }
+      if (arguments.validation && statistics.validation_messages != 0) {
+        throw std::runtime_error("Vulkan validation reported warnings or errors");
+      }
+      std::cout << "Wrote " << arguments.output.string() << " ("
+                << result.color.width << 'x' << result.color.height << ", "
+                << statistics.frames_submitted << " frames, completion "
+                << result.completion_value << ")\n";
     }
     return 0;
   } catch (const std::exception& error) {
