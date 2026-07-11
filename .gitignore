@@ -1,0 +1,8 @@
+/build*/
+/out/
+/.vs/
+/CMakeUserPresets.json
+/docs/
+*.user
+*.suo
+*.ppm
