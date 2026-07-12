@@ -68,6 +68,10 @@ struct FrameCounters {
   std::uint64_t scene_cache_misses{};
   std::uint64_t pipeline_cache_hits{};
   std::uint64_t pipeline_cache_misses{};
+
+  // Member-wise equality keeps steady-state drift detection in lockstep with
+  // this field list; adding a counter cannot silently escape the comparison.
+  bool operator==(const FrameCounters&) const = default;
 };
 
 struct ShaderPaths {

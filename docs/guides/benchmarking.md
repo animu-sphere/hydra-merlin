@@ -29,7 +29,11 @@ Each baseline has integer nanosecond CPU scopes for `scene_update`,
 `extraction`, `upload`, `command_recording`, `readback`, and `total_frame`.
 `readback` includes GPU submission/completion wait and copying both AOVs into
 CPU-owned arrays. `total_frame` covers all work in the named baseline after the
-renderer and Vulkan device have been initialized.
+renderer and Vulkan device have been initialized. The named scopes are not
+exhaustive: render-target allocation, pipeline creation, and frame-pacing waits
+fall inside `total_frame` but outside `upload`/`command_recording`/`readback`,
+so the sub-scopes are not expected to sum to `total_frame` (most visibly in
+`first-frame`).
 
 The structural counters are `draw_count`, `triangle_count`, `upload_bytes`,
 `readback_bytes`, total/buffer/image allocation counts, pipeline creation count,

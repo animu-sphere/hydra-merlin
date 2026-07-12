@@ -130,6 +130,9 @@ CpuTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
 }
 
 std::uint64_t Median(std::vector<std::uint64_t> values) {
+  if (values.empty()) {
+    return 0;
+  }
   const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2U);
   std::nth_element(values.begin(), middle, values.end());
   if ((values.size() & 1U) != 0U) {
@@ -154,22 +157,6 @@ CpuTimings MedianTimings(const std::vector<CpuTimings>& values) {
           collect(&CpuTimings::command_recording_ns),
           collect(&CpuTimings::readback_ns),
           collect(&CpuTimings::total_frame_ns)};
-}
-
-bool SameCounters(const merlin::vulkan::FrameCounters& lhs,
-                  const merlin::vulkan::FrameCounters& rhs) {
-  return lhs.draw_count == rhs.draw_count &&
-         lhs.triangle_count == rhs.triangle_count &&
-         lhs.upload_bytes == rhs.upload_bytes &&
-         lhs.readback_bytes == rhs.readback_bytes &&
-         lhs.allocation_count == rhs.allocation_count &&
-         lhs.buffer_allocation_count == rhs.buffer_allocation_count &&
-         lhs.image_allocation_count == rhs.image_allocation_count &&
-         lhs.pipeline_creation_count == rhs.pipeline_creation_count &&
-         lhs.scene_cache_hits == rhs.scene_cache_hits &&
-         lhs.scene_cache_misses == rhs.scene_cache_misses &&
-         lhs.pipeline_cache_hits == rhs.pipeline_cache_hits &&
-         lhs.pipeline_cache_misses == rhs.pipeline_cache_misses;
 }
 
 std::string VersionString(std::uint32_t version) {
@@ -307,7 +294,7 @@ int main(int argc, char** argv) {
       steady_timings.push_back(timing);
       if (frame == 0) {
         steady_counters = result.counters;
-      } else if (!SameCounters(steady_counters, result.counters)) {
+      } else if (result.counters != steady_counters) {
         throw std::runtime_error("steady-state structural counters changed");
       }
     }
