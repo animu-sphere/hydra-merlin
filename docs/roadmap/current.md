@@ -26,7 +26,9 @@ Vulkan 1.4 as their minimum contract.
 ### Reproducible build and distribution baseline
 
 - Add Windows and Linux Core-only build/test CI. Debug and Release Core-only
-  source/install-consumer jobs are present.
+  source/install-consumer jobs are present, with per-ref concurrency cancelling
+  superseded runs. Assertion-based tests keep `assert()` live in Release via a
+  scoped `NDEBUG` strip in `tests/CMakeLists.txt`.
 - Split Core, Vulkan/headless, and Hydra jobs by required capability and make
   every skip reason explicit. Hosted Core and manually dispatched
   Vulkan/headless and Hydra jobs are now separate; runner enrollment remains.

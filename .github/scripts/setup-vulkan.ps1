@@ -8,7 +8,19 @@ $sdkRoot = Join-Path $workspace ".ci/vulkan-sdk/$version"
 $sdkBin = Join-Path $sdkRoot "Bin"
 $glslc = Join-Path $sdkBin "glslc.exe"
 
-if (-not (Test-Path -LiteralPath $glslc)) {
+# Tools the capability jobs rely on. A restored cache is only trusted when all
+# of them are present, so a partially populated prefix triggers a reinstall.
+$requiredTools = @("glslc.exe", "vulkaninfo.exe")
+function Get-MissingVulkanTool {
+  foreach ($tool in $requiredTools) {
+    if (-not (Test-Path -LiteralPath (Join-Path $sdkBin $tool))) {
+      return $tool
+    }
+  }
+  return $null
+}
+
+if (Get-MissingVulkanTool) {
   $downloads = Join-Path $workspace ".ci/downloads"
   $installer = Join-Path $downloads "vulkan-sdk-$version.exe"
   New-Item -ItemType Directory -Force $downloads | Out-Null
@@ -27,8 +39,9 @@ if (-not (Test-Path -LiteralPath $glslc)) {
   }
 }
 
-if (-not (Test-Path -LiteralPath $glslc)) {
-  throw "LunarG Vulkan SDK installation is missing $glslc"
+$missingTool = Get-MissingVulkanTool
+if ($missingTool) {
+  throw "LunarG Vulkan SDK installation is missing $(Join-Path $sdkBin $missingTool)"
 }
 
 $env:VULKAN_SDK = $sdkRoot

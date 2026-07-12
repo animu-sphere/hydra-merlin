@@ -1,9 +1,6 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 
-#ifdef NDEBUG
-#undef NDEBUG
-#endif
 #include <cassert>
 #include <stdexcept>
 
