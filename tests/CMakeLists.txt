@@ -41,6 +41,7 @@ if(TARGET merlin-headless)
             --height 64
             --frames 64
             --validate
+            --metadata "${CMAKE_CURRENT_BINARY_DIR}/merlin-vulkan-capabilities.json"
             --output "${CMAKE_CURRENT_BINARY_DIR}/merlin-validation.ppm"
   )
   set_tests_properties(merlin-vulkan-validation PROPERTIES

@@ -66,10 +66,20 @@ Hydra are optional dependency layers:
 | Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
 
 Windows with Visual Studio 2022 is the currently validated development path.
-The Core-only targets are intended to support Windows and Linux; CI coverage
-for both platforms is tracked as Milestone 0 work. GPU and Hydra tests report
-missing validation/device capabilities as skips where the test contract allows
-it. OpenUSD build configuration and C++ runtime ABI must match the consumer.
+Core-only Debug and Release builds run on hosted Windows and Linux CI. GPU and
+Hydra tests remain capability jobs: missing validation/device capabilities are
+reported as skips where the test contract allows it, and OpenUSD build
+configuration and C++ runtime ABI must match the consumer.
+
+The manually dispatched `Vulkan and Hydra capability CI` workflow has separate
+headless and Hydra jobs. Both require only a self-hosted Windows x64 runner with
+the `vulkan-1.4` GPU/driver label. They download and checksum-verify LunarG
+Vulkan SDK 1.4.350.0 into a cached workspace prefix. Hydra also obtains the
+Animusphere OpenUSD 26.05/cy2026 runtime from its digest-pinned public GHCR
+package using pinned `ost` 0.13.0. No operator-managed SDK installation is
+required. The jobs run the 64-frame validation loop and install-tree usdview
+stable-update regression, retaining dependency/runtime provenance, images,
+regression logs, and CTest logs as evidence artifacts.
 
 ## Install and consume
 

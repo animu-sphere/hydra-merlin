@@ -252,6 +252,9 @@ class Renderer::Impl {
                                MERLIN_VULKAN_MIN_VERSION_STRING +
                                " loader is required");
     }
+    capabilities_.loader_api_version = loader_api_version;
+    capabilities_.header_version = VK_HEADER_VERSION_COMPLETE;
+    capabilities_.sdk_version = MERLIN_VULKAN_SDK_VERSION;
 
     VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pNext = use_debug_utils ? &debug_info : nullptr;
@@ -312,11 +315,21 @@ class Renderer::Impl {
                                " physical device with a graphics queue is available");
     }
 
-    VkPhysicalDeviceProperties properties{};
-    vkGetPhysicalDeviceProperties(physical_device_, &properties);
-    capabilities_.device_name = properties.deviceName;
-    capabilities_.api_version = properties.apiVersion;
-    capabilities_.max_image_dimension_2d = properties.limits.maxImageDimension2D;
+    VkPhysicalDeviceDriverProperties driver_properties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+    VkPhysicalDeviceProperties2 properties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    properties.pNext = &driver_properties;
+    vkGetPhysicalDeviceProperties2(physical_device_, &properties);
+    capabilities_.device_name = properties.properties.deviceName;
+    capabilities_.driver_name = driver_properties.driverName;
+    capabilities_.driver_info = driver_properties.driverInfo;
+    capabilities_.api_version = properties.properties.apiVersion;
+    capabilities_.driver_version = properties.properties.driverVersion;
+    capabilities_.vendor_id = properties.properties.vendorID;
+    capabilities_.device_id = properties.properties.deviceID;
+    capabilities_.max_image_dimension_2d =
+        properties.properties.limits.maxImageDimension2D;
     capabilities_.validation_enabled = use_validation;
     capabilities_.graphics_queue = true;
     capabilities_.compute_queue =

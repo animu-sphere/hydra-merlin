@@ -1,5 +1,12 @@
 find_package(Vulkan ${MERLIN_VULKAN_MIN_VERSION} REQUIRED COMPONENTS glslc)
 
+set(_merlin_vulkan_sdk_version "unknown")
+if(DEFINED ENV{VULKAN_SDK})
+  set(_merlin_vulkan_sdk_path "$ENV{VULKAN_SDK}")
+  cmake_path(GET _merlin_vulkan_sdk_path FILENAME
+             _merlin_vulkan_sdk_version)
+endif()
+
 add_library(merlin-vulkan STATIC
   src/renderer.cpp
 )
@@ -26,6 +33,7 @@ target_compile_definitions(merlin-vulkan PRIVATE
   MERLIN_VULKAN_MIN_VERSION_MAJOR=${MERLIN_VULKAN_MIN_VERSION_MAJOR}
   MERLIN_VULKAN_MIN_VERSION_MINOR=${MERLIN_VULKAN_MIN_VERSION_MINOR}
   MERLIN_VULKAN_MIN_VERSION_STRING="${MERLIN_VULKAN_MIN_VERSION}"
+  MERLIN_VULKAN_SDK_VERSION="${_merlin_vulkan_sdk_version}"
 )
 
 set(MERLIN_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")

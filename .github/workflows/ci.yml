@@ -1,0 +1,36 @@
+name: Core CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core / ${{ matrix.os }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        build_type: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Configure Core-only (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMERLIN_ENABLE_VULKAN=OFF
+
+      - name: Configure Core-only (Linux)
+        if: runner.os == 'Linux'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_ENABLE_VULKAN=OFF
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
+
+      - name: Test source and install-tree consumers
+        run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure
