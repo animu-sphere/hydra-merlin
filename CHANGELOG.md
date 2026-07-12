@@ -24,10 +24,15 @@ after its public API and release process are established.
 - Regression gates covering authored material binding, indexed face-varying
   primvars, concave polygons, native instancing, one million triangles, 10,000
   small meshes, and 256 repeated primvar edits.
+- A root `VERSION` source of truth and `prepare-release` command that finalizes
+  Unreleased changelog notes, dates the release, and updates comparison links.
 
 ### Changed
 
 - Bumped the project and installed package metadata version to 0.3.0.
+- Reduced mandatory release bookkeeping to `VERSION` and `CHANGELOG.md`;
+  detailed records and product documentation now change only when their
+  content changes.
 
 ## [0.2.0] - 2026-07-13
 

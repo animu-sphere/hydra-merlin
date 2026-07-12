@@ -4,6 +4,7 @@ if(NOT DEFINED MERLIN_CMAKE_COMMAND OR
    NOT DEFINED MERLIN_TEST_BINARY_DIR OR
    NOT DEFINED MERLIN_INSTALL_LIBDIR OR
    NOT DEFINED MERLIN_INSTALL_DATADIR OR
+   NOT DEFINED MERLIN_EXPECTED_VERSION OR
    NOT DEFINED MERLIN_GENERATOR OR
    NOT DEFINED MERLIN_MULTI_CONFIG)
   message(FATAL_ERROR "Missing Merlin install-consumer test arguments")
@@ -31,6 +32,18 @@ set(_metadata_file
 if(NOT EXISTS "${_metadata_file}")
   message(FATAL_ERROR
     "installed release metadata is missing: ${_metadata_file}")
+endif()
+
+set(_version_file
+    "${_stage_dir}/${MERLIN_INSTALL_DATADIR}/merlin/VERSION")
+if(NOT EXISTS "${_version_file}")
+  message(FATAL_ERROR "installed VERSION is missing: ${_version_file}")
+endif()
+file(READ "${_version_file}" _installed_version)
+string(STRIP "${_installed_version}" _installed_version)
+if(NOT "${_installed_version}" STREQUAL "${MERLIN_EXPECTED_VERSION}")
+  message(FATAL_ERROR
+    "installed VERSION ${_installed_version} != ${MERLIN_EXPECTED_VERSION}")
 endif()
 
 set(_generator_args -G "${MERLIN_GENERATOR}")

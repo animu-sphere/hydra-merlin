@@ -3,7 +3,7 @@
 Only incomplete work for the next release milestone and active carry-over is
 listed here. Completed pre-release detail is retained in the
 [delivery history](../reports/delivery-history.md); shipped versions will be
-recorded in [release records](../releases/).
+recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone: v0.3.0 — practical Hydra mesh input
 

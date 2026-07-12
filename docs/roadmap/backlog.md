@@ -1,7 +1,8 @@
 # Backlog
 
 Ordered but unscheduled work. The next release and active carry-over work are in
-[current.md](current.md); completed scope will move to [releases/](../releases/).
+[current.md](current.md); shipped scope moves to the
+[changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 

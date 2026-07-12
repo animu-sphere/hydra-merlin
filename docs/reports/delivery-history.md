@@ -3,7 +3,8 @@
 This is the granular delivery log for work completed toward hdMerlin v0.1.0. It
 is **historical evidence**, not a description of current behavior (see
 [design](../design/)) or planned work (see [roadmap](../roadmap/)). Once a
-version ships, its stable summary belongs in [release records](../releases/).
+version ships, its stable summary belongs in the
+[changelog](../../CHANGELOG.md).
 
 Legend: ✅ done
 
