@@ -20,7 +20,7 @@ endif()
 
 file(READ "${MERLIN_BENCHMARK_OUTPUT}" json)
 string(JSON schema GET "${json}" schema)
-if(NOT schema STREQUAL "merlin-benchmark/v1")
+if(NOT schema STREQUAL "merlin-benchmark/v2")
   message(FATAL_ERROR "unexpected benchmark schema: ${schema}")
 endif()
 
@@ -36,26 +36,29 @@ if(NOT width EQUAL 32 OR NOT height EQUAL 32)
   message(FATAL_ERROR "benchmark resolution does not match requested extent")
 endif()
 
+# The v2 fixture is two meshes, two materials, and three instances where the
+# two triangle instances share one mesh. Expected structural counters per
+# baseline are deterministic; timing values are not asserted.
+set(expected_names
+    first-frame steady-state edit-transform edit-visibility edit-material
+    edit-points remove-mesh)
+list(LENGTH expected_names expected_count)
 string(JSON baseline_count LENGTH "${json}" baselines)
-if(NOT baseline_count EQUAL 3)
-  message(FATAL_ERROR "expected three baselines, got ${baseline_count}")
+if(NOT baseline_count EQUAL expected_count)
+  message(FATAL_ERROR
+    "expected ${expected_count} baselines, got ${baseline_count}")
 endif()
 
-set(expected_names first-frame steady-state scene-edit)
-foreach(index RANGE 0 2)
+math(EXPR last_index "${expected_count} - 1")
+foreach(index RANGE 0 ${last_index})
   list(GET expected_names ${index} expected_name)
   string(JSON actual_name GET "${json}" baselines ${index} name)
   if(NOT actual_name STREQUAL expected_name)
     message(FATAL_ERROR
       "baseline ${index} is ${actual_name}, expected ${expected_name}")
   endif()
-  string(JSON draws GET "${json}" baselines ${index} counters draw_count)
-  string(JSON triangles GET "${json}" baselines ${index} counters triangle_count)
   string(JSON readback GET "${json}" baselines ${index} counters readback_bytes)
   string(JSON total GET "${json}" baselines ${index} cpu_ns total_frame)
-  if(NOT draws EQUAL 1 OR NOT triangles EQUAL 1)
-    message(FATAL_ERROR "baseline ${actual_name} has invalid draw counters")
-  endif()
   if(NOT readback EQUAL 8192)
     message(FATAL_ERROR "baseline ${actual_name} has invalid readback bytes")
   endif()
@@ -64,28 +67,64 @@ foreach(index RANGE 0 2)
   endif()
 endforeach()
 
-string(JSON first_upload GET "${json}" baselines 0 counters upload_bytes)
+function(assert_counter index name expected)
+  string(JSON value GET "${json}" baselines ${index} counters "${name}")
+  if(NOT value EQUAL expected)
+    string(JSON baseline_name GET "${json}" baselines ${index} name)
+    message(FATAL_ERROR
+      "${baseline_name}.${name} is ${value}, expected ${expected}")
+  endif()
+endfunction()
+
+# first-frame: cold-start uploads both meshes once, suballocates four ranges,
+# and creates the single pipeline.
+assert_counter(0 draw_count 3)
+assert_counter(0 triangle_count 4)
+assert_counter(0 upload_bytes 120)
+assert_counter(0 buffer_suballocation_count 4)
+assert_counter(0 geometry_cache_misses 2)
+assert_counter(0 pipeline_creation_count 1)
 string(JSON first_allocations GET "${json}" baselines 0 counters allocation_count)
-string(JSON first_pipelines GET "${json}" baselines 0 counters pipeline_creation_count)
-if(NOT first_upload GREATER 0 OR NOT first_allocations GREATER 0 OR
-   NOT first_pipelines EQUAL 1)
+if(NOT first_allocations GREATER 0)
   message(FATAL_ERROR "first-frame baseline did not record cold-start work")
 endif()
 
-foreach(field upload_bytes allocation_count pipeline_creation_count)
-  string(JSON value GET "${json}" baselines 1 counters "${field}")
-  if(NOT value EQUAL 0)
-    message(FATAL_ERROR "steady-state ${field} must be zero, got ${value}")
-  endif()
-endforeach()
-string(JSON scene_hits GET "${json}" baselines 1 counters scene_cache_hits)
-string(JSON pipeline_hits GET "${json}" baselines 1 counters pipeline_cache_hits)
-if(NOT scene_hits EQUAL 1 OR NOT pipeline_hits EQUAL 1)
-  message(FATAL_ERROR "steady-state baseline did not hit backend caches")
-endif()
+# steady-state: a static scene performs zero upload, allocation, and pipeline
+# work after warm-up.
+assert_counter(1 draw_count 3)
+assert_counter(1 upload_bytes 0)
+assert_counter(1 allocation_count 0)
+assert_counter(1 pipeline_creation_count 0)
+assert_counter(1 scene_cache_hits 1)
+assert_counter(1 geometry_cache_hits 2)
+assert_counter(1 geometry_cache_misses 0)
+assert_counter(1 pipeline_cache_hits 1)
 
-string(JSON edit_upload GET "${json}" baselines 2 counters upload_bytes)
-string(JSON edit_pipelines GET "${json}" baselines 2 counters pipeline_creation_count)
-if(NOT edit_upload GREATER 0 OR NOT edit_pipelines EQUAL 0)
-  message(FATAL_ERROR "scene-edit baseline has invalid structural work")
-endif()
+# Transform-, visibility-, and material-only edits stage zero geometry bytes
+# and miss no geometry caches.
+foreach(index 2 3 4)
+  assert_counter(${index} upload_bytes 0)
+  assert_counter(${index} allocation_count 0)
+  assert_counter(${index} geometry_cache_misses 0)
+  assert_counter(${index} pipeline_creation_count 0)
+endforeach()
+assert_counter(2 draw_count 3)
+assert_counter(3 draw_count 2)
+assert_counter(4 draw_count 3)
+
+# edit-points: only the edited mesh's vertex payload is re-uploaded, in place.
+assert_counter(5 draw_count 3)
+assert_counter(5 upload_bytes 36)
+assert_counter(5 geometry_cache_misses 1)
+assert_counter(5 geometry_cache_hits 1)
+assert_counter(5 buffer_suballocation_count 0)
+assert_counter(5 buffer_range_release_count 0)
+assert_counter(5 allocation_count 0)
+
+# remove-mesh: removal stages nothing and releases exactly the removed mesh's
+# vertex and index ranges.
+assert_counter(6 draw_count 2)
+assert_counter(6 upload_bytes 0)
+assert_counter(6 buffer_range_release_count 2)
+assert_counter(6 geometry_cache_hits 1)
+assert_counter(6 geometry_cache_misses 0)

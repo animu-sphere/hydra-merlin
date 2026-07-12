@@ -256,7 +256,7 @@ int main(int argc, char** argv) {
           executable_dir / "shaders" / "triangle.frag.spv"};
       merlin::vulkan::RenderResult result;
       for (std::uint32_t frame = 0; frame < arguments.frames; ++frame) {
-        result = renderer.Render(extractor.scene(), arguments.width,
+        result = renderer.Render(*extractor.snapshot(), arguments.width,
                                  arguments.height, shaders);
       }
       ValidateSmokeResult(result);

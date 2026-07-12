@@ -3,6 +3,7 @@
 #include <merlin/core/render_world.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <utility>
@@ -10,90 +11,140 @@
 namespace merlin::extraction {
 namespace {
 
-template <typename Descriptor>
-using RecordMap = std::map<std::uint64_t, Descriptor>;
-
-std::uint64_t StableSortKey(const InstanceDescriptor& instance) {
+std::uint64_t StableSortKey(std::uint64_t material_handle,
+                            std::uint64_t mesh_handle) {
   // Opaque-only MVP: material first, then mesh. The instance handle is used as
-  // the final tie breaker when the draw packet is built.
-  return (instance.material.value() * 0x9e3779b185ebca87ULL) ^
-         instance.mesh.value();
+  // the final tie breaker when the draw list is built.
+  return (material_handle * 0x9e3779b185ebca87ULL) ^ mesh_handle;
 }
+
+struct MeshEntry {
+  std::uint64_t points_revision{};
+  std::uint64_t topology_revision{};
+  std::shared_ptr<const std::vector<DrawVertex>> vertices;
+  std::shared_ptr<const std::vector<std::uint32_t>> indices;
+};
+
+struct MaterialEntry {
+  std::uint64_t revision{};
+  MaterialDescriptor descriptor;
+};
+
+struct InstanceEntry {
+  std::uint64_t revision{};
+  InstanceDescriptor descriptor;
+};
 
 }  // namespace
 
 class SceneExtractor::Impl {
  public:
-  void Rebuild() {
-    output.vertices.clear();
-    output.indices.clear();
-    output.draws.clear();
-
-    for (const auto& [instance_handle, instance] : instances) {
-      if (!instance.visible) {
-        continue;
-      }
-      const auto mesh_it = meshes.find(instance.mesh.value());
-      const auto material_it = materials.find(instance.material.value());
-      if (mesh_it == meshes.end() || material_it == materials.end()) {
-        continue;
-      }
-
-      const auto& mesh = mesh_it->second;
-      if (mesh.positions.empty() || mesh.indices.empty()) {
-        continue;
-      }
-      if (output.vertices.size() > static_cast<std::size_t>(INT32_MAX) ||
-          output.indices.size() > static_cast<std::size_t>(UINT32_MAX) ||
-          mesh.indices.size() > static_cast<std::size_t>(UINT32_MAX)) {
-        throw std::length_error("extracted scene exceeds 32-bit draw limits");
-      }
-
-      DrawCommand draw;
-      draw.first_index = static_cast<std::uint32_t>(output.indices.size());
-      draw.index_count = static_cast<std::uint32_t>(mesh.indices.size());
-      draw.vertex_offset = static_cast<std::int32_t>(output.vertices.size());
-      draw.transform = instance.transform;
-      draw.base_color = material_it->second.base_color;
-      draw.instance_handle = instance_handle;
-      draw.sort_key = StableSortKey(instance);
-
-      for (const auto& position : mesh.positions) {
-        output.vertices.push_back({position});
-      }
-      output.indices.insert(output.indices.end(), mesh.indices.begin(),
-                            mesh.indices.end());
-      output.draws.push_back(draw);
+  void ApplyMesh(const RenderWorld& world, const Change& change) {
+    if (change.change_kind == ChangeKind::Removed) {
+      meshes.erase(change.handle);
+      return;
     }
-
-    std::stable_sort(output.draws.begin(), output.draws.end(),
-                     [](const DrawCommand& lhs, const DrawCommand& rhs) {
-                       if (lhs.sort_key != rhs.sort_key) {
-                         return lhs.sort_key < rhs.sort_key;
-                       }
-                       return lhs.instance_handle < rhs.instance_handle;
-                     });
-
-    auto camera_it = cameras.end();
-    if (active_camera.valid()) {
-      camera_it = cameras.find(active_camera.value());
+    auto& entry = meshes[change.handle];
+    const auto& descriptor = world.Get(MeshHandle::FromValue(change.handle));
+    if (descriptor.positions.size() >
+            static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()) ||
+        descriptor.indices.size() >
+            std::numeric_limits<std::uint32_t>::max()) {
+      throw std::length_error("mesh exceeds 32-bit draw limits");
     }
-    if (camera_it != cameras.end()) {
-      const auto& camera = camera_it->second;
-      output.view = camera.view;
-      output.projection = camera.projection;
-    } else {
-      output.view = {};
-      output.projection = {};
+    if (change.change_kind == ChangeKind::Created ||
+        change.HasAspect(ChangeAspect::Points)) {
+      auto vertices = std::make_shared<std::vector<DrawVertex>>();
+      vertices->reserve(descriptor.positions.size());
+      for (const auto& position : descriptor.positions) {
+        vertices->push_back({position});
+      }
+      entry.vertices = std::move(vertices);
+      entry.points_revision = change.resource_revision;
+    }
+    if (change.change_kind == ChangeKind::Created ||
+        change.HasAspect(ChangeAspect::Topology)) {
+      entry.indices = std::make_shared<const std::vector<std::uint32_t>>(
+          descriptor.indices);
+      entry.topology_revision = change.resource_revision;
     }
   }
 
-  RecordMap<MeshDescriptor> meshes;
-  RecordMap<MaterialDescriptor> materials;
-  RecordMap<InstanceDescriptor> instances;
-  RecordMap<CameraDescriptor> cameras;
+  void RebuildSnapshot() {
+    auto next = std::make_shared<FrameSnapshot>();
+    next->revision = revision;
+
+    std::map<std::uint64_t, std::uint32_t> geometry_indices;
+    next->geometries.reserve(meshes.size());
+    for (const auto& [handle, entry] : meshes) {
+      geometry_indices.emplace(
+          handle, static_cast<std::uint32_t>(next->geometries.size()));
+      next->geometries.push_back({handle, entry.points_revision,
+                                  entry.topology_revision, entry.vertices,
+                                  entry.indices});
+    }
+
+    std::map<std::uint64_t, std::uint32_t> material_indices;
+    next->materials.reserve(materials.size());
+    for (const auto& [handle, entry] : materials) {
+      material_indices.emplace(
+          handle, static_cast<std::uint32_t>(next->materials.size()));
+      const auto& material = entry.descriptor;
+      next->materials.push_back({handle, entry.revision, material.base_color,
+                                 material.metallic, material.roughness,
+                                 material.alpha_mode, material.double_sided});
+    }
+
+    next->instances.reserve(instances.size());
+    for (const auto& [handle, entry] : instances) {
+      const auto instance_index =
+          static_cast<std::uint32_t>(next->instances.size());
+      const auto& instance = entry.descriptor;
+      next->instances.push_back({handle, entry.revision,
+                                 instance.mesh.value(),
+                                 instance.material.value(),
+                                 instance.transform, instance.visible});
+      if (!instance.visible) {
+        continue;
+      }
+      const auto geometry = geometry_indices.find(instance.mesh.value());
+      const auto material = material_indices.find(instance.material.value());
+      if (geometry == geometry_indices.end() ||
+          material == material_indices.end()) {
+        continue;
+      }
+      next->draws.push_back(
+          {geometry->second, material->second, instance_index,
+           StableSortKey(instance.material.value(), instance.mesh.value())});
+    }
+
+    std::stable_sort(next->draws.begin(), next->draws.end(),
+                     [&](const DrawRecord& lhs, const DrawRecord& rhs) {
+                       if (lhs.sort_key != rhs.sort_key) {
+                         return lhs.sort_key < rhs.sort_key;
+                       }
+                       return next->instances[lhs.instance_index].instance <
+                              next->instances[rhs.instance_index].instance;
+                     });
+
+    if (active_camera.valid()) {
+      const auto camera = cameras.find(active_camera.value());
+      if (camera != cameras.end()) {
+        next->view = camera->second.view;
+        next->projection = camera->second.projection;
+      }
+    }
+    snapshot = std::move(next);
+  }
+
+  std::map<std::uint64_t, MeshEntry> meshes;
+  std::map<std::uint64_t, MaterialEntry> materials;
+  std::map<std::uint64_t, InstanceEntry> instances;
+  std::map<std::uint64_t, CameraDescriptor> cameras;
   CameraHandle active_camera;
-  ExtractedScene output;
+  std::uint64_t revision{};
+  std::shared_ptr<const FrameSnapshot> snapshot{
+      std::make_shared<FrameSnapshot>()};
 };
 
 SceneExtractor::SceneExtractor() : impl_(std::make_unique<Impl>()) {}
@@ -102,16 +153,16 @@ SceneExtractor::SceneExtractor(SceneExtractor&&) noexcept = default;
 SceneExtractor& SceneExtractor::operator=(SceneExtractor&&) noexcept = default;
 
 void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
-  if (changes.revision < impl_->output.revision) {
+  if (changes.revision < impl_->revision) {
     throw std::invalid_argument("cannot apply an older RenderWorld revision");
   }
   if (changes.empty()) {
-    if (changes.revision != impl_->output.revision) {
+    if (changes.revision != impl_->revision) {
       throw std::invalid_argument("empty ChangeSet skips an extraction revision");
     }
     return;
   }
-  if (changes.revision != impl_->output.revision + 1U) {
+  if (changes.revision != impl_->revision + 1U) {
     throw std::invalid_argument("ChangeSet revisions must be applied in order");
   }
 
@@ -119,19 +170,16 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
     const auto erase = change.change_kind == ChangeKind::Removed;
     switch (change.object_kind) {
       case ObjectKind::Mesh:
-        if (erase) {
-          impl_->meshes.erase(change.handle);
-        } else {
-          impl_->meshes.insert_or_assign(
-              change.handle, world.Get(MeshHandle::FromValue(change.handle)));
-        }
+        impl_->ApplyMesh(world, change);
         break;
       case ObjectKind::Material:
         if (erase) {
           impl_->materials.erase(change.handle);
         } else {
           impl_->materials.insert_or_assign(
-              change.handle, world.Get(MaterialHandle::FromValue(change.handle)));
+              change.handle,
+              MaterialEntry{change.resource_revision,
+                            world.Get(MaterialHandle::FromValue(change.handle))});
         }
         break;
       case ObjectKind::Instance:
@@ -139,7 +187,9 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           impl_->instances.erase(change.handle);
         } else {
           impl_->instances.insert_or_assign(
-              change.handle, world.Get(InstanceHandle::FromValue(change.handle)));
+              change.handle,
+              InstanceEntry{change.resource_revision,
+                            world.Get(InstanceHandle::FromValue(change.handle))});
         }
         break;
       case ObjectKind::Camera:
@@ -155,13 +205,13 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
         break;
       case ObjectKind::RenderSettings:
         // Render settings are frame/host state and are consumed outside the
-        // flattened draw extraction until render requests are introduced.
+        // extracted draw model until render requests are introduced.
         break;
     }
   }
 
-  impl_->output.revision = changes.revision;
-  impl_->Rebuild();
+  impl_->revision = changes.revision;
+  impl_->RebuildSnapshot();
 }
 
 void SceneExtractor::SetActiveCamera(CameraHandle camera) {
@@ -169,11 +219,11 @@ void SceneExtractor::SetActiveCamera(CameraHandle camera) {
     return;
   }
   impl_->active_camera = camera;
-  impl_->Rebuild();
+  impl_->RebuildSnapshot();
 }
 
-const ExtractedScene& SceneExtractor::scene() const noexcept {
-  return impl_->output;
+std::shared_ptr<const FrameSnapshot> SceneExtractor::snapshot() const noexcept {
+  return impl_->snapshot;
 }
 
 }  // namespace merlin::extraction

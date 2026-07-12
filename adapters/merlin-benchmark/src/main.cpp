@@ -47,9 +47,17 @@ struct Baseline {
   merlin::vulkan::FrameCounters counters;
 };
 
+// The fixture covers the v0.2.0 resource-granular contract: two meshes, two
+// materials, and three instances where two instances share one mesh.
 struct SceneFixture {
   merlin::RenderWorld world;
-  merlin::InstanceHandle instance;
+  merlin::MeshHandle triangle;
+  merlin::MeshHandle quad;
+  merlin::MaterialHandle primary_material;
+  merlin::MaterialHandle secondary_material;
+  merlin::InstanceHandle first_triangle;
+  merlin::InstanceHandle second_triangle;
+  merlin::InstanceHandle quad_instance;
 };
 
 std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
@@ -99,26 +107,45 @@ Arguments ParseArguments(int argc, char** argv) {
   return result;
 }
 
-SceneFixture BuildScene() {
-  SceneFixture fixture;
-  merlin::MeshDescriptor mesh;
-  mesh.label = "benchmark-triangle";
-  mesh.positions = {{0.0F, -0.72F, 0.0F}, {0.72F, 0.62F, 0.0F},
-                    {-0.72F, 0.62F, 0.0F}};
-  mesh.indices = {0, 1, 2};
-  const auto mesh_handle = fixture.world.CreateMesh(std::move(mesh));
+void PopulateScene(SceneFixture& fixture) {
+  merlin::MeshDescriptor triangle;
+  triangle.label = "benchmark-triangle";
+  triangle.positions = {{0.0F, -0.72F, 0.0F}, {0.72F, 0.62F, 0.0F},
+                        {-0.72F, 0.62F, 0.0F}};
+  triangle.indices = {0, 1, 2};
+  fixture.triangle = fixture.world.CreateMesh(std::move(triangle));
+
+  merlin::MeshDescriptor quad;
+  quad.label = "benchmark-quad";
+  quad.positions = {{-0.95F, -0.95F, 0.5F}, {-0.45F, -0.95F, 0.5F},
+                    {-0.45F, -0.45F, 0.5F}, {-0.95F, -0.45F, 0.5F}};
+  quad.indices = {0, 1, 2, 0, 2, 3};
+  fixture.quad = fixture.world.CreateMesh(std::move(quad));
 
   merlin::MaterialDescriptor material;
-  material.label = "benchmark-material";
+  material.label = "benchmark-primary";
   material.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
-  const auto material_handle = fixture.world.CreateMaterial(std::move(material));
+  fixture.primary_material = fixture.world.CreateMaterial(material);
+  material.label = "benchmark-secondary";
+  material.base_color = {1.0F, 0.55F, 0.12F, 1.0F};
+  fixture.secondary_material = fixture.world.CreateMaterial(std::move(material));
 
   merlin::InstanceDescriptor instance;
-  instance.label = "benchmark-instance";
-  instance.mesh = mesh_handle;
-  instance.material = material_handle;
-  fixture.instance = fixture.world.CreateInstance(std::move(instance));
-  return fixture;
+  instance.label = "benchmark-first-triangle";
+  instance.mesh = fixture.triangle;
+  instance.material = fixture.primary_material;
+  fixture.first_triangle = fixture.world.CreateInstance(instance);
+
+  instance.label = "benchmark-second-triangle";
+  instance.material = fixture.secondary_material;
+  instance.transform.values[12] = 0.22F;
+  fixture.second_triangle = fixture.world.CreateInstance(instance);
+
+  instance.label = "benchmark-quad-instance";
+  instance.mesh = fixture.quad;
+  instance.material = fixture.primary_material;
+  instance.transform = {};
+  fixture.quad_instance = fixture.world.CreateInstance(std::move(instance));
 }
 
 CpuTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
@@ -214,6 +241,10 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
          << indent << "    \"pipeline_creation_count\": " << count.pipeline_creation_count << ",\n"
          << indent << "    \"scene_cache_hits\": " << count.scene_cache_hits << ",\n"
          << indent << "    \"scene_cache_misses\": " << count.scene_cache_misses << ",\n"
+         << indent << "    \"geometry_cache_hits\": " << count.geometry_cache_hits << ",\n"
+         << indent << "    \"geometry_cache_misses\": " << count.geometry_cache_misses << ",\n"
+         << indent << "    \"buffer_suballocation_count\": " << count.buffer_suballocation_count << ",\n"
+         << indent << "    \"buffer_range_release_count\": " << count.buffer_range_release_count << ",\n"
          << indent << "    \"pipeline_cache_hits\": " << count.pipeline_cache_hits << ",\n"
          << indent << "    \"pipeline_cache_misses\": " << count.pipeline_cache_misses << "\n"
          << indent << "  }\n" << indent << '}';
@@ -222,7 +253,7 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
 void WriteJson(std::ostream& stream, const Arguments& arguments,
                const merlin::vulkan::RendererCapabilities& capabilities,
                const std::vector<Baseline>& baselines) {
-  stream << "{\n  \"schema\": \"merlin-benchmark/v1\",\n"
+  stream << "{\n  \"schema\": \"merlin-benchmark/v2\",\n"
          << "  \"environment\": {\n    \"commit\": ";
   JsonString(stream, MERLIN_BENCHMARK_COMMIT);
   stream << ",\n    \"build_type\": ";
@@ -265,30 +296,41 @@ int main(int argc, char** argv) {
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;
 
-    const auto first_start = CpuClock::now();
-    const auto update_start = CpuClock::now();
-    auto fixture = BuildScene();
-    const auto changes = fixture.world.Commit();
-    const auto first_update_ns = ElapsedNanoseconds(update_start);
-    const auto extraction_start = CpuClock::now();
-    extractor.Apply(fixture.world, changes);
-    const auto first_extraction_ns = ElapsedNanoseconds(extraction_start);
-    const auto first_result = renderer.Render(extractor.scene(), arguments.width,
-                                              arguments.height, shaders);
-    auto first_timings = FromBackend(first_result.cpu_timings);
-    first_timings.scene_update_ns = first_update_ns;
-    first_timings.extraction_ns = first_extraction_ns;
-    first_timings.total_frame_ns = ElapsedNanoseconds(first_start);
-    baselines.push_back({"first-frame", 1, first_timings,
-                         first_result.counters});
+    const auto render = [&] {
+      return renderer.Render(*extractor.snapshot(), arguments.width,
+                             arguments.height, shaders);
+    };
+
+    // Measures one edit scenario: the RenderWorld mutation, commit,
+    // incremental extraction, and one rendered frame.
+    const auto measure = [&](std::string name, merlin::RenderWorld& world,
+                             const auto& edit) {
+      const auto start = CpuClock::now();
+      const auto update_start = CpuClock::now();
+      edit();
+      const auto changes = world.Commit();
+      const auto update_ns = ElapsedNanoseconds(update_start);
+      const auto extraction_start = CpuClock::now();
+      extractor.Apply(world, changes);
+      const auto extraction_ns = ElapsedNanoseconds(extraction_start);
+      const auto result = render();
+      auto timings = FromBackend(result.cpu_timings);
+      timings.scene_update_ns = update_ns;
+      timings.extraction_ns = extraction_ns;
+      timings.total_frame_ns = ElapsedNanoseconds(start);
+      baselines.push_back({std::move(name), 1, timings, result.counters});
+      return result;
+    };
+
+    SceneFixture fixture;
+    measure("first-frame", fixture.world, [&] { PopulateScene(fixture); });
 
     std::vector<CpuTimings> steady_timings;
     steady_timings.reserve(arguments.steady_frames);
     merlin::vulkan::FrameCounters steady_counters;
     for (std::uint32_t frame = 0; frame < arguments.steady_frames; ++frame) {
       const auto frame_start = CpuClock::now();
-      const auto result = renderer.Render(extractor.scene(), arguments.width,
-                                          arguments.height, shaders);
+      const auto result = render();
       auto timing = FromBackend(result.cpu_timings);
       timing.total_frame_ns = ElapsedNanoseconds(frame_start);
       steady_timings.push_back(timing);
@@ -298,27 +340,57 @@ int main(int argc, char** argv) {
         throw std::runtime_error("steady-state structural counters changed");
       }
     }
+    if (steady_counters.upload_bytes != 0 ||
+        steady_counters.allocation_count != 0 ||
+        steady_counters.pipeline_creation_count != 0) {
+      throw std::runtime_error(
+          "static steady-state frames performed upload/allocation/pipeline work");
+    }
     baselines.push_back({"steady-state", arguments.steady_frames,
                          MedianTimings(steady_timings), steady_counters});
 
-    const auto edit_start = CpuClock::now();
-    const auto edit_update_start = CpuClock::now();
-    auto instance = fixture.world.Get(fixture.instance);
-    instance.transform.values[12] = 0.125F;
-    fixture.world.UpdateInstance(fixture.instance, std::move(instance),
-                                 merlin::ChangeAspect::Transform);
-    const auto edit_changes = fixture.world.Commit();
-    const auto edit_update_ns = ElapsedNanoseconds(edit_update_start);
-    const auto edit_extraction_start = CpuClock::now();
-    extractor.Apply(fixture.world, edit_changes);
-    const auto edit_extraction_ns = ElapsedNanoseconds(edit_extraction_start);
-    const auto edit_result = renderer.Render(extractor.scene(), arguments.width,
-                                             arguments.height, shaders);
-    auto edit_timings = FromBackend(edit_result.cpu_timings);
-    edit_timings.scene_update_ns = edit_update_ns;
-    edit_timings.extraction_ns = edit_extraction_ns;
-    edit_timings.total_frame_ns = ElapsedNanoseconds(edit_start);
-    baselines.push_back({"scene-edit", 1, edit_timings, edit_result.counters});
+    measure("edit-transform", fixture.world, [&] {
+      auto instance = fixture.world.Get(fixture.second_triangle);
+      instance.transform.values[12] = -0.31F;
+      fixture.world.UpdateInstance(fixture.second_triangle,
+                                   std::move(instance),
+                                   merlin::ChangeAspect::Transform);
+    });
+
+    measure("edit-visibility", fixture.world, [&] {
+      auto instance = fixture.world.Get(fixture.quad_instance);
+      instance.visible = false;
+      fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
+                                   merlin::ChangeAspect::Visibility);
+    });
+    {
+      // Unmeasured restore keeps later scenarios on the full three-draw scene.
+      auto instance = fixture.world.Get(fixture.quad_instance);
+      instance.visible = true;
+      fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
+                                   merlin::ChangeAspect::Visibility);
+      extractor.Apply(fixture.world, fixture.world.Commit());
+      (void)render();
+    }
+
+    measure("edit-material", fixture.world, [&] {
+      auto material = fixture.world.Get(fixture.primary_material);
+      material.base_color = {0.35F, 0.92F, 0.35F, 1.0F};
+      fixture.world.UpdateMaterial(fixture.primary_material,
+                                   std::move(material));
+    });
+
+    measure("edit-points", fixture.world, [&] {
+      auto mesh = fixture.world.Get(fixture.triangle);
+      mesh.positions[0].y = -0.6F;
+      fixture.world.UpdateMesh(fixture.triangle, std::move(mesh),
+                               merlin::ChangeAspect::Points);
+    });
+
+    measure("remove-mesh", fixture.world, [&] {
+      fixture.world.Remove(fixture.quad_instance);
+      fixture.world.Remove(fixture.quad);
+    });
 
     if (arguments.output.empty()) {
       WriteJson(std::cout, arguments, renderer.capabilities(), baselines);

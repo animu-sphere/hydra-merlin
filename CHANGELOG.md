@@ -8,7 +8,37 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Replaced the monolithic `ExtractedScene` with an immutable, resource-granular
+  `FrameSnapshot` split into geometry, material, instance, and draw records.
+  Records are keyed by serialized handle (slot index plus generation) and
+  resource revision; geometry payloads carry independent points/topology
+  revisions and are shared across snapshots and instances. This is a breaking
+  API change for extraction and Vulkan backend consumers.
+- Reworked Vulkan geometry residency: per-mesh vertex/index ranges are
+  suballocated from device-local arenas with first-fit free lists, staged
+  through a persistently mapped ring buffer, uploaded only for the sub-resource
+  whose revision changed (in place when the aligned range size is unchanged),
+  and retired deterministically once the last frame that could reference them
+  completes.
+- Bumped the benchmark schema to `merlin-benchmark/v2`: a shared-geometry
+  fixture (two meshes, two materials, three instances) and per-aspect edit
+  baselines (`edit-transform`, `edit-visibility`, `edit-material`,
+  `edit-points`, `remove-mesh`) replace the single `scene-edit` baseline, with
+  geometry cache and suballocation churn counters in every baseline.
+
+### Added
+
+- `merlin-vulkan-resource-update` GPU test enforcing the v0.2.0 exit criteria:
+  zero steady-state upload/allocation/pipeline work, zero geometry bytes for
+  transform-, visibility-, and material-only edits, in-place dirty-range
+  points updates, geometry sharing across instances, deterministic retirement
+  of removed resources, and generation-safe handle reuse.
+- `FrameCounters` fields `geometry_cache_hits`, `geometry_cache_misses`,
+  `buffer_suballocation_count`, and `buffer_range_release_count`, and
+  `RendererStatistics` fields `geometry_range_retirements`,
+  `pending_geometry_retirements`, and `geometry_arena_blocks`.
 
 ## [0.1.0] - 2026-07-12
 

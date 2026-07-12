@@ -7,7 +7,7 @@
 #include <vector>
 
 #include <merlin/core/render_product.hpp>
-#include <merlin/extraction/scene_extractor.hpp>
+#include <merlin/extraction/frame_snapshot.hpp>
 
 namespace merlin::vulkan {
 
@@ -40,6 +40,13 @@ struct RendererStatistics {
   std::uint64_t scene_uploads{};
   std::uint64_t validation_messages{};
   std::uint32_t frame_context_count{};
+  // Suballocated geometry ranges reclaimed after their retire-frame completed,
+  // and ranges still awaiting completion. Retirement is deterministic: a range
+  // released while frame N is being prepared is reclaimed exactly when frame
+  // N-1 (the last submission that could reference it) completes.
+  std::uint64_t geometry_range_retirements{};
+  std::uint32_t pending_geometry_retirements{};
+  std::uint32_t geometry_arena_blocks{};
 };
 
 // CPU wall-clock durations for the backend-owned portions of one frame.
@@ -66,6 +73,10 @@ struct FrameCounters {
   std::uint64_t pipeline_creation_count{};
   std::uint64_t scene_cache_hits{};
   std::uint64_t scene_cache_misses{};
+  std::uint64_t geometry_cache_hits{};
+  std::uint64_t geometry_cache_misses{};
+  std::uint64_t buffer_suballocation_count{};
+  std::uint64_t buffer_range_release_count{};
   std::uint64_t pipeline_cache_hits{};
   std::uint64_t pipeline_cache_misses{};
 
@@ -116,7 +127,7 @@ class Renderer {
 
   [[nodiscard]] const RendererCapabilities& capabilities() const noexcept;
   [[nodiscard]] RendererStatistics statistics() const noexcept;
-  [[nodiscard]] RenderResult Render(const extraction::ExtractedScene& scene,
+  [[nodiscard]] RenderResult Render(const extraction::FrameSnapshot& snapshot,
                                     std::uint32_t width,
                                     std::uint32_t height,
                                     const ShaderPaths& shaders);

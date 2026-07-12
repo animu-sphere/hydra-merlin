@@ -388,8 +388,9 @@ class SceneBridge {
     const auto shader_dir = PluginDirectory() / "shaders";
     const merlin::vulkan::ShaderPaths shaders{
         shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
+    const auto snapshot = extractor_.snapshot();
     const auto result =
-        renderer_->Render(extractor_.scene(), width, height, shaders);
+        renderer_->Render(*snapshot, width, height, shaders);
     const auto renderer_statistics = renderer_->statistics();
     if (ValidationRequested() &&
         renderer_statistics.validation_messages != 0) {
@@ -445,7 +446,7 @@ class SceneBridge {
         stream << "phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
                << " completion_value=" << result.completion_value
-               << " draw_count=" << extractor_.scene().draws.size()
+               << " draw_count=" << snapshot->draws.size()
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height

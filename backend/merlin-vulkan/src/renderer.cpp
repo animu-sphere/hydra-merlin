@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -105,6 +106,317 @@ struct PushConstants {
   Vec4 base_color;
 };
 
+constexpr VkDeviceSize kArenaAlignment = 16;
+constexpr VkDeviceSize kMinArenaBlockBytes = 256U * 1024U;
+constexpr VkDeviceSize kMinStagingBytes = 256U * 1024U;
+constexpr std::uint32_t kInvalidBlock = std::numeric_limits<std::uint32_t>::max();
+
+constexpr VkDeviceSize AlignUp(VkDeviceSize value, VkDeviceSize alignment) {
+  return (value + alignment - 1U) / alignment * alignment;
+}
+
+struct Buffer {
+  VkBuffer handle{};
+  VkDeviceMemory memory{};
+  VkDeviceSize size{};
+};
+
+std::uint32_t FindMemoryTypeRaw(VkPhysicalDevice physical_device,
+                                std::uint32_t bits,
+                                VkMemoryPropertyFlags properties) {
+  VkPhysicalDeviceMemoryProperties memory{};
+  vkGetPhysicalDeviceMemoryProperties(physical_device, &memory);
+  for (std::uint32_t index = 0; index < memory.memoryTypeCount; ++index) {
+    if ((bits & (1U << index)) != 0U &&
+        (memory.memoryTypes[index].propertyFlags & properties) == properties) {
+      return index;
+    }
+  }
+  throw std::runtime_error("no compatible Vulkan memory type");
+}
+
+void DestroyBufferRaw(VkDevice device, Buffer& buffer) noexcept {
+  if (buffer.handle != VK_NULL_HANDLE) {
+    vkDestroyBuffer(device, buffer.handle, nullptr);
+  }
+  if (buffer.memory != VK_NULL_HANDLE) {
+    vkFreeMemory(device, buffer.memory, nullptr);
+  }
+  buffer = {};
+}
+
+Buffer CreateBufferRaw(VkDevice device, VkPhysicalDevice physical_device,
+                       VkDeviceSize size, VkBufferUsageFlags usage,
+                       VkMemoryPropertyFlags properties) {
+  Buffer result;
+  result.size = size;
+  VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  buffer_info.size = size;
+  buffer_info.usage = usage;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  Check(vkCreateBuffer(device, &buffer_info, nullptr, &result.handle),
+        "create buffer");
+  VkMemoryRequirements requirements{};
+  vkGetBufferMemoryRequirements(device, result.handle, &requirements);
+  VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  allocation.allocationSize = requirements.size;
+  allocation.memoryTypeIndex =
+      FindMemoryTypeRaw(physical_device, requirements.memoryTypeBits, properties);
+  try {
+    Check(vkAllocateMemory(device, &allocation, nullptr, &result.memory),
+          "allocate buffer memory");
+    Check(vkBindBufferMemory(device, result.handle, result.memory, 0),
+          "bind buffer memory");
+  } catch (...) {
+    DestroyBufferRaw(device, result);
+    throw;
+  }
+  return result;
+}
+
+// A suballocated span of one arena block. Geometry caches hold ranges instead
+// of buffers so mesh edits and removals never destroy device allocations that
+// other resources still occupy.
+struct BufferRange {
+  std::uint32_t block{kInvalidBlock};
+  VkDeviceSize offset{};
+  VkDeviceSize size{};
+
+  [[nodiscard]] bool valid() const noexcept { return block != kInvalidBlock; }
+};
+
+// Grow-only pool of device-local blocks with first-fit free-list
+// suballocation. Allocation and release order is deterministic, so identical
+// edit sequences produce identical block/offset assignments.
+class DeviceArena {
+ public:
+  struct Allocation {
+    BufferRange range;
+    bool created_block{};
+  };
+
+  void Initialize(VkDevice device, VkPhysicalDevice physical_device,
+                  VkBufferUsageFlags usage) {
+    device_ = device;
+    physical_device_ = physical_device;
+    usage_ = usage;
+  }
+
+  void Destroy() noexcept {
+    for (auto& block : blocks_) {
+      DestroyBufferRaw(device_, block.buffer);
+    }
+    blocks_.clear();
+  }
+
+  Allocation Allocate(VkDeviceSize bytes) {
+    const auto aligned = AlignUp(bytes, kArenaAlignment);
+    for (std::uint32_t index = 0; index < blocks_.size(); ++index) {
+      auto& spans = blocks_[index].free_spans;
+      for (auto span = spans.begin(); span != spans.end(); ++span) {
+        if (span->size < aligned) {
+          continue;
+        }
+        const BufferRange range{index, span->offset, aligned};
+        span->offset += aligned;
+        span->size -= aligned;
+        if (span->size == 0) {
+          spans.erase(span);
+        }
+        return {range, false};
+      }
+    }
+    const auto block_bytes = std::max(kMinArenaBlockBytes, aligned);
+    Block block;
+    block.buffer = CreateBufferRaw(device_, physical_device_, block_bytes,
+                                   usage_ | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (block_bytes > aligned) {
+      block.free_spans.push_back({aligned, block_bytes - aligned});
+    }
+    blocks_.push_back(std::move(block));
+    return {{static_cast<std::uint32_t>(blocks_.size() - 1U), 0, aligned}, true};
+  }
+
+  void Release(const BufferRange& range) noexcept {
+    if (!range.valid()) {
+      return;
+    }
+    auto& spans = blocks_[range.block].free_spans;
+    const auto next = std::find_if(
+        spans.begin(), spans.end(),
+        [&](const FreeSpan& span) { return span.offset > range.offset; });
+    const auto inserted = spans.insert(next, {range.offset, range.size});
+    const auto following = inserted + 1;
+    if (following != spans.end() &&
+        inserted->offset + inserted->size == following->offset) {
+      inserted->size += following->size;
+      spans.erase(following);
+    }
+    if (inserted != spans.begin()) {
+      const auto previous = inserted - 1;
+      if (previous->offset + previous->size == inserted->offset) {
+        previous->size += inserted->size;
+        spans.erase(inserted);
+      }
+    }
+  }
+
+  [[nodiscard]] VkBuffer buffer(std::uint32_t block) const noexcept {
+    return blocks_[block].buffer.handle;
+  }
+
+  [[nodiscard]] std::uint32_t block_count() const noexcept {
+    return static_cast<std::uint32_t>(blocks_.size());
+  }
+
+ private:
+  struct FreeSpan {
+    VkDeviceSize offset{};
+    VkDeviceSize size{};
+  };
+
+  struct Block {
+    Buffer buffer;
+    std::vector<FreeSpan> free_spans;  // sorted by offset, adjacent-merged
+  };
+
+  VkDevice device_{};
+  VkPhysicalDevice physical_device_{};
+  VkBufferUsageFlags usage_{};
+  std::vector<Block> blocks_;
+};
+
+// Persistently mapped host-visible ring that feeds device-local copies. Each
+// frame reserves one contiguous region; regions are recycled once the frame
+// that consumed them reports completion. When capacity is insufficient the
+// ring reallocates and hands the old buffer to the caller for deferred
+// destruction.
+class StagingRing {
+ public:
+  struct Reservation {
+    std::byte* mapped{};
+    VkBuffer buffer{};
+    VkDeviceSize offset{};
+  };
+
+  void Initialize(VkDevice device, VkPhysicalDevice physical_device) {
+    device_ = device;
+    physical_device_ = physical_device;
+  }
+
+  void Destroy() noexcept {
+    if (buffer_.memory != VK_NULL_HANDLE) {
+      vkUnmapMemory(device_, buffer_.memory);
+    }
+    DestroyBufferRaw(device_, buffer_);
+    mapped_ = nullptr;
+    regions_.clear();
+    pending_ = {};
+  }
+
+  // Reserves one region for the current frame. `retired` receives the previous
+  // buffer when the ring grew; the caller must defer its destruction until
+  // in-flight frames complete.
+  Reservation Reserve(VkDeviceSize bytes, Buffer& retired, bool& grew) {
+    if (pending_.active) {
+      throw std::logic_error("staging region is already reserved this frame");
+    }
+    const auto aligned = AlignUp(bytes, kArenaAlignment);
+    VkDeviceSize offset{};
+    if (!TryPlace(aligned, offset)) {
+      retired = buffer_;
+      if (retired.memory != VK_NULL_HANDLE) {
+        vkUnmapMemory(device_, retired.memory);
+      }
+      grew = true;
+      buffer_ = {};
+      mapped_ = nullptr;
+      regions_.clear();
+      head_ = 0;
+      const auto capacity =
+          std::max({kMinStagingBytes, aligned, retired.size * 2U});
+      buffer_ = CreateBufferRaw(device_, physical_device_, capacity,
+                                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      void* mapped{};
+      Check(vkMapMemory(device_, buffer_.memory, 0, buffer_.size, 0, &mapped),
+            "map staging ring");
+      mapped_ = static_cast<std::byte*>(mapped);
+      offset = 0;
+    }
+    pending_ = {true, offset, offset + aligned};
+    head_ = offset + aligned;
+    return {mapped_ + offset, buffer_.handle, offset};
+  }
+
+  void FinishFrame(std::uint64_t completion_value) {
+    if (!pending_.active) {
+      return;
+    }
+    regions_.push_back({pending_.begin, pending_.end, completion_value});
+    pending_ = {};
+  }
+
+  void Collect(std::uint64_t completed) {
+    while (!regions_.empty() && regions_.front().completion <= completed) {
+      regions_.erase(regions_.begin());
+    }
+    if (regions_.empty() && !pending_.active) {
+      head_ = 0;
+    }
+  }
+
+ private:
+  struct Region {
+    VkDeviceSize begin{};
+    VkDeviceSize end{};
+    std::uint64_t completion{};
+  };
+
+  struct PendingRegion {
+    bool active{};
+    VkDeviceSize begin{};
+    VkDeviceSize end{};
+  };
+
+  bool TryPlace(VkDeviceSize bytes, VkDeviceSize& offset) {
+    if (buffer_.handle == VK_NULL_HANDLE || bytes > buffer_.size) {
+      return false;
+    }
+    if (regions_.empty()) {
+      offset = 0;
+      return true;
+    }
+    const auto tail = regions_.front().begin;
+    if (head_ >= tail) {
+      if (buffer_.size - head_ >= bytes) {
+        offset = head_;
+        return true;
+      }
+      if (tail >= bytes) {
+        offset = 0;
+        return true;
+      }
+      return false;
+    }
+    if (tail - head_ >= bytes) {
+      offset = head_;
+      return true;
+    }
+    return false;
+  }
+
+  VkDevice device_{};
+  VkPhysicalDevice physical_device_{};
+  Buffer buffer_;
+  std::byte* mapped_{};
+  VkDeviceSize head_{};
+  std::vector<Region> regions_;
+  PendingRegion pending_;
+};
+
 }  // namespace
 
 class Renderer::Impl {
@@ -116,6 +428,11 @@ class Renderer::Impl {
     CreateDevice(options);
     CreateFrameContexts(options.frames_in_flight);
     statistics_.frame_context_count = options.frames_in_flight;
+    vertex_arena_.Initialize(device_, physical_device_,
+                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    index_arena_.Initialize(device_, physical_device_,
+                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    staging_.Initialize(device_, physical_device_);
   }
 
   ~Impl() {
@@ -125,8 +442,10 @@ class Renderer::Impl {
         DestroyBuffer(retired.buffer);
       }
       deferred_.clear();
-      DestroyBuffer(scene_vertices_);
-      DestroyBuffer(scene_indices_);
+      retired_ranges_.clear();
+      staging_.Destroy();
+      vertex_arena_.Destroy();
+      index_arena_.Destroy();
       DestroyTarget();
       for (auto& frame : frames_) {
         if (frame.fence != VK_NULL_HANDLE) {
@@ -153,14 +472,15 @@ class Renderer::Impl {
     }
   }
 
-  RenderResult Render(const extraction::ExtractedScene& scene,
+  RenderResult Render(const extraction::FrameSnapshot& snapshot,
                       std::uint32_t width, std::uint32_t height,
                       const ShaderPaths& shaders) {
     const auto backend_start = CpuClock::now();
     frame_counters_ = {};
-    for (const auto& draw : scene.draws) {
+    for (const auto& draw : snapshot.draws) {
       ++frame_counters_.draw_count;
-      frame_counters_.triangle_count += draw.index_count / 3U;
+      frame_counters_.triangle_count +=
+          snapshot.geometries[draw.geometry_index].indices->size() / 3U;
     }
 
     ValidateExtent(width, height);
@@ -168,7 +488,7 @@ class Renderer::Impl {
     EnsureTarget(width, height, shaders);
 
     const auto upload_start = CpuClock::now();
-    UploadScene(scene);
+    SyncGeometry(snapshot);
     const auto upload_ns = ElapsedNanoseconds(upload_start);
 
     const auto recording_start = CpuClock::now();
@@ -178,20 +498,23 @@ class Renderer::Impl {
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
           "begin frame command buffer");
-    RecordFrame(frame.command_buffer, scene);
+    RecordUploads(frame.command_buffer);
+    RecordFrame(frame.command_buffer, snapshot);
     Check(vkEndCommandBuffer(frame.command_buffer), "end frame command buffer");
     const auto recording_ns = ElapsedNanoseconds(recording_start);
 
     const auto readback_start = CpuClock::now();
     const auto completion = SubmitAndWait(frame);
     ++statistics_.frames_submitted;
+    staging_.FinishFrame(completion);
+    staging_.Collect(completion);
     CollectDeferred(completion);
 
     RenderResult result;
     result.color = ReadColor(width, height);
     result.depth = ReadDepth(width, height);
     const auto readback_ns = ElapsedNanoseconds(readback_start);
-    result.scene_revision = scene.revision;
+    result.scene_revision = snapshot.revision;
     result.completion_value = completion;
     result.cpu_timings.upload_ns = upload_ns;
     result.cpu_timings.command_recording_ns = recording_ns;
@@ -200,12 +523,6 @@ class Renderer::Impl {
     result.counters = frame_counters_;
     return result;
   }
-
-  struct Buffer {
-    VkBuffer handle{};
-    VkDeviceMemory memory{};
-    VkDeviceSize size{};
-  };
 
   struct FrameContext {
     VkCommandPool command_pool{};
@@ -217,6 +534,32 @@ class Renderer::Impl {
   struct RetiredBuffer {
     Buffer buffer;
     std::uint64_t retire_value{};
+  };
+
+  // GPU residency for one mesh, keyed by the serialized RenderWorld handle
+  // (slot index + generation) with per-sub-resource revisions. A revision
+  // mismatch re-uploads only the stale sub-resource; a size-preserving edit
+  // reuses the existing range in place.
+  struct GeometrySlot {
+    std::uint64_t points_revision{};
+    std::uint64_t topology_revision{};
+    BufferRange vertices;
+    BufferRange indices;
+    std::uint32_t index_count{};
+  };
+
+  struct RetiredRange {
+    DeviceArena* arena{};
+    BufferRange range;
+    std::uint64_t retire_value{};
+  };
+
+  struct PendingCopy {
+    VkBuffer source{};
+    VkDeviceSize source_offset{};
+    VkBuffer destination{};
+    VkDeviceSize destination_offset{};
+    VkDeviceSize size{};
   };
 
   struct RenderTarget {
@@ -432,112 +775,183 @@ class Renderer::Impl {
     }
   }
 
-  std::uint32_t FindMemoryType(std::uint32_t bits,
-                               VkMemoryPropertyFlags properties) const {
-    VkPhysicalDeviceMemoryProperties memory{};
-    vkGetPhysicalDeviceMemoryProperties(physical_device_, &memory);
-    for (std::uint32_t index = 0; index < memory.memoryTypeCount; ++index) {
-      if ((bits & (1U << index)) != 0U &&
-          (memory.memoryTypes[index].propertyFlags & properties) == properties) {
-        return index;
-      }
-    }
-    throw std::runtime_error("no compatible Vulkan memory type");
-  }
-
   Buffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties) {
     ++frame_counters_.allocation_count;
     ++frame_counters_.buffer_allocation_count;
-    Buffer result;
-    result.size = size;
-    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = size;
-    buffer_info.usage = usage;
-    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    Check(vkCreateBuffer(device_, &buffer_info, nullptr, &result.handle),
-          "create buffer");
-    VkMemoryRequirements requirements{};
-    vkGetBufferMemoryRequirements(device_, result.handle, &requirements);
-    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    allocation.allocationSize = requirements.size;
-    allocation.memoryTypeIndex = FindMemoryType(requirements.memoryTypeBits,
-                                                 properties);
-    try {
-      Check(vkAllocateMemory(device_, &allocation, nullptr, &result.memory),
-            "allocate buffer memory");
-      Check(vkBindBufferMemory(device_, result.handle, result.memory, 0),
-            "bind buffer memory");
-    } catch (...) {
-      DestroyBuffer(result);
-      throw;
-    }
-    return result;
+    return CreateBufferRaw(device_, physical_device_, size, usage, properties);
   }
 
   void DestroyBuffer(Buffer& buffer) noexcept {
-    if (buffer.handle != VK_NULL_HANDLE) {
-      vkDestroyBuffer(device_, buffer.handle, nullptr);
-    }
-    if (buffer.memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, buffer.memory, nullptr);
-    }
-    buffer = {};
+    DestroyBufferRaw(device_, buffer);
   }
 
-  template <typename T>
-  Buffer CreateUploadedBuffer(const std::vector<T>& values,
-                              VkBufferUsageFlags usage) {
-    if (values.empty()) {
-      return {};
-    }
-    const auto bytes = static_cast<VkDeviceSize>(values.size() * sizeof(T));
-    auto buffer = CreateBuffer(bytes, usage,
-                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    void* mapped{};
-    try {
-      Check(vkMapMemory(device_, buffer.memory, 0, bytes, 0, &mapped),
-            "map scene buffer");
-      std::memcpy(mapped, values.data(), static_cast<std::size_t>(bytes));
-      vkUnmapMemory(device_, buffer.memory);
-    } catch (...) {
-      if (mapped != nullptr) {
-        vkUnmapMemory(device_, buffer.memory);
+  // Reconciles GPU geometry residency with one immutable snapshot: retires
+  // slots whose mesh left the snapshot, then stages only the sub-resources
+  // whose revision changed. Transform-, visibility-, and material-only edits
+  // reach this function with every record clean and stage zero bytes.
+  void SyncGeometry(const extraction::FrameSnapshot& snapshot) {
+    bool structural_change = false;
+    auto record = snapshot.geometries.begin();
+    for (auto slot = geometry_slots_.begin(); slot != geometry_slots_.end();) {
+      while (record != snapshot.geometries.end() &&
+             record->mesh < slot->first) {
+        ++record;
       }
-      DestroyBuffer(buffer);
-      throw;
+      if (record == snapshot.geometries.end() || record->mesh != slot->first) {
+        ReleaseRange(vertex_arena_, slot->second.vertices);
+        ReleaseRange(index_arena_, slot->second.indices);
+        slot = geometry_slots_.erase(slot);
+        structural_change = true;
+      } else {
+        ++slot;
+      }
     }
-    return buffer;
-  }
 
-  void UploadScene(const extraction::ExtractedScene& scene) {
-    if (uploaded_scene_ == &scene && uploaded_revision_ == scene.revision) {
+    struct Upload {
+      const extraction::GeometryRecord* record{};
+      GeometrySlot* slot{};
+      bool vertices{};
+      bool indices{};
+      VkDeviceSize vertex_bytes{};
+      VkDeviceSize index_bytes{};
+    };
+    std::vector<Upload> uploads;
+    VkDeviceSize staging_bytes{};
+    for (const auto& geometry : snapshot.geometries) {
+      const auto [entry, inserted] = geometry_slots_.try_emplace(geometry.mesh);
+      auto& slot = entry->second;
+      Upload upload{&geometry, &slot};
+      upload.vertices =
+          inserted || slot.points_revision != geometry.points_revision;
+      upload.indices =
+          inserted || slot.topology_revision != geometry.topology_revision;
+      if (!upload.vertices && !upload.indices) {
+        ++frame_counters_.geometry_cache_hits;
+        continue;
+      }
+      ++frame_counters_.geometry_cache_misses;
+      upload.vertex_bytes = static_cast<VkDeviceSize>(
+          geometry.vertices->size() * sizeof(extraction::DrawVertex));
+      upload.index_bytes = static_cast<VkDeviceSize>(
+          geometry.indices->size() * sizeof(std::uint32_t));
+      if (upload.vertices) {
+        staging_bytes += AlignUp(upload.vertex_bytes, kArenaAlignment);
+      }
+      if (upload.indices) {
+        staging_bytes += AlignUp(upload.index_bytes, kArenaAlignment);
+      }
+      uploads.push_back(upload);
+    }
+
+    if (uploads.empty() && !structural_change) {
       ++frame_counters_.scene_cache_hits;
       return;
     }
     ++frame_counters_.scene_cache_misses;
-    frame_counters_.upload_bytes =
-        static_cast<std::uint64_t>(scene.vertices.size()) *
-            sizeof(extraction::DrawVertex) +
-        static_cast<std::uint64_t>(scene.indices.size()) * sizeof(std::uint32_t);
-    auto vertices = CreateUploadedBuffer(scene.vertices,
-                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    Buffer indices;
-    try {
-      indices = CreateUploadedBuffer(scene.indices,
-                                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-    } catch (...) {
-      DestroyBuffer(vertices);
-      throw;
+    if (uploads.empty()) {
+      return;
     }
-    Retire(scene_vertices_);
-    Retire(scene_indices_);
-    scene_vertices_ = vertices;
-    scene_indices_ = indices;
-    uploaded_revision_ = scene.revision;
-    uploaded_scene_ = &scene;
-    ++statistics_.scene_uploads;
+
+    StagingRing::Reservation reservation;
+    if (staging_bytes != 0) {
+      Buffer retired_staging;
+      bool staging_grew{};
+      reservation =
+          staging_.Reserve(staging_bytes, retired_staging, staging_grew);
+      if (staging_grew) {
+        ++frame_counters_.allocation_count;
+        ++frame_counters_.buffer_allocation_count;
+        Retire(retired_staging);
+      }
+    }
+
+    VkDeviceSize cursor{};
+    auto stage = [&](const void* payload, VkDeviceSize bytes,
+                     DeviceArena& arena, const BufferRange& range) {
+      if (bytes == 0) {
+        return;
+      }
+      std::memcpy(reservation.mapped + cursor, payload,
+                  static_cast<std::size_t>(bytes));
+      pending_copies_.push_back({reservation.buffer,
+                                 reservation.offset + cursor,
+                                 arena.buffer(range.block), range.offset,
+                                 bytes});
+      cursor += AlignUp(bytes, kArenaAlignment);
+      frame_counters_.upload_bytes += bytes;
+    };
+    for (auto& upload : uploads) {
+      auto& slot = *upload.slot;
+      if (upload.vertices) {
+        EnsureRange(vertex_arena_, slot.vertices, upload.vertex_bytes);
+        stage(upload.record->vertices->data(), upload.vertex_bytes,
+              vertex_arena_, slot.vertices);
+        slot.points_revision = upload.record->points_revision;
+      }
+      if (upload.indices) {
+        EnsureRange(index_arena_, slot.indices, upload.index_bytes);
+        stage(upload.record->indices->data(), upload.index_bytes, index_arena_,
+              slot.indices);
+        slot.index_count =
+            static_cast<std::uint32_t>(upload.record->indices->size());
+        slot.topology_revision = upload.record->topology_revision;
+      }
+    }
+    if (staging_bytes != 0) {
+      ++statistics_.scene_uploads;
+    }
+  }
+
+  void EnsureRange(DeviceArena& arena, BufferRange& range,
+                   VkDeviceSize bytes) {
+    if (bytes == 0) {
+      ReleaseRange(arena, range);
+      return;
+    }
+    const auto aligned = AlignUp(bytes, kArenaAlignment);
+    if (range.valid() && range.size == aligned) {
+      // Size-preserving edits update the existing range in place. Frames are
+      // currently synchronized before reuse; asynchronous execution must
+      // version ranges instead of writing over readable memory.
+      return;
+    }
+    ReleaseRange(arena, range);
+    const auto allocation = arena.Allocate(bytes);
+    if (allocation.created_block) {
+      ++frame_counters_.allocation_count;
+      ++frame_counters_.buffer_allocation_count;
+    }
+    ++frame_counters_.buffer_suballocation_count;
+    range = allocation.range;
+  }
+
+  void ReleaseRange(DeviceArena& arena, BufferRange& range) {
+    if (!range.valid()) {
+      return;
+    }
+    ++frame_counters_.buffer_range_release_count;
+    retired_ranges_.push_back({&arena, range, timeline_value_});
+    range = {};
+  }
+
+  void RecordUploads(VkCommandBuffer command) {
+    if (pending_copies_.empty()) {
+      return;
+    }
+    for (const auto& copy : pending_copies_) {
+      const VkBufferCopy region{copy.source_offset, copy.destination_offset,
+                                copy.size};
+      vkCmdCopyBuffer(command, copy.source, copy.destination, 1, &region);
+    }
+    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask =
+        VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &barrier, 0,
+                         nullptr, 0, nullptr);
+    pending_copies_.clear();
   }
 
   void Retire(Buffer& buffer) {
@@ -555,6 +969,16 @@ class Renderer::Impl {
         iterator = deferred_.erase(iterator);
       } else {
         ++iterator;
+      }
+    }
+    auto range = retired_ranges_.begin();
+    while (range != retired_ranges_.end()) {
+      if (range->retire_value <= completed) {
+        range->arena->Release(range->range);
+        ++statistics_.geometry_range_retirements;
+        range = retired_ranges_.erase(range);
+      } else {
+        ++range;
       }
     }
   }
@@ -612,8 +1036,9 @@ class Renderer::Impl {
     vkGetImageMemoryRequirements(device_, image, &requirements);
     VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocation.allocationSize = requirements.size;
-    allocation.memoryTypeIndex = FindMemoryType(
-        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    allocation.memoryTypeIndex = FindMemoryTypeRaw(
+        physical_device_, requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     try {
       Check(vkAllocateMemory(device_, &allocation, nullptr, &memory),
             "allocate image memory");
@@ -911,7 +1336,7 @@ class Renderer::Impl {
   }
 
   void RecordFrame(VkCommandBuffer command,
-                   const extraction::ExtractedScene& scene) {
+                   const extraction::FrameSnapshot& snapshot) {
     std::array<VkClearValue, 2> clear{};
     clear[0].color = {{0.018F, 0.025F, 0.045F, 1.0F}};
     clear[1].depthStencil = {1.0F, 0};
@@ -929,23 +1354,24 @@ class Renderer::Impl {
     const VkRect2D scissor{{0, 0}, {target_.width, target_.height}};
     vkCmdSetViewport(command, 0, 1, &viewport);
     vkCmdSetScissor(command, 0, 1, &scissor);
-    if (scene_vertices_.handle != VK_NULL_HANDLE &&
-        scene_indices_.handle != VK_NULL_HANDLE) {
-      const VkDeviceSize offset = 0;
-      vkCmdBindVertexBuffers(command, 0, 1, &scene_vertices_.handle, &offset);
-      vkCmdBindIndexBuffer(command, scene_indices_.handle, 0,
-                           VK_INDEX_TYPE_UINT32);
-      const auto view_projection = Multiply(scene.projection, scene.view);
-      for (const auto& draw : scene.draws) {
-        PushConstants push{Multiply(view_projection, draw.transform),
-                           draw.base_color};
-        vkCmdPushConstants(command, target_.pipeline_layout,
-                           VK_SHADER_STAGE_VERTEX_BIT |
-                               VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(push), &push);
-        vkCmdDrawIndexed(command, draw.index_count, 1, draw.first_index,
-                         draw.vertex_offset, 0);
-      }
+    const auto view_projection = Multiply(snapshot.projection, snapshot.view);
+    for (const auto& draw : snapshot.draws) {
+      const auto& geometry = snapshot.geometries[draw.geometry_index];
+      const auto& slot = geometry_slots_.at(geometry.mesh);
+      const auto vertex_buffer = vertex_arena_.buffer(slot.vertices.block);
+      vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer,
+                             &slot.vertices.offset);
+      vkCmdBindIndexBuffer(command, index_arena_.buffer(slot.indices.block),
+                           slot.indices.offset, VK_INDEX_TYPE_UINT32);
+      const auto& instance = snapshot.instances[draw.instance_index];
+      const auto& material = snapshot.materials[draw.material_index];
+      PushConstants push{Multiply(view_projection, instance.transform),
+                         material.base_color};
+      vkCmdPushConstants(command, target_.pipeline_layout,
+                         VK_SHADER_STAGE_VERTEX_BIT |
+                             VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(push), &push);
+      vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
     }
     vkCmdEndRenderPass(command);
 
@@ -1069,15 +1495,17 @@ class Renderer::Impl {
   std::uint32_t queue_family_{};
   std::uint64_t timeline_value_{};
   std::size_t next_frame_{};
-  std::uint64_t uploaded_revision_{std::numeric_limits<std::uint64_t>::max()};
-  const extraction::ExtractedScene* uploaded_scene_{};
   RendererCapabilities capabilities_;
   RendererStatistics statistics_;
   FrameCounters frame_counters_;
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
-  Buffer scene_vertices_;
-  Buffer scene_indices_;
+  DeviceArena vertex_arena_;
+  DeviceArena index_arena_;
+  StagingRing staging_;
+  std::map<std::uint64_t, GeometrySlot> geometry_slots_;
+  std::vector<RetiredRange> retired_ranges_;
+  std::vector<PendingCopy> pending_copies_;
   RenderTarget target_;
   std::atomic<std::uint64_t> validation_messages_{};
 };
@@ -1096,6 +1524,10 @@ RendererStatistics Renderer::statistics() const noexcept {
   auto result = impl_->statistics_;
   result.validation_messages =
       impl_->validation_messages_.load(std::memory_order_relaxed);
+  result.pending_geometry_retirements =
+      static_cast<std::uint32_t>(impl_->retired_ranges_.size());
+  result.geometry_arena_blocks =
+      impl_->vertex_arena_.block_count() + impl_->index_arena_.block_count();
   return result;
 }
 
@@ -1136,10 +1568,10 @@ void ValidateRenderResult(const RenderResult& result) {
   }
 }
 
-RenderResult Renderer::Render(const extraction::ExtractedScene& scene,
+RenderResult Renderer::Render(const extraction::FrameSnapshot& snapshot,
                               std::uint32_t width, std::uint32_t height,
                               const ShaderPaths& shaders) {
-  auto result = impl_->Render(scene, width, height, shaders);
+  auto result = impl_->Render(snapshot, width, height, shaders);
   ValidateRenderResult(result);
   return result;
 }
