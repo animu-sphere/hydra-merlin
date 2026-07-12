@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** pre-v0.1.0 · **Last reviewed:** 2026-07-12
+**Status:** v0.1.0 release candidate · **Last reviewed:** 2026-07-12
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -10,7 +10,7 @@ work, but is not currently claimed as supported evidence.
 
 | Platform | Core | Vulkan/headless | Hydra 2 | Evidence level |
 | --- | --- | --- | --- | --- |
-| Windows x64, Visual Studio 2022 | Debug/Release | Vulkan 1.4 | OpenUSD 26.05 | Core hosted CI; GPU/Hydra local validation and manual capability workflow |
+| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Release with OpenUSD 26.05 | Core hosted CI; GPU/Hydra local validation and manual capability workflow |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Core hosted CI |
 | macOS | Not validated | Not validated | Not validated | No current claim |
 
@@ -41,6 +41,8 @@ compatibility checks remain planned work.
 | Vulkan offscreen color/depth rendering and CPU readback | Available |
 | Deterministic reference-path benchmark JSON and structural counters | Available |
 | Core/Vulkan installed CMake targets | Available |
+| Versioned dependency and package metadata | Available as installed JSON |
+| Tag-driven Core SDK release automation | Available for stable SemVer tags |
 | Hydra 2 mesh topology, transform, visibility, and camera sync | Available |
 | Authored Hydra materials and MaterialX translation | Unavailable; fallback material only |
 | Hydra native instancing and subdivision refinement | Unavailable |

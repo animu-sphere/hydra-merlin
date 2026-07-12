@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package-core:
+    name: Core SDK / ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: linux-x64
+          - os: windows-2022
+            asset: windows-x64
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Verify release tag and project version
+        run: >-
+          cmake
+          "-DMERLIN_RELEASE_TAG:STRING=${{ github.ref_name }}"
+          "-DMERLIN_SOURCE_DIR:PATH=${{ github.workspace }}"
+          -P cmake/verify-release-tag.cmake
+
+      - name: Configure Core SDK (Windows)
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DMERLIN_ENABLE_VULKAN=OFF
+
+      - name: Configure Core SDK (Linux)
+        if: runner.os == 'Linux'
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMERLIN_ENABLE_VULKAN=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Test source and install-tree consumers
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      - name: Install staged SDK
+        run: >-
+          cmake --install build --config Release
+          --prefix package/hdMerlin-${{ github.ref_name }}-${{ matrix.asset }}
+
+      - name: Create release archive and checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $archive = "dist/hdMerlin-${{ github.ref_name }}-${{ matrix.asset }}.zip"
+          cmake -E tar cf $archive --format=zip -- "package/hdMerlin-${{ github.ref_name }}-${{ matrix.asset }}"
+          if ($LASTEXITCODE -ne 0) { throw "archive creation failed" }
+          Copy-Item -LiteralPath "package/hdMerlin-${{ github.ref_name }}-${{ matrix.asset }}/share/merlin/merlin-release-metadata.json" `
+            -Destination "dist/hdMerlin-${{ github.ref_name }}-${{ matrix.asset }}-metadata.json"
+          cmake "-DMERLIN_INPUT:FILEPATH=$archive" "-DMERLIN_OUTPUT:FILEPATH=$archive.sha256" -P cmake/write-sha256.cmake
+          if ($LASTEXITCODE -ne 0) { throw "checksum generation failed" }
+
+      - name: Upload packaged SDK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: core-sdk-${{ matrix.asset }}
+          if-no-files-found: error
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            dist/*.json
+
+  publish:
+    name: Publish GitHub Release
+    needs: package-core
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Download packaged SDKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh run download ${{ github.run_id }} --dir dist
+
+      - name: Create release from tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/core-sdk-*/*
+          --verify-tag
+          --generate-notes
+          --title "hdMerlin ${GITHUB_REF_NAME}"

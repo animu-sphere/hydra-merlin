@@ -6,6 +6,7 @@ set(MERLIN_VULKAN_MIN_VERSION_MAJOR 1)
 set(MERLIN_VULKAN_MIN_VERSION_MINOR 4)
 set(MERLIN_VULKAN_MIN_VERSION
     "${MERLIN_VULKAN_MIN_VERSION_MAJOR}.${MERLIN_VULKAN_MIN_VERSION_MINOR}")
+set(MERLIN_OPENUSD_VALIDATED_VERSION "26.05")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -103,3 +104,75 @@ install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/MerlinConfigVersion.cmake"
   DESTINATION "${_merlin_install_cmakedir}"
 )
+
+if(MERLIN_ENABLE_VULKAN)
+  set(_merlin_metadata_vulkan_enabled true)
+  set(_merlin_metadata_vulkan_version "null")
+  if(DEFINED MERLIN_VULKAN_DETECTED_VERSION AND
+     MERLIN_VULKAN_DETECTED_VERSION MATCHES "^[0-9A-Za-z.+_-]+$")
+    set(_merlin_metadata_vulkan_version
+        "\"${MERLIN_VULKAN_DETECTED_VERSION}\"")
+  endif()
+  set(_merlin_metadata_vulkan_sdk_version "null")
+  if(DEFINED MERLIN_VULKAN_SDK_DETECTED_VERSION AND
+     MERLIN_VULKAN_SDK_DETECTED_VERSION MATCHES "^[0-9A-Za-z.+_-]+$")
+    set(_merlin_metadata_vulkan_sdk_version
+        "\"${MERLIN_VULKAN_SDK_DETECTED_VERSION}\"")
+  endif()
+  set(_merlin_metadata_exported_vulkan
+      ",\n      \"Merlin::Vulkan\"")
+  set(_merlin_metadata_runtime_products
+      "      \"merlin-headless\",\n      \"merlin-benchmark\"")
+else()
+  set(_merlin_metadata_vulkan_enabled false)
+  set(_merlin_metadata_vulkan_version "null")
+  set(_merlin_metadata_vulkan_sdk_version "null")
+  set(_merlin_metadata_exported_vulkan "")
+  set(_merlin_metadata_runtime_products "")
+endif()
+
+if(MERLIN_ENABLE_HYDRA2)
+  set(_merlin_metadata_hydra2_enabled true)
+  set(_merlin_metadata_openusd_version "null")
+  if(DEFINED MERLIN_OPENUSD_DETECTED_VERSION AND
+     MERLIN_OPENUSD_DETECTED_VERSION MATCHES "^[0-9A-Za-z.+_-]+$")
+    set(_merlin_metadata_openusd_version
+        "\"${MERLIN_OPENUSD_DETECTED_VERSION}\"")
+  endif()
+  if(_merlin_metadata_runtime_products)
+    string(APPEND _merlin_metadata_runtime_products ",\n")
+  endif()
+  string(APPEND _merlin_metadata_runtime_products "      \"hdMerlin\"")
+else()
+  set(_merlin_metadata_hydra2_enabled false)
+  set(_merlin_metadata_openusd_version "null")
+endif()
+
+if(_merlin_metadata_runtime_products)
+  set(_merlin_metadata_runtime_products
+      "[\n${_merlin_metadata_runtime_products}\n    ]")
+else()
+  set(_merlin_metadata_runtime_products "[]")
+endif()
+
+configure_file(
+  cmake/merlin-release-metadata.json.in
+  "${CMAKE_CURRENT_BINARY_DIR}/merlin-release-metadata.json"
+  @ONLY
+)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/merlin-release-metadata.json"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin"
+)
+
+if(MERLIN_BUILD_TESTS)
+  add_test(
+    NAME merlin-release-metadata
+    COMMAND ${CMAKE_COMMAND}
+      "-DMERLIN_METADATA:FILEPATH=${CMAKE_CURRENT_BINARY_DIR}/merlin-release-metadata.json"
+      "-DMERLIN_EXPECTED_VERSION:STRING=${PROJECT_VERSION}"
+      "-DMERLIN_EXPECTED_VULKAN:BOOL=${MERLIN_ENABLE_VULKAN}"
+      "-DMERLIN_EXPECTED_HYDRA2:BOOL=${MERLIN_ENABLE_HYDRA2}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify-release-metadata.cmake"
+  )
+  set_tests_properties(merlin-release-metadata PROPERTIES LABELS packaging)
+endif()

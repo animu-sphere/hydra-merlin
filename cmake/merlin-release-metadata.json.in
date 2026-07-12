@@ -1,0 +1,38 @@
+{
+  "schema": "animu-sphere.hdmerlin.release-metadata",
+  "schema_version": 1,
+  "project": {
+    "name": "hdMerlin",
+    "version": "@PROJECT_VERSION@"
+  },
+  "configuration": {
+    "vulkan": @_merlin_metadata_vulkan_enabled@,
+    "hydra2": @_merlin_metadata_hydra2_enabled@
+  },
+  "requirements": {
+    "cmake": {
+      "minimum": "3.24"
+    },
+    "cpp": {
+      "standard": 20
+    },
+    "vulkan": {
+      "minimum": "@MERLIN_VULKAN_MIN_VERSION@",
+      "detected": @_merlin_metadata_vulkan_version@,
+      "sdk_detected": @_merlin_metadata_vulkan_sdk_version@
+    },
+    "openusd": {
+      "validated": "@MERLIN_OPENUSD_VALIDATED_VERSION@",
+      "detected": @_merlin_metadata_openusd_version@
+    }
+  },
+  "packaging": {
+    "cmake_package": "Merlin",
+    "exported_targets": [
+      "Merlin::RenderWorld",
+      "Merlin::RenderExtraction"@_merlin_metadata_exported_vulkan@
+    ],
+    "runtime_products_contract": "runtime-only",
+    "runtime_products": @_merlin_metadata_runtime_products@
+  }
+}

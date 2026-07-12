@@ -49,6 +49,14 @@ Legend: ✅ done
   superseded Core CI runs per ref.
 - ✅ Installed versioned CMake package files and exported `Merlin::RenderWorld`,
   `Merlin::RenderExtraction`, and optional `Merlin::Vulkan` targets.
+- ✅ Defined Headless, benchmark, and Hydra as runtime-only install products so
+  OpenUSD stays out of the exported Core/Vulkan dependency graph.
+- ✅ Added versioned JSON dependency/package metadata to configured builds,
+  install prefixes, and release archives.
+- ✅ Added stable SemVer tag-driven Windows/Linux Core SDK release automation
+  with project-version validation and SHA-256 checksum assets.
+- ✅ Covered Vulkan/headless Debug and Release configurations in the manually
+  dispatched capability workflow.
 
 The capability workflow and its evidence contract are complete. Enrolling a
 repository-scoped GPU runner for continuous execution remains in the

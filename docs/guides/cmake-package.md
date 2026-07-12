@@ -52,11 +52,20 @@ fail. The package exposes `Merlin_VERSION`, `Merlin_WITH_VULKAN`, and
 
 ## Runtime-only products
 
-In the current pre-v0.1.0 package, `merlin-headless` and the `hdMerlin` plugin
-are installed runtime products, not imported CMake targets. Their executable,
-plugin resources, and shaders are installed together so they can run without
-the source tree. Whether future packages export `Merlin::Headless` or
-`Merlin::Hydra2` remains an explicit v0.1.0 roadmap decision.
+For v0.1.0, `merlin-headless`, `merlin-benchmark`, and the `hdMerlin` plugin are
+runtime-only install products, not imported CMake targets. Their executables or
+plugin module, resources, and shaders are installed together so they can run
+without the source tree. They do not expose a supported link-time consumer API,
+so an imported target would create a dependency contract that the runtime
+products do not need.
 
-OpenUSD is therefore not a transitive dependency of the exported Core or Vulkan
-targets.
+This keeps OpenUSD out of the exported target graph. OpenUSD is therefore not a
+transitive dependency of the Core or Vulkan CMake targets.
+
+## Machine-readable package metadata
+
+Every configured build generates `merlin-release-metadata.json` and installs it
+under `<prefix>/<datadir>/merlin`. Schema version 1 records the project version,
+enabled Vulkan/Hydra layers, dependency minimums or validated versions, exported
+CMake targets, and the runtime-only product list. Release archives carry the
+same file so tooling can inspect their contract without parsing this guide.
