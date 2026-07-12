@@ -8,6 +8,10 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.1.0] - 2026-07-12
+
 ### Added
 
 - Host-neutral `RenderWorld` and deterministic draw extraction libraries.
@@ -26,7 +30,8 @@ after its public API and release process are established.
 - Stable SemVer tag-driven Windows/Linux Core SDK releases with project-version
   validation and SHA-256 checksum assets.
 
-No hdMerlin version has been formally released. Granular pre-release progress is
-retained in the [delivery history](docs/reports/delivery-history.md).
+Granular pre-release progress is retained in the
+[delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/commits/main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.1.0...main
+[0.1.0]: https://github.com/animu-sphere/hydra-merlin/releases/tag/v0.1.0

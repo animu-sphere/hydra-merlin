@@ -7,9 +7,6 @@ record rather than rewriting an older one.
 
 Active incomplete work lives in the [roadmap](../roadmap/).
 
-No hdMerlin version has been formally released yet. The active release target is
-[v0.1.0](../roadmap/current.md).
-
 | Version | Record | Theme |
 | --- | --- | --- |
-| — | — | No formal releases yet |
+| v0.1.0 | [v0.1.0](v0.1.0.md) | Reproducible renderer foundation |

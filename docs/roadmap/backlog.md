@@ -5,15 +5,8 @@ Ordered but unscheduled work. The next release and active carry-over work are in
 
 Legend: ⬜ not started
 
-## Milestone ladder beyond v0.1.0
+## Milestone ladder beyond the current milestone
 
-- ⬜ **v0.2.0 — resource-granular GPU scene.** Define an immutable
-  `FrameSnapshot`; split mesh geometry, material, instance, and draw records;
-  key extraction and GPU caches by handle/generation/revision; implement
-  transform-, visibility-, and material-only updates; share geometry across
-  instances; validate removal across frame latency; and add a device-local
-  staging ring, dirty-range transfer, and buffer suballocation. Static scenes
-  must produce zero upload bytes and zero pipeline creation after warm-up.
 - ⬜ **v0.3.0 — practical Hydra mesh input.** Normalize normals, display color,
   opacity, UVs, indexed and face-varying primvars; replace convex fan assumptions
   with deterministic robust triangulation and malformed-topology diagnostics;
