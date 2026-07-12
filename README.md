@@ -25,6 +25,18 @@ Render the headless smoke image:
 ./build/adapters/merlin-headless/Debug/merlin-headless.exe --frames 6 --output merlin.ppm
 ```
 
+Capture the reference-path performance baselines as deterministic JSON:
+
+```powershell
+./build/adapters/merlin-benchmark/Debug/merlin-benchmark.exe `
+  --width 512 --height 512 --steady-frames 30 --output benchmark.json
+```
+
+The report records build/machine metadata, CPU scope timings, and structural
+counters for first-frame, steady-state, and scene-edit scenarios. See the
+[benchmark guide](docs/guides/benchmarking.md) for the schema and comparison
+rules.
+
 The renderer keeps three frame contexts by default, uploads an extracted scene
 only when its revision changes, and returns tightly packed top-left color and
 depth products under one completion value.
@@ -106,9 +118,10 @@ Install a configured build into a staging prefix:
 cmake --install build --config Release --prefix C:/merlin
 ```
 
-This installs the public headers, libraries, versioned CMake package files, and,
-when enabled, `merlin-headless` with its SPIR-V shaders. A downstream CMake
-project can consume the package without referring to the Merlin source tree:
+This installs the public headers, libraries, versioned CMake package files,
+and, when enabled, `merlin-headless` and `merlin-benchmark` with their SPIR-V
+shaders. A downstream CMake project can consume the package without referring
+to the Merlin source tree:
 
 ```cmake
 find_package(Merlin 0.1 REQUIRED COMPONENTS RenderExtraction)
@@ -137,6 +150,7 @@ readback without owning a native window or swapchain.
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
 - [Build and install](docs/guides/build-and-install.md)
+- [Benchmarking](docs/guides/benchmarking.md)
 - [Using the CMake package](docs/guides/cmake-package.md)
 - [Support matrix](docs/reference/support-matrix.md)
 - [Contributing](CONTRIBUTING.md)

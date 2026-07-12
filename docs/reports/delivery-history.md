@@ -62,3 +62,15 @@ repository-scoped GPU runner for continuous execution remains in the
   architecture documentation.
 - ✅ Documented the intentionally unavailable MaterialX, advanced viewport, and
   low-copy GPU interop features for v0.1.0.
+
+## Measurement baseline ✅
+
+- ✅ Added `merlin-benchmark` with a versioned, fixed-order JSON schema and
+  commit, build type, compiler, OS, GPU/driver, Vulkan API, and resolution
+  metadata.
+- ✅ Added CPU scopes for scene update, extraction, upload, command recording,
+  readback, and total frame time.
+- ✅ Added per-frame draw/triangle, transfer byte, allocation, pipeline, and
+  scene/pipeline cache counters.
+- ✅ Added first-frame, steady-state median, and scene-edit baselines with CI
+  assertions for static-scene zero-upload/allocation/pipeline behavior.

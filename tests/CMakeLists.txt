@@ -60,6 +60,20 @@ if(TARGET merlin-headless)
   )
 endif()
 
+if(TARGET merlin-benchmark)
+  add_test(
+    NAME merlin-benchmark-json
+    COMMAND ${CMAKE_COMMAND}
+      "-DMERLIN_BENCHMARK=$<TARGET_FILE:merlin-benchmark>"
+      "-DMERLIN_BENCHMARK_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/merlin-benchmark.json"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/run_benchmark_test.cmake"
+  )
+  set_tests_properties(merlin-benchmark-json PROPERTIES
+    LABELS "benchmark;gpu"
+    TIMEOUT 60
+  )
+endif()
+
 get_property(_merlin_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 
 add_test(

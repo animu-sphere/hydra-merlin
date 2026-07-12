@@ -39,6 +39,7 @@ compatibility checks remain planned work.
 | --- | --- |
 | Host-neutral scene model and draw extraction | Available |
 | Vulkan offscreen color/depth rendering and CPU readback | Available |
+| Deterministic reference-path benchmark JSON and structural counters | Available |
 | Core/Vulkan installed CMake targets | Available |
 | Hydra 2 mesh topology, transform, visibility, and camera sync | Available |
 | Authored Hydra materials and MaterialX translation | Unavailable; fallback material only |

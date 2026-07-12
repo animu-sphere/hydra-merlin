@@ -42,6 +42,38 @@ struct RendererStatistics {
   std::uint32_t frame_context_count{};
 };
 
+// CPU wall-clock durations for the backend-owned portions of one frame.
+// Nanoseconds keep the result machine-readable without floating-point
+// formatting differences between standard library implementations.
+struct FrameCpuTimings {
+  std::uint64_t upload_ns{};
+  std::uint64_t command_recording_ns{};
+  std::uint64_t readback_ns{};
+  std::uint64_t backend_total_ns{};
+};
+
+// Structural counters describe work performed by a single Render() call.
+// They are stable enough for CI assertions even when wall-clock timings are
+// too noisy for performance comparisons.
+struct FrameCounters {
+  std::uint64_t draw_count{};
+  std::uint64_t triangle_count{};
+  std::uint64_t upload_bytes{};
+  std::uint64_t readback_bytes{};
+  std::uint64_t allocation_count{};
+  std::uint64_t buffer_allocation_count{};
+  std::uint64_t image_allocation_count{};
+  std::uint64_t pipeline_creation_count{};
+  std::uint64_t scene_cache_hits{};
+  std::uint64_t scene_cache_misses{};
+  std::uint64_t pipeline_cache_hits{};
+  std::uint64_t pipeline_cache_misses{};
+
+  // Member-wise equality keeps steady-state drift detection in lockstep with
+  // this field list; adding a counter cannot silently escape the comparison.
+  bool operator==(const FrameCounters&) const = default;
+};
+
 struct ShaderPaths {
   std::filesystem::path vertex;
   std::filesystem::path fragment;
@@ -64,6 +96,8 @@ struct RenderResult {
   ImageDepth32 depth;
   std::uint64_t scene_revision{};
   std::uint64_t completion_value{};
+  FrameCpuTimings cpu_timings;
+  FrameCounters counters;
 };
 
 // Throws std::invalid_argument when a backend result violates Merlin's Tier 0
