@@ -5,6 +5,7 @@
 /.ci/
 /docs/reports/*
 !/docs/reports/README.md
+!/docs/reports/delivery-history.md
 *.user
 *.suo
 *.ppm
