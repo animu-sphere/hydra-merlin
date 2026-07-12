@@ -16,15 +16,24 @@ Vulkan 1.4 as their minimum contract.
 ### Vulkan 1.4 CI evidence
 
 - Add the headless validation loop and install-tree usdview stable-update test to
-  a supported Windows Vulkan 1.4 CI runner.
+  a supported Windows Vulkan 1.4 CI runner. The manually dispatched capability
+  workflow, digest-pinned Animusphere OpenUSD runtime, and runner label contract
+  are present; enrolling the labeled GPU runner is tracked in the
+  [backlog](backlog.md).
 - Persist loader, device, driver, SDK, and API versions in test or benchmark
   artifacts rather than only printing runtime capabilities to the console.
+  Headless now writes this JSON and the capability workflow retains it.
 
 ### Reproducible build and distribution baseline
 
-- Add Windows and Linux Core-only build/test CI.
+- Add Windows and Linux Core-only build/test CI. Debug and Release Core-only
+  source/install-consumer jobs are present, with per-ref concurrency cancelling
+  superseded runs. Assertion-based tests keep `assert()` live in Release via a
+  scoped `NDEBUG` strip in `tests/CMakeLists.txt`.
 - Split Core, Vulkan/headless, and Hydra jobs by required capability and make
-  every skip reason explicit.
+  every skip reason explicit. Hosted Core and manually dispatched
+  Vulkan/headless and Hydra jobs are now separate; enrolling the labeled GPU
+  runner is tracked in the [backlog](backlog.md).
 - Add `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, architecture,
   build/install, package, and support-matrix documentation.
 - Verify a clean checkout in Debug/Release, Vulkan ON/OFF, and Hydra opt-in
@@ -51,7 +60,9 @@ Vulkan 1.4 as their minimum contract.
 - CI covers Windows and Linux Core builds; capability runners cover Vulkan and
   OpenUSD/Hydra without turning missing dependencies into false product failures.
 - Build-tree and install-tree consumers pass.
-- Headless and Hydra validation runs are clean on the supported CI GPU runner.
+- Headless and Hydra validation runs are clean when the capability workflow is
+  dispatched on a labeled GPU runner. Enrolling that runner for continuous
+  evidence is a [backlog](backlog.md) item and does not gate v0.1.0.
 - Benchmark output contains the required machine/build metadata and structural
   counters.
 - Public licensing, architecture, build, and support documentation is present.

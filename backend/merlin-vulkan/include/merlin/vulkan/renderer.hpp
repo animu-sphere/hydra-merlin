@@ -18,7 +18,15 @@ struct RendererOptions {
 
 struct RendererCapabilities {
   std::string device_name;
+  std::string driver_name;
+  std::string driver_info;
+  std::string sdk_version;
+  std::uint32_t loader_api_version{};
   std::uint32_t api_version{};
+  std::uint32_t header_version{};
+  std::uint32_t driver_version{};
+  std::uint32_t vendor_id{};
+  std::uint32_t device_id{};
   std::uint32_t max_image_dimension_2d{};
   bool timeline_semaphore{};
   bool validation_enabled{};

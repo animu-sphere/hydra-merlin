@@ -1,3 +1,12 @@
+# These tests assert on their invariants, so assert() must stay live in every
+# configuration. CMake defines NDEBUG in the optimized configs; strip it for the
+# test targets in this directory. Removing the flag (rather than appending
+# -UNDEBUG) keeps the build free of MSVC warning D9025.
+foreach(_config "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
+  string(REGEX REPLACE "[-/]DNDEBUG( |$)" "\\1"
+         "CMAKE_CXX_FLAGS${_config}" "${CMAKE_CXX_FLAGS${_config}}")
+endforeach()
+
 add_executable(merlin-render-world-tests
   render_world_test.cpp
 )
@@ -41,6 +50,7 @@ if(TARGET merlin-headless)
             --height 64
             --frames 64
             --validate
+            --metadata "${CMAKE_CURRENT_BINARY_DIR}/merlin-vulkan-capabilities.json"
             --output "${CMAKE_CURRENT_BINARY_DIR}/merlin-validation.ppm"
   )
   set_tests_properties(merlin-vulkan-validation PROPERTIES

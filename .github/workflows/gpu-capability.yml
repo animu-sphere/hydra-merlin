@@ -1,0 +1,162 @@
+name: Vulkan and Hydra capability CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vulkan-headless:
+    name: Vulkan 1.4 headless
+    runs-on: [self-hosted, Windows, X64, vulkan-1.4]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Restore the LunarG Vulkan SDK cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/vulkan-sdk/1.4.350.0
+          key: lunarg-vulkan-sdk-windows-x64-1.4.350.0
+
+      - name: Provision the LunarG Vulkan SDK
+        shell: pwsh
+        run: .github/scripts/setup-vulkan.ps1
+
+      - name: Verify Vulkan 1.4 driver capability
+        shell: pwsh
+        run: |
+          vulkaninfo --summary | Out-File -Encoding utf8 vulkaninfo-summary.txt
+
+      - name: Configure Vulkan headless
+        shell: pwsh
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run headless smoke and validation loop
+        run: ctest --test-dir build -C Release -R "^merlin-vulkan-(offscreen|validation)$" --output-on-failure --verbose
+
+      - name: Upload Vulkan evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: vulkan-headless-evidence-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            vulkaninfo-summary.txt
+            build/tests/merlin-vulkan-capabilities.json
+            build/tests/merlin-validation.ppm
+            build/Testing/Temporary/LastTest.log
+
+  hydra:
+    name: OpenUSD 26.05 Hydra
+    runs-on: [self-hosted, Windows, X64, vulkan-1.4]
+    timeout-minutes: 30
+    env:
+      OST_HOME: ${{ github.workspace }}/.ost-ci-home
+      OST_RUNTIME_ARTIFACT: sha256:c1c54f1e8a31983ad24f2997e419b000d4ad5d030c392d592d20fd6c8ac8b227
+      OST_RUNTIME_REMOTE: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:64fd1f4404ef9a939d1cace1412d6998741ebf1774153250f97f9839617f784e
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Restore the LunarG Vulkan SDK cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/vulkan-sdk/1.4.350.0
+          key: lunarg-vulkan-sdk-windows-x64-1.4.350.0
+
+      - name: Provision the LunarG Vulkan SDK
+        shell: pwsh
+        run: .github/scripts/setup-vulkan.ps1
+
+      - name: Verify Vulkan 1.4 driver capability
+        shell: pwsh
+        run: |
+          vulkaninfo --summary | Out-Null
+
+      - name: Bootstrap pinned ost 0.13.0
+        shell: pwsh
+        run: |
+          $asset = "ost-cli-x86_64-pc-windows-msvc.zip"
+          $base = "https://github.com/animu-sphere/open-strata/releases/download/v0.13.0"
+          New-Item -ItemType Directory -Force .ost-ci/bootstrap-bin | Out-Null
+          Invoke-WebRequest "$base/$asset" -OutFile $asset
+          Invoke-WebRequest "$base/$asset.sha256" -OutFile "$asset.sha256"
+          $actual = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLowerInvariant()
+          $published = ((Get-Content "$asset.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($actual -ne $published) {
+            throw "$asset hashes to $actual but the release publishes $published"
+          }
+          Expand-Archive -LiteralPath $asset -DestinationPath .ost-ci/bootstrap-bin -Force
+          $ost = Get-ChildItem .ost-ci/bootstrap-bin -Recurse -Filter ost.exe | Select-Object -First 1
+          if (-not $ost) { throw "no ost.exe inside $asset" }
+          $ost.Directory.FullName | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          @{ schema = 1; version = "0.13.0"; asset = $asset; sha256 = $actual } |
+            ConvertTo-Json -Compress | Out-File -Encoding utf8 .ost-ci/bootstrap.json
+
+      - name: Restore the pinned runtime cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ost-ci-home/artifacts
+          key: ost-runtime-windows-cy2026-usd-${{ env.OST_RUNTIME_ARTIFACT }}
+
+      - name: Pull and materialize the Animusphere OpenUSD runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .ost-ci | Out-Null
+          ost artifact show $env:OST_RUNTIME_ARTIFACT --json *> $null
+          if ($LASTEXITCODE -eq 0) {
+            ost artifact verify $env:OST_RUNTIME_ARTIFACT --json |
+              Out-File -Encoding utf8 .ost-ci/runtime-cache-verify.json
+            if ($LASTEXITCODE -ne 0) { throw "cached OpenUSD runtime verification failed" }
+          } else {
+            ost artifact pull $env:OST_RUNTIME_REMOTE `
+              --expect-artifact $env:OST_RUNTIME_ARTIFACT `
+              --require-kind runtime --json |
+              Tee-Object -FilePath .ost-ci/runtime-pull.json
+            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime pull failed" }
+          }
+          ost runtime pull cy2026 --profile usd `
+            --from-artifact $env:OST_RUNTIME_ARTIFACT --force
+          if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime materialization failed" }
+          ost runtime validate cy2026 --profile usd --json |
+            Tee-Object -FilePath .ost-ci/runtime-validate.json
+          if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime validation failed" }
+          $runtime = (ost runtime show cy2026 --profile usd --json |
+            ConvertFrom-Json).data
+          if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime inspection failed" }
+          $root = Join-Path $env:OST_HOME "runtimes/$($runtime.id)"
+          if (-not (Test-Path -LiteralPath $root)) {
+            throw "materialized OpenUSD runtime is missing: $root"
+          }
+          "OPENUSD_ROOT=$root" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Configure Hydra
+        shell: pwsh
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run discovery and RenderBuffer tests
+        run: ctest --test-dir build -C Release -R "^merlin-hydra2-(discovery|render-buffer)$" --output-on-failure
+
+      - name: Run install-tree usdview regression
+        run: ctest --test-dir build -C Release -R "^merlin-hydra2-usdview-smoke$" --output-on-failure --verbose
+
+      - name: Upload usdview evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hydra-usdview-evidence-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            .ost-ci/*.json
+            build/adapters/merlin-hydra2/usdview-install/*.log
+            build/adapters/merlin-hydra2/usdview-install/*.png
+            build/Testing/Temporary/LastTest.log

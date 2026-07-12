@@ -49,6 +49,12 @@ Legend: ⬜ not started
 
 ## Cross-cutting open items
 
+- ⬜ **Self-hosted GPU runner enrollment.** Enroll a Windows x64 runner carrying
+  the `vulkan-1.4` GPU/driver label at repository scope so the manually
+  dispatched `Vulkan and Hydra capability CI` workflow can capture live loader,
+  device, and driver evidence. The workflow, checksum-pinned LunarG Vulkan SDK,
+  digest-pinned Animusphere OpenUSD runtime, and runner-label contract are
+  already in place; only enrollment remains.
 - ⬜ **Diagnostics and capabilities.** Define a Core callback/diagnostic sink, a
   host-neutral capability schema, and backend-specific extensions.
 - ⬜ **Resource ownership.** Specify external render-product lifetime, async

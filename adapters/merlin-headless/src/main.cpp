@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
@@ -16,6 +17,7 @@ namespace {
 
 struct Arguments {
   std::filesystem::path output{"merlin.ppm"};
+  std::filesystem::path metadata;
   std::uint32_t width{512};
   std::uint32_t height{512};
   std::uint32_t frames{3};
@@ -44,6 +46,8 @@ Arguments ParseArguments(int argc, char** argv) {
     };
     if (argument == "--output") {
       result.output = require_value(argument);
+    } else if (argument == "--metadata") {
+      result.metadata = require_value(argument);
     } else if (argument == "--width") {
       result.width = ParseUnsigned(require_value(argument), argument);
     } else if (argument == "--height") {
@@ -55,14 +59,84 @@ Arguments ParseArguments(int argc, char** argv) {
     } else if (argument == "--probe") {
       result.probe_only = true;
     } else if (argument == "--help") {
-      std::cout << "Usage: merlin-headless [--output FILE] [--width N] [--height N] "
-                   "[--frames N] [--validate] [--probe]\n";
+      std::cout << "Usage: merlin-headless [--output FILE] [--metadata FILE] "
+                   "[--width N] [--height N] [--frames N] [--validate] [--probe]\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(argument));
     }
   }
   return result;
+}
+
+std::string VersionString(std::uint32_t version) {
+  return std::to_string(VK_VERSION_MAJOR(version)) + "." +
+         std::to_string(VK_VERSION_MINOR(version)) + "." +
+         std::to_string(VK_VERSION_PATCH(version));
+}
+
+void WriteJsonString(std::ostream& stream, std::string_view value) {
+  stream << '"';
+  for (const unsigned char character : value) {
+    switch (character) {
+      case '"': stream << "\\\""; break;
+      case '\\': stream << "\\\\"; break;
+      case '\b': stream << "\\b"; break;
+      case '\f': stream << "\\f"; break;
+      case '\n': stream << "\\n"; break;
+      case '\r': stream << "\\r"; break;
+      case '\t': stream << "\\t"; break;
+      default:
+        if (character < 0x20U) {
+          stream << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                 << static_cast<unsigned int>(character) << std::dec
+                 << std::setfill(' ');
+        } else {
+          stream << character;
+        }
+    }
+  }
+  stream << '"';
+}
+
+void WriteMetadata(const std::filesystem::path& path,
+                   const merlin::vulkan::RendererCapabilities& capabilities) {
+  if (path.empty()) {
+    return;
+  }
+  if (path.has_parent_path()) {
+    std::filesystem::create_directories(path.parent_path());
+  }
+  std::ofstream stream(path, std::ios::binary);
+  if (!stream) {
+    throw std::runtime_error("could not create metadata: " + path.string());
+  }
+  stream << "{\n  \"schema_version\": 1,\n  \"vulkan\": {\n"
+         << "    \"sdk_version\": ";
+  WriteJsonString(stream, capabilities.sdk_version);
+  stream << ",\n    \"header_version\": ";
+  WriteJsonString(stream, VersionString(capabilities.header_version));
+  stream << ",\n    \"loader_api_version\": ";
+  WriteJsonString(stream, VersionString(capabilities.loader_api_version));
+  stream << ",\n    \"device_api_version\": ";
+  WriteJsonString(stream, VersionString(capabilities.api_version));
+  stream << ",\n    \"device_name\": ";
+  WriteJsonString(stream, capabilities.device_name);
+  stream << ",\n    \"vendor_id\": " << capabilities.vendor_id
+         << ",\n    \"device_id\": " << capabilities.device_id
+         << ",\n    \"driver_version\": " << capabilities.driver_version
+         << ",\n    \"driver_name\": ";
+  WriteJsonString(stream, capabilities.driver_name);
+  stream << ",\n    \"driver_info\": ";
+  WriteJsonString(stream, capabilities.driver_info);
+  stream << ",\n    \"timeline_semaphore\": "
+         << (capabilities.timeline_semaphore ? "true" : "false")
+         << ",\n    \"validation_enabled\": "
+         << (capabilities.validation_enabled ? "true" : "false")
+         << "\n  }\n}\n";
+  if (!stream) {
+    throw std::runtime_error("could not write metadata: " + path.string());
+  }
 }
 
 void WritePpm(const std::filesystem::path& path,
@@ -158,6 +232,8 @@ int main(int argc, char** argv) {
     merlin::vulkan::Renderer renderer({arguments.validation});
     const auto& capabilities = renderer.capabilities();
     std::cout << "Merlin Vulkan device: " << capabilities.device_name << '\n'
+              << "Loader API version: "
+              << VersionString(capabilities.loader_api_version) << '\n'
               << "API version: " << VK_VERSION_MAJOR(capabilities.api_version) << '.'
               << VK_VERSION_MINOR(capabilities.api_version) << '.'
               << VK_VERSION_PATCH(capabilities.api_version) << '\n'
@@ -166,6 +242,7 @@ int main(int argc, char** argv) {
               << "Validation: " << (capabilities.validation_enabled ? "on" : "off") << '\n'
               << "RenderWorld revision: " << changes.revision << " ("
               << changes.changes.size() << " changes)\n";
+    WriteMetadata(arguments.metadata, capabilities);
 
     if (arguments.validation && !capabilities.validation_enabled) {
       std::cerr << "merlin-headless: Vulkan validation layer is unavailable\n";
