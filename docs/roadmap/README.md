@@ -1,8 +1,10 @@
 # Roadmap
 
 The roadmap contains only **incomplete** work. Shipped work belongs in
-[release records](../releases/), while implementation evidence and design
-rationale belong in [reports](../reports/) and [design](../design/).
+[release records](../releases/), completed pre-release roadmap detail belongs in
+the [delivery history](../reports/delivery-history.md), and implementation
+evidence and design rationale belong in [reports](../reports/) and
+[design](../design/).
 
 Legend: 🚧 in progress · ⬜ not started
 

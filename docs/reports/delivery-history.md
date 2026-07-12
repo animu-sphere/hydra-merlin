@@ -1,0 +1,64 @@
+# Delivery history (pre-release roadmap detail)
+
+This is the granular delivery log for work completed toward hdMerlin v0.1.0. It
+is **historical evidence**, not a description of current behavior (see
+[design](../design/)) or planned work (see [roadmap](../roadmap/)). Once a
+version ships, its stable summary belongs in [release records](../releases/).
+
+Legend: ✅ done
+
+---
+
+## Renderer foundation ✅
+
+- ✅ Added the handle-based, host-neutral `RenderWorld` scene model.
+- ✅ Added deterministic draw extraction without OpenUSD, Hydra, Vulkan, Qt, or
+  DCC SDK types in the Core public API.
+- ✅ Added a persistent Vulkan offscreen renderer with color/depth CPU readback,
+  multiple frame contexts, revision-based scene upload, and one completion
+  value for both render products.
+- ✅ Added the opt-in Hydra 2 adapter with mesh topology, transform, visibility,
+  camera synchronization, adapter-owned USD-path mapping, CPU RenderBuffers,
+  and a Vulkan-backed render pass.
+- ✅ Added deterministic Core, RenderBuffer, Vulkan offscreen, validation, and
+  install-tree usdview stable-update tests.
+
+## Vulkan 1.4 baseline ✅
+
+- ✅ Made Vulkan 1.4 the minimum source-build, installed-package, loader, and
+  physical-device API contract.
+- ✅ Required a Vulkan 1.4-capable graphics queue and `glslc` at build time.
+- ✅ Kept renderer-owned validation and performance warnings as failures while
+  separating unrelated general loader or host diagnostics.
+- ✅ Added versioned JSON evidence for SDK/header, loader, selected device,
+  driver, API, timeline semaphore, and validation state.
+- ✅ Retained the JSON evidence and render logs/images as capability-workflow
+  artifacts.
+
+## Reproducible CI and package baseline ✅
+
+- ✅ Added Windows and Linux Core-only Debug and Release CI.
+- ✅ Exercised source tests and the isolated install-tree consumer in hosted CI.
+- ✅ Split hosted Core, Vulkan/headless, and OpenUSD/Hydra work by required
+  capability, with explicit skip semantics for optional capabilities.
+- ✅ Added a manually dispatched Windows capability workflow with separate
+  headless and Hydra jobs and a `vulkan-1.4` runner-label contract.
+- ✅ Pinned GitHub Actions, the LunarG Vulkan SDK download checksum, the
+  OpenStrata CLI version, and the Animusphere OpenUSD runtime artifact digest.
+- ✅ Kept assertion-based tests active in Release configurations and cancelled
+  superseded Core CI runs per ref.
+- ✅ Installed versioned CMake package files and exported `Merlin::RenderWorld`,
+  `Merlin::RenderExtraction`, and optional `Merlin::Vulkan` targets.
+
+The capability workflow and its evidence contract are complete. Enrolling a
+repository-scoped GPU runner for continuous execution remains in the
+[backlog](../roadmap/backlog.md#cross-cutting-open-items).
+
+## Public project baseline ✅
+
+- ✅ Published the Apache License 2.0 text.
+- ✅ Added contribution, security, and changelog policies.
+- ✅ Added build/install, CMake package, support-matrix, and renderer
+  architecture documentation.
+- ✅ Documented the intentionally unavailable MaterialX, advanced viewport, and
+  low-copy GPU interop features for v0.1.0.

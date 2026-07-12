@@ -1,5 +1,7 @@
 # hdMerlin
 
+[![Core CI](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml)
+
 hdMerlin is an OST-oriented, host-neutral Vulkan raster renderer. The current
 implementation provides a handle-based `RenderWorld`, deterministic draw
 extraction, and a persistent Vulkan offscreen renderer with color/depth CPU
@@ -50,6 +52,21 @@ The current mesh path fan-triangulates polygonal faces and uses the fallback
 material. Hydra instancing, subdivision refinement, authored materials, and
 zero-copy Vulkan/Hgi interop remain future work; usdview presentation currently
 uses Hydra's CPU RenderBuffer-to-Hgi upload path.
+
+## v0.1.0 limitations
+
+The foundation release intentionally does not provide:
+
+- MaterialX loading, graph translation, or authored Hydra material rendering;
+  all meshes currently use the fallback material;
+- advanced viewport features such as alpha mask/blend, dome lighting, shadows,
+  selection, or production culling;
+- Vulkan/Hgi external-memory or other zero-copy GPU presentation; Hydra uses
+  CPU RenderBuffer readback followed by the host's Hgi upload path.
+
+These are roadmap boundaries, not implicit compatibility claims. See the
+[support matrix](docs/reference/support-matrix.md) for current platform and
+feature coverage.
 
 The Vulkan path requires a Vulkan 1.4-capable graphics queue and `glslc`
 from the Vulkan SDK at build time.
@@ -116,5 +133,16 @@ readback without owning a native window or swapchain.
 
 - [Current milestone](docs/roadmap/current.md)
 - [Roadmap backlog](docs/roadmap/backlog.md)
+- [Delivery history](docs/reports/delivery-history.md)
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
+- [Build and install](docs/guides/build-and-install.md)
+- [Using the CMake package](docs/guides/cmake-package.md)
+- [Support matrix](docs/reference/support-matrix.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+
+## License
+
+hdMerlin is licensed under the [Apache License 2.0](LICENSE).
