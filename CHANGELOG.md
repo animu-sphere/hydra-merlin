@@ -16,6 +16,9 @@ after its public API and release process are established.
 - Versioned CMake package exports for Core and optional Vulkan consumers.
 - Windows/Linux Core CI and manually dispatched Vulkan/Hydra capability CI.
 - Machine-readable Vulkan runtime provenance and retained validation artifacts.
+- Deterministic `merlin-benchmark` JSON reports with environment metadata,
+  per-stage CPU timings, structural counters, and first-frame, steady-state,
+  and scene-edit baselines.
 - Public contribution, security, build/install, package, support, architecture,
   roadmap, and delivery-history documentation.
 

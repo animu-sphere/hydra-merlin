@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cmath>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -18,6 +19,14 @@
 
 namespace merlin::vulkan {
 namespace {
+
+using CpuClock = std::chrono::steady_clock;
+
+std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(CpuClock::now() - start)
+          .count());
+}
 
 constexpr std::uint32_t kMinimumVulkanApiVersion = VK_MAKE_API_VERSION(
     0, MERLIN_VULKAN_MIN_VERSION_MAJOR, MERLIN_VULKAN_MIN_VERSION_MINOR, 0);
@@ -147,11 +156,22 @@ class Renderer::Impl {
   RenderResult Render(const extraction::ExtractedScene& scene,
                       std::uint32_t width, std::uint32_t height,
                       const ShaderPaths& shaders) {
+    const auto backend_start = CpuClock::now();
+    frame_counters_ = {};
+    for (const auto& draw : scene.draws) {
+      ++frame_counters_.draw_count;
+      frame_counters_.triangle_count += draw.index_count / 3U;
+    }
+
     ValidateExtent(width, height);
     auto& frame = BeginFrame();
     EnsureTarget(width, height, shaders);
-    UploadScene(scene);
 
+    const auto upload_start = CpuClock::now();
+    UploadScene(scene);
+    const auto upload_ns = ElapsedNanoseconds(upload_start);
+
+    const auto recording_start = CpuClock::now();
     Check(vkResetCommandPool(device_, frame.command_pool, 0),
           "reset frame command pool");
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -160,7 +180,9 @@ class Renderer::Impl {
           "begin frame command buffer");
     RecordFrame(frame.command_buffer, scene);
     Check(vkEndCommandBuffer(frame.command_buffer), "end frame command buffer");
+    const auto recording_ns = ElapsedNanoseconds(recording_start);
 
+    const auto readback_start = CpuClock::now();
     const auto completion = SubmitAndWait(frame);
     ++statistics_.frames_submitted;
     CollectDeferred(completion);
@@ -168,8 +190,14 @@ class Renderer::Impl {
     RenderResult result;
     result.color = ReadColor(width, height);
     result.depth = ReadDepth(width, height);
+    const auto readback_ns = ElapsedNanoseconds(readback_start);
     result.scene_revision = scene.revision;
     result.completion_value = completion;
+    result.cpu_timings.upload_ns = upload_ns;
+    result.cpu_timings.command_recording_ns = recording_ns;
+    result.cpu_timings.readback_ns = readback_ns;
+    result.cpu_timings.backend_total_ns = ElapsedNanoseconds(backend_start);
+    result.counters = frame_counters_;
     return result;
   }
 
@@ -419,6 +447,8 @@ class Renderer::Impl {
 
   Buffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties) {
+    ++frame_counters_.allocation_count;
+    ++frame_counters_.buffer_allocation_count;
     Buffer result;
     result.size = size;
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -483,8 +513,14 @@ class Renderer::Impl {
 
   void UploadScene(const extraction::ExtractedScene& scene) {
     if (uploaded_scene_ == &scene && uploaded_revision_ == scene.revision) {
+      ++frame_counters_.scene_cache_hits;
       return;
     }
+    ++frame_counters_.scene_cache_misses;
+    frame_counters_.upload_bytes =
+        static_cast<std::uint64_t>(scene.vertices.size()) *
+            sizeof(extraction::DrawVertex) +
+        static_cast<std::uint64_t>(scene.indices.size()) * sizeof(std::uint32_t);
     auto vertices = CreateUploadedBuffer(scene.vertices,
                                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     Buffer indices;
@@ -557,6 +593,8 @@ class Renderer::Impl {
 
   VkImage CreateImage(std::uint32_t width, std::uint32_t height, VkFormat format,
                       VkImageUsageFlags usage, VkDeviceMemory& memory) {
+    ++frame_counters_.allocation_count;
+    ++frame_counters_.image_allocation_count;
     VkImage image{};
     VkImageCreateInfo image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -610,8 +648,10 @@ class Renderer::Impl {
     if (target_.width == width && target_.height == height &&
         target_.shaders.vertex == shaders.vertex &&
         target_.shaders.fragment == shaders.fragment) {
+      ++frame_counters_.pipeline_cache_hits;
       return;
     }
+    ++frame_counters_.pipeline_cache_misses;
     Check(vkDeviceWaitIdle(device_), "wait before resizing render products");
     DestroyTarget();
     CreateTarget(width, height, shaders);
@@ -721,6 +761,7 @@ class Renderer::Impl {
   }
 
   void CreatePipeline(const ShaderPaths& shaders) {
+    ++frame_counters_.pipeline_creation_count;
     const auto vertex_code = ReadSpirv(shaders.vertex);
     const auto fragment_code = ReadSpirv(shaders.fragment);
     VkShaderModule vertex_shader{};
@@ -960,6 +1001,8 @@ class Renderer::Impl {
   }
 
   ImageRgba8 ReadColor(std::uint32_t width, std::uint32_t height) {
+    frame_counters_.readback_bytes +=
+        static_cast<std::uint64_t>(width) * height * 4U;
     ImageRgba8 result;
     result.product = MakeRenderProduct(width, height, Aov::Color);
     result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
@@ -975,6 +1018,8 @@ class Renderer::Impl {
   }
 
   ImageDepth32 ReadDepth(std::uint32_t width, std::uint32_t height) {
+    frame_counters_.readback_bytes +=
+        static_cast<std::uint64_t>(width) * height * sizeof(float);
     ImageDepth32 result;
     result.product = MakeRenderProduct(width, height, Aov::Depth);
     result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
@@ -1028,6 +1073,7 @@ class Renderer::Impl {
   const extraction::ExtractedScene* uploaded_scene_{};
   RendererCapabilities capabilities_;
   RendererStatistics statistics_;
+  FrameCounters frame_counters_;
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
   Buffer scene_vertices_;

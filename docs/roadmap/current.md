@@ -21,17 +21,6 @@ new contributor and CI runner can reproduce.
   exported CMake targets or remain runtime-only install products.
 - Add a release workflow and machine-readable dependency/version metadata.
 
-### Measurement baseline
-
-- Add a `merlin-benchmark` skeleton with deterministic JSON output.
-- Record commit, build type, compiler, OS, GPU/driver, Vulkan API, and resolution.
-- Add CPU scopes for scene update, extraction, upload, command recording,
-  readback, and total frame time.
-- Add draw/triangle, upload/readback byte, allocation, pipeline, and cache
-  counters.
-- Save first-frame, steady-state, and scene-edit baselines for the flattened
-  reference path.
-
 ## Remaining exit criteria
 
 - A clean checkout reproduces Core-only, Vulkan/headless, and Hydra builds using
@@ -39,8 +28,6 @@ new contributor and CI runner can reproduce.
 - The headless/Hydra exported-target or runtime-only packaging contract is
   explicit.
 - Release automation emits machine-readable dependency/version metadata.
-- Benchmark output contains the required machine/build metadata and structural
-  counters.
 
 ## Carry-over follow-ups
 

@@ -34,6 +34,7 @@ add_subdirectory(core/merlin-render-extraction)
 if(MERLIN_ENABLE_VULKAN)
   add_subdirectory(backend/merlin-vulkan)
   add_subdirectory(adapters/merlin-headless)
+  add_subdirectory(adapters/merlin-benchmark)
 endif()
 
 if(MERLIN_ENABLE_HYDRA2)
