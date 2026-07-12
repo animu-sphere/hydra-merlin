@@ -19,6 +19,9 @@
 namespace merlin::vulkan {
 namespace {
 
+constexpr std::uint32_t kMinimumVulkanApiVersion = VK_MAKE_API_VERSION(
+    0, MERLIN_VULKAN_MIN_VERSION_MAJOR, MERLIN_VULKAN_MIN_VERSION_MINOR, 0);
+
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 
@@ -234,7 +237,21 @@ class Renderer::Impl {
     app_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 2, 0);
     app_info.pEngineName = "Merlin";
     app_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 2, 0);
-    app_info.apiVersion = VK_API_VERSION_1_2;
+    app_info.apiVersion = kMinimumVulkanApiVersion;
+
+    std::uint32_t loader_api_version = VK_API_VERSION_1_0;
+    const auto enumerate_instance_version =
+        reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+            vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion"));
+    if (enumerate_instance_version != nullptr) {
+      Check(enumerate_instance_version(&loader_api_version),
+            "query Vulkan loader version");
+    }
+    if (loader_api_version < kMinimumVulkanApiVersion) {
+      throw std::runtime_error(std::string("Vulkan ") +
+                               MERLIN_VULKAN_MIN_VERSION_STRING +
+                               " loader is required");
+    }
 
     VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pNext = use_debug_utils ? &debug_info : nullptr;
@@ -268,6 +285,11 @@ class Renderer::Impl {
 
     VkQueueFlags selected_queue_flags{};
     for (auto candidate : devices) {
+      VkPhysicalDeviceProperties candidate_properties{};
+      vkGetPhysicalDeviceProperties(candidate, &candidate_properties);
+      if (candidate_properties.apiVersion < kMinimumVulkanApiVersion) {
+        continue;
+      }
       std::uint32_t queue_count{};
       vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queue_count, nullptr);
       std::vector<VkQueueFamilyProperties> queues(queue_count);
@@ -285,7 +307,9 @@ class Renderer::Impl {
       }
     }
     if (physical_device_ == VK_NULL_HANDLE) {
-      throw std::runtime_error("no Vulkan graphics queue is available");
+      throw std::runtime_error(std::string("no Vulkan ") +
+                               MERLIN_VULKAN_MIN_VERSION_STRING +
+                               " physical device with a graphics queue is available");
     }
 
     VkPhysicalDeviceProperties properties{};
@@ -958,14 +982,23 @@ class Renderer::Impl {
       const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
       void* user_data) {
     (void)severity;
-    (void)type;
     auto* self = static_cast<Impl*>(user_data);
-    self->validation_messages_.fetch_add(1, std::memory_order_relaxed);
-    std::cerr << "Merlin Vulkan validation: "
-              << (callback_data != nullptr && callback_data->pMessage != nullptr
-                      ? callback_data->pMessage
-                      : "unknown validation message")
-              << '\n';
+    const char* message =
+        callback_data != nullptr && callback_data->pMessage != nullptr
+            ? callback_data->pMessage
+            : "unknown validation message";
+    // Validation and performance messages are renderer-owned quality signals and
+    // are counted as failures. General loader/host diagnostics stay observable on
+    // stderr but are not counted as renderer validation failures.
+    const bool renderer_signal =
+        (type & (VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)) != 0U;
+    if (renderer_signal) {
+      self->validation_messages_.fetch_add(1, std::memory_order_relaxed);
+      std::cerr << "Merlin Vulkan validation: " << message << '\n';
+    } else {
+      std::cerr << "Merlin Vulkan general: " << message << '\n';
+    }
     return VK_FALSE;
   }
 
