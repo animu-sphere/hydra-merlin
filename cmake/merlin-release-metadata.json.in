@@ -33,8 +33,6 @@
       "Merlin::RenderExtraction"@_merlin_metadata_exported_vulkan@
     ],
     "runtime_products_contract": "runtime-only",
-    "runtime_products": [
-@_merlin_metadata_runtime_products@
-    ]
+    "runtime_products": @_merlin_metadata_runtime_products@
   }
 }

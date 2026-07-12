@@ -21,6 +21,11 @@ Each SDK contains `merlin-release-metadata.json` under its data directory. The
 file records schema and project versions, dependency constraints, configured
 feature layers, exported targets, and runtime-only products.
 
+The `publish` job (artifact upload, download, and asset creation) only runs on a
+real tag push, so it is not exercised by hosted pull-request CI. Watch the first
+tag of a new pipeline closely, and prefer validating pipeline changes on a
+throwaway fork tag before tagging the canonical repository.
+
 ## Runtime products
 
 The hosted release workflow publishes the portable Core SDK baseline. Vulkan,

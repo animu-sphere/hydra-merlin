@@ -27,11 +27,15 @@ if(NOT "${_project_version}" VERSION_EQUAL "${MERLIN_EXPECTED_VERSION}")
   message(FATAL_ERROR
     "metadata version ${_project_version} != ${MERLIN_EXPECTED_VERSION}")
 endif()
-if(NOT "${_vulkan_enabled}" STREQUAL "${MERLIN_EXPECTED_VULKAN}")
+# string(JSON GET) yields ON/OFF for JSON booleans and MERLIN_EXPECTED_* arrive
+# as CMake BOOL values, so compare them as booleans rather than by exact spelling.
+if((_vulkan_enabled AND NOT MERLIN_EXPECTED_VULKAN) OR
+   (NOT _vulkan_enabled AND MERLIN_EXPECTED_VULKAN))
   message(FATAL_ERROR
     "metadata Vulkan flag ${_vulkan_enabled} != ${MERLIN_EXPECTED_VULKAN}")
 endif()
-if(NOT "${_hydra2_enabled}" STREQUAL "${MERLIN_EXPECTED_HYDRA2}")
+if((_hydra2_enabled AND NOT MERLIN_EXPECTED_HYDRA2) OR
+   (NOT _hydra2_enabled AND MERLIN_EXPECTED_HYDRA2))
   message(FATAL_ERROR
     "metadata Hydra flag ${_hydra2_enabled} != ${MERLIN_EXPECTED_HYDRA2}")
 endif()
@@ -57,6 +61,11 @@ endif()
 if(MERLIN_EXPECTED_HYDRA2)
   if(NOT _runtime_product_count EQUAL 3)
     message(FATAL_ERROR "Hydra metadata must list three runtime products")
+  endif()
+  string(JSON _hydra_product GET "${_merlin_metadata}"
+         packaging runtime_products 2)
+  if(NOT _hydra_product STREQUAL "hdMerlin")
+    message(FATAL_ERROR "Hydra metadata runtime product is missing")
   endif()
 elseif(MERLIN_EXPECTED_VULKAN)
   if(NOT _runtime_product_count EQUAL 2)

@@ -148,6 +148,13 @@ else()
   set(_merlin_metadata_openusd_version "null")
 endif()
 
+if(_merlin_metadata_runtime_products)
+  set(_merlin_metadata_runtime_products
+      "[\n${_merlin_metadata_runtime_products}\n    ]")
+else()
+  set(_merlin_metadata_runtime_products "[]")
+endif()
+
 configure_file(
   cmake/merlin-release-metadata.json.in
   "${CMAKE_CURRENT_BINARY_DIR}/merlin-release-metadata.json"
