@@ -5,5 +5,5 @@ int main() {
   merlin::RenderWorld world;
   merlin::extraction::SceneExtractor extractor;
   extractor.Apply(world, world.Commit());
-  return extractor.scene().draws.empty() ? 0 : 1;
+  return extractor.snapshot()->draws.empty() ? 0 : 1;
 }

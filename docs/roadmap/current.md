@@ -7,7 +7,9 @@ recorded in [release records](../releases/).
 
 ## Next milestone: v0.2.0 — resource-granular GPU scene
 
-**Status:** planned
+**Status:** implemented on `v0.2.0-resource-granular-gpu-scene`; exit criteria
+are enforced by the `merlin-vulkan-resource-update` and `merlin-benchmark-json`
+CTest gates. Release pending.
 
 Define an immutable `FrameSnapshot`; split mesh geometry, material, instance,
 and draw records; key extraction and GPU caches by handle, generation, and

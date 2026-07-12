@@ -35,6 +35,21 @@ if(TARGET Merlin::Vulkan)
 endif()
 
 if(TARGET merlin-headless)
+  add_executable(merlin-resource-update-tests
+    resource_update_test.cpp
+  )
+  target_link_libraries(merlin-resource-update-tests
+    PRIVATE Merlin::RenderExtraction Merlin::Vulkan)
+  add_test(
+    NAME merlin-vulkan-resource-update
+    COMMAND merlin-resource-update-tests
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+  )
+  set_tests_properties(merlin-vulkan-resource-update PROPERTIES
+    LABELS "gpu"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 60
+  )
   add_test(
     NAME merlin-vulkan-offscreen
     COMMAND merlin-headless

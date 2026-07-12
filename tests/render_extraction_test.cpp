@@ -23,30 +23,90 @@ int main() {
 
   merlin::extraction::SceneExtractor extractor;
   extractor.Apply(world, world.Commit());
-  assert(extractor.scene().revision == 1);
-  assert(extractor.scene().vertices.size() == 6);
-  assert(extractor.scene().indices.size() == 6);
-  assert(extractor.scene().draws.size() == 2);
-  assert(extractor.scene().draws.front().instance_handle == instance_handle.value());
-  assert(extractor.scene().draws.back().instance_handle ==
-         second_instance_handle.value());
-  assert(extractor.scene().draws.back().transform.values[12] == 0.25F);
-  assert(extractor.scene().draws.front().base_color.z == 0.75F);
+  const auto first = extractor.snapshot();
+  assert(first->revision == 1);
 
-  instance.visible = false;
-  world.UpdateInstance(instance_handle, instance);
+  // Two instances share one mesh: geometry is recorded once and referenced by
+  // both draw records.
+  assert(first->geometries.size() == 1);
+  assert(first->geometries.front().mesh == mesh_handle.value());
+  assert(first->geometries.front().vertices->size() == 3);
+  assert(first->geometries.front().indices->size() == 3);
+  assert(first->materials.size() == 1);
+  assert(first->instances.size() == 2);
+  assert(first->draws.size() == 2);
+  assert(first->draws.front().geometry_index == 0);
+  assert(first->draws.back().geometry_index == 0);
+  assert(first->instances[first->draws.front().instance_index].instance ==
+         instance_handle.value());
+  assert(first->instances[first->draws.back().instance_index].instance ==
+         second_instance_handle.value());
+  assert(first->instances[first->draws.back().instance_index]
+             .transform.values[12] == 0.25F);
+  assert(first->materials[first->draws.front().material_index]
+             .base_color.z == 0.75F);
+
+  // A transform-only edit must not rebuild geometry payloads: the new snapshot
+  // shares the same immutable vertex/index arrays.
+  instance.transform.values[12] = 0.5F;
+  world.UpdateInstance(second_instance_handle, instance,
+                       merlin::ChangeAspect::Transform);
   extractor.Apply(world, world.Commit());
-  assert(extractor.scene().revision == 2);
-  assert(extractor.scene().draws.size() == 1);
+  const auto transformed = extractor.snapshot();
+  assert(transformed->revision == 2);
+  assert(transformed->geometries.front().vertices ==
+         first->geometries.front().vertices);
+  assert(transformed->geometries.front().indices ==
+         first->geometries.front().indices);
+  assert(transformed->geometries.front().points_revision ==
+         first->geometries.front().points_revision);
+  assert(transformed->instances[transformed->draws.back().instance_index]
+             .transform.values[12] == 0.5F);
+  // The previous snapshot stays immutable across later applies.
+  assert(first->instances[first->draws.back().instance_index]
+             .transform.values[12] == 0.25F);
+
+  // Points-only mesh edit refreshes the vertex payload but shares topology.
+  mesh.positions[0].x = -0.75F;
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points);
+  extractor.Apply(world, world.Commit());
+  const auto moved = extractor.snapshot();
+  assert(moved->geometries.front().vertices !=
+         transformed->geometries.front().vertices);
+  assert(moved->geometries.front().indices ==
+         transformed->geometries.front().indices);
+  assert(moved->geometries.front().points_revision >
+         transformed->geometries.front().points_revision);
+  assert(moved->geometries.front().topology_revision ==
+         transformed->geometries.front().topology_revision);
+  assert(moved->geometries.front().vertices->front().position.x == -0.75F);
+
+  // Visibility-only edit drops the draw but keeps geometry and instance data.
+  instance.transform.values[12] = 0.25F;
+  instance.visible = false;
+  world.UpdateInstance(instance_handle, instance,
+                       merlin::ChangeAspect::Visibility |
+                           merlin::ChangeAspect::Transform);
+  extractor.Apply(world, world.Commit());
+  const auto hidden = extractor.snapshot();
+  assert(hidden->draws.size() == 1);
+  assert(hidden->geometries.size() == 1);
+  assert(hidden->instances.size() == 2);
+  assert(hidden->geometries.front().vertices ==
+         moved->geometries.front().vertices);
 
   instance.visible = true;
   world.UpdateInstance(instance_handle, instance);
   extractor.Apply(world, world.Commit());
-  assert(extractor.scene().draws.size() == 2);
+  assert(extractor.snapshot()->draws.size() == 2);
 
+  // Removing the mesh retires the geometry record and every dependent draw.
   world.Remove(mesh_handle);
   extractor.Apply(world, world.Commit());
-  assert(extractor.scene().draws.empty());
+  const auto removed = extractor.snapshot();
+  assert(removed->geometries.empty());
+  assert(removed->draws.empty());
+  assert(removed->instances.size() == 2);
 
   merlin::CameraDescriptor first_camera;
   first_camera.view.values[12] = 1.0F;
@@ -55,11 +115,11 @@ int main() {
   second_camera.view.values[12] = 2.0F;
   const auto second_camera_handle = world.CreateCamera(second_camera);
   extractor.Apply(world, world.Commit());
-  assert(extractor.scene().view.values[12] == 0.0F);
+  assert(extractor.snapshot()->view.values[12] == 0.0F);
   extractor.SetActiveCamera(second_camera_handle);
-  assert(extractor.scene().view.values[12] == 2.0F);
+  assert(extractor.snapshot()->view.values[12] == 2.0F);
   extractor.SetActiveCamera(first_camera_handle);
-  assert(extractor.scene().view.values[12] == 1.0F);
+  assert(extractor.snapshot()->view.values[12] == 1.0F);
 
   bool old_revision_rejected = false;
   try {

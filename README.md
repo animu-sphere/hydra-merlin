@@ -3,9 +3,9 @@
 [![Core CI](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml)
 
 hdMerlin is an OST-oriented, host-neutral Vulkan raster renderer. The current
-implementation provides a handle-based `RenderWorld`, deterministic draw
-extraction, and a persistent Vulkan offscreen renderer with color/depth CPU
-readback.
+implementation provides a handle-based `RenderWorld`, deterministic extraction
+into an immutable resource-granular `FrameSnapshot`, and a persistent Vulkan
+offscreen renderer with color/depth CPU readback.
 
 The core library intentionally has no OpenUSD, Hydra, DCC, Qt, or Vulkan types
 in its public API. Hydra and host integrations will remain thin adapters around
@@ -33,13 +33,19 @@ Capture the reference-path performance baselines as deterministic JSON:
 ```
 
 The report records build/machine metadata, CPU scope timings, and structural
-counters for first-frame, steady-state, and scene-edit scenarios. See the
+counters for first-frame, steady-state, and per-aspect edit scenarios
+(transform, visibility, material, points, removal). See the
 [benchmark guide](docs/guides/benchmarking.md) for the schema and comparison
 rules.
 
-The renderer keeps three frame contexts by default, uploads an extracted scene
-only when its revision changes, and returns tightly packed top-left color and
-depth products under one completion value.
+The renderer keeps three frame contexts by default and returns tightly packed
+top-left color and depth products under one completion value. GPU geometry
+residency is resource-granular: per-mesh vertex/index ranges are suballocated
+from device-local arenas, staged through a persistently mapped upload ring,
+keyed by handle generation and revision, shared across instances, and retired
+deterministically after the last referencing frame completes. Static scenes
+perform zero upload, allocation, and pipeline work after warm-up, and
+transform-, visibility-, and material-only edits stage zero geometry bytes.
 
 ## Hydra 2 adapter
 
