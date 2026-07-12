@@ -152,6 +152,7 @@ readback without owning a native window or swapchain.
 - [Build and install](docs/guides/build-and-install.md)
 - [Benchmarking](docs/guides/benchmarking.md)
 - [Using the CMake package](docs/guides/cmake-package.md)
+- [Releasing](docs/guides/releasing.md)
 - [Support matrix](docs/reference/support-matrix.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)

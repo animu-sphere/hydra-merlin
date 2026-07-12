@@ -7,27 +7,19 @@ recorded in [release records](../releases/).
 
 ## Next milestone: v0.1.0 — reproducible renderer foundation
 
-**Status:** in progress · **Depends on:** the existing RenderWorld → extraction
-→ Vulkan → color/depth vertical slice and the Core/Vulkan install package.
+**Status:** release candidate · **Depends on:** hosted CI passing on the release
+commit and the matching `v0.1.0` tag being pushed.
 
-Turn the working Hydra/headless foundation into a development baseline that a
-new contributor and CI runner can reproduce.
+The engineering exit criteria are implemented: clean configuration coverage,
+the runtime-only Headless/Hydra packaging contract, tag-driven release
+automation, and versioned machine-readable package metadata.
 
-### Reproducible build and distribution baseline
+### Remaining release gate
 
-- Verify a clean checkout in Debug/Release, Vulkan ON/OFF, and Hydra opt-in
-  configurations using the documented commands.
-- Decide and document whether the Hydra runtime and headless executable become
-  exported CMake targets or remain runtime-only install products.
-- Add a release workflow and machine-readable dependency/version metadata.
-
-## Remaining exit criteria
-
-- A clean checkout reproduces Core-only, Vulkan/headless, and Hydra builds using
-  documented commands.
-- The headless/Hydra exported-target or runtime-only packaging contract is
-  explicit.
-- Release automation emits machine-readable dependency/version metadata.
+- Merge the release-candidate changes after hosted Core CI passes.
+- Push the immutable `v0.1.0` tag. The tag workflow must reproduce the hosted
+  Core SDKs and publish their metadata and checksums before the release is
+  recorded in [release records](../releases/).
 
 ## Carry-over follow-ups
 

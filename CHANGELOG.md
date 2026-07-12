@@ -21,6 +21,10 @@ after its public API and release process are established.
   and scene-edit baselines.
 - Public contribution, security, build/install, package, support, architecture,
   roadmap, and delivery-history documentation.
+- Versioned installed JSON metadata describing dependencies, configured layers,
+  exported targets, and runtime-only products.
+- Stable SemVer tag-driven Windows/Linux Core SDK releases with project-version
+  validation and SHA-256 checksum assets.
 
 No hdMerlin version has been formally released. Granular pre-release progress is
 retained in the [delivery history](docs/reports/delivery-history.md).

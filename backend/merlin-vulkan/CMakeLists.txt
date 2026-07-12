@@ -1,4 +1,5 @@
 find_package(Vulkan ${MERLIN_VULKAN_MIN_VERSION} REQUIRED COMPONENTS glslc)
+set(MERLIN_VULKAN_DETECTED_VERSION "${Vulkan_VERSION}" PARENT_SCOPE)
 
 set(_merlin_vulkan_sdk_version "unknown")
 if(DEFINED ENV{VULKAN_SDK})
@@ -6,6 +7,8 @@ if(DEFINED ENV{VULKAN_SDK})
   cmake_path(GET _merlin_vulkan_sdk_path FILENAME
              _merlin_vulkan_sdk_version)
 endif()
+set(MERLIN_VULKAN_SDK_DETECTED_VERSION
+    "${_merlin_vulkan_sdk_version}" PARENT_SCOPE)
 
 add_library(merlin-vulkan STATIC
   src/renderer.cpp
