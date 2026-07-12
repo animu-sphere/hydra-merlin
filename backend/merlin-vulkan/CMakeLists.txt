@@ -1,4 +1,4 @@
-find_package(Vulkan 1.2 REQUIRED COMPONENTS glslc)
+find_package(Vulkan ${MERLIN_VULKAN_MIN_VERSION} REQUIRED COMPONENTS glslc)
 
 add_library(merlin-vulkan STATIC
   src/renderer.cpp
@@ -22,6 +22,11 @@ target_link_libraries(merlin-vulkan
     Vulkan::Vulkan
 )
 target_compile_features(merlin-vulkan PUBLIC cxx_std_20)
+target_compile_definitions(merlin-vulkan PRIVATE
+  MERLIN_VULKAN_MIN_VERSION_MAJOR=${MERLIN_VULKAN_MIN_VERSION_MAJOR}
+  MERLIN_VULKAN_MIN_VERSION_MINOR=${MERLIN_VULKAN_MIN_VERSION_MINOR}
+  MERLIN_VULKAN_MIN_VERSION_STRING="${MERLIN_VULKAN_MIN_VERSION}"
+)
 
 set(MERLIN_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 set(MERLIN_VERTEX_SPV "${MERLIN_SHADER_OUTPUT_DIR}/triangle.vert.spv")

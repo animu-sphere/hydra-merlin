@@ -4,6 +4,7 @@ include(CMakeFindDependencyMacro)
 
 set(Merlin_VERSION "@PROJECT_VERSION@")
 set(Merlin_WITH_VULKAN @MERLIN_ENABLE_VULKAN@)
+set(Merlin_VULKAN_MIN_VERSION "@MERLIN_VULKAN_MIN_VERSION@")
 
 include("${CMAKE_CURRENT_LIST_DIR}/MerlinTargets.cmake")
 
@@ -20,9 +21,9 @@ endif()
 
 if(_merlin_load_vulkan)
   if(Merlin_FIND_REQUIRED_Vulkan)
-    find_dependency(Vulkan 1.2)
+    find_dependency(Vulkan ${Merlin_VULKAN_MIN_VERSION})
   else()
-    find_package(Vulkan 1.2 QUIET)
+    find_package(Vulkan ${Merlin_VULKAN_MIN_VERSION} QUIET)
   endif()
 
   if(Vulkan_FOUND)

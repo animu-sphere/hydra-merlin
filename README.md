@@ -51,7 +51,7 @@ material. Hydra instancing, subdivision refinement, authored materials, and
 zero-copy Vulkan/Hgi interop remain future work; usdview presentation currently
 uses Hydra's CPU RenderBuffer-to-Hgi upload path.
 
-The Vulkan path requires a Vulkan 1.2-capable graphics queue and `glslc`
+The Vulkan path requires a Vulkan 1.4-capable graphics queue and `glslc`
 from the Vulkan SDK at build time.
 
 ## Supported configurations
@@ -62,7 +62,7 @@ Hydra are optional dependency layers:
 | Configuration | CMake options | Required dependencies |
 |---|---|---|
 | Core-only | `MERLIN_ENABLE_VULKAN=OFF` | C++20 compiler |
-| Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.2 loader/headers and `glslc` |
+| Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and `glslc` |
 | Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
 
 Windows with Visual Studio 2022 is the currently validated development path.
@@ -101,3 +101,10 @@ draw extraction, and then the offscreen backend. Public Core APIs do not expose
 OpenUSD, Hydra, Vulkan, Qt, or DCC types. Hydra owns host path/dirty-bit
 translation, while the Vulkan backend owns execution and CPU render-product
 readback without owning a native window or swapchain.
+
+## Project documentation
+
+- [Current milestone](docs/roadmap/current.md)
+- [Roadmap backlog](docs/roadmap/backlog.md)
+- [Release records](docs/releases/README.md)
+- [Renderer architecture](docs/design/renderer-architecture.md)
