@@ -226,7 +226,8 @@ class Renderer::Impl {
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
     debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
                                  VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+    debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                              VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     debug_info.pfnUserCallback = ValidationCallback;
     debug_info.pUserData = this;
@@ -239,8 +240,13 @@ class Renderer::Impl {
     app_info.apiVersion = kMinimumVulkanApiVersion;
 
     std::uint32_t loader_api_version = VK_API_VERSION_1_0;
-    Check(vkEnumerateInstanceVersion(&loader_api_version),
-          "query Vulkan loader version");
+    const auto enumerate_instance_version =
+        reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+            vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion"));
+    if (enumerate_instance_version != nullptr) {
+      Check(enumerate_instance_version(&loader_api_version),
+            "query Vulkan loader version");
+    }
     if (loader_api_version < kMinimumVulkanApiVersion) {
       throw std::runtime_error(std::string("Vulkan ") +
                                MERLIN_VULKAN_MIN_VERSION_STRING +
@@ -976,14 +982,23 @@ class Renderer::Impl {
       const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
       void* user_data) {
     (void)severity;
-    (void)type;
     auto* self = static_cast<Impl*>(user_data);
-    self->validation_messages_.fetch_add(1, std::memory_order_relaxed);
-    std::cerr << "Merlin Vulkan validation: "
-              << (callback_data != nullptr && callback_data->pMessage != nullptr
-                      ? callback_data->pMessage
-                      : "unknown validation message")
-              << '\n';
+    const char* message =
+        callback_data != nullptr && callback_data->pMessage != nullptr
+            ? callback_data->pMessage
+            : "unknown validation message";
+    // Validation and performance messages are renderer-owned quality signals and
+    // are counted as failures. General loader/host diagnostics stay observable on
+    // stderr but are not counted as renderer validation failures.
+    const bool renderer_signal =
+        (type & (VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)) != 0U;
+    if (renderer_signal) {
+      self->validation_messages_.fetch_add(1, std::memory_order_relaxed);
+      std::cerr << "Merlin Vulkan validation: " << message << '\n';
+    } else {
+      std::cerr << "Merlin Vulkan general: " << message << '\n';
+    }
     return VK_FALSE;
   }
 

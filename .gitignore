@@ -2,7 +2,8 @@
 /out/
 /.vs/
 /CMakeUserPresets.json
-/docs/reports/
+/docs/reports/*
+!/docs/reports/README.md
 *.user
 *.suo
 *.ppm
