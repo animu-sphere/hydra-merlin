@@ -10,6 +10,9 @@ namespace merlin::extraction {
 
 struct DrawVertex {
   Vec3 position;
+  Vec3 normal{0.0F, 0.0F, 1.0F};
+  Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
+  Vec2 texcoord{};
 };
 
 // Snapshot records are keyed by the serialized RenderWorld handle value, which
@@ -21,6 +24,7 @@ struct GeometryRecord {
   std::uint64_t mesh{};
   // Vertex and index payloads carry independent revisions so consumers can
   // transfer only the sub-resource that actually changed.
+  // The packed vertex payload changes for point or primvar edits.
   std::uint64_t points_revision{};
   std::uint64_t topology_revision{};
   std::shared_ptr<const std::vector<DrawVertex>> vertices;

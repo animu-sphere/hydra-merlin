@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.1.0 release · **Last reviewed:** 2026-07-12
+**Status:** v0.3.0 implementation · **Last reviewed:** 2026-07-13
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -35,17 +35,18 @@ compatibility checks remain planned work.
 
 ## Product and feature coverage
 
-| Capability | v0.1.0 status |
+| Capability | Current status |
 | --- | --- |
 | Host-neutral scene model and draw extraction | Available |
-| Vulkan offscreen color/depth rendering and CPU readback | Available |
+| Vulkan color/depth/primId/instanceId rendering and CPU readback | Available |
 | Deterministic reference-path benchmark JSON and structural counters | Available |
 | Core/Vulkan installed CMake targets | Available |
 | Versioned dependency and package metadata | Available as installed JSON |
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
-| Hydra 2 mesh topology, transform, visibility, and camera sync | Available |
-| Authored Hydra materials and MaterialX translation | Unavailable; fallback material only |
-| Hydra native instancing and subdivision refinement | Unavailable |
+| Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available |
+| Authored Hydra material binding identity | Available; material-network shading remains planned |
+| Hydra native and nested instancing | Available |
+| Subdivision refinement | Unavailable |
 | Advanced viewport lighting, shadows, selection, transparency, and culling | Unavailable |
 | Vulkan/Hgi external-memory or zero-copy host presentation | Unavailable; CPU readback/upload reference path only |
 | Houdini, Husk, Hydra 1, and Maya integration packages | Unavailable |

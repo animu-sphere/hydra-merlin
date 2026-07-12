@@ -7,11 +7,6 @@ Legend: ⬜ not started
 
 ## Milestone ladder beyond the current milestone
 
-- ⬜ **v0.3.0 — practical Hydra mesh input.** Normalize normals, display color,
-  opacity, UVs, indexed and face-varying primvars; replace convex fan assumptions
-  with deterministic robust triangulation and malformed-topology diagnostics;
-  add native instancing, authored material binding, primId/instanceId AOVs, and
-  large-mesh/many-small-mesh/repeated-edit regression coverage.
 - ⬜ **v0.4.0 — execution and render-product lifetime.** Separate render request,
   submit, completion token, and resolve; document ownership of frame contexts,
   targets, and readback buffers; classify timeout/device-lost/unsupported errors;

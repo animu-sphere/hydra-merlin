@@ -42,7 +42,7 @@ def _render_phase(app_controller, phase, edit=None, size=None):
     ]
     assert len(matching) > previous_count, f"no render completed for {phase}"
     event = matching[-1]
-    assert event["buffers_written"] == 2
+    assert event["buffers_written"] == 4
     assert event["covered_pixels"] > 0
     assert event["validation_enabled"] == 1
     assert event["validation_messages"] == 0
@@ -106,8 +106,8 @@ def testUsdviewInputFunction(appController):
     camera = _render_phase(appController, "camera", edit=_move_camera)
     resized = _render_phase(appController, "resize", size=(401, 301))
 
-    assert baseline["draw_count"] == 2
-    assert points["draw_count"] == 2
+    assert baseline["draw_count"] == 6
+    assert points["draw_count"] == 6
     assert points["scene_revision"] > baseline["scene_revision"]
     point_changes = _events_with_aspect("points", "mesh_aspects", 1 << 1)
     assert point_changes
@@ -116,7 +116,7 @@ def testUsdviewInputFunction(appController):
         event["mesh_resource_revision"] >= 2
         for event in point_changes)
 
-    assert topology["draw_count"] == 2
+    assert topology["draw_count"] == 6
     assert topology["scene_revision"] > points["scene_revision"]
     topology_changes = _events_with_aspect(
         "topology", "mesh_aspects", 1 << 0)
@@ -124,7 +124,7 @@ def testUsdviewInputFunction(appController):
     assert all(
         event["instance_aspects"] == 0 for event in topology_changes)
 
-    assert transformed["draw_count"] == 2
+    assert transformed["draw_count"] == 6
     assert transformed["scene_revision"] > topology["scene_revision"]
     assert transformed["covered_x_sum"] != topology["covered_x_sum"]
     transform_changes = _events_with_aspect(
@@ -138,7 +138,7 @@ def testUsdviewInputFunction(appController):
         event["instance_resource_revision"] >= 2
         for event in transform_changes)
 
-    assert hidden["draw_count"] == 1
+    assert hidden["draw_count"] == 5
     assert hidden["scene_revision"] > transformed["scene_revision"]
     assert hidden["covered_x_sum"] != transformed["covered_x_sum"]
     visibility_changes = _events_with_aspect(
@@ -149,7 +149,7 @@ def testUsdviewInputFunction(appController):
         for event in visibility_changes)
     assert all(event["mesh_aspects"] == 0 for event in visibility_changes)
 
-    assert camera["draw_count"] == 1
+    assert camera["draw_count"] == 5
     assert camera["scene_revision"] > hidden["scene_revision"]
     assert camera["covered_x_sum"] != hidden["covered_x_sum"]
     camera_changes = _events_with_aspect(
@@ -160,7 +160,7 @@ def testUsdviewInputFunction(appController):
         event["camera_resource_revision"] >= 2
         for event in camera_changes)
 
-    assert resized["draw_count"] == 1
+    assert resized["draw_count"] == 5
     assert resized["completion_value"] > camera["completion_value"]
     assert (resized["width"], resized["height"]) == (401, 301)
     assert (resized["width"], resized["height"]) != (

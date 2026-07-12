@@ -1,4 +1,5 @@
-// Exercises the v0.2.0 resource-granular GPU scene contract end to end:
+// Exercises the v0.2.0 resource-granular GPU scene contract and v0.3.0 ID AOVs
+// end to end:
 // zero steady-state upload/allocation/pipeline work, sub-resource dirty-range
 // uploads, geometry sharing across instances, and deterministic retirement of
 // removed resources. Requires a Vulkan device; exits 77 (CTest skip) when the
@@ -16,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -103,6 +105,20 @@ int main(int argc, char** argv) {
              quad_index_bytes);
   assert(first.counters.buffer_suballocation_count == 4);
   assert(first.counters.pipeline_creation_count == 1);
+  std::unordered_set<std::uint32_t> visible_prim_ids;
+  std::unordered_set<std::uint32_t> visible_instance_ids;
+  for (std::size_t i = 0; i < first.depth.pixels.size(); ++i) {
+    if (first.depth.pixels[i] < 1.0F) {
+      assert(first.prim_id.pixels[i] !=
+             std::numeric_limits<std::uint32_t>::max());
+      assert(first.instance_id.pixels[i] !=
+             std::numeric_limits<std::uint32_t>::max());
+      visible_prim_ids.insert(first.prim_id.pixels[i]);
+      visible_instance_ids.insert(first.instance_id.pixels[i]);
+    }
+  }
+  assert(visible_prim_ids.size() == 2);
+  assert(visible_instance_ids.size() == 3);
 
   // Warm static frame: zero upload bytes, zero allocations, zero pipeline
   // creation.
@@ -165,10 +181,8 @@ int main(int argc, char** argv) {
   assert(moved.counters.buffer_range_release_count == 0);
   assert(moved.counters.allocation_count == 0);
 
-  // Topology edit with a different index count: the grown vertex payload
-  // still fits its aligned range and is updated in place, the index range is
-  // reallocated, the retired index range is reclaimed deterministically, and
-  // the unchanged quad is untouched.
+  // Topology edit with a different vertex and index count reallocates both
+  // packed vertex and index ranges; the unchanged quad is untouched.
   auto rebuilt_triangle = moved_triangle;
   rebuilt_triangle.positions.push_back({0.9F, -0.9F, 0.2F});
   rebuilt_triangle.indices = {0, 1, 2, 1, 3, 2};
@@ -177,11 +191,11 @@ int main(int argc, char** argv) {
   assert(rebuilt.counters.upload_bytes ==
          4U * kVertexBytes + 6U * kIndexBytes);
   assert(rebuilt.counters.geometry_cache_misses == 1);
-  assert(rebuilt.counters.buffer_suballocation_count == 1);
-  assert(rebuilt.counters.buffer_range_release_count == 1);
+  assert(rebuilt.counters.buffer_suballocation_count == 2);
+  assert(rebuilt.counters.buffer_range_release_count == 2);
   const auto after_rebuild = renderer->statistics();
   assert(after_rebuild.geometry_range_retirements ==
-         baseline_statistics.geometry_range_retirements + 1);
+         baseline_statistics.geometry_range_retirements + 2);
   assert(after_rebuild.pending_geometry_retirements == 0);
   assert(after_rebuild.geometry_arena_blocks == 2);
 

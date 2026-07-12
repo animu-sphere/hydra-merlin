@@ -76,8 +76,11 @@ using RenderSettingsHandle = Handle<RenderSettingsTag>;
 
 struct MeshDescriptor {
   std::string label;
+  // Mesh input adapters normalize interpolation and indexing so every
+  // optional primvar has either zero entries or one entry per position.
   std::vector<Vec3> positions;
   std::vector<Vec3> normals;
+  std::vector<Vec4> colors;
   std::vector<Vec2> texcoords;
   std::vector<std::uint32_t> indices;
 };

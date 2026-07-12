@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(hdMerlin VERSION 0.2.0 LANGUAGES CXX)
+project(hdMerlin VERSION 0.3.0 LANGUAGES CXX)
 
 set(MERLIN_VULKAN_MIN_VERSION_MAJOR 1)
 set(MERLIN_VULKAN_MIN_VERSION_MINOR 4)

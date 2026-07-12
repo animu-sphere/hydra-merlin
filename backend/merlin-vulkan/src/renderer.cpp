@@ -34,6 +34,7 @@ constexpr std::uint32_t kMinimumVulkanApiVersion = VK_MAKE_API_VERSION(
 
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
+constexpr VkFormat kIdFormat = VK_FORMAT_R32_UINT;
 
 void Check(VkResult result, const char* operation) {
   if (result != VK_SUCCESS) {
@@ -104,6 +105,8 @@ Mat4 Multiply(const Mat4& lhs, const Mat4& rhs) {
 struct PushConstants {
   Mat4 model_view_projection;
   Vec4 base_color;
+  std::uint32_t prim_id{};
+  std::uint32_t instance_id{};
 };
 
 constexpr VkDeviceSize kArenaAlignment = 16;
@@ -513,6 +516,10 @@ class Renderer::Impl {
     RenderResult result;
     result.color = ReadColor(width, height);
     result.depth = ReadDepth(width, height);
+    result.prim_id = ReadId(width, height, Aov::PrimId,
+                            target_.prim_id_readback);
+    result.instance_id = ReadId(width, height, Aov::InstanceId,
+                                target_.instance_id_readback);
     const auto readback_ns = ElapsedNanoseconds(readback_start);
     result.scene_revision = snapshot.revision;
     result.completion_value = completion;
@@ -571,12 +578,20 @@ class Renderer::Impl {
     VkImage depth{};
     VkDeviceMemory depth_memory{};
     VkImageView depth_view{};
+    VkImage prim_id{};
+    VkDeviceMemory prim_id_memory{};
+    VkImageView prim_id_view{};
+    VkImage instance_id{};
+    VkDeviceMemory instance_id_memory{};
+    VkImageView instance_id_view{};
     VkRenderPass render_pass{};
     VkFramebuffer framebuffer{};
     VkPipelineLayout pipeline_layout{};
     VkPipeline pipeline{};
     Buffer color_readback;
     Buffer depth_readback;
+    Buffer prim_id_readback;
+    Buffer instance_id_readback;
     ShaderPaths shaders;
   };
 
@@ -1099,9 +1114,22 @@ class Renderer::Impl {
           target_.depth_memory);
       target_.depth_view = CreateImageView(target_.depth, kDepthFormat,
                                            VK_IMAGE_ASPECT_DEPTH_BIT);
+      target_.prim_id = CreateImage(
+          width, height, kIdFormat,
+          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+          target_.prim_id_memory);
+      target_.prim_id_view = CreateImageView(
+          target_.prim_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+      target_.instance_id = CreateImage(
+          width, height, kIdFormat,
+          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+          target_.instance_id_memory);
+      target_.instance_id_view = CreateImageView(
+          target_.instance_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
       CreateRenderPass();
-      const std::array<VkImageView, 2> views{target_.color_view,
-                                             target_.depth_view};
+      const std::array<VkImageView, 4> views{
+          target_.color_view, target_.depth_view, target_.prim_id_view,
+          target_.instance_id_view};
       VkFramebufferCreateInfo framebuffer_info{
           VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
       framebuffer_info.renderPass = target_.render_pass;
@@ -1124,6 +1152,14 @@ class Renderer::Impl {
           depth_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      target_.prim_id_readback = CreateBuffer(
+          depth_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      target_.instance_id_readback = CreateBuffer(
+          depth_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
       CreatePipeline(shaders);
     } catch (...) {
       DestroyTarget();
@@ -1132,7 +1168,7 @@ class Renderer::Impl {
   }
 
   void CreateRenderPass() {
-    std::array<VkAttachmentDescription, 2> attachments{};
+    std::array<VkAttachmentDescription, 4> attachments{};
     attachments[0].format = kColorFormat;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -1149,14 +1185,22 @@ class Renderer::Impl {
     attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attachments[1].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    const VkAttachmentReference color_reference{
-        0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    for (std::size_t i = 2; i < attachments.size(); ++i) {
+      attachments[i] = attachments[0];
+      attachments[i].format = kIdFormat;
+    }
+    const std::array<VkAttachmentReference, 3> color_references{{
+        {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {3, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+    }};
     const VkAttachmentReference depth_reference{
         1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &color_reference;
+    subpass.colorAttachmentCount =
+        static_cast<std::uint32_t>(color_references.size());
+    subpass.pColorAttachments = color_references.data();
     subpass.pDepthStencilAttachment = &depth_reference;
     std::array<VkSubpassDependency, 2> dependencies{};
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -1209,15 +1253,23 @@ class Renderer::Impl {
            VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, "main", nullptr}}};
       const VkVertexInputBindingDescription binding{
           0, sizeof(extraction::DrawVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-      const VkVertexInputAttributeDescription attribute{
-          0, 0, VK_FORMAT_R32G32B32_SFLOAT,
-          static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, position))};
+      const std::array<VkVertexInputAttributeDescription, 4> attributes{{
+          {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, position))},
+          {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, normal))},
+          {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, color))},
+          {3, 0, VK_FORMAT_R32G32_SFLOAT,
+           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, texcoord))},
+      }};
       VkPipelineVertexInputStateCreateInfo vertex_input{
           VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
       vertex_input.vertexBindingDescriptionCount = 1;
       vertex_input.pVertexBindingDescriptions = &binding;
-      vertex_input.vertexAttributeDescriptionCount = 1;
-      vertex_input.pVertexAttributeDescriptions = &attribute;
+      vertex_input.vertexAttributeDescriptionCount =
+          static_cast<std::uint32_t>(attributes.size());
+      vertex_input.pVertexAttributeDescriptions = attributes.data();
       VkPipelineInputAssemblyStateCreateInfo input_assembly{
           VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
       input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1244,10 +1296,13 @@ class Renderer::Impl {
                                          VK_COLOR_COMPONENT_G_BIT |
                                          VK_COLOR_COMPONENT_B_BIT |
                                          VK_COLOR_COMPONENT_A_BIT;
+      std::array<VkPipelineColorBlendAttachmentState, 3> blend_attachments{
+          blend_attachment, blend_attachment, blend_attachment};
       VkPipelineColorBlendStateCreateInfo blend{
           VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-      blend.attachmentCount = 1;
-      blend.pAttachments = &blend_attachment;
+      blend.attachmentCount =
+          static_cast<std::uint32_t>(blend_attachments.size());
+      blend.pAttachments = blend_attachments.data();
       const std::array<VkDynamicState, 2> dynamic_states{
           VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
       VkPipelineDynamicStateCreateInfo dynamic{
@@ -1300,6 +1355,8 @@ class Renderer::Impl {
     if (device_ == VK_NULL_HANDLE) {
       return;
     }
+    DestroyBuffer(target_.instance_id_readback);
+    DestroyBuffer(target_.prim_id_readback);
     DestroyBuffer(target_.depth_readback);
     DestroyBuffer(target_.color_readback);
     if (target_.pipeline != VK_NULL_HANDLE) {
@@ -1313,6 +1370,24 @@ class Renderer::Impl {
     }
     if (target_.render_pass != VK_NULL_HANDLE) {
       vkDestroyRenderPass(device_, target_.render_pass, nullptr);
+    }
+    if (target_.instance_id_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, target_.instance_id_view, nullptr);
+    }
+    if (target_.instance_id != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, target_.instance_id, nullptr);
+    }
+    if (target_.instance_id_memory != VK_NULL_HANDLE) {
+      vkFreeMemory(device_, target_.instance_id_memory, nullptr);
+    }
+    if (target_.prim_id_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, target_.prim_id_view, nullptr);
+    }
+    if (target_.prim_id != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, target_.prim_id, nullptr);
+    }
+    if (target_.prim_id_memory != VK_NULL_HANDLE) {
+      vkFreeMemory(device_, target_.prim_id_memory, nullptr);
     }
     if (target_.depth_view != VK_NULL_HANDLE) {
       vkDestroyImageView(device_, target_.depth_view, nullptr);
@@ -1337,9 +1412,11 @@ class Renderer::Impl {
 
   void RecordFrame(VkCommandBuffer command,
                    const extraction::FrameSnapshot& snapshot) {
-    std::array<VkClearValue, 2> clear{};
+    std::array<VkClearValue, 4> clear{};
     clear[0].color = {{0.018F, 0.025F, 0.045F, 1.0F}};
     clear[1].depthStencil = {1.0F, 0};
+    clear[2].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
+    clear[3].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     pass.renderPass = target_.render_pass;
     pass.framebuffer = target_.framebuffer;
@@ -1366,7 +1443,9 @@ class Renderer::Impl {
       const auto& instance = snapshot.instances[draw.instance_index];
       const auto& material = snapshot.materials[draw.material_index];
       PushConstants push{Multiply(view_projection, instance.transform),
-                         material.base_color};
+                         material.base_color,
+                         static_cast<std::uint32_t>(geometry.mesh),
+                         static_cast<std::uint32_t>(instance.instance)};
       vkCmdPushConstants(command, target_.pipeline_layout,
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -1389,6 +1468,16 @@ class Renderer::Impl {
     vkCmdCopyImageToBuffer(command, target_.depth,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            target_.depth_readback.handle, 1, &depth_copy);
+    VkBufferImageCopy id_copy{};
+    id_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    id_copy.imageSubresource.layerCount = 1;
+    id_copy.imageExtent = {target_.width, target_.height, 1};
+    vkCmdCopyImageToBuffer(command, target_.prim_id,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           target_.prim_id_readback.handle, 1, &id_copy);
+    vkCmdCopyImageToBuffer(command, target_.instance_id,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           target_.instance_id_readback.handle, 1, &id_copy);
   }
 
   std::uint64_t SubmitAndWait(FrameContext& frame) {
@@ -1457,6 +1546,23 @@ class Renderer::Impl {
     std::memcpy(result.pixels.data(), mapped,
                 result.pixels.size() * sizeof(float));
     vkUnmapMemory(device_, target_.depth_readback.memory);
+    return result;
+  }
+
+  ImageUint32 ReadId(std::uint32_t width, std::uint32_t height, Aov aov,
+                     const Buffer& readback) {
+    frame_counters_.readback_bytes +=
+        static_cast<std::uint64_t>(width) * height * sizeof(std::uint32_t);
+    ImageUint32 result;
+    result.product = MakeRenderProduct(width, height, aov);
+    result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
+    result.pixels.resize(static_cast<std::size_t>(width) * height);
+    void* mapped{};
+    Check(vkMapMemory(device_, readback.memory, 0, readback.size, 0, &mapped),
+          "map id readback");
+    std::memcpy(result.pixels.data(), mapped,
+                result.pixels.size() * sizeof(std::uint32_t));
+    vkUnmapMemory(device_, readback.memory);
     return result;
   }
 
@@ -1534,6 +1640,8 @@ RendererStatistics Renderer::statistics() const noexcept {
 void ValidateRenderResult(const RenderResult& result) {
   const auto& color = result.color;
   const auto& depth = result.depth;
+  const auto& prim_id = result.prim_id;
+  const auto& instance_id = result.instance_id;
   if (!IsCanonicalRenderProduct(color.product) ||
       color.product.aov != Aov::Color) {
     throw std::invalid_argument("invalid color render product metadata");
@@ -1542,12 +1650,24 @@ void ValidateRenderResult(const RenderResult& result) {
       depth.product.aov != Aov::Depth) {
     throw std::invalid_argument("invalid depth render product metadata");
   }
+  if (!IsCanonicalRenderProduct(prim_id.product) ||
+      prim_id.product.aov != Aov::PrimId ||
+      !IsCanonicalRenderProduct(instance_id.product) ||
+      instance_id.product.aov != Aov::InstanceId) {
+    throw std::invalid_argument("invalid id render product metadata");
+  }
   if (color.product.width != depth.product.width ||
-      color.product.height != depth.product.height) {
-    throw std::invalid_argument("color and depth extents do not match");
+      color.product.height != depth.product.height ||
+      color.product.width != prim_id.product.width ||
+      color.product.height != prim_id.product.height ||
+      color.product.width != instance_id.product.width ||
+      color.product.height != instance_id.product.height) {
+    throw std::invalid_argument("render product extents do not match");
   }
   if (color.row_pitch_bytes != TightRowPitchBytes(color.product) ||
-      depth.row_pitch_bytes != TightRowPitchBytes(depth.product)) {
+      depth.row_pitch_bytes != TightRowPitchBytes(depth.product) ||
+      prim_id.row_pitch_bytes != TightRowPitchBytes(prim_id.product) ||
+      instance_id.row_pitch_bytes != TightRowPitchBytes(instance_id.product)) {
     throw std::invalid_argument("render product row pitch is not tight");
   }
   const auto color_bytes = static_cast<std::uint64_t>(color.row_pitch_bytes) *
@@ -1555,7 +1675,9 @@ void ValidateRenderResult(const RenderResult& result) {
   const auto depth_values =
       static_cast<std::uint64_t>(depth.product.width) * depth.product.height;
   if (color_bytes != color.pixels.size() ||
-      depth_values != depth.pixels.size()) {
+      depth_values != depth.pixels.size() ||
+      depth_values != prim_id.pixels.size() ||
+      depth_values != instance_id.pixels.size()) {
     throw std::invalid_argument("render product payload size is invalid");
   }
   if (std::any_of(depth.pixels.begin(), depth.pixels.end(), [](float value) {

@@ -24,6 +24,17 @@ target_link_libraries(merlin-render-extraction-tests
 
 add_test(NAME merlin-render-extraction COMMAND merlin-render-extraction-tests)
 
+add_executable(merlin-mesh-scale-regression-tests
+  mesh_scale_regression_test.cpp
+)
+target_link_libraries(merlin-mesh-scale-regression-tests
+  PRIVATE Merlin::RenderExtraction)
+add_test(NAME merlin-mesh-scale-regression
+         COMMAND merlin-mesh-scale-regression-tests)
+set_tests_properties(merlin-mesh-scale-regression PROPERTIES
+  LABELS "regression;scale"
+  TIMEOUT 60)
+
 if(TARGET Merlin::Vulkan)
   add_executable(merlin-render-product-contract-tests
     render_product_contract_test.cpp
