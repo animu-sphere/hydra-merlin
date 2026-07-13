@@ -9,6 +9,9 @@ set(_fixture_version "9.8.7")
 file(REMOVE_RECURSE "${_fixture}")
 file(MAKE_DIRECTORY "${_fixture}")
 file(WRITE "${_fixture}/VERSION" "9.8.7\n")
+file(WRITE "${_fixture}/openstrata.toml"
+  "[project]\nname = \"hdMerlin\"\nversion = \"9.8.7\"\n\n"
+  "[requires]\nplatform = \"cy2026\"\nprofile = \"core\"\n")
 file(WRITE "${_fixture}/CHANGELOG.md"
   "# Changelog\n\n"
   "## [Unreleased]\n\n"
@@ -36,6 +39,11 @@ file(READ "${_fixture}/VERSION" _prepared_version)
 string(STRIP "${_prepared_version}" _prepared_version)
 if(NOT "${_prepared_version}" STREQUAL "${_fixture_version}")
   message(FATAL_ERROR "prepare-release wrote ${_prepared_version}")
+endif()
+file(READ "${_fixture}/openstrata.toml" _prepared_openstrata)
+if(NOT _prepared_openstrata MATCHES
+   "version[ \t]*=[ \t]*\"${_fixture_version}\"")
+  message(FATAL_ERROR "prepare-release did not update openstrata.toml")
 endif()
 file(READ "${_fixture}/CHANGELOG.md" _prepared_changelog)
 if(NOT _prepared_changelog MATCHES

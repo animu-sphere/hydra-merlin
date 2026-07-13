@@ -3,7 +3,9 @@ if(NOT DEFINED MERLIN_CMAKE_COMMAND OR
    NOT DEFINED MERLIN_BUILD_DIR OR
    NOT DEFINED MERLIN_TEST_BINARY_DIR OR
    NOT DEFINED MERLIN_INSTALL_LIBDIR OR
+   NOT DEFINED MERLIN_INSTALL_BINDIR OR
    NOT DEFINED MERLIN_INSTALL_DATADIR OR
+   NOT DEFINED MERLIN_EXECUTABLE_SUFFIX OR
    NOT DEFINED MERLIN_EXPECTED_VERSION OR
    NOT DEFINED MERLIN_GENERATOR OR
    NOT DEFINED MERLIN_MULTI_CONFIG)
@@ -25,6 +27,27 @@ execute_process(
 )
 if(NOT _install_result EQUAL 0)
   message(FATAL_ERROR "Merlin install step failed: ${_install_result}")
+endif()
+
+# When the Vulkan runtime product is present, exercise the same renderer
+# evidence path from the isolated install tree. This upgrades the canonical
+# build report's install-tree assertion from an explained skip to a pass before
+# `ost validate` consumes it. Core-only installs intentionally have no headless
+# product and continue with the package-consumer checks below.
+set(_headless
+    "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/merlin-headless${MERLIN_EXECUTABLE_SUFFIX}")
+if(EXISTS "${_headless}")
+  execute_process(
+    COMMAND "${_headless}"
+      --report "${MERLIN_BUILD_DIR}/renderer-report.json"
+      --output "${MERLIN_TEST_BINARY_DIR}/renderer-install-smoke.ppm"
+      --install-tree
+    RESULT_VARIABLE _renderer_install_result
+  )
+  if(NOT _renderer_install_result EQUAL 0)
+    message(FATAL_ERROR
+      "installed renderer evidence failed: ${_renderer_install_result}")
+  endif()
 endif()
 
 set(_metadata_file

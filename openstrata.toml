@@ -1,0 +1,7 @@
+[project]
+name = "hdMerlin"
+version = "0.3.0"
+
+[requires]
+platform = "cy2026"
+profile = "core"

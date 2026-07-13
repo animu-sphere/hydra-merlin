@@ -1,9 +1,10 @@
 # Releasing
 
-`VERSION` is the single source of truth for the project, package, installed
-metadata, and release tag version. Normal feature work only adds notes under
-`[Unreleased]` in `CHANGELOG.md`; it does not update version references in
-CMake, README, roadmap, or support documents.
+`VERSION` is the release source of truth for the project, package, installed
+metadata, and release tag version. The release helper synchronizes the required
+OpenStrata project version in `openstrata.toml`. Normal feature work only adds
+notes under `[Unreleased]` in `CHANGELOG.md`; it does not update version
+references in CMake, README, roadmap, or support documents.
 
 ## Prepare and publish
 
@@ -16,6 +17,7 @@ From a release branch, run:
 The command performs the mechanical release edits:
 
 - writes `0.4.0` to `VERSION`;
+- synchronizes `openstrata.toml` to `0.4.0`;
 - moves the existing Unreleased notes under a dated `0.4.0` heading;
 - updates the Unreleased comparison base; and
 - adds the stable release comparison link.
@@ -27,7 +29,7 @@ writing. The platform-neutral equivalent is:
 cmake -DMERLIN_RELEASE_VERSION=0.4.0 -P cmake/prepare-release.cmake
 ```
 
-Review the two changed files, commit them, merge to `main`, and wait for hosted
+Review the three changed files, commit them, merge to `main`, and wait for hosted
 CI. Then create the matching immutable tag:
 
 ```console
@@ -44,6 +46,7 @@ The tag-driven `Release` workflow rejects a tag unless all of these agree:
 
 - the tag uses exactly `vMAJOR.MINOR.PATCH`;
 - `VERSION` contains the same `MAJOR.MINOR.PATCH`; and
+- `openstrata.toml` contains the same project version; and
 - `CHANGELOG.md` contains the dated stable section and comparison link.
 
 It then performs clean Windows and Linux Core-only Release builds, runs source

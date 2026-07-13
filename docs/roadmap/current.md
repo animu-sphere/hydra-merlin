@@ -16,5 +16,6 @@ recorded in the [changelog](../../CHANGELOG.md).
   a DCC-specific logger.
 - Add configure-time OpenUSD version, build-configuration, and C++ runtime ABI
   compatibility checks.
-- Define a common machine-readable result schema for discovery, delegate
-  creation, RenderBuffer, GPU render, and host-presentation assertions.
+- Merge the optional Hydra discovery, delegate, RenderBuffer, and usdview
+  results into the root OpenStrata renderer report instead of leaving those
+  assertions as explained skips in the headless evidence path.

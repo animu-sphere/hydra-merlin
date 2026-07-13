@@ -1,13 +1,30 @@
 cmake_minimum_required(VERSION 3.24)
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+  "${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
+  "${CMAKE_CURRENT_SOURCE_DIR}/openstrata.toml")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MERLIN_PROJECT_VERSION)
 string(STRIP "${MERLIN_PROJECT_VERSION}" MERLIN_PROJECT_VERSION)
 if(NOT MERLIN_PROJECT_VERSION MATCHES
    "^[0-9]+[.][0-9]+[.][0-9]+$")
   message(FATAL_ERROR
     "VERSION must contain exactly one stable SemVer value (MAJOR.MINOR.PATCH)")
+endif()
+
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/openstrata.toml"
+  _merlin_openstrata_project)
+string(REGEX MATCH
+  "name[ \t]*=[ \t]*\"([^\"]+)\""
+  _merlin_openstrata_name_match "${_merlin_openstrata_project}")
+set(_merlin_openstrata_name "${CMAKE_MATCH_1}")
+string(REGEX MATCH
+  "version[ \t]*=[ \t]*\"([0-9]+[.][0-9]+[.][0-9]+)\""
+  _merlin_openstrata_version_match "${_merlin_openstrata_project}")
+set(_merlin_openstrata_version "${CMAKE_MATCH_1}")
+if(NOT _merlin_openstrata_name STREQUAL "hdMerlin" OR
+   NOT _merlin_openstrata_version STREQUAL MERLIN_PROJECT_VERSION)
+  message(FATAL_ERROR
+    "openstrata.toml project identity must be hdMerlin ${MERLIN_PROJECT_VERSION}")
 endif()
 
 project(hdMerlin VERSION "${MERLIN_PROJECT_VERSION}" LANGUAGES CXX)
@@ -24,6 +41,8 @@ include(CMakePackageConfigHelpers)
 option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
+option(MERLIN_GENERATE_RENDERER_REPORT
+  "Generate OpenStrata renderer evidence after linking merlin-headless" ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -174,6 +193,9 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/merlin-release-metadata.json"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin"
 )
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin"
+)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/openstrata.renderer.yaml"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin"
 )
 
