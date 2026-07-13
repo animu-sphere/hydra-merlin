@@ -85,12 +85,21 @@ their frame context until the single-use token resolves. See the
 
 ## Material and shader variants
 
-- MaterialX is compiled before draw time into SPIR-V, reflection, and cache
-  metadata.
-- Hydra material networks and MaterialX documents first translate into a small
-  host-neutral `MaterialIR`.
+This is the target material boundary; v0.4.0 still uses the basic material path:
+
+```text
+MaterialX document ─────┐
+Hydra material network ┼─> MaterialIR ─> shader variant ─> SPIR-V
+Future material source ┘
+```
+
+- `MaterialIR` is established before the MaterialX front end and contains only
+  host-neutral identity, parameters, texture/sampler bindings, alpha/double-sided
+  state, and feature flags.
 - Shader variant keys contain feature classes; per-material values live in GPU
-  buffers.
+  buffers. A value-only edit must not rebuild the pipeline.
+- MaterialX compilation happens before draw time and produces version-aware
+  SPIR-V, reflection, and cache metadata; raw source graphs do not enter Core.
 - Unsupported materials produce an explicit fallback and machine-readable
   diagnostic rather than silent corruption.
 
@@ -112,6 +121,12 @@ Versioned benchmark fixtures should cover empty, triangle, indexed cube, 10,000
 small objects, a 1,000,000-triangle mesh, resource-specific edits, many
 instances/materials/textures, repeated resize, 4K offscreen rendering, a
 long-running static scene, and usdview first frame/navigation.
+
+Optimization follows measurement. In particular, lower-copy presentation is
+not selected until usdview timings separate Hydra Sync, snapshot and GPU scene
+work, command recording/submission, GPU execution, readback, RenderBuffer
+resolve/map, Hgi upload, and host presentation. Tier 0 CPU readback remains the
+reference path after any faster presentation adapter is added.
 
 ## Permanent validation gates
 

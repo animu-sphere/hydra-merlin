@@ -1,7 +1,7 @@
 # Contributing to hdMerlin
 
 Thank you for helping improve hdMerlin. The project is still establishing its
-v0.1.0 contracts, so changes should keep the renderer small, testable, and
+foundation contracts, so changes should keep the renderer small, testable, and
 host-neutral.
 
 ## Before you start
@@ -36,6 +36,12 @@ ctest --test-dir build-core -C Debug --output-on-failure
 - Add or update tests for observable behavior.
 - Add counters or benchmark evidence for performance-sensitive changes; FPS by
   itself is not a performance contract.
+- Normalize Hydra, MaterialX, and future material sources into host-neutral
+  `MaterialIR` rather than coupling a source graph directly to GPU code.
+- Preserve Tier 0 CPU readback as the correctness, headless, CI, and fallback
+  path when experimenting with lower-copy presentation.
+- Require measurements that identify the limiting stage before adopting
+  bindless, indirect-draw, meshlet, mesh-shader, or host-interop complexity.
 - Update documentation when a command, dependency, public target, compatibility
   promise, or limitation changes.
 

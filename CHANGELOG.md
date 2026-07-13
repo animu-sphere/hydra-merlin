@@ -8,6 +8,13 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Changed
+
+- Selected v0.4.1 as the release-integrity and diagnostics milestone and
+  documented the ordered path through MaterialIR, Hydra performance
+  observability, MaterialX, viewport essentials, and measured low-copy
+  presentation work.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added

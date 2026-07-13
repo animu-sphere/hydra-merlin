@@ -12,11 +12,13 @@ Legend: 🚧 in progress · ⬜ not started
 | Document | Contents |
 | --- | --- |
 | [current.md](current.md) | The next release milestone and active carry-over work. |
-| [backlog.md](backlog.md) | Ordered but unscheduled releases and cross-cutting open work. |
+| [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
 
-No active milestone is currently selected after v0.4.0. The next ordered release
-ladder starts with host-neutral materials, then moves through MaterialX
-translation, viewport features, and DCC integration.
+The active milestone is v0.4.1: release integrity, diagnostics, compatibility
+checks, and durable GPU/Hydra validation. The ordered ladder then establishes
+host-neutral materials, measures Hydra presentation costs, adds MaterialX,
+delivers viewport essentials, and evaluates lower-copy presentation only when
+the measurements justify it.
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
@@ -36,3 +38,28 @@ Every release must preserve these properties:
 - New performance-sensitive work adds counters or benchmark evidence; FPS alone
   is not accepted as the performance contract.
 - Unsupported inputs return an actionable diagnostic or an explicit fallback.
+
+## Sequencing principles
+
+- **MaterialIR before MaterialX.** Hydra networks, MaterialX documents, and
+  future sources normalize into one host-neutral material boundary before
+  shader generation.
+- **Measure before optimizing.** Hydra Sync, scene normalization, command
+  recording, GPU work, readback, host upload, and presentation must be separated
+  before selecting an optimization.
+- **Keep the reference path.** Tier 0 CPU readback remains available for
+  headless execution, image comparison, debugging, and unsupported-host
+  fallback even when a lower-copy path exists.
+- **Keep integrations outside Core.** DCC packages own discovery, environment,
+  settings UI, package metadata, and host smoke tests; Core owns no DCC SDK
+  dependency.
+
+## Priority bands
+
+| Priority | Direction |
+| --- | --- |
+| P0 | Release integrity, structured diagnostics and errors, GPU capability CI, and OpenUSD compatibility checks |
+| P1 | MaterialIR, texture/sampler resources, basic textured shading, and usdview observability |
+| P2 | MaterialX MVP, selection/picking, alpha mask, double-sided rendering, and basic lighting |
+| P3 | Shadows, dome light, measured culling, DCC integration, and justified low-copy presentation |
+| P4 | Bindless, indirect draw, GPU-driven rendering, meshlets, mesh shaders, and advanced transparency only with benchmark evidence |
