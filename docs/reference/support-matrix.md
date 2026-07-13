@@ -40,7 +40,7 @@ compatibility checks remain planned work.
 | Host-neutral scene model and draw extraction | Available |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available |
 | Explicit submit/completion/timeout-aware resolve | Available |
-| Per-request AOV production and CPU readback selection | Available for color, depth, primId, and instanceId |
+| Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Available for color, depth, and primId |
 | Deterministic reference-path benchmark JSON and structural counters | Available |
 | Core/Vulkan installed CMake targets | Available |
@@ -49,6 +49,8 @@ compatibility checks remain planned work.
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available |
 | Authored Hydra material binding identity | Available; material-network shading remains planned |
 | Hydra native and nested instancing | Available |
+| Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy, timeout, device-lost, unsupported, and backend-failure classes |
+| Host-neutral diagnostic sink | Planned for v0.4.1; some executable and adapter diagnostics still use stderr or host-local reporting |
 | Subdivision refinement | Unavailable |
 | Advanced viewport lighting, shadows, selection, transparency, and culling | Unavailable |
 | Vulkan/Hgi external-memory or zero-copy host presentation | Unavailable; CPU readback/upload reference path only |
@@ -56,3 +58,5 @@ compatibility checks remain planned work.
 
 Unsupported inputs must produce an actionable diagnostic or explicit fallback;
 they are not implied to work by the availability of the surrounding adapter.
+Future capability order and completion criteria are tracked in the
+[current milestone](../roadmap/current.md) and [backlog](../roadmap/backlog.md).

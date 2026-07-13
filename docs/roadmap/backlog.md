@@ -1,48 +1,91 @@
 # Backlog
 
-Ordered but unscheduled work. The next release and active carry-over work are in
-[current.md](current.md); shipped scope moves to the
-[changelog](../../CHANGELOG.md).
+Ordered work after the active v0.4.1 milestone in [current.md](current.md).
+Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 
 ## Milestone ladder
 
-- ⬜ **v0.5.0 — MaterialIR and basic shading.** Introduce host-neutral graph
-  identity, parameter blocks, texture/sampler bindings, alpha mode, and
-  double-sided state; add texture, descriptor, shader, and pipeline caches; render
-  normals, UVs, textures, vertex color, and a directional light through the same
-  headless and Hydra path; return structured fallback diagnostics.
-- ⬜ **v0.6.0 — MaterialX MVP.** Load and validate documents, normalize graphs,
-  translate Standard Surface base color/metallic/roughness plus image textures,
-  UV transforms, and normal maps into MaterialIR, and emit versioned SPIR-V,
-  reflection, and metadata artifacts with compiler/source hashes in cache keys.
+- ⬜ **v0.5.0 — MaterialIR and basic shading.** Introduce host-neutral material
+  identity, parameter blocks, texture/sampler bindings, alpha mode, alpha
+  cutoff, double-sided state, and feature masks. Add revisioned texture and
+  sampler resources plus shader-module, descriptor-layout, and pipeline caches.
+  Render base color, vertex color, display opacity, normals, UV image textures,
+  a directional light, opaque surfaces, and alpha masks through the same
+  headless and Hydra path. A value-only material edit must update parameters
+  without rebuilding a pipeline; a feature change may select a new variant.
+  Exit requires revisioned texture/sampler behavior, structured fallback,
+  stable expected/actual/diff reference scenes, and basic textured shading in
+  usdview.
+- ⬜ **v0.5.1 — Hydra performance observability.** Break usdview frame cost into
+  Hydra Sync, snapshot extraction, GPU scene update, command recording, queue
+  submit, GPU execution, GPU-to-CPU readback, RenderBuffer resolve/map,
+  CPU-to-Hgi upload, and host composite/present. Record requested/generated
+  products, transfer bytes, waits, maps, resolves, host upload, and host timing.
+  Add comparable static, camera, edit, 1M-triangle, 10k-mesh, 1k-instance, and
+  AOV-combination fixtures. Color-only requests must perform zero depth/ID CPU
+  readback. Exit requires stage-level bottleneck attribution, comparable
+  benchmark artifacts, and CI detection of steady-state regression.
+- ⬜ **v0.6.0 — MaterialX MVP.** Validate and normalize a deliberate Standard
+  Surface subset: base color, metallic, roughness, normal, opacity, image,
+  texcoord, UV transform, normal map, constant, multiply, and add. Translate the
+  supported subgraph into MaterialIR, then generate deterministic SPIR-V,
+  reflection, and metadata. Cache keys include graph, MaterialX/compiler/target/
+  generator versions, source-template hash, and render feature mask. Unsupported
+  nodes produce a structured fallback; raw MaterialX graphs never enter the Core
+  scene model. Exit requires deterministic shader output, version-aware cache
+  behavior, explicit unsupported-node diagnostics, and stable reference-scene
+  image comparisons.
+- ⬜ **v0.7.0 — Viewport essentials.** Deliver selection/picking first, then
+  alpha mask, double-sided rendering, viewport and dome lighting, a single-light
+  shadow MVP, measured frustum culling, and alpha blend. Region picking returns
+  prim/instance/depth without reading the entire ID buffer back to the CPU. Exit
+  requires prim/instance selection and highlighting plus a deterministic
+  directional-shadow reference test.
+- ⬜ **v0.8.0 — Low-copy presentation experiment.** Retain Tier 0 Vulkan-to-CPU
+  RenderBuffer readback as the universal reference. If v0.5.1 shows readback and
+  upload are dominant, evaluate HgiVulkan shared/external GPU resources before
+  any host-specific Vulkan/OpenGL bridge. Document device ownership and
+  synchronization, fall back safely, isolate host code in a presentation
+  adapter, and require a measured win over Tier 0.
 
-## Future phases
+## DCC integration order
 
-- ⬜ **Viewport fundamentals.** Alpha mask/blend, double-sided rendering, dome
-  light, shadows, selection foundations, and measured culling improvements.
-- ⬜ **Low-copy host presentation.** Negotiate RenderBuffer formats and evaluate
-  HgiVulkan/external-memory paths while preserving Tier 0 CPU readback.
-- ⬜ **Measured GPU optimization.** Consider bindless tables, indirect draws,
-  mesh shaders, or meshlets only after counters and fixed-GPU baselines show a
-  concrete need.
-- ⬜ **DCC integration.** Add separately packaged Houdini Solaris, Husk, Hydra 1,
-  and Maya Hydra integrations in that order. Each package owns only environment
-  setup, package metadata, settings UI, and host smoke tests.
+1. usdview and `testusdview` remain the reference host.
+2. Houdini Solaris viewport integration.
+3. Husk batch integration.
+4. Hydra 1 compatibility.
+5. Maya Hydra integration.
+
+Before Solaris work begins, the renderer must have structured diagnostics,
+OpenUSD compatibility checks, MaterialIR basic shading, deterministic
+install-tree tests, usdview frame-time breakdown, a renderer-settings schema,
+and versioned capability reporting. Integration packages own environment setup,
+plugin discovery metadata, host settings UI, package metadata, and host smoke
+tests; Core remains independent of every DCC SDK.
+
+## Evidence-gated optimization
+
+- ⬜ Consider bindless tables, indirect draws, GPU-driven rendering, meshlets,
+  mesh shaders, and advanced transparency only after fixed-scene, fixed-GPU
+  benchmark evidence demonstrates a need.
+- ⬜ Preserve CPU readback for reference rendering, CI image comparison,
+  headless testing, debugging, and fallback regardless of which presentation
+  optimization is selected.
 
 ## Cross-cutting open items
 
-- ⬜ **Self-hosted GPU runner enrollment.** Enroll a Windows x64 runner carrying
-  the `vulkan-1.4` GPU/driver label at repository scope so the manually
-  dispatched `Vulkan and Hydra capability CI` workflow can capture live loader,
-  device, and driver evidence. The workflow, checksum-pinned LunarG Vulkan SDK,
-  digest-pinned Animusphere OpenUSD runtime, and runner-label contract are
-  already in place; only enrollment remains.
-- ⬜ **Diagnostics and capabilities.** Define a Core callback/diagnostic sink, a
-  host-neutral capability schema, and backend-specific extensions.
-- ⬜ **Resource ownership.** Specify external render-product lifetime, async
-  ownership, device-local upload ownership, and frame-in-flight removal.
+- ⬜ **GPU capability matrix.** After the active Windows runner work, add durable
+  Linux Vulkan/Hydra evidence and cover NVIDIA and AMD, with Intel when
+  practical. Keep PR jobs portable; run rendering, image comparison, Hydra, and
+  benchmark regression nightly or manually when hardware is scarce; require
+  multi-vendor usdview/install validation for releases.
+- ⬜ **Capabilities.** Define a versioned host-neutral capability schema with
+  backend-specific extensions and explicit unsupported/fallback reporting.
+- ⬜ **External presentation ownership.** Specify external-image lifetime,
+  device ownership, synchronization, adapter negotiation, and safe fallback
+  before implementing any low-copy bridge.
 - ⬜ **Shader artifacts.** Define a generated shader manifest, versioning, and
   cache-compatibility contract.
 - ⬜ **OpenUSD compatibility.** Detect shared/static mode, Debug/Release mismatch,

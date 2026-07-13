@@ -40,6 +40,12 @@ git push origin v0.4.0
 README, roadmap, support-matrix, and detailed release-record edits are required
 only when their content actually changes; they are not release bookkeeping.
 
+Until the v0.4.1 documentation-integrity gate is automated, release review must
+also confirm manually that the support matrix describes at least the release
+being tagged, `current.md` does not list shipped work as incomplete,
+`backlog.md` does not retain a shipped milestone, and README capability
+boundaries agree with the release record.
+
 ## Automated contract
 
 The tag-driven `Release` workflow rejects a tag unless all of these agree:

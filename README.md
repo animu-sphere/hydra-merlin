@@ -103,9 +103,9 @@ Material-network shading, subdivision refinement, and zero-copy Vulkan/Hgi
 interop remain future work; usdview presentation currently uses Hydra's CPU
 RenderBuffer-to-Hgi upload path.
 
-## Current limitations
+## Capability boundaries and roadmap
 
-The current renderer intentionally does not provide:
+The current renderer intentionally does not yet provide:
 
 - MaterialX loading, graph translation, or authored Hydra material-network
   shading; authored binding identity is retained but currently uses the basic
@@ -118,6 +118,15 @@ The current renderer intentionally does not provide:
 These are roadmap boundaries, not implicit compatibility claims. See the
 [support matrix](docs/reference/support-matrix.md) for current platform and
 feature coverage.
+
+The active v0.4.1 milestone focuses on release integrity, host-neutral
+diagnostics, compatibility checks, and durable GPU/Hydra validation. The ordered
+path after that establishes MaterialIR and basic textured shading before adding
+MaterialX translation, makes usdview performance observable before attempting
+presentation interop, then adds viewport essentials. Tier 0 CPU readback remains
+the correctness and fallback path throughout. See the
+[current milestone](docs/roadmap/current.md) and
+[ordered backlog](docs/roadmap/backlog.md) for scope and exit criteria.
 
 The Vulkan path requires a Vulkan 1.4-capable graphics queue and `glslc`
 from the Vulkan SDK at build time.

@@ -21,6 +21,10 @@ two meshes (a triangle and a quad), two materials, and three instances where
 the two triangle instances share one mesh. Shared geometry is uploaded once
 regardless of how many instances reference it.
 
+This executable is the current renderer-owned reference-path benchmark. The
+planned v0.5.1 usdview fixture extends it with host stages; those future fields
+must not be inferred from the current v2 schema.
+
 ## Baselines
 
 The schema always emits these baselines in this order:
@@ -72,3 +76,18 @@ deterministic. Timing values intentionally are not deterministic. Prefer
 structural-counter assertions in normal CI and compare timing results only in a
 controlled capability environment. The `merlin-benchmark-json` CTest asserts
 the per-baseline structural counters listed above on every GPU-capable run.
+
+## Planned usdview observability
+
+Before selecting a lower-copy presentation path, the host benchmark will
+separate Hydra Sync, snapshot extraction, GPU scene update, command recording,
+queue submit, GPU execution, GPU-to-CPU readback, RenderBuffer resolve/map,
+CPU-to-Hgi upload, and host composite/present. It will also record requested and
+generated render products, per-product transfer bytes, readback wait, map and
+resolve counts, and host upload bytes.
+
+The comparison set will cover a static scene, camera-only motion, transform,
+material, topology, and primvar edits, 1,000,000 triangles, 10,000 small meshes,
+1,000 instances, and color/depth/ID product combinations. These are v0.5.1 exit
+criteria in the [roadmap](../roadmap/backlog.md), not claims about the current
+benchmark schema.
