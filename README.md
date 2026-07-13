@@ -66,17 +66,20 @@ and a Vulkan-backed render pass. The test suite separately verifies plugin
 discovery and delegate creation, RenderBuffer resize/map lifetime, and an
 install-tree `testusdview` first frame with rendered geometry.
 
-The current mesh path fan-triangulates polygonal faces and uses the fallback
-material. Hydra instancing, subdivision refinement, authored materials, and
-zero-copy Vulkan/Hgi interop remain future work; usdview presentation currently
-uses Hydra's CPU RenderBuffer-to-Hgi upload path.
+The current mesh path normalizes indexed and face-varying normals, display
+color/opacity, and UVs, robustly triangulates concave polygonal faces, preserves
+authored material binding identity, and supports native Hydra instancing.
+Material-network shading, subdivision refinement, and zero-copy Vulkan/Hgi
+interop remain future work; usdview presentation currently uses Hydra's CPU
+RenderBuffer-to-Hgi upload path.
 
 ## v0.1.0 limitations
 
 The foundation release intentionally does not provide:
 
-- MaterialX loading, graph translation, or authored Hydra material rendering;
-  all meshes currently use the fallback material;
+- MaterialX loading, graph translation, or authored Hydra material-network
+  shading; authored binding identity is retained but currently uses the basic
+  material path;
 - advanced viewport features such as alpha mask/blend, dome lighting, shadows,
   selection, or production culling;
 - Vulkan/Hgi external-memory or other zero-copy GPU presentation; Hydra uses

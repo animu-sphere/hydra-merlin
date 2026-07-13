@@ -9,7 +9,8 @@ These notes capture *how* a change was validated on a specific machine at a
 specific time. They are working history, not a published contract:
 
 - Design rationale that outlives a single session belongs in [design](../design/).
-- Shipped scope belongs in [release records](../releases/).
+- Shipped scope belongs in the [changelog](../../CHANGELOG.md), with optional
+  deep-dive [release records](../releases/).
 - Incomplete work belongs in the [roadmap](../roadmap/).
 - Completed pre-release roadmap detail belongs in the
   [delivery history](delivery-history.md).

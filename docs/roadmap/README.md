@@ -1,7 +1,8 @@
 # Roadmap
 
-The roadmap contains only **incomplete** work. Shipped work belongs in
-[release records](../releases/), completed pre-release roadmap detail belongs in
+The roadmap contains only **incomplete** work. Shipped work belongs in the
+[changelog](../../CHANGELOG.md) and, when more detail is useful, optional
+[release records](../releases/). Completed pre-release roadmap detail belongs in
 the [delivery history](../reports/delivery-history.md), and implementation
 evidence and design rationale belong in [reports](../reports/) and
 [design](../design/).
@@ -17,7 +18,7 @@ The next milestone is the reproducible development baseline for v0.1.0. Later
 releases move from resource-granular GPU scene updates through practical Hydra
 mesh support, execution lifetime, materials, and DCC integration.
 
-When a version ships, its completed scope moves to a release record and is
+When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
 
 ## Quality bar

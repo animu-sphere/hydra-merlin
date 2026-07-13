@@ -72,5 +72,19 @@ int main() {
              "multisampled depth allocation unexpectedly succeeded")) {
     return 1;
   }
+
+  HdMerlinRenderBuffer ids(SdfPath("/primId"));
+  if (!Check(ids.Allocate(GfVec3i(2, 1, 1), HdFormatInt32, false),
+             "id allocation failed") ||
+      !Check(ids.WriteId({7U, 11U}, 2, 1), "id write failed")) {
+    return 1;
+  }
+  const auto* mapped_ids = static_cast<const std::uint32_t*>(ids.Map());
+  if (!Check(mapped_ids != nullptr && mapped_ids[0] == 7U &&
+                 mapped_ids[1] == 11U,
+             "mapped id data is incorrect")) {
+    return 1;
+  }
+  ids.Unmap();
   return 0;
 }

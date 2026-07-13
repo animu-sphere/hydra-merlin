@@ -68,4 +68,5 @@ Every configured build generates `merlin-release-metadata.json` and installs it
 under `<prefix>/<datadir>/merlin`. Schema version 1 records the project version,
 enabled Vulkan/Hydra layers, dependency minimums or validated versions, exported
 CMake targets, and the runtime-only product list. Release archives carry the
-same file so tooling can inspect their contract without parsing this guide.
+same file and the plain-text `VERSION` source of truth so tooling can inspect
+their contract without parsing this guide.

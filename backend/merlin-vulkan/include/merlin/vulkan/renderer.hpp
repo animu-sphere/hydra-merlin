@@ -102,9 +102,17 @@ struct ImageDepth32 {
   std::vector<float> pixels;
 };
 
+struct ImageUint32 {
+  RenderProduct product;
+  std::uint32_t row_pitch_bytes{};
+  std::vector<std::uint32_t> pixels;
+};
+
 struct RenderResult {
   ImageRgba8 color;
   ImageDepth32 depth;
+  ImageUint32 prim_id;
+  ImageUint32 instance_id;
   std::uint64_t scene_revision{};
   std::uint64_t completion_value{};
   FrameCpuTimings cpu_timings;

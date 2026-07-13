@@ -27,6 +27,15 @@ int main() {
       merlin::MakeRenderProduct(2, 2, merlin::Aov::Depth);
   result.depth.row_pitch_bytes = 8;
   result.depth.pixels.assign(4, 1.0F);
+  result.prim_id.product =
+      merlin::MakeRenderProduct(2, 2, merlin::Aov::PrimId);
+  result.prim_id.row_pitch_bytes = 8;
+  result.prim_id.pixels.assign(4, std::numeric_limits<std::uint32_t>::max());
+  result.instance_id.product =
+      merlin::MakeRenderProduct(2, 2, merlin::Aov::InstanceId);
+  result.instance_id.row_pitch_bytes = 8;
+  result.instance_id.pixels.assign(
+      4, std::numeric_limits<std::uint32_t>::max());
   result.completion_value = 1;
   merlin::vulkan::ValidateRenderResult(result);
 

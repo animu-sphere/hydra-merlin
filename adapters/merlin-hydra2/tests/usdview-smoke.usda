@@ -9,6 +9,10 @@
 
 def Xform "World"
 {
+    def Material "BoundMaterial"
+    {
+    }
+
     def Mesh "MovingTriangle"
     {
         int[] faceVertexCounts = [3]
@@ -26,6 +30,54 @@ def Xform "World"
         token visibility = "inherited"
         double3 xformOp:translate = (0.65, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Mesh "ConcavePrimvarMesh"
+    {
+        int[] faceVertexCounts = [5]
+        int[] faceVertexIndices = [0, 1, 2, 3, 4]
+        point3f[] points = [(-0.45, -0.25, 0), (0.45, -0.25, 0),
+                            (0.12, 0, 0), (0.45, 0.25, 0),
+                            (-0.45, 0.25, 0)]
+        normal3f[] primvars:normals = [(0, 0, 2), (0, 0, 2), (0, 0, 2),
+                                       (0, 0, 2), (0, 0, 2)] (
+            interpolation = "vertex"
+        )
+        color3f[] primvars:displayColor = [(1, 0.2, 0.1), (0.1, 0.8, 0.2),
+                                           (0.1, 0.3, 1)] (
+            interpolation = "faceVarying"
+        )
+        int[] primvars:displayColor:indices = [0, 1, 2, 1, 0]
+        float[] primvars:displayOpacity = [0.8] (
+            interpolation = "uniform"
+        )
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0.6, 0.5),
+                                    (1, 1), (0, 1)] (
+            interpolation = "faceVarying"
+        )
+        rel material:binding = </World/BoundMaterial>
+        double3 xformOp:translate = (0, 0.75, -0.1)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def PointInstancer "Instances"
+    {
+        rel prototypes = [</World/Instances/Prototype>]
+        int[] protoIndices = [0, 0, 0]
+        point3f[] positions = [(-0.55, -0.75, -0.1),
+                               (0, -0.75, -0.1),
+                               (0.55, -0.75, -0.1)]
+
+        def Mesh "Prototype"
+        {
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(-0.16, -0.12, 0), (0.16, -0.12, 0),
+                                (0, 0.16, 0)]
+            color3f[] primvars:displayColor = [(1, 0.7, 0.1)] (
+                interpolation = "constant"
+            )
+        }
     }
 }
 

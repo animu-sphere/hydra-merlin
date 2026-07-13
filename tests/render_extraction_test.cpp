@@ -10,6 +10,11 @@ int main() {
   mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},
                     {0.0F, 0.5F, 0.0F}};
   mesh.indices = {0, 1, 2};
+  mesh.normals = {{0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, 1.0F},
+                  {0.0F, 0.0F, 1.0F}};
+  mesh.colors = {{1.0F, 0.0F, 0.0F, 0.5F}, {0.0F, 1.0F, 0.0F, 0.75F},
+                 {0.0F, 0.0F, 1.0F, 1.0F}};
+  mesh.texcoords = {{0.0F, 0.0F}, {1.0F, 0.0F}, {0.5F, 1.0F}};
   const auto mesh_handle = world.CreateMesh(mesh);
   merlin::MaterialDescriptor material;
   material.base_color = {0.25F, 0.5F, 0.75F, 1.0F};
@@ -32,6 +37,9 @@ int main() {
   assert(first->geometries.front().mesh == mesh_handle.value());
   assert(first->geometries.front().vertices->size() == 3);
   assert(first->geometries.front().indices->size() == 3);
+  assert(first->geometries.front().vertices->front().normal.z == 1.0F);
+  assert(first->geometries.front().vertices->front().color.w == 0.5F);
+  assert(first->geometries.front().vertices->back().texcoord.y == 1.0F);
   assert(first->materials.size() == 1);
   assert(first->instances.size() == 2);
   assert(first->draws.size() == 2);
@@ -81,6 +89,18 @@ int main() {
          transformed->geometries.front().topology_revision);
   assert(moved->geometries.front().vertices->front().position.x == -0.75F);
 
+  // Primvar-only edits replace the packed vertex payload while retaining
+  // topology and position values.
+  mesh.colors[0].x = 0.25F;
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Primvars);
+  extractor.Apply(world, world.Commit());
+  const auto recolored = extractor.snapshot();
+  assert(recolored->geometries.front().vertices !=
+         moved->geometries.front().vertices);
+  assert(recolored->geometries.front().indices ==
+         moved->geometries.front().indices);
+  assert(recolored->geometries.front().vertices->front().color.x == 0.25F);
+
   // Visibility-only edit drops the draw but keeps geometry and instance data.
   instance.transform.values[12] = 0.25F;
   instance.visible = false;
@@ -93,7 +113,7 @@ int main() {
   assert(hidden->geometries.size() == 1);
   assert(hidden->instances.size() == 2);
   assert(hidden->geometries.front().vertices ==
-         moved->geometries.front().vertices);
+         recolored->geometries.front().vertices);
 
   instance.visible = true;
   world.UpdateInstance(instance_handle, instance);

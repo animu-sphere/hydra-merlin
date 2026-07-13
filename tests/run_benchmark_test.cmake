@@ -59,7 +59,8 @@ foreach(index RANGE 0 ${last_index})
   endif()
   string(JSON readback GET "${json}" baselines ${index} counters readback_bytes)
   string(JSON total GET "${json}" baselines ${index} cpu_ns total_frame)
-  if(NOT readback EQUAL 8192)
+  # Four tightly-packed 32x32 32-bit AOVs: color, depth, primId, instanceId.
+  if(NOT readback EQUAL 16384)
     message(FATAL_ERROR "baseline ${actual_name} has invalid readback bytes")
   endif()
   if(NOT total GREATER 0)
@@ -80,7 +81,8 @@ endfunction()
 # and creates the single pipeline.
 assert_counter(0 draw_count 3)
 assert_counter(0 triangle_count 4)
-assert_counter(0 upload_bytes 120)
+# Seven packed 48-byte vertices plus nine 32-bit indices.
+assert_counter(0 upload_bytes 372)
 assert_counter(0 buffer_suballocation_count 4)
 assert_counter(0 geometry_cache_misses 2)
 assert_counter(0 pipeline_creation_count 1)
@@ -114,7 +116,7 @@ assert_counter(4 draw_count 3)
 
 # edit-points: only the edited mesh's vertex payload is re-uploaded, in place.
 assert_counter(5 draw_count 3)
-assert_counter(5 upload_bytes 36)
+assert_counter(5 upload_bytes 144)
 assert_counter(5 geometry_cache_misses 1)
 assert_counter(5 geometry_cache_hits 1)
 assert_counter(5 buffer_suballocation_count 0)

@@ -1,8 +1,13 @@
 #include "adapter.hpp"
 
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/gf/quaternion.h>
+#include <pxr/base/gf/rotation.h>
+#include <pxr/base/gf/vec2d.h>
+#include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3d.h>
 #include <pxr/base/gf/vec3f.h>
+#include <pxr/base/gf/vec4d.h>
 #include <pxr/base/gf/vec4f.h>
 #include <pxr/base/tf/diagnostic.h>
 #include <pxr/base/vt/array.h>
@@ -30,12 +35,15 @@
 #endif
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -46,6 +54,243 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {
+
+struct MeshCorner {
+  std::uint32_t point{};
+  std::uint32_t face{};
+  std::uint32_t authored_corner{};
+};
+
+struct PrimvarInput {
+  VtValue value;
+  VtIntArray indices;
+  HdInterpolation interpolation{HdInterpolationConstant};
+  bool present{};
+};
+
+float Cross2(const GfVec2d& a, const GfVec2d& b, const GfVec2d& c) {
+  return static_cast<float>((b[0] - a[0]) * (c[1] - a[1]) -
+                            (b[1] - a[1]) * (c[0] - a[0]));
+}
+
+bool PointInTriangle(const GfVec2d& p, const GfVec2d& a, const GfVec2d& b,
+                     const GfVec2d& c, float winding) {
+  constexpr float epsilon = 1.0e-7F;
+  return Cross2(a, b, p) * winding >= -epsilon &&
+         Cross2(b, c, p) * winding >= -epsilon &&
+         Cross2(c, a, p) * winding >= -epsilon;
+}
+
+std::vector<std::array<std::uint32_t, 3>> TriangulateFace(
+    std::span<const std::uint32_t> points, const std::vector<GfVec3d>& positions,
+    std::string& diagnostic) {
+  if (points.size() < 3) {
+    diagnostic = "face has fewer than three vertices";
+    return {};
+  }
+  GfVec3d normal(0.0);
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    const auto& a = positions[points[i]];
+    const auto& b = positions[points[(i + 1U) % points.size()]];
+    normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
+    normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
+    normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  const GfVec3d magnitude(std::abs(normal[0]), std::abs(normal[1]),
+                          std::abs(normal[2]));
+  int drop_axis = 2;
+  if (magnitude[0] >= magnitude[1] && magnitude[0] >= magnitude[2]) {
+    drop_axis = 0;
+  } else if (magnitude[1] >= magnitude[2]) {
+    drop_axis = 1;
+  }
+  std::vector<GfVec2d> projected;
+  projected.reserve(points.size());
+  for (const auto point : points) {
+    const auto& value = positions[point];
+    if (drop_axis == 0) {
+      projected.emplace_back(value[1], value[2]);
+    } else if (drop_axis == 1) {
+      projected.emplace_back(value[0], value[2]);
+    } else {
+      projected.emplace_back(value[0], value[1]);
+    }
+  }
+  double area{};
+  for (std::size_t i = 0; i < projected.size(); ++i) {
+    const auto& a = projected[i];
+    const auto& b = projected[(i + 1U) % projected.size()];
+    area += a[0] * b[1] - b[0] * a[1];
+  }
+  if (std::abs(area) <= 1.0e-12) {
+    diagnostic = "face is degenerate";
+    return {};
+  }
+  const float winding = area > 0.0 ? 1.0F : -1.0F;
+  std::vector<std::uint32_t> remaining(points.size());
+  for (std::uint32_t i = 0; i < remaining.size(); ++i) {
+    remaining[i] = i;
+  }
+  std::vector<std::array<std::uint32_t, 3>> triangles;
+  triangles.reserve(points.size() - 2U);
+  while (remaining.size() > 3U) {
+    bool clipped{};
+    for (std::size_t i = 0; i < remaining.size(); ++i) {
+      const auto previous = remaining[(i + remaining.size() - 1U) %
+                                      remaining.size()];
+      const auto current = remaining[i];
+      const auto next = remaining[(i + 1U) % remaining.size()];
+      if (Cross2(projected[previous], projected[current], projected[next]) *
+              winding <= 1.0e-7F) {
+        continue;
+      }
+      bool contains_point{};
+      for (const auto candidate : remaining) {
+        if (candidate == previous || candidate == current ||
+            candidate == next) {
+          continue;
+        }
+        if (PointInTriangle(projected[candidate], projected[previous],
+                            projected[current], projected[next], winding)) {
+          contains_point = true;
+          break;
+        }
+      }
+      if (contains_point) {
+        continue;
+      }
+      triangles.push_back({previous, current, next});
+      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(i));
+      clipped = true;
+      break;
+    }
+    if (!clipped) {
+      diagnostic = "face is self-intersecting or numerically degenerate";
+      return {};
+    }
+  }
+  triangles.push_back({remaining[0], remaining[1], remaining[2]});
+  return triangles;
+}
+
+std::optional<std::size_t> PrimvarElement(const PrimvarInput& input,
+                                          const MeshCorner& corner) {
+  std::size_t element{};
+  switch (input.interpolation) {
+    case HdInterpolationConstant:
+      element = 0;
+      break;
+    case HdInterpolationUniform:
+      element = corner.face;
+      break;
+    case HdInterpolationVertex:
+    case HdInterpolationVarying:
+      element = corner.point;
+      break;
+    case HdInterpolationFaceVarying:
+      element = corner.authored_corner;
+      break;
+    case HdInterpolationInstance:
+    case HdInterpolationCount:
+      return std::nullopt;
+  }
+  if (!input.indices.empty()) {
+    if (element >= input.indices.size() || input.indices[element] < 0) {
+      return std::nullopt;
+    }
+    element = static_cast<std::size_t>(input.indices[element]);
+  }
+  return element;
+}
+
+PrimvarInput FindPrimvar(const HdRprim& rprim, HdSceneDelegate* delegate,
+                         const TfToken& name,
+                         bool texture_coordinate_fallback = false) {
+  constexpr std::array<HdInterpolation, 5> interpolations{
+      HdInterpolationConstant, HdInterpolationUniform, HdInterpolationVertex,
+      HdInterpolationVarying, HdInterpolationFaceVarying};
+  for (const auto interpolation : interpolations) {
+    const auto descriptors =
+        rprim.GetPrimvarDescriptors(delegate, interpolation);
+    for (const auto& descriptor : descriptors) {
+      if (descriptor.name != name &&
+          !(texture_coordinate_fallback &&
+            descriptor.role == HdPrimvarRoleTokens->textureCoordinate)) {
+        continue;
+      }
+      PrimvarInput result;
+      result.interpolation = interpolation;
+      result.present = true;
+      result.value = descriptor.indexed
+                         ? rprim.GetIndexedPrimvar(delegate, descriptor.name,
+                                                  &result.indices)
+                         : rprim.GetPrimvar(delegate, descriptor.name);
+      return result;
+    }
+  }
+  return {};
+}
+
+template <typename ArrayType, typename ResultType, typename Convert>
+bool ReadArrayElement(const VtValue& value, std::size_t index,
+                      ResultType& result, Convert convert) {
+  if (!value.IsHolding<ArrayType>()) {
+    return false;
+  }
+  const auto& array = value.UncheckedGet<ArrayType>();
+  if (index >= array.size()) {
+    return false;
+  }
+  result = convert(array[index]);
+  return true;
+}
+
+bool ReadVec3(const PrimvarInput& input, const MeshCorner& corner,
+              merlin::Vec3& result) {
+  const auto element = PrimvarElement(input, corner);
+  if (!element) {
+    return false;
+  }
+  const auto convert = [](const auto& value) {
+    return merlin::Vec3{static_cast<float>(value[0]),
+                        static_cast<float>(value[1]),
+                        static_cast<float>(value[2])};
+  };
+  return ReadArrayElement<VtVec3fArray>(input.value, *element, result,
+                                        convert) ||
+         ReadArrayElement<VtVec3dArray>(input.value, *element, result,
+                                        convert);
+}
+
+bool ReadVec2(const PrimvarInput& input, const MeshCorner& corner,
+              merlin::Vec2& result) {
+  const auto element = PrimvarElement(input, corner);
+  if (!element) {
+    return false;
+  }
+  const auto convert = [](const auto& value) {
+    return merlin::Vec2{static_cast<float>(value[0]),
+                        static_cast<float>(value[1])};
+  };
+  return ReadArrayElement<VtVec2fArray>(input.value, *element, result,
+                                        convert) ||
+         ReadArrayElement<VtVec2dArray>(input.value, *element, result,
+                                        convert);
+}
+
+bool ReadFloat(const PrimvarInput& input, const MeshCorner& corner,
+               float& result) {
+  const auto element = PrimvarElement(input, corner);
+  if (!element) {
+    return false;
+  }
+  return ReadArrayElement<VtFloatArray>(
+             input.value, *element, result,
+             [](float value) { return value; }) ||
+         ReadArrayElement<VtDoubleArray>(
+             input.value, *element, result,
+             [](double value) { return static_cast<float>(value); });
+}
 
 merlin::Mat4 ToMerlinMatrix(const GfMatrix4d& matrix) {
   merlin::Mat4 result;
@@ -151,10 +396,20 @@ bool ValidationRequested() {
 
 struct MeshState {
   merlin::MeshHandle mesh;
-  merlin::InstanceHandle instance;
+  std::vector<merlin::InstanceHandle> instances;
   merlin::MeshDescriptor mesh_descriptor;
-  merlin::InstanceDescriptor instance_descriptor;
+  std::vector<merlin::InstanceDescriptor> instance_descriptors;
+  // Key into SceneBridge::materials_ for the currently bound material, or empty
+  // when the mesh uses the shared fallback material. Holds one reference.
+  std::string material_key;
   bool authored_visible{true};
+};
+
+// Shared material tracked by authored path so the render-world material and its
+// map entry are released once no mesh references it.
+struct MaterialEntry {
+  merlin::MaterialHandle handle;
+  std::size_t references{};
 };
 
 bool IsInCollection(const SdfPath& path,
@@ -201,7 +456,8 @@ class SceneBridge {
   }
 
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
-                const merlin::Mat4& transform, bool visible,
+                const SdfPath& material_path,
+                const std::vector<merlin::Mat4>& transforms, bool visible,
                 merlin::ChangeAspect mesh_aspects,
                 merlin::ChangeAspect instance_aspects) {
     std::scoped_lock lock(mutex_);
@@ -209,8 +465,11 @@ class SceneBridge {
     auto found = meshes_.find(key);
     if (mesh.positions.empty() || mesh.indices.empty()) {
       if (found != meshes_.end()) {
-        world_.Remove(found->second.instance);
+        for (const auto instance : found->second.instances) {
+          world_.Remove(instance);
+        }
         world_.Remove(found->second.mesh);
+        ReleaseMaterialLocked(found->second.material_key);
         meshes_.erase(found);
       }
       return;
@@ -219,13 +478,19 @@ class SceneBridge {
       MeshState state;
       state.mesh_descriptor = std::move(mesh);
       state.mesh = world_.CreateMesh(state.mesh_descriptor);
-      state.instance_descriptor.label = key;
-      state.instance_descriptor.mesh = state.mesh;
-      state.instance_descriptor.material = fallback_material_;
-      state.instance_descriptor.transform = transform;
-      state.instance_descriptor.visible = visible;
       state.authored_visible = visible;
-      state.instance = world_.CreateInstance(state.instance_descriptor);
+      const auto material =
+          AcquireMaterialLocked(material_path, state.material_key);
+      for (std::size_t i = 0; i < transforms.size(); ++i) {
+        merlin::InstanceDescriptor descriptor;
+        descriptor.label = key + "[" + std::to_string(i) + "]";
+        descriptor.mesh = state.mesh;
+        descriptor.material = material;
+        descriptor.transform = transforms[i];
+        descriptor.visible = visible;
+        state.instances.push_back(world_.CreateInstance(descriptor));
+        state.instance_descriptors.push_back(std::move(descriptor));
+      }
       meshes_.emplace(key, std::move(state));
       return;
     }
@@ -235,13 +500,52 @@ class SceneBridge {
     if (mesh_aspects != merlin::ChangeAspect::None) {
       world_.UpdateMesh(state.mesh, state.mesh_descriptor, mesh_aspects);
     }
-    state.instance_descriptor.transform = transform;
-    state.instance_descriptor.visible = visible;
     state.authored_visible = visible;
-    if (instance_aspects != merlin::ChangeAspect::None) {
-      world_.UpdateInstance(state.instance, state.instance_descriptor,
-                            instance_aspects);
+    // Re-resolve the binding. Acquire the new material before repointing any
+    // instances and defer releasing the previous one until after the update
+    // loop, so no committed instance references a retired material handle, and
+    // an unchanged binding neither creates nor retires materials.
+    merlin::MaterialHandle material;
+    std::string released_key;
+    const std::string desired_key =
+        material_path.IsEmpty() ? std::string() : material_path.GetString();
+    if (desired_key != state.material_key) {
+      released_key = state.material_key;
+      material = AcquireMaterialLocked(material_path, state.material_key);
+    } else if (state.material_key.empty()) {
+      material = fallback_material_;
+    } else {
+      material = materials_.at(state.material_key).handle;
     }
+    while (state.instances.size() > transforms.size()) {
+      world_.Remove(state.instances.back());
+      state.instances.pop_back();
+      state.instance_descriptors.pop_back();
+    }
+    while (state.instances.size() < transforms.size()) {
+      const auto i = state.instances.size();
+      merlin::InstanceDescriptor descriptor;
+      descriptor.label = key + "[" + std::to_string(i) + "]";
+      descriptor.mesh = state.mesh;
+      descriptor.material = material;
+      descriptor.transform = transforms[i];
+      descriptor.visible = visible;
+      state.instances.push_back(world_.CreateInstance(descriptor));
+      state.instance_descriptors.push_back(std::move(descriptor));
+    }
+    for (std::size_t i = 0; i < state.instances.size(); ++i) {
+      auto& descriptor = state.instance_descriptors[i];
+      descriptor.transform = transforms[i];
+      descriptor.visible = visible;
+      descriptor.material = material;
+      if (instance_aspects != merlin::ChangeAspect::None) {
+        world_.UpdateInstance(state.instances[i], descriptor,
+                              instance_aspects);
+      }
+    }
+    // No-op unless the binding changed above; retires the previous material
+    // once its last referencing mesh has moved off it.
+    ReleaseMaterialLocked(released_key);
   }
 
   void RemoveMesh(const SdfPath& path) {
@@ -250,8 +554,11 @@ class SceneBridge {
     if (found == meshes_.end()) {
       return;
     }
-    world_.Remove(found->second.instance);
+    for (const auto instance : found->second.instances) {
+      world_.Remove(instance);
+    }
     world_.Remove(found->second.mesh);
+    ReleaseMaterialLocked(found->second.material_key);
     meshes_.erase(found);
   }
 
@@ -278,10 +585,13 @@ class SceneBridge {
           IsInCollection(path, collection) &&
           HasRequestedRenderTag(path, render_tags, render_index);
       const bool visible = mesh.authored_visible && selected;
-      if (mesh.instance_descriptor.visible != visible) {
-        mesh.instance_descriptor.visible = visible;
-        world_.UpdateInstance(mesh.instance, mesh.instance_descriptor,
-                              merlin::ChangeAspect::Visibility);
+      for (std::size_t i = 0; i < mesh.instances.size(); ++i) {
+        auto& descriptor = mesh.instance_descriptors[i];
+        if (descriptor.visible != visible) {
+          descriptor.visible = visible;
+          world_.UpdateInstance(mesh.instances[i], descriptor,
+                                merlin::ChangeAspect::Visibility);
+        }
       }
     }
 
@@ -418,6 +728,14 @@ class SceneBridge {
         written = buffer->WriteDepth(result.depth.pixels,
                                      result.depth.product.width,
                                      result.depth.product.height);
+      } else if (binding.aovName == HdAovTokens->primId) {
+        written = buffer->WriteId(result.prim_id.pixels,
+                                  result.prim_id.product.width,
+                                  result.prim_id.product.height);
+      } else if (binding.aovName == HdAovTokens->instanceId) {
+        written = buffer->WriteId(result.instance_id.pixels,
+                                  result.instance_id.product.width,
+                                  result.instance_id.product.height);
       }
       buffer->SetConverged(written);
       buffers_written += written ? 1U : 0U;
@@ -476,6 +794,47 @@ class SceneBridge {
   }
 
  private:
+  // Resolves the material bound at `path`, creating it on first use, and takes
+  // one reference. `key_out` receives the tracking key to pass back to
+  // ReleaseMaterialLocked (empty for the untracked fallback material).
+  merlin::MaterialHandle AcquireMaterialLocked(const SdfPath& path,
+                                               std::string& key_out) {
+    if (path.IsEmpty()) {
+      key_out.clear();
+      return fallback_material_;
+    }
+    auto key = path.GetString();
+    auto found = materials_.find(key);
+    if (found == materials_.end()) {
+      merlin::MaterialDescriptor descriptor;
+      descriptor.label = key;
+      found = materials_
+                  .emplace(key, MaterialEntry{
+                                    world_.CreateMaterial(std::move(descriptor)),
+                                    0})
+                  .first;
+    }
+    ++found->second.references;
+    key_out = std::move(key);
+    return found->second.handle;
+  }
+
+  // Drops one reference to a tracked material, retiring the render-world
+  // resource and map entry once the last mesh releases it.
+  void ReleaseMaterialLocked(const std::string& key) {
+    if (key.empty()) {
+      return;
+    }
+    const auto found = materials_.find(key);
+    if (found == materials_.end()) {
+      return;
+    }
+    if (--found->second.references == 0) {
+      world_.Remove(found->second.handle);
+      materials_.erase(found);
+    }
+  }
+
   merlin::CameraHandle SyncCameraLocked(const std::string& key,
                                         const merlin::Mat4& view,
                                         const merlin::Mat4& projection) {
@@ -510,7 +869,149 @@ class SceneBridge {
   merlin::RenderSettingsHandle render_settings_;
   merlin::RenderSettingsDescriptor render_settings_descriptor_;
   std::unordered_map<std::string, MeshState> meshes_;
+  std::unordered_map<std::string, MaterialEntry> materials_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
+};
+
+class HdMerlinInstancer final : public HdInstancer {
+ public:
+  HdMerlinInstancer(HdSceneDelegate* delegate, const SdfPath& id)
+      : HdInstancer(delegate, id) {}
+
+  void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
+            HdDirtyBits* dirty_bits) override {
+    (void)render_param;
+    if ((*dirty_bits & HdChangeTracker::DirtyVisibility) != 0) {
+      visible_ = delegate->GetVisible(GetId());
+    }
+    _UpdateInstancer(delegate, dirty_bits);
+    if (HdChangeTracker::IsAnyPrimvarDirty(*dirty_bits, GetId())) {
+      for (const auto& descriptor : delegate->GetPrimvarDescriptors(
+               GetId(), HdInterpolationInstance)) {
+        if (HdChangeTracker::IsPrimvarDirty(*dirty_bits, GetId(),
+                                            descriptor.name)) {
+          primvars_.insert_or_assign(descriptor.name,
+                                     delegate->Get(GetId(), descriptor.name));
+        }
+      }
+    }
+    *dirty_bits = HdChangeTracker::Clean;
+  }
+
+  VtMatrix4dArray ComputeInstanceTransforms(const SdfPath& prototype_id) {
+    if (!visible_) {
+      return {};
+    }
+    const auto indices =
+        GetDelegate()->GetInstanceIndices(GetId(), prototype_id);
+    VtMatrix4dArray transforms(indices.size(),
+        GetDelegate()->GetInstancerTransform(GetId()));
+    ApplyVec3(transforms, indices, HdInstancerTokens->instanceTranslations,
+              [&](GfMatrix4d& matrix, const GfVec3d& value) {
+                GfMatrix4d operation(1.0);
+                operation.SetTranslate(value);
+                matrix = operation * matrix;
+              });
+    ApplyVec4(transforms, indices, HdInstancerTokens->instanceRotations,
+              [&](GfMatrix4d& matrix, const GfVec4d& value) {
+                GfMatrix4d operation(1.0);
+                operation.SetRotate(
+                    GfQuatd(value[0], value[1], value[2], value[3]));
+                matrix = operation * matrix;
+              });
+    ApplyVec3(transforms, indices, HdInstancerTokens->instanceScales,
+              [&](GfMatrix4d& matrix, const GfVec3d& value) {
+                GfMatrix4d operation(1.0);
+                operation.SetScale(value);
+                matrix = operation * matrix;
+              });
+    const auto transform_found =
+        primvars_.find(HdInstancerTokens->instanceTransforms);
+    if (transform_found != primvars_.end() &&
+        transform_found->second.IsHolding<VtMatrix4dArray>()) {
+      const auto& values =
+          transform_found->second.UncheckedGet<VtMatrix4dArray>();
+      for (std::size_t i = 0; i < indices.size(); ++i) {
+        const int index = indices[i];
+        if (index >= 0 && static_cast<std::size_t>(index) < values.size()) {
+          transforms[i] = values[index] * transforms[i];
+        }
+      }
+    }
+    if (GetParentId().IsEmpty()) {
+      return transforms;
+    }
+    auto* parent = dynamic_cast<HdMerlinInstancer*>(
+        GetDelegate()->GetRenderIndex().GetInstancer(GetParentId()));
+    if (parent == nullptr) {
+      TF_WARN("Merlin instancer %s has unavailable parent %s",
+              GetId().GetText(), GetParentId().GetText());
+      return transforms;
+    }
+    const auto parent_transforms = parent->ComputeInstanceTransforms(GetId());
+    VtMatrix4dArray flattened(parent_transforms.size() * transforms.size());
+    for (std::size_t parent_index = 0;
+         parent_index < parent_transforms.size(); ++parent_index) {
+      for (std::size_t child_index = 0; child_index < transforms.size();
+           ++child_index) {
+        flattened[parent_index * transforms.size() + child_index] =
+            transforms[child_index] * parent_transforms[parent_index];
+      }
+    }
+    return flattened;
+  }
+
+ private:
+  template <typename Callback>
+  void ApplyVec3(VtMatrix4dArray& transforms, const VtIntArray& indices,
+                 const TfToken& token, Callback callback) {
+    const auto found = primvars_.find(token);
+    if (found == primvars_.end()) {
+      return;
+    }
+    const auto apply = [&](const auto& values) {
+      for (std::size_t i = 0; i < indices.size(); ++i) {
+        const int index = indices[i];
+        if (index >= 0 && static_cast<std::size_t>(index) < values.size()) {
+          const auto& value = values[index];
+          callback(transforms[i],
+                   GfVec3d(value[0], value[1], value[2]));
+        }
+      }
+    };
+    if (found->second.IsHolding<VtVec3fArray>()) {
+      apply(found->second.UncheckedGet<VtVec3fArray>());
+    } else if (found->second.IsHolding<VtVec3dArray>()) {
+      apply(found->second.UncheckedGet<VtVec3dArray>());
+    }
+  }
+
+  template <typename Callback>
+  void ApplyVec4(VtMatrix4dArray& transforms, const VtIntArray& indices,
+                 const TfToken& token, Callback callback) {
+    const auto found = primvars_.find(token);
+    if (found == primvars_.end()) {
+      return;
+    }
+    const auto apply = [&](const auto& values) {
+      for (std::size_t i = 0; i < indices.size(); ++i) {
+        const int index = indices[i];
+        if (index >= 0 && static_cast<std::size_t>(index) < values.size()) {
+          const auto& value = values[index];
+          callback(transforms[i],
+                   GfVec4d(value[0], value[1], value[2], value[3]));
+        }
+      }
+    };
+    if (found->second.IsHolding<VtVec4fArray>()) {
+      apply(found->second.UncheckedGet<VtVec4fArray>());
+    } else if (found->second.IsHolding<VtVec4dArray>()) {
+      apply(found->second.UncheckedGet<VtVec4dArray>());
+    }
+  }
+
+  bool visible_{true};
+  std::unordered_map<TfToken, VtValue, TfToken::HashFunctor> primvars_;
 };
 
 class HdMerlinMesh final : public HdMesh {
@@ -527,13 +1028,15 @@ class HdMerlinMesh final : public HdMesh {
            HdChangeTracker::DirtyPrimvar |
            HdChangeTracker::DirtyMaterialId |
            HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyVisibility |
-           HdChangeTracker::DirtyRenderTag;
+           HdChangeTracker::DirtyRenderTag |
+           HdChangeTracker::DirtyInstancer;
   }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
     (void)render_param;
     (void)repr_token;
+    _UpdateInstancer(delegate, dirty_bits);
     const bool points_dirty =
         (*dirty_bits & HdChangeTracker::DirtyPoints) != 0;
     const bool topology_dirty =
@@ -542,36 +1045,50 @@ class HdMerlinMesh final : public HdMesh {
     merlin::ChangeAspect instance_aspects = merlin::ChangeAspect::None;
     if (points_dirty) {
       mesh_aspects |= merlin::ChangeAspect::Points;
-      const VtValue points = GetPoints(delegate);
-      descriptor_.positions.clear();
-      if (points.IsHolding<VtVec3fArray>()) {
-        for (const auto& point : points.UncheckedGet<VtVec3fArray>()) {
-          descriptor_.positions.push_back({point[0], point[1], point[2]});
-        }
-      } else if (points.IsHolding<VtVec3dArray>()) {
-        for (const auto& point : points.UncheckedGet<VtVec3dArray>()) {
-          descriptor_.positions.push_back(
-              {static_cast<float>(point[0]), static_cast<float>(point[1]),
-               static_cast<float>(point[2])});
-        }
-      } else {
-        TF_WARN("Merlin mesh %s has unsupported points type",
-                GetId().GetText());
-      }
     }
     if (topology_dirty) {
       mesh_aspects |= merlin::ChangeAspect::Topology;
       topology_ = GetMeshTopology(delegate);
     }
-    if ((*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0) {
+    const bool primvars_dirty =
+        (*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0;
+    if (primvars_dirty) {
       mesh_aspects |= merlin::ChangeAspect::Primvars;
     }
-    if (points_dirty || topology_dirty) {
-      RebuildIndices();
+    if (points_dirty || topology_dirty || primvars_dirty) {
+      RebuildMesh(delegate);
     }
-    if ((*dirty_bits & HdChangeTracker::DirtyTransform) != 0) {
+    const bool transform_dirty =
+        (*dirty_bits & HdChangeTracker::DirtyTransform) != 0;
+    const bool instancer_dirty =
+        HdChangeTracker::IsInstancerDirty(*dirty_bits, GetId());
+    if (transform_dirty) {
       instance_aspects |= merlin::ChangeAspect::Transform;
-      transform_ = ToMerlinMatrix(delegate->GetTransform(GetId()));
+      hydra_transform_ = delegate->GetTransform(GetId());
+    }
+    if (instancer_dirty) {
+      instance_aspects |= merlin::ChangeAspect::Transform;
+    }
+    if (transform_dirty || instancer_dirty || transforms_.empty()) {
+      transforms_.clear();
+      if (GetInstancerId().IsEmpty()) {
+        transforms_.push_back(ToMerlinMatrix(hydra_transform_));
+      } else {
+        HdInstancer::_SyncInstancerAndParents(delegate->GetRenderIndex(),
+                                              GetInstancerId());
+        auto* instancer = dynamic_cast<HdMerlinInstancer*>(
+            delegate->GetRenderIndex().GetInstancer(GetInstancerId()));
+        if (instancer == nullptr) {
+          TF_WARN("Merlin mesh %s has unavailable instancer %s",
+                  GetId().GetText(), GetInstancerId().GetText());
+        } else {
+          for (const auto& instance_transform :
+               instancer->ComputeInstanceTransforms(GetId())) {
+            transforms_.push_back(ToMerlinMatrix(hydra_transform_ *
+                                                 instance_transform));
+          }
+        }
+      }
     }
     if ((*dirty_bits & HdChangeTracker::DirtyVisibility) != 0) {
       instance_aspects |= merlin::ChangeAspect::Visibility;
@@ -579,11 +1096,12 @@ class HdMerlinMesh final : public HdMesh {
     }
     if ((*dirty_bits & HdChangeTracker::DirtyMaterialId) != 0) {
       instance_aspects |= merlin::ChangeAspect::MaterialBinding;
+      material_id_ = delegate->GetMaterialId(GetId());
     }
     if ((*dirty_bits & HdChangeTracker::DirtyRenderTag) != 0) {
       instance_aspects |= merlin::ChangeAspect::Visibility;
     }
-    bridge_->SyncMesh(GetId(), descriptor_, transform_, visible_,
+    bridge_->SyncMesh(GetId(), descriptor_, material_id_, transforms_, visible_,
                       mesh_aspects, instance_aspects);
     *dirty_bits = HdChangeTracker::Clean;
   }
@@ -599,56 +1117,170 @@ class HdMerlinMesh final : public HdMesh {
   }
 
  private:
-  void RebuildIndices() {
+  void RebuildMesh(HdSceneDelegate* delegate) {
+    // Clears every packed vertex array so a partially built mesh never leaves
+    // stale normals/colors/texcoords behind on an error return.
+    const auto reset = [&] {
+      descriptor_.positions.clear();
+      descriptor_.normals.clear();
+      descriptor_.colors.clear();
+      descriptor_.texcoords.clear();
+      descriptor_.indices.clear();
+    };
+    reset();
+
+    std::vector<GfVec3d> points;
+    const auto authored_points = GetPoints(delegate);
+    if (authored_points.IsHolding<VtVec3fArray>()) {
+      const auto& values = authored_points.UncheckedGet<VtVec3fArray>();
+      points.reserve(values.size());
+      for (const auto& value : values) {
+        points.emplace_back(value);
+      }
+    } else if (authored_points.IsHolding<VtVec3dArray>()) {
+      const auto& values = authored_points.UncheckedGet<VtVec3dArray>();
+      points.assign(values.begin(), values.end());
+    } else {
+      TF_WARN("Merlin mesh %s has unsupported points type",
+              GetId().GetText());
+      return;
+    }
+
     const auto& counts = topology_.GetFaceVertexCounts();
     const auto& authored_indices = topology_.GetFaceVertexIndices();
     const auto& authored_holes = topology_.GetHoleIndices();
-    const std::unordered_set<int> holes(authored_holes.begin(),
-                                        authored_holes.end());
-    descriptor_.indices.clear();
+    std::unordered_set<int> holes;
+    for (const auto hole : authored_holes) {
+      if (hole < 0 || static_cast<std::size_t>(hole) >= counts.size() ||
+          !holes.insert(hole).second) {
+        TF_WARN("Merlin mesh %s has invalid hole index %d",
+                GetId().GetText(), hole);
+        return;
+      }
+    }
+    const auto normals = FindPrimvar(*this, delegate, HdTokens->normals);
+    const auto colors = FindPrimvar(*this, delegate, HdTokens->displayColor);
+    const auto opacities =
+        FindPrimvar(*this, delegate, HdTokens->displayOpacity);
+    const auto texcoords =
+        FindPrimvar(*this, delegate, TfToken("st"), true);
+
     std::size_t offset{};
-    int face_index{};
-    bool valid = true;
-    for (const int count : counts) {
-      if (count < 0 || static_cast<std::size_t>(count) >
-                           authored_indices.size() - offset) {
-        valid = false;
-        break;
+    for (std::uint32_t face_index = 0; face_index < counts.size();
+         ++face_index) {
+      const int count = counts[face_index];
+      if (count < 3 || offset > authored_indices.size() ||
+          static_cast<std::size_t>(count) >
+              authored_indices.size() - offset) {
+        TF_WARN("Merlin mesh %s face %u has malformed vertex count %d",
+                GetId().GetText(), face_index, count);
+        reset();
+        return;
       }
       if (!holes.contains(face_index)) {
-        for (int corner = 1; corner + 1 < count; ++corner) {
-          const int triangle[3] = {authored_indices[offset],
-                                   authored_indices[offset + corner],
-                                   authored_indices[offset + corner + 1]};
-          for (const int index : triangle) {
-            if (index < 0 || static_cast<std::size_t>(index) >=
-                                 descriptor_.positions.size()) {
-              valid = false;
-              break;
-            }
-            descriptor_.indices.push_back(static_cast<std::uint32_t>(index));
+        std::vector<std::uint32_t> face_points;
+        face_points.reserve(static_cast<std::size_t>(count));
+        for (int corner = 0; corner < count; ++corner) {
+          const int point = authored_indices[offset +
+                                             static_cast<std::size_t>(corner)];
+          if (point < 0 || static_cast<std::size_t>(point) >= points.size()) {
+            TF_WARN("Merlin mesh %s face %u references invalid point %d",
+                    GetId().GetText(), face_index, point);
+            reset();
+            return;
           }
-          if (!valid) {
-            break;
+          face_points.push_back(static_cast<std::uint32_t>(point));
+        }
+        std::string diagnostic;
+        const auto triangles = TriangulateFace(face_points, points, diagnostic);
+        if (triangles.empty()) {
+          TF_WARN("Merlin mesh %s face %u: %s", GetId().GetText(),
+                  face_index, diagnostic.c_str());
+          reset();
+          return;
+        }
+        for (const auto& triangle : triangles) {
+          const auto& a = points[face_points[triangle[0]]];
+          const auto& b = points[face_points[triangle[1]]];
+          const auto& c = points[face_points[triangle[2]]];
+          GfVec3d generated_normal = GfCross(b - a, c - a);
+          generated_normal.Normalize();
+          for (const auto local_corner : triangle) {
+            const MeshCorner corner{face_points[local_corner], face_index,
+                                    static_cast<std::uint32_t>(offset) +
+                                        local_corner};
+            const auto& point = points[corner.point];
+            descriptor_.positions.push_back(
+                {static_cast<float>(point[0]), static_cast<float>(point[1]),
+                 static_cast<float>(point[2])});
+            merlin::Vec3 normal{static_cast<float>(generated_normal[0]),
+                                static_cast<float>(generated_normal[1]),
+                                static_cast<float>(generated_normal[2])};
+            if (normals.present && !ReadVec3(normals, corner, normal)) {
+              TF_WARN("Merlin mesh %s has malformed normals primvar",
+                      GetId().GetText());
+              reset();
+              return;
+            }
+            const float length = std::sqrt(normal.x * normal.x +
+                                           normal.y * normal.y +
+                                           normal.z * normal.z);
+            if (length > 1.0e-20F) {
+              normal.x /= length;
+              normal.y /= length;
+              normal.z /= length;
+            }
+            descriptor_.normals.push_back(normal);
+            merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
+            merlin::Vec3 rgb;
+            if (colors.present && !ReadVec3(colors, corner, rgb)) {
+              TF_WARN("Merlin mesh %s has malformed displayColor primvar",
+                      GetId().GetText());
+              reset();
+              return;
+            }
+            if (colors.present) {
+              color.x = rgb.x;
+              color.y = rgb.y;
+              color.z = rgb.z;
+            }
+            if (opacities.present &&
+                !ReadFloat(opacities, corner, color.w)) {
+              TF_WARN("Merlin mesh %s has malformed displayOpacity primvar",
+                      GetId().GetText());
+              reset();
+              return;
+            }
+            color.w = std::clamp(color.w, 0.0F, 1.0F);
+            descriptor_.colors.push_back(color);
+            merlin::Vec2 texcoord;
+            if (texcoords.present && !ReadVec2(texcoords, corner, texcoord)) {
+              TF_WARN("Merlin mesh %s has malformed texture coordinate primvar",
+                      GetId().GetText());
+              reset();
+              return;
+            }
+            descriptor_.texcoords.push_back(texcoord);
+            descriptor_.indices.push_back(
+                static_cast<std::uint32_t>(descriptor_.indices.size()));
           }
         }
       }
-      if (!valid) {
-        break;
-      }
       offset += static_cast<std::size_t>(count);
-      ++face_index;
     }
-    if (!valid || offset != authored_indices.size()) {
-      descriptor_.indices.clear();
-      TF_WARN("Merlin mesh %s has invalid topology", GetId().GetText());
+    if (offset != authored_indices.size()) {
+      reset();
+      TF_WARN("Merlin mesh %s has trailing face-vertex indices",
+              GetId().GetText());
     }
   }
 
   std::shared_ptr<SceneBridge> bridge_;
   merlin::MeshDescriptor descriptor_;
   HdMeshTopology topology_;
-  merlin::Mat4 transform_;
+  SdfPath material_id_;
+  GfMatrix4d hydra_transform_{1.0};
+  std::vector<merlin::Mat4> transforms_{merlin::Mat4{}};
   bool visible_{true};
 };
 
@@ -695,7 +1327,8 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   std::scoped_lock lock(mutex_);
   if (map_count_ != 0 || dimensions[0] < 0 || dimensions[1] < 0 ||
       dimensions[2] < 0 || multi_sampled ||
-      (format != HdFormatUNorm8Vec4 && format != HdFormatFloat32)) {
+      (format != HdFormatUNorm8Vec4 && format != HdFormatFloat32 &&
+       format != HdFormatInt32)) {
     return false;
   }
   const auto pixel_size = HdDataSizeOfFormat(format);
@@ -805,6 +1438,21 @@ bool HdMerlinRenderBuffer::WriteDepth(const std::vector<float>& depth,
   return true;
 }
 
+bool HdMerlinRenderBuffer::WriteId(const std::vector<std::uint32_t>& ids,
+                                   std::uint32_t width,
+                                   std::uint32_t height) {
+  std::scoped_lock lock(mutex_);
+  const auto byte_size = ids.size() * sizeof(std::uint32_t);
+  if (format_ != HdFormatInt32 || map_count_ != 0 ||
+      dimensions_ != GfVec3i(static_cast<int>(width), static_cast<int>(height),
+                             1) ||
+      byte_size != data_.size()) {
+    return false;
+  }
+  std::memcpy(data_.data(), ids.data(), byte_size);
+  return true;
+}
+
 void HdMerlinRenderBuffer::SetConverged(bool converged) {
   std::scoped_lock lock(mutex_);
   converged_ = converged;
@@ -862,9 +1510,7 @@ HdRenderPassSharedPtr HdMerlinRenderDelegate::CreateRenderPass(
 
 HdInstancer* HdMerlinRenderDelegate::CreateInstancer(HdSceneDelegate* delegate,
                                                      const SdfPath& id) {
-  (void)delegate;
-  (void)id;
-  return nullptr;
+  return new HdMerlinInstancer(delegate, id);
 }
 
 void HdMerlinRenderDelegate::DestroyInstancer(HdInstancer* instancer) {
@@ -927,6 +1573,9 @@ HdAovDescriptor HdMerlinRenderDelegate::GetDefaultAovDescriptor(
   }
   if (name == HdAovTokens->depth) {
     return {HdFormatFloat32, false, VtValue(1.0F)};
+  }
+  if (name == HdAovTokens->primId || name == HdAovTokens->instanceId) {
+    return {HdFormatInt32, false, VtValue(-1)};
   }
   return {};
 }

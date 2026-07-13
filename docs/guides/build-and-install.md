@@ -93,8 +93,9 @@ Vulkan-enabled builds also install the Vulkan library, `merlin-headless`, and it
 SPIR-V shaders. Hydra-enabled builds install the `hdMerlin` plugin below
 `<prefix>/<libdir>/usd/hdMerlin` and its smoke fixture below
 `<prefix>/<datadir>/merlin/tests`. Every configuration also installs
-`<prefix>/<datadir>/merlin/merlin-release-metadata.json` with version,
-dependency, feature, exported-target, and runtime-product information.
+`<prefix>/<datadir>/merlin/VERSION` plus
+`merlin-release-metadata.json` with dependency, feature, exported-target, and
+runtime-product information.
 
 See [Using the CMake package](cmake-package.md) for downstream integration.
 Maintainers should also see [Releasing](releasing.md) for the tag-driven release

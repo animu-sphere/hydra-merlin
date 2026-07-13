@@ -34,6 +34,8 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
                   std::uint32_t width, std::uint32_t height);
   bool WriteDepth(const std::vector<float>& depth, std::uint32_t width,
                   std::uint32_t height);
+  bool WriteId(const std::vector<std::uint32_t>& ids, std::uint32_t width,
+               std::uint32_t height);
   void SetConverged(bool converged);
 
  protected:

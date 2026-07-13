@@ -8,6 +8,32 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Practical Hydra mesh normalization for normals, display color/opacity, UVs,
+  indexed primvars, and constant/uniform/vertex/varying/face-varying
+  interpolation. Primvar-only edits replace only the packed vertex payload.
+- Deterministic ear-clipping triangulation for concave polygons, with holes and
+  actionable malformed, out-of-range, degenerate, and self-intersecting
+  topology diagnostics.
+- Native Hydra PointInstancer transforms, including nested instancers and
+  instance translate/rotate/scale/matrix primvars, flattened to shared Merlin
+  geometry with independently keyed instances.
+- `primId` and `instanceId` Vulkan attachments, CPU readback products, and
+  Hydra `HdFormatInt32` RenderBuffer delivery alongside color and depth.
+- Regression gates covering authored material binding, indexed face-varying
+  primvars, concave polygons, native instancing, one million triangles, 10,000
+  small meshes, and 256 repeated primvar edits.
+- A root `VERSION` source of truth and `prepare-release` command that finalizes
+  Unreleased changelog notes, dates the release, and updates comparison links.
+
+### Changed
+
+- Bumped the project and installed package metadata version to 0.3.0.
+- Reduced mandatory release bookkeeping to `VERSION` and `CHANGELOG.md`;
+  detailed records and product documentation now change only when their
+  content changes.
+
 ## [0.2.0] - 2026-07-13
 
 ### Changed

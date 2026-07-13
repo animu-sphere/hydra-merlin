@@ -36,6 +36,16 @@ void ValidateMesh(const MeshDescriptor& descriptor) {
                   })) {
     throw std::invalid_argument("mesh index is outside the position array");
   }
+  const auto validate_primvar_size = [&](std::size_t size,
+                                         const char* name) {
+    if (size != 0 && size != descriptor.positions.size()) {
+      throw std::invalid_argument(std::string("mesh ") + name +
+                                  " count must match positions");
+    }
+  };
+  validate_primvar_size(descriptor.normals.size(), "normal");
+  validate_primvar_size(descriptor.colors.size(), "color");
+  validate_primvar_size(descriptor.texcoords.size(), "texcoord");
 }
 
 template <typename HandleType>

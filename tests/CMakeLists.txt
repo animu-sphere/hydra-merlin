@@ -24,6 +24,17 @@ target_link_libraries(merlin-render-extraction-tests
 
 add_test(NAME merlin-render-extraction COMMAND merlin-render-extraction-tests)
 
+add_executable(merlin-mesh-scale-regression-tests
+  mesh_scale_regression_test.cpp
+)
+target_link_libraries(merlin-mesh-scale-regression-tests
+  PRIVATE Merlin::RenderExtraction)
+add_test(NAME merlin-mesh-scale-regression
+         COMMAND merlin-mesh-scale-regression-tests)
+set_tests_properties(merlin-mesh-scale-regression PROPERTIES
+  LABELS "regression;scale"
+  TIMEOUT 60)
+
 if(TARGET Merlin::Vulkan)
   add_executable(merlin-render-product-contract-tests
     render_product_contract_test.cpp
@@ -100,6 +111,7 @@ add_test(
     "-DMERLIN_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
     "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
     "-DMERLIN_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}"
+    "-DMERLIN_EXPECTED_VERSION=${PROJECT_VERSION}"
     "-DMERLIN_GENERATOR=${CMAKE_GENERATOR}"
     "-DMERLIN_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
     "-DMERLIN_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
@@ -111,3 +123,13 @@ set_tests_properties(merlin-install-consumer PROPERTIES
   LABELS packaging
   TIMEOUT 60
 )
+
+add_test(
+  NAME merlin-release-tooling
+  COMMAND ${CMAKE_COMMAND}
+    "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+    "-DMERLIN_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    "-DMERLIN_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/verify_release_tooling.cmake"
+)
+set_tests_properties(merlin-release-tooling PROPERTIES LABELS packaging)

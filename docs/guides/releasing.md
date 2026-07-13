@@ -1,38 +1,67 @@
 # Releasing
 
-hdMerlin releases are initiated only by pushing a stable SemVer tag. There is no
-manual-dispatch release path.
+`VERSION` is the single source of truth for the project, package, installed
+metadata, and release tag version. Normal feature work only adds notes under
+`[Unreleased]` in `CHANGELOG.md`; it does not update version references in
+CMake, README, roadmap, or support documents.
 
-## Release contract
+## Prepare and publish
 
-1. Land the intended release commit on `main` with hosted CI passing.
-2. Confirm that `project(hdMerlin VERSION ...)` and the changelog describe the
-   intended version.
-3. Create and push the matching tag, for example `v0.1.0`.
+From a release branch, run:
 
-The `Release` workflow rejects tags that are not exactly
-`vMAJOR.MINOR.PATCH`, or whose version differs from the CMake project version.
+```powershell
+./scripts/prepare-release.ps1 -Version 0.4.0
+```
+
+The command performs the mechanical release edits:
+
+- writes `0.4.0` to `VERSION`;
+- moves the existing Unreleased notes under a dated `0.4.0` heading;
+- updates the Unreleased comparison base; and
+- adds the stable release comparison link.
+
+Use `-Date YYYY-MM-DD` to override the UTC date or `-DryRun` to validate without
+writing. The platform-neutral equivalent is:
+
+```console
+cmake -DMERLIN_RELEASE_VERSION=0.4.0 -P cmake/prepare-release.cmake
+```
+
+Review the two changed files, commit them, merge to `main`, and wait for hosted
+CI. Then create the matching immutable tag:
+
+```console
+git tag v0.4.0
+git push origin v0.4.0
+```
+
+README, roadmap, support-matrix, and detailed release-record edits are required
+only when their content actually changes; they are not release bookkeeping.
+
+## Automated contract
+
+The tag-driven `Release` workflow rejects a tag unless all of these agree:
+
+- the tag uses exactly `vMAJOR.MINOR.PATCH`;
+- `VERSION` contains the same `MAJOR.MINOR.PATCH`; and
+- `CHANGELOG.md` contains the dated stable section and comparison link.
+
 It then performs clean Windows and Linux Core-only Release builds, runs source
 and isolated install-tree tests, installs each SDK into a fresh staging prefix,
-and publishes the archives, metadata sidecars, and SHA-256 checksum files to the
-tag's GitHub Release.
+and publishes archives, metadata sidecars, and SHA-256 checksum files to the
+tag's GitHub Release. GitHub-generated notes supplement the canonical changelog.
 
 Each SDK contains `merlin-release-metadata.json` under its data directory. The
 file records schema and project versions, dependency constraints, configured
 feature layers, exported targets, and runtime-only products.
 
-The `publish` job (artifact upload, download, and asset creation) only runs on a
-real tag push, so it is not exercised by hosted pull-request CI. Watch the first
-tag of a new pipeline closely, and prefer validating pipeline changes on a
-throwaway fork tag before tagging the canonical repository.
+The publish job only runs on a real tag push, so watch the first tag after a
+pipeline change closely. Release tags are immutable: fix a published workflow
+or package issue in a new patch version rather than moving an existing tag.
 
 ## Runtime products
 
-The hosted release workflow publishes the portable Core SDK baseline. Vulkan,
-headless, benchmark, and Hydra products remain capability-dependent source-build
-products in v0.1.0. The manually dispatched GPU capability workflow exercises
-Vulkan/headless in Debug and Release and Hydra in Release on a runner labeled
-`vulkan-1.4`.
-
-Release tags are immutable. If a workflow or package issue is found after a tag
-is published, fix it in a new patch version instead of moving the existing tag.
+The hosted workflow publishes the portable Core SDK baseline. Vulkan, headless,
+benchmark, and Hydra products remain capability-dependent source-build products.
+The manually dispatched GPU capability workflow exercises Vulkan/headless in
+Debug and Release and Hydra in Release on a runner labeled `vulkan-1.4`.

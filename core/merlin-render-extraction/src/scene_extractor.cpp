@@ -53,11 +53,23 @@ class SceneExtractor::Impl {
       throw std::length_error("mesh exceeds 32-bit draw limits");
     }
     if (change.change_kind == ChangeKind::Created ||
-        change.HasAspect(ChangeAspect::Points)) {
+        change.HasAspect(ChangeAspect::Points) ||
+        change.HasAspect(ChangeAspect::Primvars)) {
       auto vertices = std::make_shared<std::vector<DrawVertex>>();
       vertices->reserve(descriptor.positions.size());
-      for (const auto& position : descriptor.positions) {
-        vertices->push_back({position});
+      for (std::size_t i = 0; i < descriptor.positions.size(); ++i) {
+        DrawVertex vertex;
+        vertex.position = descriptor.positions[i];
+        if (!descriptor.normals.empty()) {
+          vertex.normal = descriptor.normals[i];
+        }
+        if (!descriptor.colors.empty()) {
+          vertex.color = descriptor.colors[i];
+        }
+        if (!descriptor.texcoords.empty()) {
+          vertex.texcoord = descriptor.texcoords[i];
+        }
+        vertices->push_back(vertex);
       }
       entry.vertices = std::move(vertices);
       entry.points_revision = change.resource_revision;

@@ -16,6 +16,16 @@ int main() {
   mesh.indices = {0, 1, 2};
   const auto mesh_handle = world.CreateMesh(mesh);
 
+  bool bad_primvar_rejected = false;
+  try {
+    auto invalid_mesh = mesh;
+    invalid_mesh.colors = {{1.0F, 1.0F, 1.0F, 1.0F}};
+    (void)world.CreateMesh(std::move(invalid_mesh));
+  } catch (const std::invalid_argument&) {
+    bad_primvar_rejected = true;
+  }
+  assert(bad_primvar_rejected);
+
   bool bad_topology_rejected = false;
   try {
     auto invalid_mesh = mesh;
