@@ -150,9 +150,19 @@ Mat4 Multiply(const Mat4& lhs, const Mat4& rhs) {
 struct PushConstants {
   Mat4 model_view_projection;
   Vec4 base_color;
+  Vec4 light_direction_intensity;
+  Vec4 light_color_alpha_cutoff;
+  std::uint32_t feature_mask{};
   std::uint32_t prim_id{};
   std::uint32_t instance_id{};
+  std::uint32_t padding{};
 };
+
+static_assert(sizeof(PushConstants) == 128);
+static_assert(offsetof(PushConstants, feature_mask) == 112);
+
+constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
+constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;
 
 constexpr VkDeviceSize kArenaAlignment = 16;
 constexpr VkDeviceSize kMinArenaBlockBytes = 256U * 1024U;
@@ -495,18 +505,55 @@ class Renderer::Impl {
         DestroyBuffer(retired.buffer);
       }
       deferred_.clear();
+      for (auto& retired : retired_textures_) {
+        DestroyTexture(retired.texture);
+      }
+      retired_textures_.clear();
+      for (const auto& retired : retired_samplers_) {
+        vkDestroySampler(device_, retired.sampler, nullptr);
+      }
+      retired_samplers_.clear();
+      for (auto& [handle, texture] : texture_slots_) {
+        (void)handle;
+        DestroyTexture(texture);
+      }
+      texture_slots_.clear();
+      for (const auto& [handle, sampler] : sampler_slots_) {
+        (void)handle;
+        vkDestroySampler(device_, sampler.sampler, nullptr);
+      }
+      sampler_slots_.clear();
+      DestroyTexture(fallback_texture_);
+      if (fallback_sampler_.sampler != VK_NULL_HANDLE) {
+        vkDestroySampler(device_, fallback_sampler_.sampler, nullptr);
+      }
+      for (auto& buffer : frame_upload_buffers_) {
+        DestroyBuffer(buffer);
+      }
+      frame_upload_buffers_.clear();
       retired_ranges_.clear();
       staging_.Destroy();
       vertex_arena_.Destroy();
       index_arena_.Destroy();
       for (auto& frame : frames_) {
         DestroyTarget(frame.target);
+        if (frame.descriptor_pool != VK_NULL_HANDLE) {
+          vkDestroyDescriptorPool(device_, frame.descriptor_pool, nullptr);
+        }
         if (frame.fence != VK_NULL_HANDLE) {
           vkDestroyFence(device_, frame.fence, nullptr);
         }
         if (frame.command_pool != VK_NULL_HANDLE) {
           vkDestroyCommandPool(device_, frame.command_pool, nullptr);
         }
+      }
+      for (const auto& [path, module] : shader_modules_) {
+        (void)path;
+        vkDestroyShaderModule(device_, module, nullptr);
+      }
+      shader_modules_.clear();
+      if (descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device_, descriptor_set_layout_, nullptr);
       }
       if (timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
@@ -529,6 +576,7 @@ class Renderer::Impl {
     ValidateRequest(request);
     const auto backend_start = CpuClock::now();
     frame_counters_ = {};
+    ResetAbandonedUploads();
     for (const auto& draw : request.snapshot->draws) {
       ++frame_counters_.draw_count;
       frame_counters_.triangle_count +=
@@ -537,6 +585,7 @@ class Renderer::Impl {
 
     auto rendered_aovs = RenderedAovs(request);
     auto cpu_readback_aovs = CpuReadbackAovs(request);
+    EnsureDescriptorSetLayout();
     auto& frame = AcquireFrame(request.width, request.height, request.shaders,
                                cpu_readback_aovs);
     frame.scene_revision = request.snapshot->revision;
@@ -552,6 +601,12 @@ class Renderer::Impl {
 
     const auto upload_start = CpuClock::now();
     SyncGeometry(*request.snapshot);
+    SyncTextures(*request.snapshot);
+    SyncSamplers(*request.snapshot);
+    PrepareMaterialDescriptors(frame, *request.snapshot);
+    if (frame_counters_.upload_bytes != 0) {
+      ++statistics_.scene_uploads;
+    }
     const auto upload_ns = ElapsedNanoseconds(upload_start);
 
     const auto recording_start = CpuClock::now();
@@ -562,8 +617,8 @@ class Renderer::Impl {
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
           "begin frame command buffer");
     RecordUploads(frame.command_buffer);
-    RecordFrame(frame.command_buffer, *request.snapshot,
-                frame.cpu_readback_aovs);
+    RecordFrame(frame.command_buffer, frame, *request.snapshot,
+                 frame.cpu_readback_aovs);
     Check(vkEndCommandBuffer(frame.command_buffer), "end frame command buffer");
     const auto recording_ns = ElapsedNanoseconds(recording_start);
 
@@ -572,6 +627,11 @@ class Renderer::Impl {
     frame.cpu_timings.command_recording_ns = recording_ns;
     frame.counters = frame_counters_;
     const auto completion = SubmitFrame(frame);
+    for (auto& buffer : frame_upload_buffers_) {
+      deferred_.push_back({buffer, completion});
+      buffer = {};
+    }
+    frame_upload_buffers_.clear();
     frame.cpu_timings.backend_total_ns = ElapsedNanoseconds(backend_start);
     staging_.FinishFrame(completion);
     frame.outstanding = true;
@@ -645,6 +705,28 @@ class Renderer::Impl {
     std::uint64_t retire_value{};
   };
 
+  struct TextureSlot {
+    std::uint64_t revision{};
+    VkImage image{};
+    VkDeviceMemory memory{};
+    VkImageView view{};
+  };
+
+  struct SamplerSlot {
+    std::uint64_t revision{};
+    VkSampler sampler{};
+  };
+
+  struct RetiredTexture {
+    TextureSlot texture;
+    std::uint64_t retire_value{};
+  };
+
+  struct RetiredSampler {
+    VkSampler sampler{};
+    std::uint64_t retire_value{};
+  };
+
   // GPU residency for one mesh, keyed by the serialized RenderWorld handle
   // (slot index + generation) with per-sub-resource revisions. A revision
   // mismatch re-uploads only the stale sub-resource; a size-preserving edit
@@ -671,6 +753,13 @@ class Renderer::Impl {
     VkDeviceSize size{};
   };
 
+  struct PendingImageCopy {
+    VkBuffer source{};
+    VkImage destination{};
+    std::uint32_t width{};
+    std::uint32_t height{};
+  };
+
   struct RenderTarget {
     std::uint32_t width{};
     std::uint32_t height{};
@@ -689,7 +778,7 @@ class Renderer::Impl {
     VkRenderPass render_pass{};
     VkFramebuffer framebuffer{};
     VkPipelineLayout pipeline_layout{};
-    VkPipeline pipeline{};
+    std::map<std::uint32_t, VkPipeline> pipelines;
     Buffer color_readback;
     Buffer depth_readback;
     Buffer prim_id_readback;
@@ -710,6 +799,9 @@ class Renderer::Impl {
     std::vector<Aov> cpu_readback_aovs;
     FrameCpuTimings cpu_timings;
     FrameCounters counters;
+    VkDescriptorPool descriptor_pool{};
+    std::uint32_t descriptor_capacity{};
+    std::vector<VkDescriptorSet> material_descriptor_sets;
   };
 
   void CreateDevice(const RendererOptions& options) {
@@ -922,6 +1014,285 @@ class Renderer::Impl {
     DestroyBufferRaw(device_, buffer);
   }
 
+  void DestroyTexture(TextureSlot& texture) noexcept {
+    if (texture.view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, texture.view, nullptr);
+    }
+    if (texture.image != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, texture.image, nullptr);
+    }
+    if (texture.memory != VK_NULL_HANDLE) {
+      vkFreeMemory(device_, texture.memory, nullptr);
+    }
+    texture = {};
+  }
+
+  void ResetAbandonedUploads() {
+    pending_image_copies_.clear();
+    for (auto& buffer : frame_upload_buffers_) {
+      DestroyBuffer(buffer);
+    }
+    frame_upload_buffers_.clear();
+  }
+
+  TextureSlot CreateTextureResource(
+      std::uint32_t width, std::uint32_t height, std::uint64_t revision,
+      const std::vector<std::uint8_t>& pixels, bool count_upload = true) {
+    TextureSlot slot;
+    slot.revision = revision;
+    Buffer staging;
+    try {
+      slot.image = CreateImage(
+          width, height, kColorFormat,
+          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+          slot.memory);
+      slot.view =
+          CreateImageView(slot.image, kColorFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+      staging = CreateBuffer(
+          static_cast<VkDeviceSize>(pixels.size()),
+          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      void* mapped{};
+      Check(vkMapMemory(device_, staging.memory, 0, staging.size, 0, &mapped),
+            "map texture staging buffer");
+      std::memcpy(mapped, pixels.data(), pixels.size());
+      vkUnmapMemory(device_, staging.memory);
+      pending_image_copies_.push_back(
+          {staging.handle, slot.image, width, height});
+      frame_upload_buffers_.push_back(staging);
+      staging = {};
+      if (count_upload) {
+        frame_counters_.upload_bytes += pixels.size();
+      }
+    } catch (...) {
+      DestroyBuffer(staging);
+      DestroyTexture(slot);
+      throw;
+    }
+    return slot;
+  }
+
+  VkSampler CreateSamplerResource(FilterMode min_filter, FilterMode mag_filter,
+                                  AddressMode address_u,
+                                  AddressMode address_v) {
+    const auto filter = [](FilterMode value) {
+      return value == FilterMode::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    };
+    const auto address = [](AddressMode value) {
+      switch (value) {
+        case AddressMode::Repeat:
+          return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        case AddressMode::MirroredRepeat:
+          return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        case AddressMode::ClampToEdge:
+          return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+      }
+      return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    };
+    VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    info.minFilter = filter(min_filter);
+    info.magFilter = filter(mag_filter);
+    info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU = address(address_u);
+    info.addressModeV = address(address_v);
+    info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    info.minLod = 0.0F;
+    info.maxLod = 0.0F;
+    VkSampler sampler{};
+    Check(vkCreateSampler(device_, &info, nullptr, &sampler), "create sampler");
+    return sampler;
+  }
+
+  void RetireTexture(TextureSlot& texture) {
+    if (texture.image != VK_NULL_HANDLE) {
+      retired_textures_.push_back({texture, timeline_value_});
+      texture = {};
+    }
+  }
+
+  void RetireSampler(SamplerSlot& sampler) {
+    if (sampler.sampler != VK_NULL_HANDLE) {
+      retired_samplers_.push_back({sampler.sampler, timeline_value_});
+      sampler = {};
+    }
+  }
+
+  void SyncTextures(const extraction::FrameSnapshot& snapshot) {
+    auto record = snapshot.textures.begin();
+    for (auto slot = texture_slots_.begin(); slot != texture_slots_.end();) {
+      while (record != snapshot.textures.end() &&
+             record->texture < slot->first) {
+        ++record;
+      }
+      if (record == snapshot.textures.end() || record->texture != slot->first) {
+        RetireTexture(slot->second);
+        slot = texture_slots_.erase(slot);
+      } else {
+        ++slot;
+      }
+    }
+
+    for (const auto& texture : snapshot.textures) {
+      if (!texture.pixels) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "synchronize textures",
+                            "texture payload is null");
+      }
+      const auto [entry, inserted] =
+          texture_slots_.try_emplace(texture.texture);
+      if (!inserted && entry->second.revision == texture.revision) {
+        ++frame_counters_.texture_cache_hits;
+        continue;
+      }
+      ++frame_counters_.texture_cache_misses;
+      RetireTexture(entry->second);
+      entry->second = CreateTextureResource(
+          texture.width, texture.height, texture.revision, *texture.pixels);
+    }
+  }
+
+  void SyncSamplers(const extraction::FrameSnapshot& snapshot) {
+    auto record = snapshot.samplers.begin();
+    for (auto slot = sampler_slots_.begin(); slot != sampler_slots_.end();) {
+      while (record != snapshot.samplers.end() &&
+             record->sampler < slot->first) {
+        ++record;
+      }
+      if (record == snapshot.samplers.end() || record->sampler != slot->first) {
+        RetireSampler(slot->second);
+        slot = sampler_slots_.erase(slot);
+      } else {
+        ++slot;
+      }
+    }
+    for (const auto& sampler : snapshot.samplers) {
+      const auto [entry, inserted] = sampler_slots_.try_emplace(sampler.sampler);
+      if (!inserted && entry->second.revision == sampler.revision) {
+        ++frame_counters_.sampler_cache_hits;
+        continue;
+      }
+      ++frame_counters_.sampler_cache_misses;
+      RetireSampler(entry->second);
+      entry->second.revision = sampler.revision;
+      entry->second.sampler = CreateSamplerResource(
+          sampler.min_filter, sampler.mag_filter, sampler.address_u,
+          sampler.address_v);
+    }
+  }
+
+  void EnsureFallbackTextureAndSampler() {
+    if (fallback_texture_.image == VK_NULL_HANDLE) {
+      const std::vector<std::uint8_t> white{255U, 255U, 255U, 255U};
+      fallback_texture_ = CreateTextureResource(1, 1, 1, white, false);
+    }
+    if (fallback_sampler_.sampler == VK_NULL_HANDLE) {
+      fallback_sampler_.revision = 1;
+      fallback_sampler_.sampler = CreateSamplerResource(
+          FilterMode::Linear, FilterMode::Linear, AddressMode::Repeat,
+          AddressMode::Repeat);
+    }
+  }
+
+  void EnsureDescriptorSetLayout() {
+    if (descriptor_set_layout_ != VK_NULL_HANDLE) {
+      ++frame_counters_.descriptor_layout_cache_hits;
+      return;
+    }
+    ++frame_counters_.descriptor_layout_cache_misses;
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    info.bindingCount = 1;
+    info.pBindings = &binding;
+    Check(vkCreateDescriptorSetLayout(device_, &info, nullptr,
+                                      &descriptor_set_layout_),
+          "create material descriptor layout");
+  }
+
+  void PrepareMaterialDescriptors(
+      FrameContext& frame, const extraction::FrameSnapshot& snapshot) {
+    frame.material_descriptor_sets.clear();
+    if (snapshot.materials.empty()) {
+      return;
+    }
+    EnsureFallbackTextureAndSampler();
+    const auto material_count =
+        static_cast<std::uint32_t>(snapshot.materials.size());
+    if (frame.descriptor_pool == VK_NULL_HANDLE ||
+        frame.descriptor_capacity < material_count) {
+      if (frame.descriptor_pool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device_, frame.descriptor_pool, nullptr);
+      }
+      VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                material_count};
+      VkDescriptorPoolCreateInfo info{
+          VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+      info.maxSets = material_count;
+      info.poolSizeCount = 1;
+      info.pPoolSizes = &size;
+      Check(vkCreateDescriptorPool(device_, &info, nullptr,
+                                   &frame.descriptor_pool),
+            "create material descriptor pool");
+      frame.descriptor_capacity = material_count;
+    } else {
+      Check(vkResetDescriptorPool(device_, frame.descriptor_pool, 0),
+            "reset material descriptor pool");
+    }
+
+    std::vector<VkDescriptorSetLayout> layouts(material_count,
+                                                descriptor_set_layout_);
+    frame.material_descriptor_sets.resize(material_count);
+    VkDescriptorSetAllocateInfo allocate{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocate.descriptorPool = frame.descriptor_pool;
+    allocate.descriptorSetCount = material_count;
+    allocate.pSetLayouts = layouts.data();
+    Check(vkAllocateDescriptorSets(device_, &allocate,
+                                   frame.material_descriptor_sets.data()),
+          "allocate material descriptor sets");
+
+    std::vector<VkDescriptorImageInfo> image_infos(material_count);
+    std::vector<VkWriteDescriptorSet> writes(material_count);
+    for (std::uint32_t i = 0; i < material_count; ++i) {
+      auto image_view = fallback_texture_.view;
+      auto sampler = fallback_sampler_.sampler;
+      const auto& material = snapshot.materials[i];
+      if (material.base_color_texture) {
+        if (material.base_color_texture->texture_index >=
+                snapshot.textures.size() ||
+            material.base_color_texture->sampler_index >=
+                snapshot.samplers.size()) {
+          throw RendererError(RendererErrorCode::InvalidRequest,
+                              "prepare material descriptors",
+                              "material texture binding index is invalid");
+        }
+        const auto texture_handle =
+            snapshot.textures[material.base_color_texture->texture_index]
+                .texture;
+        const auto sampler_handle =
+            snapshot.samplers[material.base_color_texture->sampler_index]
+                .sampler;
+        image_view = texture_slots_.at(texture_handle).view;
+        sampler = sampler_slots_.at(sampler_handle).sampler;
+      }
+      image_infos[i] =
+          {sampler, image_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+      writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[i].dstSet = frame.material_descriptor_sets[i];
+      writes[i].dstBinding = 0;
+      writes[i].descriptorCount = 1;
+      writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      writes[i].pImageInfo = &image_infos[i];
+    }
+    vkUpdateDescriptorSets(device_, material_count, writes.data(), 0, nullptr);
+    frame_counters_.descriptor_update_count += material_count;
+  }
+
   // Reconciles GPU geometry residency with one immutable snapshot: retires
   // slots whose mesh left the snapshot, then stages only the sub-resources
   // whose revision changed. Transform-, visibility-, and material-only edits
@@ -1034,9 +1405,6 @@ class Renderer::Impl {
         slot.topology_revision = upload.record->topology_revision;
       }
     }
-    if (staging_bytes != 0) {
-      ++statistics_.scene_uploads;
-    }
   }
 
   void EnsureRange(DeviceArena& arena, BufferRange& range,
@@ -1073,7 +1441,7 @@ class Renderer::Impl {
   }
 
   void RecordUploads(VkCommandBuffer command) {
-    if (pending_copies_.empty()) {
+    if (pending_copies_.empty() && pending_image_copies_.empty()) {
       return;
     }
     for (const auto& copy : pending_copies_) {
@@ -1081,14 +1449,68 @@ class Renderer::Impl {
                                 copy.size};
       vkCmdCopyBuffer(command, copy.source, copy.destination, 1, &region);
     }
-    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask =
-        VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
-    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &barrier, 0,
-                         nullptr, 0, nullptr);
+    if (!pending_copies_.empty()) {
+      VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier.dstAccessMask =
+          VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+      vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &barrier,
+                           0, nullptr, 0, nullptr);
+    }
     pending_copies_.clear();
+
+    if (!pending_image_copies_.empty()) {
+      std::vector<VkImageMemoryBarrier> to_transfer;
+      to_transfer.reserve(pending_image_copies_.size());
+      for (const auto& copy : pending_image_copies_) {
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = copy.destination;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        to_transfer.push_back(barrier);
+      }
+      vkCmdPipelineBarrier(
+          command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
+          static_cast<std::uint32_t>(to_transfer.size()), to_transfer.data());
+      for (const auto& copy : pending_image_copies_) {
+        VkBufferImageCopy region{};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.layerCount = 1;
+        region.imageExtent = {copy.width, copy.height, 1};
+        vkCmdCopyBufferToImage(command, copy.source, copy.destination,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &region);
+      }
+      std::vector<VkImageMemoryBarrier> to_shader;
+      to_shader.reserve(pending_image_copies_.size());
+      for (const auto& copy : pending_image_copies_) {
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = copy.destination;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        to_shader.push_back(barrier);
+      }
+      vkCmdPipelineBarrier(
+          command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
+          static_cast<std::uint32_t>(to_shader.size()), to_shader.data());
+      pending_image_copies_.clear();
+    }
   }
 
   void Retire(Buffer& buffer) {
@@ -1116,6 +1538,24 @@ class Renderer::Impl {
         range = retired_ranges_.erase(range);
       } else {
         ++range;
+      }
+    }
+    auto texture = retired_textures_.begin();
+    while (texture != retired_textures_.end()) {
+      if (texture->retire_value <= completed) {
+        DestroyTexture(texture->texture);
+        texture = retired_textures_.erase(texture);
+      } else {
+        ++texture;
+      }
+    }
+    auto sampler = retired_samplers_.begin();
+    while (sampler != retired_samplers_.end()) {
+      if (sampler->retire_value <= completed) {
+        vkDestroySampler(device_, sampler->sampler, nullptr);
+        sampler = retired_samplers_.erase(sampler);
+      } else {
+        ++sampler;
       }
     }
   }
@@ -1380,7 +1820,19 @@ class Renderer::Impl {
                       depth_bytes);
       create_readback(Aov::InstanceId, active_target_->instance_id_readback,
                       depth_bytes);
-      CreatePipeline(shaders);
+      VkPushConstantRange push_range{};
+      push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
+                              VK_SHADER_STAGE_FRAGMENT_BIT;
+      push_range.size = sizeof(PushConstants);
+      VkPipelineLayoutCreateInfo layout_info{
+          VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+      layout_info.setLayoutCount = 1;
+      layout_info.pSetLayouts = &descriptor_set_layout_;
+      layout_info.pushConstantRangeCount = 1;
+      layout_info.pPushConstantRanges = &push_range;
+      Check(vkCreatePipelineLayout(device_, &layout_info, nullptr,
+                                   &active_target_->pipeline_layout),
+            "create material pipeline layout");
     } catch (...) {
       DestroyTarget(*active_target_);
       throw;
@@ -1449,126 +1901,127 @@ class Renderer::Impl {
           "create color/depth render pass");
   }
 
-  void CreatePipeline(const ShaderPaths& shaders) {
-    ++frame_counters_.pipeline_creation_count;
-    const auto vertex_code = ReadSpirv(shaders.vertex);
-    const auto fragment_code = ReadSpirv(shaders.fragment);
-    VkShaderModule vertex_shader{};
-    VkShaderModule fragment_shader{};
-    auto create_shader = [&](const std::vector<std::uint32_t>& code,
-                             VkShaderModule& module) {
-      VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-      info.codeSize = code.size() * sizeof(std::uint32_t);
-      info.pCode = code.data();
-      Check(vkCreateShaderModule(device_, &info, nullptr, &module),
-            "create shader module");
-    };
-    try {
-      create_shader(vertex_code, vertex_shader);
-      create_shader(fragment_code, fragment_shader);
-      const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{
-          {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-           VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
-          {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-           VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, "main", nullptr}}};
-      const VkVertexInputBindingDescription binding{
-          0, sizeof(extraction::DrawVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-      const std::array<VkVertexInputAttributeDescription, 4> attributes{{
-          {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
-           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, position))},
-          {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
-           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, normal))},
-          {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, color))},
-          {3, 0, VK_FORMAT_R32G32_SFLOAT,
-           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, texcoord))},
-      }};
-      VkPipelineVertexInputStateCreateInfo vertex_input{
-          VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-      vertex_input.vertexBindingDescriptionCount = 1;
-      vertex_input.pVertexBindingDescriptions = &binding;
-      vertex_input.vertexAttributeDescriptionCount =
-          static_cast<std::uint32_t>(attributes.size());
-      vertex_input.pVertexAttributeDescriptions = attributes.data();
-      VkPipelineInputAssemblyStateCreateInfo input_assembly{
-          VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-      input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-      VkPipelineViewportStateCreateInfo viewport_state{
-          VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-      viewport_state.viewportCount = 1;
-      viewport_state.scissorCount = 1;
-      VkPipelineRasterizationStateCreateInfo raster{
-          VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-      raster.polygonMode = VK_POLYGON_MODE_FILL;
-      raster.cullMode = VK_CULL_MODE_NONE;
-      raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-      raster.lineWidth = 1.0F;
-      VkPipelineMultisampleStateCreateInfo multisample{
-          VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-      multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-      VkPipelineDepthStencilStateCreateInfo depth{
-          VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-      depth.depthTestEnable = VK_TRUE;
-      depth.depthWriteEnable = VK_TRUE;
-      depth.depthCompareOp = VK_COMPARE_OP_LESS;
-      VkPipelineColorBlendAttachmentState blend_attachment{};
-      blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-                                         VK_COLOR_COMPONENT_G_BIT |
-                                         VK_COLOR_COMPONENT_B_BIT |
-                                         VK_COLOR_COMPONENT_A_BIT;
-      std::array<VkPipelineColorBlendAttachmentState, 3> blend_attachments{
-          blend_attachment, blend_attachment, blend_attachment};
-      VkPipelineColorBlendStateCreateInfo blend{
-          VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-      blend.attachmentCount =
-          static_cast<std::uint32_t>(blend_attachments.size());
-      blend.pAttachments = blend_attachments.data();
-      const std::array<VkDynamicState, 2> dynamic_states{
-          VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-      VkPipelineDynamicStateCreateInfo dynamic{
-          VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-      dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamic_states.size());
-      dynamic.pDynamicStates = dynamic_states.data();
-      VkPushConstantRange push_range{};
-      push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
-                              VK_SHADER_STAGE_FRAGMENT_BIT;
-      push_range.size = sizeof(PushConstants);
-      VkPipelineLayoutCreateInfo layout_info{
-          VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-      layout_info.pushConstantRangeCount = 1;
-      layout_info.pPushConstantRanges = &push_range;
-      Check(vkCreatePipelineLayout(device_, &layout_info, nullptr,
-                                   &active_target_->pipeline_layout),
-            "create pipeline layout");
-      VkGraphicsPipelineCreateInfo pipeline_info{
-          VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-      pipeline_info.stageCount = static_cast<std::uint32_t>(stages.size());
-      pipeline_info.pStages = stages.data();
-      pipeline_info.pVertexInputState = &vertex_input;
-      pipeline_info.pInputAssemblyState = &input_assembly;
-      pipeline_info.pViewportState = &viewport_state;
-      pipeline_info.pRasterizationState = &raster;
-      pipeline_info.pMultisampleState = &multisample;
-      pipeline_info.pDepthStencilState = &depth;
-      pipeline_info.pColorBlendState = &blend;
-      pipeline_info.pDynamicState = &dynamic;
-      pipeline_info.layout = active_target_->pipeline_layout;
-      pipeline_info.renderPass = active_target_->render_pass;
-      Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
-                                      &pipeline_info, nullptr,
-                                      &active_target_->pipeline),
-            "create scene graphics pipeline");
-    } catch (...) {
-      if (fragment_shader != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(device_, fragment_shader, nullptr);
-      }
-      if (vertex_shader != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(device_, vertex_shader, nullptr);
-      }
-      throw;
+  VkShaderModule GetShaderModule(const std::filesystem::path& path) {
+    const auto found = shader_modules_.find(path);
+    if (found != shader_modules_.end()) {
+      ++frame_counters_.shader_module_cache_hits;
+      return found->second;
     }
-    vkDestroyShaderModule(device_, fragment_shader, nullptr);
-    vkDestroyShaderModule(device_, vertex_shader, nullptr);
+    ++frame_counters_.shader_module_cache_misses;
+    const auto code = ReadSpirv(path);
+    VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    info.codeSize = code.size() * sizeof(std::uint32_t);
+    info.pCode = code.data();
+    VkShaderModule module{};
+    Check(vkCreateShaderModule(device_, &info, nullptr, &module),
+          "create shader module");
+    shader_modules_.emplace(path, module);
+    return module;
+  }
+
+  VkPipeline CreatePipeline(const ShaderPaths& shaders,
+                            std::uint32_t variant_key) {
+    ++frame_counters_.pipeline_creation_count;
+    const auto vertex_shader = GetShaderModule(shaders.vertex);
+    const auto fragment_shader = GetShaderModule(shaders.fragment);
+    const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+         VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+         VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, "main", nullptr}}};
+    const VkVertexInputBindingDescription binding{
+        0, sizeof(extraction::DrawVertex), VK_VERTEX_INPUT_RATE_VERTEX};
+    const std::array<VkVertexInputAttributeDescription, 4> attributes{{
+        {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, position))},
+        {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, normal))},
+        {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, color))},
+        {3, 0, VK_FORMAT_R32G32_SFLOAT,
+         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, texcoord))},
+    }};
+    VkPipelineVertexInputStateCreateInfo vertex_input{
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertex_input.vertexBindingDescriptionCount = 1;
+    vertex_input.pVertexBindingDescriptions = &binding;
+    vertex_input.vertexAttributeDescriptionCount =
+        static_cast<std::uint32_t>(attributes.size());
+    vertex_input.pVertexAttributeDescriptions = attributes.data();
+    VkPipelineInputAssemblyStateCreateInfo input_assembly{
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport_state{
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo raster{
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode = (variant_key & kDoubleSidedFlag) != 0U
+                          ? VK_CULL_MODE_NONE
+                          : VK_CULL_MODE_BACK_BIT;
+    // Merlin snapshots use a conventional Y-up winding while the offscreen
+    // Vulkan viewport has a positive height (framebuffer Y-down).
+    raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    raster.lineWidth = 1.0F;
+    VkPipelineMultisampleStateCreateInfo multisample{
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo depth{
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depth.depthTestEnable = VK_TRUE;
+    depth.depthWriteEnable = VK_TRUE;
+    depth.depthCompareOp = VK_COMPARE_OP_LESS;
+    VkPipelineColorBlendAttachmentState blend_attachment{};
+    blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
+                                       VK_COLOR_COMPONENT_G_BIT |
+                                       VK_COLOR_COMPONENT_B_BIT |
+                                       VK_COLOR_COMPONENT_A_BIT;
+    std::array<VkPipelineColorBlendAttachmentState, 3> blend_attachments{
+        blend_attachment, blend_attachment, blend_attachment};
+    VkPipelineColorBlendStateCreateInfo blend{
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blend.attachmentCount =
+        static_cast<std::uint32_t>(blend_attachments.size());
+    blend.pAttachments = blend_attachments.data();
+    const std::array<VkDynamicState, 2> dynamic_states{
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic{
+        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamic.dynamicStateCount =
+        static_cast<std::uint32_t>(dynamic_states.size());
+    dynamic.pDynamicStates = dynamic_states.data();
+    VkGraphicsPipelineCreateInfo pipeline_info{
+        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipeline_info.stageCount = static_cast<std::uint32_t>(stages.size());
+    pipeline_info.pStages = stages.data();
+    pipeline_info.pVertexInputState = &vertex_input;
+    pipeline_info.pInputAssemblyState = &input_assembly;
+    pipeline_info.pViewportState = &viewport_state;
+    pipeline_info.pRasterizationState = &raster;
+    pipeline_info.pMultisampleState = &multisample;
+    pipeline_info.pDepthStencilState = &depth;
+    pipeline_info.pColorBlendState = &blend;
+    pipeline_info.pDynamicState = &dynamic;
+    pipeline_info.layout = active_target_->pipeline_layout;
+    pipeline_info.renderPass = active_target_->render_pass;
+    VkPipeline pipeline{};
+    Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
+                                    &pipeline_info, nullptr, &pipeline),
+          "create scene graphics pipeline");
+    return pipeline;
+  }
+
+  VkPipeline EnsurePipeline(const ShaderPaths& shaders,
+                            std::uint32_t variant_key) {
+    const auto found = active_target_->pipelines.find(variant_key);
+    if (found != active_target_->pipelines.end()) {
+      return found->second;
+    }
+    const auto pipeline = CreatePipeline(shaders, variant_key);
+    active_target_->pipelines.emplace(variant_key, pipeline);
+    return pipeline;
   }
 
   void DestroyTarget(RenderTarget& target) noexcept {
@@ -1579,8 +2032,9 @@ class Renderer::Impl {
     DestroyBuffer(target.prim_id_readback);
     DestroyBuffer(target.depth_readback);
     DestroyBuffer(target.color_readback);
-    if (target.pipeline != VK_NULL_HANDLE) {
-      vkDestroyPipeline(device_, target.pipeline, nullptr);
+    for (const auto& [key, pipeline] : target.pipelines) {
+      (void)key;
+      vkDestroyPipeline(device_, pipeline, nullptr);
     }
     if (target.pipeline_layout != VK_NULL_HANDLE) {
       vkDestroyPipelineLayout(device_, target.pipeline_layout, nullptr);
@@ -1631,8 +2085,33 @@ class Renderer::Impl {
   }
 
   void RecordFrame(VkCommandBuffer command,
+                   const FrameContext& frame,
                    const extraction::FrameSnapshot& snapshot,
                    const std::vector<Aov>& cpu_readback_aovs) {
+    Vec4 light_direction_intensity{0.0F, 0.0F, 1.0F, 1.0F};
+    Vec3 light_color{1.0F, 1.0F, 1.0F};
+    const auto directional =
+        std::find_if(snapshot.lights.begin(), snapshot.lights.end(),
+                     [](const extraction::LightRecord& light) {
+                       return light.type == LightType::Directional;
+                     });
+    if (directional != snapshot.lights.end()) {
+      auto x = -directional->transform.values[8];
+      auto y = -directional->transform.values[9];
+      auto z = -directional->transform.values[10];
+      const auto length = std::sqrt(x * x + y * y + z * z);
+      if (length > 0.0F) {
+        x /= length;
+        y /= length;
+        z /= length;
+      } else {
+        x = 0.0F;
+        y = 0.0F;
+        z = 1.0F;
+      }
+      light_direction_intensity = {x, y, z, directional->intensity};
+      light_color = directional->color;
+    }
     std::array<VkClearValue, 4> clear{};
     clear[0].color = {{0.018F, 0.025F, 0.045F, 1.0F}};
     clear[1].depthStencil = {1.0F, 0};
@@ -1645,8 +2124,6 @@ class Renderer::Impl {
     pass.clearValueCount = static_cast<std::uint32_t>(clear.size());
     pass.pClearValues = clear.data();
     vkCmdBeginRenderPass(command, &pass, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      active_target_->pipeline);
     const VkViewport viewport{0.0F, 0.0F, static_cast<float>(active_target_->width),
                               static_cast<float>(active_target_->height), 0.0F, 1.0F};
     const VkRect2D scissor{{0, 0}, {active_target_->width, active_target_->height}};
@@ -1663,10 +2140,43 @@ class Renderer::Impl {
                            slot.indices.offset, VK_INDEX_TYPE_UINT32);
       const auto& instance = snapshot.instances[draw.instance_index];
       const auto& material = snapshot.materials[draw.material_index];
-      PushConstants push{Multiply(view_projection, instance.transform),
-                         material.base_color,
-                         static_cast<std::uint32_t>(geometry.mesh),
-                         static_cast<std::uint32_t>(instance.instance)};
+      auto feature_mask = static_cast<std::uint32_t>(material.features);
+      if (!geometry.has_colors) {
+        feature_mask &=
+            ~static_cast<std::uint32_t>(MaterialFeature::VertexColor);
+      }
+      if (!geometry.has_texcoords) {
+        feature_mask &=
+            ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture);
+      }
+      auto variant_key = feature_mask;
+      if (material.alpha_mode == AlphaMode::Masked) {
+        variant_key |= kMaskedAlphaFlag;
+      }
+      if (material.double_sided) {
+        variant_key |= kDoubleSidedFlag;
+      }
+      const auto pipeline = EnsurePipeline(active_target_->shaders, variant_key);
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+      const auto descriptor_set =
+          frame.material_descriptor_sets[draw.material_index];
+      vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              active_target_->pipeline_layout, 0, 1,
+                              &descriptor_set, 0, nullptr);
+      PushConstants push;
+      push.model_view_projection =
+          Multiply(view_projection, instance.transform);
+      push.base_color = material.parameters.base_color;
+      push.light_direction_intensity = light_direction_intensity;
+      push.light_color_alpha_cutoff =
+          {light_color.x, light_color.y, light_color.z,
+           material.parameters.alpha_cutoff};
+      push.feature_mask = feature_mask;
+      if (material.alpha_mode == AlphaMode::Masked) {
+        push.feature_mask |= kMaskedAlphaFlag;
+      }
+      push.prim_id = static_cast<std::uint32_t>(geometry.mesh);
+      push.instance_id = static_cast<std::uint32_t>(instance.instance);
       vkCmdPushConstants(command, active_target_->pipeline_layout,
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -1846,12 +2356,22 @@ class Renderer::Impl {
   FrameCounters frame_counters_;
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
+  std::vector<RetiredTexture> retired_textures_;
+  std::vector<RetiredSampler> retired_samplers_;
   DeviceArena vertex_arena_;
   DeviceArena index_arena_;
   StagingRing staging_;
   std::map<std::uint64_t, GeometrySlot> geometry_slots_;
+  std::map<std::uint64_t, TextureSlot> texture_slots_;
+  std::map<std::uint64_t, SamplerSlot> sampler_slots_;
   std::vector<RetiredRange> retired_ranges_;
   std::vector<PendingCopy> pending_copies_;
+  std::vector<PendingImageCopy> pending_image_copies_;
+  std::vector<Buffer> frame_upload_buffers_;
+  TextureSlot fallback_texture_;
+  SamplerSlot fallback_sampler_;
+  VkDescriptorSetLayout descriptor_set_layout_{};
+  std::map<std::filesystem::path, VkShaderModule> shader_modules_;
   RenderTarget* active_target_{};
   std::atomic<std::uint64_t> validation_messages_{};
 };

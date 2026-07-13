@@ -16,6 +16,8 @@
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/instancer.h>
+#include <pxr/imaging/hd/light.h>
+#include <pxr/imaging/hd/material.h>
 #include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/meshTopology.h>
 #include <pxr/imaging/hd/renderIndex.h>
@@ -23,6 +25,8 @@
 #include <pxr/imaging/hd/renderPassState.h>
 #include <pxr/imaging/hd/resourceRegistry.h>
 #include <pxr/imaging/hd/tokens.h>
+#include <pxr/imaging/hio/image.h>
+#include <pxr/usd/sdf/assetPath.h>
 
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
@@ -36,6 +40,8 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -394,6 +400,272 @@ bool ValidationRequested() {
 #endif
 }
 
+const VtValue* FindParameter(const HdMaterialNode2& node, const char* name) {
+  const auto found = node.parameters.find(TfToken(name));
+  return found == node.parameters.end() ? nullptr : &found->second;
+}
+
+bool ReadScalar(const VtValue& value, float& result) {
+  if (value.IsHolding<float>()) {
+    result = value.UncheckedGet<float>();
+    return true;
+  }
+  if (value.IsHolding<double>()) {
+    result = static_cast<float>(value.UncheckedGet<double>());
+    return true;
+  }
+  return false;
+}
+
+bool ReadColor(const VtValue& value, merlin::Vec4& result) {
+  if (value.IsHolding<GfVec3f>()) {
+    const auto& color = value.UncheckedGet<GfVec3f>();
+    result = {color[0], color[1], color[2], result.w};
+    return true;
+  }
+  if (value.IsHolding<GfVec3d>()) {
+    const auto& color = value.UncheckedGet<GfVec3d>();
+    result = {static_cast<float>(color[0]), static_cast<float>(color[1]),
+              static_cast<float>(color[2]), result.w};
+    return true;
+  }
+  if (value.IsHolding<GfVec4f>()) {
+    const auto& color = value.UncheckedGet<GfVec4f>();
+    result = {color[0], color[1], color[2], color[3]};
+    return true;
+  }
+  if (value.IsHolding<GfVec4d>()) {
+    const auto& color = value.UncheckedGet<GfVec4d>();
+    result = {static_cast<float>(color[0]), static_cast<float>(color[1]),
+              static_cast<float>(color[2]), static_cast<float>(color[3])};
+    return true;
+  }
+  return false;
+}
+
+merlin::AddressMode ReadAddressMode(const HdMaterialNode2& node,
+                                    const char* name) {
+  const auto* value = FindParameter(node, name);
+  if (value == nullptr) {
+    return merlin::AddressMode::Repeat;
+  }
+  std::string token;
+  if (value->IsHolding<TfToken>()) {
+    token = value->UncheckedGet<TfToken>().GetString();
+  } else if (value->IsHolding<std::string>()) {
+    token = value->UncheckedGet<std::string>();
+  }
+  if (token == "clamp") {
+    return merlin::AddressMode::ClampToEdge;
+  }
+  if (token == "mirror") {
+    return merlin::AddressMode::MirroredRepeat;
+  }
+  return merlin::AddressMode::Repeat;
+}
+
+bool ReadPpmUnsigned(std::istream& stream, std::uint32_t& value) {
+  std::string token;
+  while (stream >> token) {
+    if (!token.empty() && token.front() == '#') {
+      stream.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+      continue;
+    }
+    const auto* begin = token.data();
+    const auto* end = begin + token.size();
+    const auto [parsed_end, error] = std::from_chars(begin, end, value);
+    return error == std::errc{} && parsed_end == end;
+  }
+  return false;
+}
+
+std::optional<merlin::TextureDescriptor> LoadPpmTexture(
+    const std::string& path, std::string& diagnostic) {
+  std::ifstream stream(path, std::ios::binary);
+  std::string magic;
+  if (!(stream >> magic) || magic != "P3") {
+    diagnostic = "unsupported PPM encoding in " + path;
+    return std::nullopt;
+  }
+
+  std::uint32_t width{};
+  std::uint32_t height{};
+  std::uint32_t maximum{};
+  if (!ReadPpmUnsigned(stream, width) ||
+      !ReadPpmUnsigned(stream, height) ||
+      !ReadPpmUnsigned(stream, maximum) || width == 0 || height == 0 ||
+      maximum == 0 || maximum > 65535U ||
+      static_cast<std::uint64_t>(width) * height >
+          std::numeric_limits<std::size_t>::max() / 4U) {
+    diagnostic = "invalid PPM header in " + path;
+    return std::nullopt;
+  }
+
+  merlin::TextureDescriptor texture;
+  texture.label = path;
+  texture.width = width;
+  texture.height = height;
+  texture.pixels.resize(static_cast<std::size_t>(width) * height * 4U);
+  for (std::size_t pixel = 0;
+       pixel < static_cast<std::size_t>(width) * height; ++pixel) {
+    for (std::size_t component = 0; component < 3U; ++component) {
+      std::uint32_t sample{};
+      if (!ReadPpmUnsigned(stream, sample) || sample > maximum) {
+        diagnostic = "invalid PPM pixel data in " + path;
+        return std::nullopt;
+      }
+      texture.pixels[pixel * 4U + component] = static_cast<std::uint8_t>(
+          (static_cast<std::uint64_t>(sample) * 255U + maximum / 2U) /
+          maximum);
+    }
+    texture.pixels[pixel * 4U + 3U] = 255U;
+  }
+  return texture;
+}
+
+std::optional<merlin::TextureDescriptor> LoadTexture(
+    const HdMaterialNode2& node, std::string& diagnostic) {
+  const auto* file = FindParameter(node, "file");
+  if (file == nullptr || !file->IsHolding<SdfAssetPath>()) {
+    diagnostic = "UsdUVTexture has no resolved file asset";
+    return std::nullopt;
+  }
+  const auto& asset = file->UncheckedGet<SdfAssetPath>();
+  const auto path = asset.GetResolvedPath().empty() ? asset.GetAssetPath()
+                                                     : asset.GetResolvedPath();
+  auto extension = std::filesystem::path(path).extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(),
+                 [](unsigned char value) {
+                   return static_cast<char>(std::tolower(value));
+                 });
+  if (extension == ".ppm") {
+    return LoadPpmTexture(path, diagnostic);
+  }
+  const auto image = HioImage::OpenForReading(path, 0, 0,
+                                              HioImage::SourceColorSpace::Auto,
+                                              true);
+  if (!image || image->GetWidth() <= 0 || image->GetHeight() <= 0) {
+    diagnostic = "could not open texture image " + path;
+    return std::nullopt;
+  }
+  merlin::TextureDescriptor texture;
+  texture.label = path;
+  texture.width = static_cast<std::uint32_t>(image->GetWidth());
+  texture.height = static_cast<std::uint32_t>(image->GetHeight());
+  texture.pixels.resize(static_cast<std::size_t>(texture.width) *
+                        texture.height * 4U);
+  HioImage::StorageSpec storage;
+  storage.width = image->GetWidth();
+  storage.height = image->GetHeight();
+  storage.depth = 1;
+  storage.format = HioFormatUNorm8Vec4;
+  storage.flipped = false;
+  storage.data = texture.pixels.data();
+  if (!image->Read(storage)) {
+    diagnostic = "could not decode texture image " + path;
+    return std::nullopt;
+  }
+  return texture;
+}
+
+struct ParsedMaterial {
+  merlin::MaterialDescriptor material;
+  std::optional<merlin::TextureDescriptor> texture;
+  merlin::SamplerDescriptor sampler;
+  std::string diagnostic;
+};
+
+ParsedMaterial ParseMaterialResource(const SdfPath& path,
+                                     const VtValue& resource) {
+  ParsedMaterial result;
+  result.material.label = path.GetString();
+  result.sampler.label = path.GetString() + ":baseColorSampler";
+  HdMaterialNetwork2 network;
+  if (resource.IsHolding<HdMaterialNetwork2>()) {
+    network = resource.UncheckedGet<HdMaterialNetwork2>();
+  } else if (resource.IsHolding<HdMaterialNetworkMap>()) {
+    network = HdConvertToHdMaterialNetwork2(
+        resource.UncheckedGet<HdMaterialNetworkMap>());
+  } else {
+    result.diagnostic = "material resource is not a Hydra material network";
+    return result;
+  }
+
+  const HdMaterialNode2* surface{};
+  const auto terminal = network.terminals.find(HdMaterialTerminalTokens->surface);
+  if (terminal != network.terminals.end()) {
+    const auto node = network.nodes.find(terminal->second.upstreamNode);
+    if (node != network.nodes.end()) {
+      surface = &node->second;
+    }
+  }
+  if (surface == nullptr) {
+    const auto node = std::find_if(
+        network.nodes.begin(), network.nodes.end(), [](const auto& entry) {
+          return entry.second.nodeTypeId == TfToken("UsdPreviewSurface");
+        });
+    if (node != network.nodes.end()) {
+      surface = &node->second;
+    }
+  }
+  if (surface == nullptr ||
+      surface->nodeTypeId != TfToken("UsdPreviewSurface")) {
+    result.diagnostic =
+        "unsupported surface network; using constant fallback material";
+    return result;
+  }
+
+  if (const auto* value = FindParameter(*surface, "diffuseColor")) {
+    (void)ReadColor(*value, result.material.parameters.base_color);
+  }
+  if (const auto* value = FindParameter(*surface, "metallic")) {
+    (void)ReadScalar(*value, result.material.parameters.metallic);
+  }
+  if (const auto* value = FindParameter(*surface, "roughness")) {
+    (void)ReadScalar(*value, result.material.parameters.roughness);
+  }
+  float opacity = result.material.parameters.base_color.w;
+  if (const auto* value = FindParameter(*surface, "opacity")) {
+    (void)ReadScalar(*value, opacity);
+  }
+  result.material.parameters.base_color.w = opacity;
+  float opacity_threshold{};
+  if (const auto* value = FindParameter(*surface, "opacityThreshold")) {
+    (void)ReadScalar(*value, opacity_threshold);
+  }
+  if (opacity_threshold > 0.0F) {
+    result.material.alpha_mode = merlin::AlphaMode::Masked;
+    result.material.parameters.alpha_cutoff = opacity_threshold;
+  } else if (opacity < 1.0F) {
+    result.material.alpha_mode = merlin::AlphaMode::Blended;
+  }
+
+  const auto color_connection =
+      surface->inputConnections.find(TfToken("diffuseColor"));
+  if (color_connection == surface->inputConnections.end() ||
+      color_connection->second.empty()) {
+    return result;
+  }
+  const auto texture_node =
+      network.nodes.find(color_connection->second.front().upstreamNode);
+  if (texture_node == network.nodes.end() ||
+      texture_node->second.nodeTypeId != TfToken("UsdUVTexture")) {
+    result.diagnostic =
+        "diffuseColor connection is unsupported; using constant color";
+    return result;
+  }
+  result.texture = LoadTexture(texture_node->second, result.diagnostic);
+  if (!result.texture) {
+    return result;
+  }
+  result.sampler.address_u =
+      ReadAddressMode(texture_node->second, "wrapS");
+  result.sampler.address_v =
+      ReadAddressMode(texture_node->second, "wrapT");
+  result.material.features |= merlin::MaterialFeature::BaseColorTexture;
+  return result;
+}
+
 struct MeshState {
   merlin::MeshHandle mesh;
   std::vector<merlin::InstanceHandle> instances;
@@ -410,6 +682,10 @@ struct MeshState {
 struct MaterialEntry {
   merlin::MaterialHandle handle;
   std::size_t references{};
+  bool authored{};
+  merlin::MaterialDescriptor descriptor;
+  std::optional<merlin::TextureHandle> texture;
+  std::optional<merlin::SamplerHandle> sampler;
 };
 
 bool IsInCollection(const SdfPath& path,
@@ -446,7 +722,7 @@ class SceneBridge {
   SceneBridge() {
     merlin::MaterialDescriptor material;
     material.label = "Hydra fallback material";
-    material.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+    material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
     fallback_material_ = world_.CreateMaterial(std::move(material));
     render_settings_descriptor_.label = "Hydra render pass";
     render_settings_descriptor_.color_aov = false;
@@ -572,6 +848,90 @@ class SceneBridge {
     cameras_.erase(found);
   }
 
+  void SyncMaterial(const SdfPath& path, ParsedMaterial parsed) {
+    std::scoped_lock lock(mutex_);
+    const auto key = path.GetString();
+    auto found = materials_.find(key);
+    if (found == materials_.end()) {
+      MaterialEntry entry;
+      entry.authored = true;
+      entry.descriptor = std::move(parsed.material);
+      if (parsed.texture) {
+        entry.texture = world_.CreateTexture(std::move(*parsed.texture));
+        entry.sampler = world_.CreateSampler(std::move(parsed.sampler));
+        entry.descriptor.base_color_texture = merlin::TextureBinding{
+            *entry.texture, *entry.sampler, 0};
+      }
+      entry.handle = world_.CreateMaterial(entry.descriptor);
+      materials_.emplace(key, std::move(entry));
+      return;
+    }
+
+    auto& entry = found->second;
+    entry.authored = true;
+    auto descriptor = std::move(parsed.material);
+    if (parsed.texture) {
+      if (entry.texture) {
+        world_.UpdateTexture(*entry.texture, std::move(*parsed.texture));
+      } else {
+        entry.texture = world_.CreateTexture(std::move(*parsed.texture));
+      }
+      if (entry.sampler) {
+        world_.UpdateSampler(*entry.sampler, std::move(parsed.sampler));
+      } else {
+        entry.sampler = world_.CreateSampler(std::move(parsed.sampler));
+      }
+      descriptor.base_color_texture =
+          merlin::TextureBinding{*entry.texture, *entry.sampler, 0};
+    }
+    world_.UpdateMaterial(entry.handle, descriptor);
+    entry.descriptor = std::move(descriptor);
+    if (!parsed.texture) {
+      if (entry.texture) {
+        world_.Remove(*entry.texture);
+        entry.texture.reset();
+      }
+      if (entry.sampler) {
+        world_.Remove(*entry.sampler);
+        entry.sampler.reset();
+      }
+    }
+  }
+
+  void RemoveMaterial(const SdfPath& path) {
+    std::scoped_lock lock(mutex_);
+    const auto found = materials_.find(path.GetString());
+    if (found == materials_.end()) {
+      return;
+    }
+    found->second.authored = false;
+    if (found->second.references == 0) {
+      RetireMaterialLocked(found);
+    }
+  }
+
+  void SyncLight(const SdfPath& path, merlin::LightDescriptor descriptor,
+                 merlin::ChangeAspect aspects) {
+    std::scoped_lock lock(mutex_);
+    const auto key = path.GetString();
+    const auto found = lights_.find(key);
+    if (found == lights_.end()) {
+      lights_.emplace(key, world_.CreateLight(std::move(descriptor)));
+    } else if (aspects != merlin::ChangeAspect::None) {
+      world_.UpdateLight(found->second, std::move(descriptor), aspects);
+    }
+  }
+
+  void RemoveLight(const SdfPath& path) {
+    std::scoped_lock lock(mutex_);
+    const auto found = lights_.find(path.GetString());
+    if (found == lights_.end()) {
+      return;
+    }
+    world_.Remove(found->second);
+    lights_.erase(found);
+  }
+
   void Render(const HdRenderPassState& state,
               const HdRenderPassAovBindingVector& bindings,
               const HdRprimCollection& collection,
@@ -664,6 +1024,9 @@ class SceneBridge {
           material_aspects |= aspects;
           material_resource_revision =
               std::max(material_resource_revision, change.resource_revision);
+          break;
+        case merlin::ObjectKind::Texture:
+        case merlin::ObjectKind::Sampler:
           break;
         case merlin::ObjectKind::Instance:
           instance_aspects |= aspects;
@@ -790,6 +1153,11 @@ class SceneBridge {
           std::filesystem::create_directories(marker_path->parent_path());
         }
         std::ofstream stream(*marker_path, std::ios::app);
+        const auto textured_materials = static_cast<std::size_t>(
+            std::count_if(snapshot->materials.begin(),
+                          snapshot->materials.end(), [](const auto& material) {
+                            return material.base_color_texture.has_value();
+                          }));
         stream << "phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
                << " completion_value=" << result.completion_value
@@ -800,6 +1168,12 @@ class SceneBridge {
                << " covered_pixels=" << covered_pixels
                << " covered_x_sum=" << covered_x_sum
                << " covered_y_sum=" << covered_y_sum
+               << " textured_materials=" << textured_materials
+               << " material_fallbacks=" << snapshot->material_fallbacks.size()
+               << " texture_cache_hits="
+               << result.counters.texture_cache_hits
+               << " texture_cache_misses="
+               << result.counters.texture_cache_misses
                << " validation_enabled="
                << renderer_->capabilities().validation_enabled
                << " validation_messages="
@@ -835,21 +1209,30 @@ class SceneBridge {
     auto key = path.GetString();
     auto found = materials_.find(key);
     if (found == materials_.end()) {
-      merlin::MaterialDescriptor descriptor;
-      descriptor.label = key;
-      found = materials_
-                  .emplace(key, MaterialEntry{
-                                    world_.CreateMaterial(std::move(descriptor)),
-                                    0})
-                  .first;
+      MaterialEntry entry;
+      entry.descriptor.label = key;
+      entry.handle = world_.CreateMaterial(entry.descriptor);
+      found = materials_.emplace(key, std::move(entry)).first;
     }
     ++found->second.references;
     key_out = std::move(key);
     return found->second.handle;
   }
 
-  // Drops one reference to a tracked material, retiring the render-world
-  // resource and map entry once the last mesh releases it.
+  void RetireMaterialLocked(
+      std::unordered_map<std::string, MaterialEntry>::iterator found) {
+    world_.Remove(found->second.handle);
+    if (found->second.texture) {
+      world_.Remove(*found->second.texture);
+    }
+    if (found->second.sampler) {
+      world_.Remove(*found->second.sampler);
+    }
+    materials_.erase(found);
+  }
+
+  // Drops one mesh reference. Authored material Sprims keep their normalized
+  // resources alive even while temporarily unbound.
   void ReleaseMaterialLocked(const std::string& key) {
     if (key.empty()) {
       return;
@@ -858,9 +1241,11 @@ class SceneBridge {
     if (found == materials_.end()) {
       return;
     }
-    if (--found->second.references == 0) {
-      world_.Remove(found->second.handle);
-      materials_.erase(found);
+    if (found->second.references != 0) {
+      --found->second.references;
+    }
+    if (found->second.references == 0 && !found->second.authored) {
+      RetireMaterialLocked(found);
     }
   }
 
@@ -900,6 +1285,7 @@ class SceneBridge {
   std::unordered_map<std::string, MeshState> meshes_;
   std::unordered_map<std::string, MaterialEntry> materials_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
+  std::unordered_map<std::string, merlin::LightHandle> lights_;
 };
 
 class HdMerlinInstancer final : public HdInstancer {
@@ -1041,6 +1427,85 @@ class HdMerlinInstancer final : public HdInstancer {
 
   bool visible_{true};
   std::unordered_map<TfToken, VtValue, TfToken::HashFunctor> primvars_;
+};
+
+class HdMerlinMaterial final : public HdMaterial {
+ public:
+  HdMerlinMaterial(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
+      : HdMaterial(id), bridge_(std::move(bridge)) {}
+
+  ~HdMerlinMaterial() override { bridge_->RemoveMaterial(GetId()); }
+
+  void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
+            HdDirtyBits* dirty_bits) override {
+    (void)render_param;
+    if (*dirty_bits != HdMaterial::Clean) {
+      auto parsed =
+          ParseMaterialResource(GetId(), delegate->GetMaterialResource(GetId()));
+      if (!parsed.diagnostic.empty()) {
+        TF_WARN("Merlin material %s: %s", GetId().GetText(),
+                parsed.diagnostic.c_str());
+      }
+      bridge_->SyncMaterial(GetId(), std::move(parsed));
+    }
+    *dirty_bits = HdMaterial::Clean;
+  }
+
+  HdDirtyBits GetInitialDirtyBitsMask() const override {
+    return HdMaterial::AllDirty;
+  }
+
+ private:
+  std::shared_ptr<SceneBridge> bridge_;
+};
+
+class HdMerlinDistantLight final : public HdLight {
+ public:
+  HdMerlinDistantLight(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
+      : HdLight(id), bridge_(std::move(bridge)) {
+    descriptor_.label = id.GetString();
+    descriptor_.type = merlin::LightType::Directional;
+  }
+
+  ~HdMerlinDistantLight() override { bridge_->RemoveLight(GetId()); }
+
+  void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
+            HdDirtyBits* dirty_bits) override {
+    (void)render_param;
+    merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
+    if ((*dirty_bits & HdLight::DirtyTransform) != 0) {
+      descriptor_.transform = ToMerlinMatrix(delegate->GetTransform(GetId()));
+      aspects |= merlin::ChangeAspect::Transform;
+    }
+    if ((*dirty_bits & HdLight::DirtyParams) != 0) {
+      merlin::Vec4 color{descriptor_.color.x, descriptor_.color.y,
+                         descriptor_.color.z, 1.0F};
+      const auto color_value =
+          delegate->GetLightParamValue(GetId(), HdLightTokens->color);
+      (void)ReadColor(color_value, color);
+      descriptor_.color = {color.x, color.y, color.z};
+      float intensity = 1.0F;
+      const auto intensity_value =
+          delegate->GetLightParamValue(GetId(), HdLightTokens->intensity);
+      (void)ReadScalar(intensity_value, intensity);
+      float exposure{};
+      const auto exposure_value =
+          delegate->GetLightParamValue(GetId(), HdLightTokens->exposure);
+      (void)ReadScalar(exposure_value, exposure);
+      descriptor_.intensity = intensity * std::pow(2.0F, exposure);
+      aspects |= merlin::ChangeAspect::LightParameters;
+    }
+    bridge_->SyncLight(GetId(), descriptor_, aspects);
+    *dirty_bits = HdLight::Clean;
+  }
+
+  HdDirtyBits GetInitialDirtyBitsMask() const override {
+    return HdLight::AllDirty;
+  }
+
+ private:
+  std::shared_ptr<SceneBridge> bridge_;
+  merlin::LightDescriptor descriptor_;
 };
 
 class HdMerlinMesh final : public HdMesh {
@@ -1518,7 +1983,9 @@ const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
 }
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedSprimTypes() const {
-  static const TfTokenVector types{HdPrimTypeTokens->camera};
+  static const TfTokenVector types{HdPrimTypeTokens->camera,
+                                   HdPrimTypeTokens->material,
+                                   HdPrimTypeTokens->distantLight};
   return types;
 }
 
@@ -1561,6 +2028,12 @@ HdSprim* HdMerlinRenderDelegate::CreateSprim(const TfToken& type_id,
   if (type_id == HdPrimTypeTokens->camera) {
     return new HdMerlinCamera(sprim_id, impl_->bridge);
   }
+  if (type_id == HdPrimTypeTokens->material) {
+    return new HdMerlinMaterial(sprim_id, impl_->bridge);
+  }
+  if (type_id == HdPrimTypeTokens->distantLight) {
+    return new HdMerlinDistantLight(sprim_id, impl_->bridge);
+  }
   return nullptr;
 }
 
@@ -1568,6 +2041,14 @@ HdSprim* HdMerlinRenderDelegate::CreateFallbackSprim(const TfToken& type_id) {
   if (type_id == HdPrimTypeTokens->camera) {
     return new HdMerlinCamera(SdfPath("/__merlinFallbackCamera"),
                               impl_->bridge);
+  }
+  if (type_id == HdPrimTypeTokens->material) {
+    return new HdMerlinMaterial(SdfPath("/__merlinFallbackMaterial"),
+                                impl_->bridge);
+  }
+  if (type_id == HdPrimTypeTokens->distantLight) {
+    return new HdMerlinDistantLight(SdfPath("/__merlinFallbackLight"),
+                                    impl_->bridge);
   }
   return nullptr;
 }

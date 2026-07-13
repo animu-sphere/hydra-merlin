@@ -1,6 +1,7 @@
 #include <merlin/core/render_world.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <optional>
@@ -46,6 +47,53 @@ void ValidateMesh(const MeshDescriptor& descriptor) {
   validate_primvar_size(descriptor.normals.size(), "normal");
   validate_primvar_size(descriptor.colors.size(), "color");
   validate_primvar_size(descriptor.texcoords.size(), "texcoord");
+}
+
+void ValidateTexture(const TextureDescriptor& descriptor) {
+  if (descriptor.width == 0 || descriptor.height == 0) {
+    throw std::invalid_argument("texture extent must be non-zero");
+  }
+  const auto texel_count = static_cast<std::uint64_t>(descriptor.width) *
+                           descriptor.height;
+  if (texel_count > std::numeric_limits<std::size_t>::max() / 4U ||
+      descriptor.pixels.size() != static_cast<std::size_t>(texel_count * 4U)) {
+    throw std::invalid_argument("texture requires tightly packed RGBA8 pixels");
+  }
+}
+
+void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
+  const auto& p = descriptor.parameters;
+  const std::array<float, 7> values{p.base_color.x, p.base_color.y,
+                                    p.base_color.z, p.base_color.w, p.metallic,
+                                    p.roughness, p.alpha_cutoff};
+  if (std::any_of(values.begin(), values.end(),
+                  [](float value) { return !std::isfinite(value); })) {
+    throw std::invalid_argument("material parameters must be finite");
+  }
+  if (p.metallic < 0.0F || p.metallic > 1.0F || p.roughness < 0.0F ||
+      p.roughness > 1.0F || p.alpha_cutoff < 0.0F || p.alpha_cutoff > 1.0F) {
+    throw std::invalid_argument(
+        "material metallic, roughness, and alpha cutoff must be in [0, 1]");
+  }
+  constexpr auto supported = MaterialFeature::VertexColor |
+                             MaterialFeature::BaseColorTexture |
+                             MaterialFeature::DirectionalLight;
+  const auto unsupported = static_cast<std::uint32_t>(descriptor.features) &
+                           ~static_cast<std::uint32_t>(supported);
+  if (unsupported != 0U) {
+    throw std::invalid_argument("material feature mask contains unknown bits");
+  }
+  if (HasMaterialFeature(descriptor.features,
+                         MaterialFeature::BaseColorTexture) &&
+      !descriptor.base_color_texture) {
+    throw std::invalid_argument(
+        "base-color texture feature requires a texture binding");
+  }
+  if (descriptor.base_color_texture &&
+      descriptor.base_color_texture->texcoord_set != 0U) {
+    throw std::invalid_argument(
+        "only texture coordinate set 0 is currently supported");
+  }
 }
 
 template <typename HandleType>
@@ -186,6 +234,8 @@ class RenderWorld::Impl {
 
   Store<MeshDescriptor, MeshHandle> meshes;
   Store<MaterialDescriptor, MaterialHandle> materials;
+  Store<TextureDescriptor, TextureHandle> textures;
+  Store<SamplerDescriptor, SamplerHandle> samplers;
   Store<InstanceDescriptor, InstanceHandle> instances;
   Store<CameraDescriptor, CameraHandle> cameras;
   Store<LightDescriptor, LightHandle> lights;
@@ -205,7 +255,23 @@ MeshHandle RenderWorld::CreateMesh(MeshDescriptor descriptor) {
 }
 
 MaterialHandle RenderWorld::CreateMaterial(MaterialDescriptor descriptor) {
+  ValidateMaterialParameters(descriptor);
+  if (descriptor.base_color_texture) {
+    (void)impl_->textures.Get(descriptor.base_color_texture->texture);
+    (void)impl_->samplers.Get(descriptor.base_color_texture->sampler);
+  }
   return impl_->Create(impl_->materials, ObjectKind::Material, std::move(descriptor));
+}
+
+TextureHandle RenderWorld::CreateTexture(TextureDescriptor descriptor) {
+  ValidateTexture(descriptor);
+  return impl_->Create(impl_->textures, ObjectKind::Texture,
+                       std::move(descriptor));
+}
+
+SamplerHandle RenderWorld::CreateSampler(SamplerDescriptor descriptor) {
+  return impl_->Create(impl_->samplers, ObjectKind::Sampler,
+                       std::move(descriptor));
 }
 
 InstanceHandle RenderWorld::CreateInstance(InstanceDescriptor descriptor) {
@@ -235,8 +301,22 @@ void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
 }
 void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d,
                                  ChangeAspect aspects) {
+  ValidateMaterialParameters(d);
+  if (d.base_color_texture) {
+    (void)impl_->textures.Get(d.base_color_texture->texture);
+    (void)impl_->samplers.Get(d.base_color_texture->sampler);
+  }
   impl_->Update(impl_->materials, ObjectKind::Material, h, std::move(d),
                 aspects);
+}
+void RenderWorld::UpdateTexture(TextureHandle h, TextureDescriptor d,
+                                ChangeAspect aspects) {
+  ValidateTexture(d);
+  impl_->Update(impl_->textures, ObjectKind::Texture, h, std::move(d), aspects);
+}
+void RenderWorld::UpdateSampler(SamplerHandle h, SamplerDescriptor d,
+                                ChangeAspect aspects) {
+  impl_->Update(impl_->samplers, ObjectKind::Sampler, h, std::move(d), aspects);
 }
 void RenderWorld::UpdateInstance(InstanceHandle h, InstanceDescriptor d,
                                  ChangeAspect aspects) {
@@ -262,6 +342,8 @@ void RenderWorld::UpdateRenderSettings(RenderSettingsHandle h,
 
 void RenderWorld::Remove(MeshHandle h) { impl_->Remove(impl_->meshes, ObjectKind::Mesh, h); }
 void RenderWorld::Remove(MaterialHandle h) { impl_->Remove(impl_->materials, ObjectKind::Material, h); }
+void RenderWorld::Remove(TextureHandle h) { impl_->Remove(impl_->textures, ObjectKind::Texture, h); }
+void RenderWorld::Remove(SamplerHandle h) { impl_->Remove(impl_->samplers, ObjectKind::Sampler, h); }
 void RenderWorld::Remove(InstanceHandle h) { impl_->Remove(impl_->instances, ObjectKind::Instance, h); }
 void RenderWorld::Remove(CameraHandle h) { impl_->Remove(impl_->cameras, ObjectKind::Camera, h); }
 void RenderWorld::Remove(LightHandle h) { impl_->Remove(impl_->lights, ObjectKind::Light, h); }
@@ -271,6 +353,8 @@ void RenderWorld::Remove(RenderSettingsHandle h) {
 
 const MeshDescriptor& RenderWorld::Get(MeshHandle h) const { return impl_->meshes.Get(h); }
 const MaterialDescriptor& RenderWorld::Get(MaterialHandle h) const { return impl_->materials.Get(h); }
+const TextureDescriptor& RenderWorld::Get(TextureHandle h) const { return impl_->textures.Get(h); }
+const SamplerDescriptor& RenderWorld::Get(SamplerHandle h) const { return impl_->samplers.Get(h); }
 const InstanceDescriptor& RenderWorld::Get(InstanceHandle h) const { return impl_->instances.Get(h); }
 const CameraDescriptor& RenderWorld::Get(CameraHandle h) const { return impl_->cameras.Get(h); }
 const LightDescriptor& RenderWorld::Get(LightHandle h) const { return impl_->lights.Get(h); }
@@ -284,6 +368,12 @@ std::uint64_t RenderWorld::resource_revision(MeshHandle h) const {
 }
 std::uint64_t RenderWorld::resource_revision(MaterialHandle h) const {
   return impl_->materials.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(TextureHandle h) const {
+  return impl_->textures.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(SamplerHandle h) const {
+  return impl_->samplers.Revision(h);
 }
 std::uint64_t RenderWorld::resource_revision(InstanceHandle h) const {
   return impl_->instances.Revision(h);

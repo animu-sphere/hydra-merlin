@@ -14,9 +14,10 @@ Legend: 🚧 in progress · ⬜ not started
 | [current.md](current.md) | The next release milestone and active carry-over work. |
 | [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
 
-The active milestone is v0.4.1: release integrity, diagnostics, compatibility
-checks, and durable GPU/Hydra validation. The ordered ladder then establishes
-host-neutral materials, measures Hydra presentation costs, adds MaterialX,
+The active milestone is v0.5.0 release hardening: its host-neutral MaterialIR,
+basic textured shading, and usdview slice are implemented, while final
+capability evidence and unfinished release-integrity/diagnostic work remain.
+The ordered ladder next measures Hydra presentation costs, adds MaterialX,
 delivers viewport essentials, and evaluates lower-copy presentation only when
 the measurements justify it.
 
@@ -58,8 +59,8 @@ Every release must preserve these properties:
 
 | Priority | Direction |
 | --- | --- |
-| P0 | Release integrity, structured diagnostics and errors, GPU capability CI, and OpenUSD compatibility checks |
-| P1 | MaterialIR, texture/sampler resources, basic textured shading, and usdview observability |
-| P2 | MaterialX MVP, selection/picking, alpha mask, double-sided rendering, and basic lighting |
+| P0 | v0.5.0 release integrity, structured diagnostics/errors, GPU capability CI, and OpenUSD compatibility checks |
+| P1 | Hydra performance observability and comparable host-stage evidence |
+| P2 | MaterialX MVP and selection/picking |
 | P3 | Shadows, dome light, measured culling, DCC integration, and justified low-copy presentation |
 | P4 | Bindless, indirect draw, GPU-driven rendering, meshlets, mesh shaders, and advanced transparency only with benchmark evidence |

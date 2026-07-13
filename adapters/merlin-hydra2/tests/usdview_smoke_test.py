@@ -75,7 +75,7 @@ def _edit_points(stage):
 def _edit_topology(stage):
     stage.GetPrimAtPath(
         "/World/MovingTriangle").GetAttribute(
-            "faceVertexIndices").Set(Vt.IntArray([0, 2, 1]))
+            "faceVertexIndices").Set(Vt.IntArray([1, 2, 0]))
 
 
 def _hide_triangle(stage):
@@ -96,6 +96,9 @@ def testUsdviewInputFunction(appController):
     appController._dataModel.viewSettings.showHUD = False
 
     baseline = _render_phase(appController, "baseline")
+    assert baseline["textured_materials"] >= 1
+    assert baseline["material_fallbacks"] == 0
+    assert baseline["texture_cache_hits"] >= 1
     points = _render_phase(appController, "points", edit=_edit_points)
     topology = _render_phase(
         appController, "topology", edit=_edit_topology)

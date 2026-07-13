@@ -8,12 +8,26 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Host-neutral `MaterialIR` parameter blocks, feature masks, alpha/cutoff and
+  double-sided state, revisioned RGBA8 textures and samplers, deterministic
+  extraction records, and structured material fallback reporting.
+- Vulkan image/sampler residency with completion-safe retirement, shader-module,
+  descriptor-layout, and feature-keyed pipeline caches, plus base/vertex color,
+  normals, UV image textures, directional lighting, and alpha-mask shading.
+- Basic Hydra `UsdPreviewSurface`, `UsdUVTexture`, and distant-light translation
+  into the same renderer path, covered by an install-tree textured usdview
+  regression and a GPU material-resource lifecycle test.
+
 ### Changed
 
-- Selected v0.4.1 as the release-integrity and diagnostics milestone and
-  documented the ordered path through MaterialIR, Hydra performance
-  observability, MaterialX, viewport essentials, and measured low-copy
-  presentation work.
+- The headless reference scene now exercises textured, directional-lit shading
+  while preserving expected/actual/diff artifact generation.
+
+- Folded the unfinished v0.4.1 release-integrity and diagnostics work into the
+  v0.5.0 release-hardening milestone after completing the MaterialIR feature
+  slice.
 
 ## [0.4.0] - 2026-07-14
 

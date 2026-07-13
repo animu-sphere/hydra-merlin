@@ -1,6 +1,6 @@
 # Renderer architecture
 
-**Status:** v0.4.0 implementation · **Last reviewed:** 2026-07-14
+**Status:** v0.5.0 implementation candidate · **Last reviewed:** 2026-07-14
 
 hdMerlin is a lightweight, host-neutral Vulkan raster renderer. It is not a DCC
 plugin by itself: the product is the composition of a renderer core, an
@@ -85,7 +85,7 @@ their frame context until the single-use token resolves. See the
 
 ## Material and shader variants
 
-This is the target material boundary; v0.4.0 still uses the basic material path:
+The implemented host-neutral material boundary is:
 
 ```text
 MaterialX document ─────┐
@@ -93,15 +93,22 @@ Hydra material network ┼─> MaterialIR ─> shader variant ─> SPIR-V
 Future material source ┘
 ```
 
-- `MaterialIR` is established before the MaterialX front end and contains only
-  host-neutral identity, parameters, texture/sampler bindings, alpha/double-sided
-  state, and feature flags.
-- Shader variant keys contain feature classes; per-material values live in GPU
-  buffers. A value-only edit must not rebuild the pipeline.
+- `MaterialIR` contains host-neutral parameters, texture/sampler bindings,
+  alpha/double-sided state, and feature flags; resource handles supply stable
+  identity and independent revisions.
+- Shader variant keys contain vertex-color, texture, directional-light,
+  alpha-mask, and double-sided feature classes. Per-material values are push
+  data, so a value-only edit does not rebuild the pipeline.
+- Textures and samplers are revisioned scene resources. The Vulkan backend
+  uploads changed images, caches sampler objects, updates per-frame descriptors,
+  and retires replaced GPU objects only after their last submission completes.
+- The Hydra adapter translates a deliberate `UsdPreviewSurface`/`UsdUVTexture`
+  subset into `MaterialIR`; headless scenes author the same Core resources
+  directly.
 - MaterialX compilation happens before draw time and produces version-aware
   SPIR-V, reflection, and cache metadata; raw source graphs do not enter Core.
-- Unsupported materials produce an explicit fallback and machine-readable
-  diagnostic rather than silent corruption.
+- Missing/stale texture or sampler bindings and unsupported alpha blending
+  produce structured extraction fallbacks rather than silent corruption.
 
 ## Performance contract
 

@@ -6,7 +6,9 @@ hdMerlin is an OST-oriented, host-neutral Vulkan raster renderer. The current
 implementation provides a handle-based `RenderWorld`, deterministic extraction
 into an immutable resource-granular `FrameSnapshot`, and a persistent Vulkan
 offscreen renderer with explicit submission/completion lifetime and selectable
-color/depth/primId/instanceId CPU readback.
+color/depth/primId/instanceId CPU readback. Its host-neutral `MaterialIR`
+supports revisioned texture/sampler bindings and basic directional-lit,
+textured, vertex-colored, opaque or alpha-masked shading.
 
 The core library intentionally has no OpenUSD, Hydra, DCC, Qt, or Vulkan types
 in its public API. Hydra and host integrations will remain thin adapters around
@@ -76,6 +78,8 @@ keyed by handle generation and revision, shared across instances, and retired
 deterministically after the last referencing frame completes. Static scenes
 perform zero upload, allocation, and pipeline work after warm-up, and
 transform-, visibility-, and material-only edits stage zero geometry bytes.
+Revisioned textures and samplers are cached independently, while material
+parameter edits reuse the existing shader/pipeline variant.
 
 ## Hydra 2 adapter
 
@@ -98,19 +102,21 @@ install-tree `testusdview` first frame with rendered geometry.
 
 The current mesh path normalizes indexed and face-varying normals, display
 color/opacity, and UVs, robustly triangulates concave polygonal faces, preserves
-authored material binding identity, and supports native Hydra instancing.
-Material-network shading, subdivision refinement, and zero-copy Vulkan/Hgi
-interop remain future work; usdview presentation currently uses Hydra's CPU
-RenderBuffer-to-Hgi upload path.
+authored material binding identity, and supports native Hydra instancing. The
+adapter translates a basic `UsdPreviewSurface` subset (constant parameters,
+diffuse image texture, wrap mode, opacity mask) and distant lights into the
+same `MaterialIR` used by headless rendering. MaterialX translation,
+subdivision refinement, and zero-copy Vulkan/Hgi interop remain future work;
+usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi upload
+path.
 
 ## Capability boundaries and roadmap
 
 The current renderer intentionally does not yet provide:
 
-- MaterialX loading, graph translation, or authored Hydra material-network
-  shading; authored binding identity is retained but currently uses the basic
-  material path;
-- advanced viewport features such as alpha mask/blend, dome lighting, shadows,
+- MaterialX loading or general graph translation beyond the basic
+  `UsdPreviewSurface` subset;
+- advanced viewport features such as alpha blending, dome lighting, shadows,
   selection, or production culling;
 - Vulkan/Hgi external-memory or other zero-copy GPU presentation; Hydra uses
   CPU RenderBuffer readback followed by the host's Hgi upload path.
@@ -119,12 +125,12 @@ These are roadmap boundaries, not implicit compatibility claims. See the
 [support matrix](docs/reference/support-matrix.md) for current platform and
 feature coverage.
 
-The active v0.4.1 milestone focuses on release integrity, host-neutral
-diagnostics, compatibility checks, and durable GPU/Hydra validation. The ordered
-path after that establishes MaterialIR and basic textured shading before adding
-MaterialX translation, makes usdview performance observable before attempting
-presentation interop, then adds viewport essentials. Tier 0 CPU readback remains
-the correctness and fallback path throughout. See the
+The active v0.5.0 milestone is the release-hardening pass for the implemented
+MaterialIR and basic textured shading slice. Unfinished v0.4.1 release-integrity,
+diagnostic, and compatibility work is folded into that pass. The ordered path
+next makes usdview performance observable, adds MaterialX translation, and then
+adds viewport essentials before any evidence-gated presentation experiment.
+Tier 0 CPU readback remains the correctness and fallback path throughout. See the
 [current milestone](docs/roadmap/current.md) and
 [ordered backlog](docs/roadmap/backlog.md) for scope and exit criteria.
 

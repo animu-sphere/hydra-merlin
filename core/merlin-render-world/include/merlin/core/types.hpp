@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -62,6 +63,8 @@ class Handle {
 
 struct MeshTag;
 struct MaterialTag;
+struct TextureTag;
+struct SamplerTag;
 struct InstanceTag;
 struct CameraTag;
 struct LightTag;
@@ -69,6 +72,8 @@ struct RenderSettingsTag;
 
 using MeshHandle = Handle<MeshTag>;
 using MaterialHandle = Handle<MaterialTag>;
+using TextureHandle = Handle<TextureTag>;
+using SamplerHandle = Handle<SamplerTag>;
 using InstanceHandle = Handle<InstanceTag>;
 using CameraHandle = Handle<CameraTag>;
 using LightHandle = Handle<LightTag>;
@@ -87,14 +92,86 @@ struct MeshDescriptor {
 
 enum class AlphaMode { Opaque, Masked, Blended };
 
-struct MaterialDescriptor {
+enum class TextureFormat { Rgba8Unorm };
+
+struct TextureDescriptor {
   std::string label;
+  std::uint32_t width{};
+  std::uint32_t height{};
+  TextureFormat format{TextureFormat::Rgba8Unorm};
+  // Tightly packed, top-left RGBA texels. Texture resources are revisioned by
+  // RenderWorld in exactly the same way as meshes and materials.
+  std::vector<std::uint8_t> pixels;
+};
+
+enum class FilterMode { Nearest, Linear };
+enum class AddressMode { Repeat, MirroredRepeat, ClampToEdge };
+
+struct SamplerDescriptor {
+  std::string label;
+  FilterMode min_filter{FilterMode::Linear};
+  FilterMode mag_filter{FilterMode::Linear};
+  AddressMode address_u{AddressMode::Repeat};
+  AddressMode address_v{AddressMode::Repeat};
+};
+
+enum class MaterialFeature : std::uint32_t {
+  None = 0,
+  VertexColor = 1U << 0U,
+  BaseColorTexture = 1U << 1U,
+  DirectionalLight = 1U << 2U,
+};
+
+[[nodiscard]] constexpr MaterialFeature operator|(MaterialFeature lhs,
+                                                   MaterialFeature rhs) noexcept {
+  return static_cast<MaterialFeature>(static_cast<std::uint32_t>(lhs) |
+                                      static_cast<std::uint32_t>(rhs));
+}
+
+[[nodiscard]] constexpr MaterialFeature operator&(MaterialFeature lhs,
+                                                   MaterialFeature rhs) noexcept {
+  return static_cast<MaterialFeature>(static_cast<std::uint32_t>(lhs) &
+                                      static_cast<std::uint32_t>(rhs));
+}
+
+constexpr MaterialFeature& operator|=(MaterialFeature& lhs,
+                                      MaterialFeature rhs) noexcept {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+[[nodiscard]] constexpr bool HasMaterialFeature(MaterialFeature value,
+                                                MaterialFeature feature) noexcept {
+  return (value & feature) != MaterialFeature::None;
+}
+
+struct MaterialParameterBlock {
   Vec4 base_color{1.0F, 1.0F, 1.0F, 1.0F};
   float metallic{};
   float roughness{0.5F};
+  float alpha_cutoff{0.5F};
+};
+
+struct TextureBinding {
+  TextureHandle texture;
+  SamplerHandle sampler;
+  std::uint32_t texcoord_set{};
+};
+
+// MaterialIR is the only material representation accepted by the host-neutral
+// scene model. Source graphs (Hydra, MaterialX, or a future DCC adapter) must be
+// normalized before they cross this boundary.
+struct MaterialIR {
+  std::string label;
+  MaterialParameterBlock parameters;
+  std::optional<TextureBinding> base_color_texture;
   AlphaMode alpha_mode{AlphaMode::Opaque};
   bool double_sided{};
+  MaterialFeature features{MaterialFeature::VertexColor |
+                           MaterialFeature::DirectionalLight};
 };
+
+using MaterialDescriptor = MaterialIR;
 
 struct InstanceDescriptor {
   std::string label;

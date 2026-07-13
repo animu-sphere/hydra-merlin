@@ -124,10 +124,10 @@ void PopulateScene(SceneFixture& fixture) {
 
   merlin::MaterialDescriptor material;
   material.label = "benchmark-primary";
-  material.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+  material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
   fixture.primary_material = fixture.world.CreateMaterial(material);
   material.label = "benchmark-secondary";
-  material.base_color = {1.0F, 0.55F, 0.12F, 1.0F};
+  material.parameters.base_color = {1.0F, 0.55F, 0.12F, 1.0F};
   fixture.secondary_material = fixture.world.CreateMaterial(std::move(material));
 
   merlin::InstanceDescriptor instance;
@@ -243,10 +243,19 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
          << indent << "    \"scene_cache_misses\": " << count.scene_cache_misses << ",\n"
          << indent << "    \"geometry_cache_hits\": " << count.geometry_cache_hits << ",\n"
          << indent << "    \"geometry_cache_misses\": " << count.geometry_cache_misses << ",\n"
+         << indent << "    \"texture_cache_hits\": " << count.texture_cache_hits << ",\n"
+         << indent << "    \"texture_cache_misses\": " << count.texture_cache_misses << ",\n"
+         << indent << "    \"sampler_cache_hits\": " << count.sampler_cache_hits << ",\n"
+         << indent << "    \"sampler_cache_misses\": " << count.sampler_cache_misses << ",\n"
          << indent << "    \"buffer_suballocation_count\": " << count.buffer_suballocation_count << ",\n"
          << indent << "    \"buffer_range_release_count\": " << count.buffer_range_release_count << ",\n"
          << indent << "    \"pipeline_cache_hits\": " << count.pipeline_cache_hits << ",\n"
-         << indent << "    \"pipeline_cache_misses\": " << count.pipeline_cache_misses << "\n"
+         << indent << "    \"pipeline_cache_misses\": " << count.pipeline_cache_misses << ",\n"
+         << indent << "    \"shader_module_cache_hits\": " << count.shader_module_cache_hits << ",\n"
+         << indent << "    \"shader_module_cache_misses\": " << count.shader_module_cache_misses << ",\n"
+         << indent << "    \"descriptor_layout_cache_hits\": " << count.descriptor_layout_cache_hits << ",\n"
+         << indent << "    \"descriptor_layout_cache_misses\": " << count.descriptor_layout_cache_misses << ",\n"
+         << indent << "    \"descriptor_update_count\": " << count.descriptor_update_count << "\n"
          << indent << "  }\n" << indent << '}';
 }
 
@@ -383,7 +392,7 @@ int main(int argc, char** argv) {
 
     measure("edit-material", fixture.world, [&] {
       auto material = fixture.world.Get(fixture.primary_material);
-      material.base_color = {0.35F, 0.92F, 0.35F, 1.0F};
+      material.parameters.base_color = {0.35F, 0.92F, 0.35F, 1.0F};
       fixture.world.UpdateMaterial(fixture.primary_material,
                                    std::move(material));
     });

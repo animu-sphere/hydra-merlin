@@ -86,6 +86,22 @@ if(TARGET merlin-headless)
     SKIP_RETURN_CODE 77
     TIMEOUT 60
   )
+
+  add_executable(merlin-material-resource-tests
+    material_resource_test.cpp
+  )
+  target_link_libraries(merlin-material-resource-tests
+    PRIVATE Merlin::RenderExtraction Merlin::Vulkan)
+  add_test(
+    NAME merlin-vulkan-material-resources
+    COMMAND merlin-material-resource-tests
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+  )
+  set_tests_properties(merlin-vulkan-material-resources PROPERTIES
+    LABELS "gpu;materials"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 60
+  )
   add_test(
     NAME merlin-vulkan-offscreen
     COMMAND merlin-headless

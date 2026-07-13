@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.4.0 implementation · **Last reviewed:** 2026-07-14
+**Status:** v0.5.0 implementation candidate · **Last reviewed:** 2026-07-14
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -38,6 +38,8 @@ compatibility checks remain planned work.
 | Capability | Current status |
 | --- | --- |
 | Host-neutral scene model and draw extraction | Available |
+| Host-neutral MaterialIR and revisioned texture/sampler resources | Available |
+| Basic Vulkan material shading | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available |
 | Explicit submit/completion/timeout-aware resolve | Available |
 | Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
@@ -47,12 +49,12 @@ compatibility checks remain planned work.
 | Versioned dependency and package metadata | Available as installed JSON |
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available |
-| Authored Hydra material binding identity | Available; material-network shading remains planned |
+| Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Hydra native and nested instancing | Available |
 | Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy, timeout, device-lost, unsupported, and backend-failure classes |
-| Host-neutral diagnostic sink | Planned for v0.4.1; some executable and adapter diagnostics still use stderr or host-local reporting |
+| Host-neutral diagnostic sink | Planned in v0.5.0 release hardening; some executable and adapter diagnostics still use stderr or host-local reporting |
 | Subdivision refinement | Unavailable |
-| Advanced viewport lighting, shadows, selection, transparency, and culling | Unavailable |
+| Dome/multi-light viewport lighting, shadows, selection, alpha blending, and production culling | Unavailable |
 | Vulkan/Hgi external-memory or zero-copy host presentation | Unavailable; CPU readback/upload reference path only |
 | Houdini, Husk, Hydra 1, and Maya integration packages | Unavailable |
 
