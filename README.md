@@ -16,20 +16,26 @@ that core.
 
 ## OpenStrata project
 
-The repository is an OpenStrata renderer project targeting `cy2026`. With OST
-0.16.0 or newer, the default host-neutral lifecycle is:
+The repository is an OpenStrata renderer project targeting `cy2026`. OST 0.17.0
+or newer is required for atomic build evidence and the managed Hydra view loop.
+The default host-neutral lifecycle is:
 
 ```powershell
 ost runtime pull cy2026 --profile core
-ost build
+ost build --check
+ost build --jobs auto
 ost validate --json
 ```
 
 The existing CMake targets remain project-owned renderer units; adopting OST
 does not split them into artificial packages or plugin bundles. Vulkan builds
-emit the renderer evidence consumed by `ost validate`. After configuring the
-optional Hydra adapter against a real OpenUSD runtime, it can be opened through
-`ost renderer view --build-dir <build-dir> --profile usd`.
+emit the renderer evidence consumed by `ost validate`. For Hydra inspection,
+materialize or adopt one real `usd`/`lookdev` OpenUSD runtime, then run `ost
+renderer view --profile usd`. With no `--build-dir`, OST requests the `hydra2`
+build intent, incrementally configures/builds a fingerprinted tree, stages the
+install, discovers `hdMerlin`, and launches usdview. `--build-dir` is reserved
+for an already configured and built external CMake tree; OST installs and
+inspects that tree but does not rebuild it or claim managed-build evidence.
 
 See the [OpenStrata project layout](docs/design/openstrata-project.md) for the
 composition mapping and adoption decisions.
@@ -125,14 +131,23 @@ These are roadmap boundaries, not implicit compatibility claims. See the
 [support matrix](docs/reference/support-matrix.md) for current platform and
 feature coverage.
 
-The active v0.5.0 milestone is the release-hardening pass for the implemented
-MaterialIR and basic textured shading slice. Unfinished v0.4.1 release-integrity,
-diagnostic, and compatibility work is folded into that pass. The ordered path
-next makes usdview performance observable, adds MaterialX translation, and then
-adds viewport essentials before any evidence-gated presentation experiment.
-Tier 0 CPU readback remains the correctness and fallback path throughout. See the
-[current milestone](docs/roadmap/current.md) and
-[ordered backlog](docs/roadmap/backlog.md) for scope and exit criteria.
+v0.5.0 releases the host-neutral MaterialIR and basic textured shading slice.
+The active v0.5.1 milestone now expands the measurement foundation so Hydra,
+Merlin, Vulkan, readback, host upload, and presentation costs can be attributed
+separately. The ordered path then delivers incremental Hydra sync, completes the
+persistent Mesh/Gaussian resource model, adds a native Vulkan viewport, and
+establishes Gaussian rendering before GPU-driven optimization. MaterialX and
+lower-copy presentation remain later evidence-gated milestones. Tier 0 CPU
+readback remains the correctness and fallback path throughout. See the [current
+milestone](docs/roadmap/current.md) and [ordered backlog](docs/roadmap/backlog.md)
+for scope and exit criteria.
+
+Gaussian support will consume the standard Gaussian representation exposed by
+OpenUSD through Hydra. hdMerlin will not define a renderer-specific USD schema
+or directly parse PLY/SPLAT files; conversion from external formats belongs to
+separate FileFormat plugins or importers. Mesh and Gaussian resources share the
+persistent RenderWorld, camera, transforms, visibility, allocation, lifetime,
+and profiling infrastructure while retaining separate rendering algorithms.
 
 The Vulkan path requires a Vulkan 1.4-capable graphics queue and `glslc`
 from the Vulkan SDK at build time.
@@ -159,7 +174,7 @@ headless and Hydra jobs. Both require only a self-hosted Windows x64 runner with
 the `vulkan-1.4` GPU/driver label. They download and checksum-verify LunarG
 Vulkan SDK 1.4.350.0 into a cached workspace prefix. Hydra also obtains the
 Animusphere OpenUSD 26.05/cy2026 runtime from its digest-pinned public GHCR
-package using pinned `ost` 0.16.0. No operator-managed SDK installation is
+package using pinned `ost` 0.17.0. No operator-managed SDK installation is
 required. The jobs run the 64-frame validation loop and install-tree usdview
 stable-update regression, retaining dependency/runtime provenance, images,
 regression logs, and CTest logs as evidence artifacts.
@@ -205,7 +220,7 @@ readback without owning a native window or swapchain.
 - [Renderer architecture](docs/design/renderer-architecture.md)
 - [Execution and render-product lifetime](docs/design/execution-lifetime.md)
 - [OpenStrata project layout](docs/design/openstrata-project.md)
-- [OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
+- [Historical OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
 - [Build and install](docs/guides/build-and-install.md)
 - [Benchmarking](docs/guides/benchmarking.md)
 - [Using the CMake package](docs/guides/cmake-package.md)

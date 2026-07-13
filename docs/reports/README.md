@@ -8,7 +8,7 @@ not contain machine-specific working reports.
 Cross-project handoffs that define concrete upstream acceptance criteria may be
 committed explicitly. Current handoff:
 
-- [OST v0.16.0 renderer adoption and v0.17.0 asks](2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
+- [Historical OST v0.16.0 renderer adoption and v0.17.0 asks](2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
 
 These notes capture *how* a change was validated on a specific machine at a
 specific time. They are working history, not a published contract:

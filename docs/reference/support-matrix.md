@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.5.0 implementation candidate · **Last reviewed:** 2026-07-14
+**Status:** v0.5.0 · **Last reviewed:** 2026-07-14
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -24,6 +24,7 @@ capability workflow is not continuous evidence. Enrollment is tracked in the
 | --- | --- | --- |
 | CMake | 3.24 | All builds |
 | C++ compiler | C++20 | All builds |
+| OpenStrata CLI | 0.17.0 | Managed build/validation, managed Hydra view, and capability CI |
 | Vulkan headers/loader/device | 1.4 | Vulkan/headless and Hydra |
 | Vulkan SDK `glslc` | Compatible with Vulkan 1.4; 1.4.350.0 in capability workflow | Shader build |
 | OpenUSD | 26.05 currently validated | Hydra 2 only |
@@ -52,7 +53,8 @@ compatibility checks remain planned work.
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Hydra native and nested instancing | Available |
 | Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy, timeout, device-lost, unsupported, and backend-failure classes |
-| Host-neutral diagnostic sink | Planned in v0.5.0 release hardening; some executable and adapter diagnostics still use stderr or host-local reporting |
+| Host-neutral diagnostic sink | Planned cross-cutting work; some executable and adapter diagnostics still use stderr or host-local reporting |
+| Standard OpenUSD Gaussian ingestion and rendering | Planned; hdMerlin will not define a custom Gaussian USD schema or directly parse external Gaussian file formats |
 | Subdivision refinement | Unavailable |
 | Dome/multi-light viewport lighting, shadows, selection, alpha blending, and production culling | Unavailable |
 | Vulkan/Hgi external-memory or zero-copy host presentation | Unavailable; CPU readback/upload reference path only |

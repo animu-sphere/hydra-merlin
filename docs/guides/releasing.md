@@ -8,17 +8,18 @@ references in CMake, README, roadmap, or support documents.
 
 ## Prepare and publish
 
-From a release branch, run:
+From a release branch, run the helper with the version being prepared. This
+example shows v0.5.0:
 
 ```powershell
-./scripts/prepare-release.ps1 -Version 0.4.0
+./scripts/prepare-release.ps1 -Version 0.5.0
 ```
 
 The command performs the mechanical release edits:
 
-- writes `0.4.0` to `VERSION`;
-- synchronizes `openstrata.toml` to `0.4.0`;
-- moves the existing Unreleased notes under a dated `0.4.0` heading;
+- writes `0.5.0` to `VERSION`;
+- synchronizes `openstrata.toml` to `0.5.0`;
+- moves the existing Unreleased notes under a dated `0.5.0` heading;
 - updates the Unreleased comparison base; and
 - adds the stable release comparison link.
 
@@ -26,25 +27,25 @@ Use `-Date YYYY-MM-DD` to override the UTC date or `-DryRun` to validate without
 writing. The platform-neutral equivalent is:
 
 ```console
-cmake -DMERLIN_RELEASE_VERSION=0.4.0 -P cmake/prepare-release.cmake
+cmake -DMERLIN_RELEASE_VERSION=0.5.0 -P cmake/prepare-release.cmake
 ```
 
 Review the three changed files, commit them, merge to `main`, and wait for hosted
 CI. Then create the matching immutable tag:
 
 ```console
-git tag v0.4.0
-git push origin v0.4.0
+git tag -a v0.5.0 -m "hdMerlin v0.5.0"
+git push origin v0.5.0
 ```
 
 README, roadmap, support-matrix, and detailed release-record edits are required
 only when their content actually changes; they are not release bookkeeping.
 
-Until the v0.4.1 documentation-integrity gate is automated, release review must
-also confirm manually that the support matrix describes at least the release
-being tagged, `current.md` does not list shipped work as incomplete,
+Release review must also confirm that the support matrix describes at least the
+release being tagged, `current.md` does not list shipped work as incomplete,
 `backlog.md` does not retain a shipped milestone, and README capability
-boundaries agree with the release record.
+boundaries agree with the release record. These content checks are deliberate
+review items even though identity checks are automated.
 
 ## Automated contract
 

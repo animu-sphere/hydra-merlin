@@ -14,12 +14,13 @@ Legend: 🚧 in progress · ⬜ not started
 | [current.md](current.md) | The next release milestone and active carry-over work. |
 | [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
 
-The active milestone is v0.5.0 release hardening: its host-neutral MaterialIR,
-basic textured shading, and usdview slice are implemented, while final
-capability evidence and unfinished release-integrity/diagnostic work remain.
-The ordered ladder next measures Hydra presentation costs, adds MaterialX,
-delivers viewport essentials, and evaluates lower-copy presentation only when
-the measurements justify it.
+v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
+slice. The active v0.5.1 milestone completes the performance-observability
+foundation. The ordered ladder then adds incremental Hydra synchronization,
+extends the persistent resource model to Mesh and Gaussian data, establishes a
+native Vulkan performance reference, and lands Gaussian rendering before
+GPU-driven optimization. MaterialX, low-copy presentation, and large-scene
+streaming follow only after their prerequisites and measurements are available.
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
@@ -45,6 +46,17 @@ Every release must preserve these properties:
 - **MaterialIR before MaterialX.** Hydra networks, MaterialX documents, and
   future sources normalize into one host-neutral material boundary before
   shader generation.
+- **Consume standard USD data.** Gaussian support consumes the existing
+  OpenUSD representation exposed through Hydra. hdMerlin defines no custom USD
+  schema, prim type, or file-format convention and does not parse PLY/SPLAT
+  assets directly.
+- **Share resources, not algorithms.** Mesh and Gaussian data share the
+  persistent RenderWorld, transforms, visibility, allocation, synchronization,
+  render targets, and profiling, while their rasterization, culling, sorting,
+  compositing, and LOD pipelines remain distinct.
+- **Keep presentation separable.** Native Vulkan viewport, headless rendering,
+  and Hgi/DCC presentation use the same renderer core while keeping their
+  presentation costs independently measurable.
 - **Measure before optimizing.** Hydra Sync, scene normalization, command
   recording, GPU work, readback, host upload, and presentation must be separated
   before selecting an optimization.
@@ -59,8 +71,8 @@ Every release must preserve these properties:
 
 | Priority | Direction |
 | --- | --- |
-| P0 | v0.5.0 release integrity, structured diagnostics/errors, GPU capability CI, and OpenUSD compatibility checks |
-| P1 | Hydra performance observability and comparable host-stage evidence |
-| P2 | MaterialX MVP and selection/picking |
-| P3 | Shadows, dome light, measured culling, DCC integration, and justified low-copy presentation |
-| P4 | Bindless, indirect draw, GPU-driven rendering, meshlets, mesh shaders, and advanced transparency only with benchmark evidence |
+| P0 | v0.5.1 performance foundation, comparable Hydra/host-stage evidence, and GPU capability CI |
+| P1 | Incremental Hydra sync, persistent Mesh/Gaussian resources, GPU residency, and native viewport |
+| P2 | Gaussian MVP, persistent Mesh draw packets, and GPU-driven Mesh/Gaussian rendering |
+| P3 | GPU presentation interop, MaterialX, large-scene streaming, and parallel Hydra processing |
+| P4 | DCC production integration and v1.0 quality, compatibility, and performance contracts |

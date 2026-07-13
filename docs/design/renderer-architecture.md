@@ -1,6 +1,6 @@
 # Renderer architecture
 
-**Status:** v0.5.0 implementation candidate · **Last reviewed:** 2026-07-14
+**Status:** v0.5.0 · **Last reviewed:** 2026-07-14
 
 hdMerlin is a lightweight, host-neutral Vulkan raster renderer. It is not a DCC
 plugin by itself: the product is the composition of a renderer core, an
@@ -63,6 +63,35 @@ persistent GPU Scene + DrawPackets
     ↓ execution
 Vulkan commands
 ```
+
+## Mesh and Gaussian boundary
+
+hdMerlin consumes standard OpenUSD scene data through Hydra; it does not define
+a renderer-specific Gaussian USD schema, prim type, or attribute convention.
+PLY, SPLAT, compressed Gaussian, and similar external formats are converted by
+separate FileFormat plugins or importers into the existing OpenUSD Gaussian
+representation. The Hydra adapter maps that representation into host-neutral
+`GaussianResource` data just as it maps mesh data into Core resources.
+
+```text
+OpenUSD Stage
+    ↓ Hydra Scene Index / Data Source
+hdMerlin adapter
+    ↓ normalized Mesh/Gaussian changes
+Persistent RenderWorld
+    ├─ shared transforms, instances, materials, visibility, and lifetime
+    ├─ Mesh resources      → Mesh render pipeline
+    └─ Gaussian resources → Gaussian render pipeline
+```
+
+The pipelines share the camera, allocator, upload ring, synchronization, render
+targets, profiling, selection IDs, and dirty-update machinery. Mesh keeps
+vertex/index processing, draw packets, indirect drawing, and mesh culling;
+Gaussian keeps covariance, screen-space projection, splat generation, depth
+sorting/tile binning, alpha compositing, spherical harmonics, and Gaussian LOD.
+Appearance likewise remains explicit: MaterialIR/MaterialX surface shading and
+Gaussian spherical-harmonic/opacity evaluation may share resources without
+forcing Gaussian appearance into a mesh BSDF.
 
 The snapshot is the ownership boundary between host updates, renderer work, and
 GPU frame latency. Request, submission, completion token, and resolve are

@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-14
+
 ### Added
 
 - Host-neutral `MaterialIR` parameter blocks, feature masks, alpha/cutoff and
@@ -24,10 +26,13 @@ after its public API and release process are established.
 
 - The headless reference scene now exercises textured, directional-lit shading
   while preserving expected/actual/diff artifact generation.
-
-- Folded the unfinished v0.4.1 release-integrity and diagnostics work into the
-  v0.5.0 release-hardening milestone after completing the MaterialIR feature
-  slice.
+- Rebased the forward roadmap around performance observability, incremental
+  Hydra synchronization, a shared persistent Mesh/Gaussian resource model, a
+  native Vulkan viewport, and standard OpenUSD Gaussian ingestion without a
+  renderer-specific USD schema.
+- Updated the capability workflow to OST 0.17.0 and documented the managed
+  `ost renderer view` lifecycle separately from the external/prebuilt
+  `--build-dir` escape hatch.
 
 ## [0.4.0] - 2026-07-14
 
@@ -140,7 +145,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.4.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.5.0...main
+[0.5.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.1.0...v0.2.0

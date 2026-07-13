@@ -7,49 +7,56 @@ recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone
 
-### 🚧 v0.5.0 — MaterialIR and basic shading
+### 🚧 v0.5.1 — Performance foundation
 
-**Objective:** release the implemented host-neutral MaterialIR and basic
-textured shading path with durable GPU/Hydra evidence and consistent release
-claims.
+**Objective:** make first-frame, steady-state, and edit latency attributable
+across Hydra, Merlin Core, Vulkan execution, readback, host upload, and
+presentation before choosing the next optimization.
 
-The feature slice is complete locally: Core owns revisioned material,
-texture, and sampler resources; extraction emits deterministic records and
-structured fallbacks; Vulkan owns completion-safe residency and feature-keyed
-caches; headless and Hydra render through the same basic shading path.
+v0.5.0 already provides deterministic reference-path benchmark JSON, CPU
+scopes, structural counters, and first-frame/steady/edit fixtures. This
+milestone extends that foundation through the Hydra presentation path and makes
+the resulting artifacts comparable between runs.
 
-#### Remaining release work
+#### Scope
 
-- Run the full Debug/Release Vulkan and Release Hydra capability matrix on the
-  maintained Windows GPU runner and retain validation, image, benchmark, plugin,
-  and textured usdview artifacts.
-- Fold the unfinished v0.4.1 release-integrity checks into the release gate so
-  `VERSION`, CMake/OpenStrata metadata, changelog, support status, roadmap, and
-  tag cannot contradict one another.
-- Add the planned host-neutral diagnostic sink and actionable OpenUSD
-  build/runtime compatibility rejection, preserving current structured Vulkan
-  errors and material fallback records.
-- Perform release preparation only after those gates pass; until then the
-  project version remains the last shipped version.
+- Record Hydra Sync and scene-index processing, RenderWorld update, snapshot
+  extraction, GPU scene update, command recording, queue submission, GPU
+  execution, readback, RenderBuffer resolve/map, CPU-to-Hgi upload, host
+  composite, and presentation time as separately attributable stages.
+- Record upload/readback bytes, requested and generated AOVs, descriptor and
+  pipeline work, waits, maps, resolves, host uploads, draw count, visible
+  primitive count, and GPU memory where the owning layer exposes them.
+- Add fixed static, camera-only, transform, visibility, material, topology,
+  1M-triangle, 10k-mesh, 1k-instance, AOV-combination, and 4K fixtures.
+- Export versioned JSON or CSV with build/machine metadata and first-frame,
+  median, p95, p99, maximum, and frame-hitch summaries.
+- Retain dependency/runtime provenance, validation logs, images, benchmark
+  output, plugin discovery, RenderBuffer, and usdview results as comparable
+  capability artifacts.
+- Detect stable structural performance regressions in CI; timing thresholds are
+  enabled only on controlled hardware.
 
 #### Exit criteria
 
-- Core-only, Vulkan/headless, and Hydra builds are warning-free in their claimed
-  configurations, with clean validation on the equipped capability runner.
-- Revisioned texture/sampler behavior, value-only pipeline reuse, feature
-  variants, structured fallback, expected/actual/diff artifacts, and textured
-  usdview rendering remain covered by automated tests.
-- Release identity and documentation consistency checks reject stale metadata.
-- Invalid lifetime operations and unsupported inputs remain distinguishable and
-  host-observable without relying only on stderr parsing.
-- An isolated install tree discovers the plugin and renders the textured host
-  fixture using the declared OpenUSD ABI/configuration.
+- First frame and steady state are reported separately and CPU/GPU timelines can
+  be correlated.
+- A camera-only run proves zero geometry/topology/primvar fetch and upload.
+- A static steady-state run proves zero resource allocation, shader compile,
+  pipeline creation, and geometry upload.
+- Color-only requests prove zero depth/ID CPU readback.
+- A regression report identifies the limiting stage rather than reporting only
+  aggregate FPS.
+- The Windows Vulkan/Hydra capability workflow retains comparable evidence; a
+  missing runner remains distinguishable from a renderer failure.
 
 ## Active carry-over
 
-- Enroll or confirm a repository-scoped Windows x64 runner with the existing
+- Enroll or confirm a repository- or organization-scoped Windows x64 runner with the existing
   `vulkan-1.4` label so the manual workflow becomes continuing GPU evidence.
 - Retain dependency/runtime provenance, validation logs, expected/actual/diff
   images, benchmark output, Hydra discovery, RenderBuffer, and usdview results
   as comparable artifacts rather than reducing capability jobs to a binary
   pass/fail signal.
+- Add a host-neutral diagnostic sink and actionable OpenUSD build/runtime
+  compatibility checks before the first DCC integration milestone.
