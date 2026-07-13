@@ -58,7 +58,9 @@ jobs:
         shell: pwsh
         run: |
           ost runtime pull cy2026 --profile core
+          if ($LASTEXITCODE -ne 0) { throw "OpenStrata core runtime pull failed" }
           ost build --jobs 4 --progress plain
+          if ($LASTEXITCODE -ne 0) { throw "OpenStrata renderer build failed" }
           ost validate --json |
             Tee-Object -FilePath .ost-ci/renderer-validate.json
           if ($LASTEXITCODE -ne 0) { throw "OpenStrata renderer validation failed" }

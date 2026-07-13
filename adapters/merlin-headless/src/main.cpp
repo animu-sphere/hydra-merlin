@@ -245,7 +245,11 @@ bool ReportPassed(const std::vector<RendererCheck>& checks) {
 }
 
 bool IsUnavailableCapability(std::string_view detail) {
-  return detail.find("no Vulkan physical device is available") !=
+  const auto incompatible_driver =
+      std::string("create Vulkan instance failed with VkResult ") +
+      std::to_string(VK_ERROR_INCOMPATIBLE_DRIVER);
+  return detail == incompatible_driver ||
+         detail.find("no Vulkan physical device is available") !=
              std::string_view::npos ||
          detail.find("physical device with a graphics queue is available") !=
              std::string_view::npos ||
