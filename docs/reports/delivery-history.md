@@ -1,6 +1,7 @@
 # Delivery history (pre-release roadmap detail)
 
-This is the granular delivery log for work completed toward hdMerlin v0.1.0. It
+This is the granular delivery log for work completed toward hdMerlin foundation
+releases. It
 is **historical evidence**, not a description of current behavior (see
 [design](../design/)) or planned work (see [roadmap](../roadmap/)). Once a
 version ships, its stable summary belongs in the
@@ -83,3 +84,17 @@ repository-scoped GPU runner for continuous execution remains in the
   scene/pipeline cache counters.
 - ✅ Added first-frame, steady-state median, and scene-edit baselines with CI
   assertions for static-scene zero-upload/allocation/pipeline behavior.
+
+## MaterialIR and basic shading ✅
+
+- ✅ Added host-neutral material parameter blocks, texture/sampler bindings,
+  feature masks, alpha/cutoff and double-sided state, plus independent resource
+  revisions and structured extraction fallback records.
+- ✅ Added completion-safe Vulkan texture/sampler residency, descriptor updates,
+  and shader-module, descriptor-layout, and feature-keyed pipeline caches.
+- ✅ Rendered base/vertex color, display opacity, normals, UV image textures,
+  directional light, opaque surfaces, and alpha masks through the common
+  renderer path; value-only edits reuse pipelines.
+- ✅ Added a textured directional-lit headless reference scene and a basic Hydra
+  `UsdPreviewSurface`/`UsdUVTexture`/distant-light translation with install-tree
+  usdview evidence.

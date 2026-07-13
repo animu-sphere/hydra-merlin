@@ -19,6 +19,8 @@ class RenderWorld {
 
   MeshHandle CreateMesh(MeshDescriptor descriptor);
   MaterialHandle CreateMaterial(MaterialDescriptor descriptor);
+  TextureHandle CreateTexture(TextureDescriptor descriptor);
+  SamplerHandle CreateSampler(SamplerDescriptor descriptor);
   InstanceHandle CreateInstance(InstanceDescriptor descriptor);
   CameraHandle CreateCamera(CameraDescriptor descriptor);
   LightHandle CreateLight(LightDescriptor descriptor);
@@ -31,6 +33,12 @@ class RenderWorld {
   void UpdateMaterial(
       MaterialHandle handle, MaterialDescriptor descriptor,
       ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Material));
+  void UpdateTexture(
+      TextureHandle handle, TextureDescriptor descriptor,
+      ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Texture));
+  void UpdateSampler(
+      SamplerHandle handle, SamplerDescriptor descriptor,
+      ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Sampler));
   void UpdateInstance(
       InstanceHandle handle, InstanceDescriptor descriptor,
       ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Instance));
@@ -47,6 +55,8 @@ class RenderWorld {
 
   void Remove(MeshHandle handle);
   void Remove(MaterialHandle handle);
+  void Remove(TextureHandle handle);
+  void Remove(SamplerHandle handle);
   void Remove(InstanceHandle handle);
   void Remove(CameraHandle handle);
   void Remove(LightHandle handle);
@@ -54,6 +64,8 @@ class RenderWorld {
 
   [[nodiscard]] const MeshDescriptor& Get(MeshHandle handle) const;
   [[nodiscard]] const MaterialDescriptor& Get(MaterialHandle handle) const;
+  [[nodiscard]] const TextureDescriptor& Get(TextureHandle handle) const;
+  [[nodiscard]] const SamplerDescriptor& Get(SamplerHandle handle) const;
   [[nodiscard]] const InstanceDescriptor& Get(InstanceHandle handle) const;
   [[nodiscard]] const CameraDescriptor& Get(CameraHandle handle) const;
   [[nodiscard]] const LightDescriptor& Get(LightHandle handle) const;
@@ -62,6 +74,8 @@ class RenderWorld {
 
   [[nodiscard]] std::uint64_t resource_revision(MeshHandle handle) const;
   [[nodiscard]] std::uint64_t resource_revision(MaterialHandle handle) const;
+  [[nodiscard]] std::uint64_t resource_revision(TextureHandle handle) const;
+  [[nodiscard]] std::uint64_t resource_revision(SamplerHandle handle) const;
   [[nodiscard]] std::uint64_t resource_revision(InstanceHandle handle) const;
   [[nodiscard]] std::uint64_t resource_revision(CameraHandle handle) const;
   [[nodiscard]] std::uint64_t resource_revision(LightHandle handle) const;

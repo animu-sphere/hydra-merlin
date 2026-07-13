@@ -369,12 +369,31 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
   mesh.label = "headless-triangle";
   mesh.positions = {{0.0F, -0.72F, 0.0F}, {0.72F, 0.62F, 0.0F},
                     {-0.72F, 0.62F, 0.0F}};
+  mesh.normals = {{0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, 1.0F},
+                  {0.0F, 0.0F, 1.0F}};
+  mesh.texcoords = {{0.5F, 0.0F}, {1.0F, 1.0F}, {0.0F, 1.0F}};
   mesh.indices = {0, 1, 2};
   const auto mesh_handle = world.CreateMesh(std::move(mesh));
 
+  merlin::TextureDescriptor texture;
+  texture.label = "headless-checker";
+  texture.width = 2;
+  texture.height = 2;
+  texture.pixels = {255, 255, 255, 255, 40, 180, 255, 255,
+                    40, 180, 255, 255, 255, 255, 255, 255};
+  const auto texture_handle = world.CreateTexture(std::move(texture));
+  merlin::SamplerDescriptor sampler;
+  sampler.label = "headless-nearest";
+  sampler.min_filter = merlin::FilterMode::Nearest;
+  sampler.mag_filter = merlin::FilterMode::Nearest;
+  const auto sampler_handle = world.CreateSampler(std::move(sampler));
+
   merlin::MaterialDescriptor material;
   material.label = "fallback";
-  material.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+  material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+  material.base_color_texture =
+      merlin::TextureBinding{texture_handle, sampler_handle, 0};
+  material.features |= merlin::MaterialFeature::BaseColorTexture;
   const auto material_handle = world.CreateMaterial(std::move(material));
 
   merlin::InstanceDescriptor instance;
@@ -382,6 +401,10 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
   instance.mesh = mesh_handle;
   instance.material = material_handle;
   world.CreateInstance(std::move(instance));
+
+  merlin::LightDescriptor light;
+  light.label = "headless-key";
+  world.CreateLight(std::move(light));
   return world.Commit();
 }
 

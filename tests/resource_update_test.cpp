@@ -72,9 +72,9 @@ int main(int argc, char** argv) {
   const auto triangle = world.CreateMesh(Triangle());
   const auto quad = world.CreateMesh(Quad());
   merlin::MaterialDescriptor material;
-  material.base_color = {0.9F, 0.4F, 0.1F, 1.0F};
+  material.parameters.base_color = {0.9F, 0.4F, 0.1F, 1.0F};
   const auto primary_material = world.CreateMaterial(material);
-  material.base_color = {0.1F, 0.4F, 0.9F, 1.0F};
+  material.parameters.base_color = {0.1F, 0.4F, 0.9F, 1.0F};
   const auto secondary_material = world.CreateMaterial(material);
 
   merlin::InstanceDescriptor instance;
@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
 
   // Material-only edit: colors change, geometry resources do not.
   material = world.Get(primary_material);
-  material.base_color = {0.2F, 0.8F, 0.2F, 1.0F};
+  material.parameters.base_color = {0.2F, 0.8F, 0.2F, 1.0F};
   world.UpdateMaterial(primary_material, material);
   const auto recolored = render();
   assert(recolored.counters.upload_bytes == 0);

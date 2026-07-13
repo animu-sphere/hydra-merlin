@@ -23,11 +23,34 @@ struct MeshEntry {
   std::uint64_t topology_revision{};
   std::shared_ptr<const std::vector<DrawVertex>> vertices;
   std::shared_ptr<const std::vector<std::uint32_t>> indices;
+  bool has_normals{};
+  bool has_colors{};
+  bool has_texcoords{};
 };
 
 struct MaterialEntry {
   std::uint64_t revision{};
+  std::uint64_t parameter_revision{};
+  std::uint64_t feature_revision{};
   MaterialDescriptor descriptor;
+};
+
+struct TextureEntry {
+  std::uint64_t revision{};
+  std::uint32_t width{};
+  std::uint32_t height{};
+  TextureFormat format{TextureFormat::Rgba8Unorm};
+  std::shared_ptr<const std::vector<std::uint8_t>> pixels;
+};
+
+struct SamplerEntry {
+  std::uint64_t revision{};
+  SamplerDescriptor descriptor;
+};
+
+struct LightEntry {
+  std::uint64_t revision{};
+  LightDescriptor descriptor;
 };
 
 struct InstanceEntry {
@@ -73,6 +96,9 @@ class SceneExtractor::Impl {
       }
       entry.vertices = std::move(vertices);
       entry.points_revision = change.resource_revision;
+      entry.has_normals = !descriptor.normals.empty();
+      entry.has_colors = !descriptor.colors.empty();
+      entry.has_texcoords = !descriptor.texcoords.empty();
     }
     if (change.change_kind == ChangeKind::Created ||
         change.HasAspect(ChangeAspect::Topology)) {
@@ -93,7 +119,28 @@ class SceneExtractor::Impl {
           handle, static_cast<std::uint32_t>(next->geometries.size()));
       next->geometries.push_back({handle, entry.points_revision,
                                   entry.topology_revision, entry.vertices,
-                                  entry.indices});
+                                  entry.indices, entry.has_normals,
+                                  entry.has_colors, entry.has_texcoords});
+    }
+
+    std::map<std::uint64_t, std::uint32_t> texture_indices;
+    next->textures.reserve(textures.size());
+    for (const auto& [handle, entry] : textures) {
+      texture_indices.emplace(
+          handle, static_cast<std::uint32_t>(next->textures.size()));
+      next->textures.push_back({handle, entry.revision, entry.width,
+                                entry.height, entry.format, entry.pixels});
+    }
+
+    std::map<std::uint64_t, std::uint32_t> sampler_indices;
+    next->samplers.reserve(samplers.size());
+    for (const auto& [handle, entry] : samplers) {
+      sampler_indices.emplace(
+          handle, static_cast<std::uint32_t>(next->samplers.size()));
+      const auto& sampler = entry.descriptor;
+      next->samplers.push_back({handle, entry.revision, sampler.min_filter,
+                                sampler.mag_filter, sampler.address_u,
+                                sampler.address_v});
     }
 
     std::map<std::uint64_t, std::uint32_t> material_indices;
@@ -102,9 +149,49 @@ class SceneExtractor::Impl {
       material_indices.emplace(
           handle, static_cast<std::uint32_t>(next->materials.size()));
       const auto& material = entry.descriptor;
-      next->materials.push_back({handle, entry.revision, material.base_color,
-                                 material.metallic, material.roughness,
-                                 material.alpha_mode, material.double_sided});
+      MaterialRecord record;
+      record.material = handle;
+      record.revision = entry.revision;
+      record.parameter_revision = entry.parameter_revision;
+      record.feature_revision = entry.feature_revision;
+      record.parameters = material.parameters;
+      record.alpha_mode = material.alpha_mode;
+      record.double_sided = material.double_sided;
+      record.features = material.features;
+      if (record.alpha_mode == AlphaMode::Blended) {
+        record.alpha_mode = AlphaMode::Opaque;
+        next->material_fallbacks.push_back(
+            {handle, MaterialFallbackCode::UnsupportedAlphaBlend,
+             "alpha blend is unsupported; using opaque fallback"});
+      }
+      if (material.base_color_texture &&
+          HasMaterialFeature(record.features,
+                             MaterialFeature::BaseColorTexture)) {
+        const auto texture =
+            texture_indices.find(material.base_color_texture->texture.value());
+        const auto sampler =
+            sampler_indices.find(material.base_color_texture->sampler.value());
+        if (texture == texture_indices.end()) {
+          record.features = static_cast<MaterialFeature>(
+              static_cast<std::uint32_t>(record.features) &
+              ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
+          next->material_fallbacks.push_back(
+              {handle, MaterialFallbackCode::MissingTexture,
+               "base-color texture is unavailable; using constant color"});
+        } else if (sampler == sampler_indices.end()) {
+          record.features = static_cast<MaterialFeature>(
+              static_cast<std::uint32_t>(record.features) &
+              ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
+          next->material_fallbacks.push_back(
+              {handle, MaterialFallbackCode::MissingSampler,
+               "base-color sampler is unavailable; using constant color"});
+        } else {
+          record.base_color_texture = TextureBindingRecord{
+              texture->second, sampler->second,
+              material.base_color_texture->texcoord_set};
+        }
+      }
+      next->materials.push_back(std::move(record));
     }
 
     next->instances.reserve(instances.size());
@@ -146,13 +233,22 @@ class SceneExtractor::Impl {
         next->projection = camera->second.projection;
       }
     }
+    next->lights.reserve(lights.size());
+    for (const auto& [handle, entry] : lights) {
+      const auto& light = entry.descriptor;
+      next->lights.push_back({handle, entry.revision, light.type, light.color,
+                              light.intensity, light.transform});
+    }
     snapshot = std::move(next);
   }
 
   std::map<std::uint64_t, MeshEntry> meshes;
   std::map<std::uint64_t, MaterialEntry> materials;
+  std::map<std::uint64_t, TextureEntry> textures;
+  std::map<std::uint64_t, SamplerEntry> samplers;
   std::map<std::uint64_t, InstanceEntry> instances;
   std::map<std::uint64_t, CameraDescriptor> cameras;
+  std::map<std::uint64_t, LightEntry> lights;
   CameraHandle active_camera;
   std::uint64_t revision{};
   std::shared_ptr<const FrameSnapshot> snapshot{
@@ -188,10 +284,47 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
         if (erase) {
           impl_->materials.erase(change.handle);
         } else {
-          impl_->materials.insert_or_assign(
+          auto found = impl_->materials.find(change.handle);
+          MaterialEntry entry;
+          if (found != impl_->materials.end()) {
+            entry = found->second;
+          }
+          entry.revision = change.resource_revision;
+          if (change.change_kind == ChangeKind::Created ||
+              change.HasAspect(ChangeAspect::MaterialParameters)) {
+            entry.parameter_revision = change.resource_revision;
+          }
+          if (change.change_kind == ChangeKind::Created ||
+              change.HasAspect(ChangeAspect::MaterialFeatures)) {
+            entry.feature_revision = change.resource_revision;
+          }
+          entry.descriptor =
+              world.Get(MaterialHandle::FromValue(change.handle));
+          impl_->materials.insert_or_assign(change.handle, std::move(entry));
+        }
+        break;
+      case ObjectKind::Texture:
+        if (erase) {
+          impl_->textures.erase(change.handle);
+        } else {
+          const auto& texture =
+              world.Get(TextureHandle::FromValue(change.handle));
+          impl_->textures.insert_or_assign(
               change.handle,
-              MaterialEntry{change.resource_revision,
-                            world.Get(MaterialHandle::FromValue(change.handle))});
+              TextureEntry{change.resource_revision, texture.width,
+                           texture.height, texture.format,
+                           std::make_shared<const std::vector<std::uint8_t>>(
+                               texture.pixels)});
+        }
+        break;
+      case ObjectKind::Sampler:
+        if (erase) {
+          impl_->samplers.erase(change.handle);
+        } else {
+          impl_->samplers.insert_or_assign(
+              change.handle,
+              SamplerEntry{change.resource_revision,
+                           world.Get(SamplerHandle::FromValue(change.handle))});
         }
         break;
       case ObjectKind::Instance:
@@ -213,7 +346,14 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
         }
         break;
       case ObjectKind::Light:
-        // Lights are intentionally ignored until the basic PBR path lands.
+        if (erase) {
+          impl_->lights.erase(change.handle);
+        } else {
+          impl_->lights.insert_or_assign(
+              change.handle,
+              LightEntry{change.resource_revision,
+                         world.Get(LightHandle::FromValue(change.handle))});
+        }
         break;
       case ObjectKind::RenderSettings:
         // Render settings are frame/host state and are consumed outside the

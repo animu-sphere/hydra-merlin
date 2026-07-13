@@ -1,23 +1,12 @@
 # Backlog
 
-Ordered work after the active v0.4.1 milestone in [current.md](current.md).
+Ordered work after the active v0.5.0 milestone in [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 
 ## Milestone ladder
 
-- ⬜ **v0.5.0 — MaterialIR and basic shading.** Introduce host-neutral material
-  identity, parameter blocks, texture/sampler bindings, alpha mode, alpha
-  cutoff, double-sided state, and feature masks. Add revisioned texture and
-  sampler resources plus shader-module, descriptor-layout, and pipeline caches.
-  Render base color, vertex color, display opacity, normals, UV image textures,
-  a directional light, opaque surfaces, and alpha masks through the same
-  headless and Hydra path. A value-only material edit must update parameters
-  without rebuilding a pipeline; a feature change may select a new variant.
-  Exit requires revisioned texture/sampler behavior, structured fallback,
-  stable expected/actual/diff reference scenes, and basic textured shading in
-  usdview.
 - ⬜ **v0.5.1 — Hydra performance observability.** Break usdview frame cost into
   Hydra Sync, snapshot extraction, GPU scene update, command recording, queue
   submit, GPU execution, GPU-to-CPU readback, RenderBuffer resolve/map,
@@ -38,8 +27,8 @@ Legend: ⬜ not started
   behavior, explicit unsupported-node diagnostics, and stable reference-scene
   image comparisons.
 - ⬜ **v0.7.0 — Viewport essentials.** Deliver selection/picking first, then
-  alpha mask, double-sided rendering, viewport and dome lighting, a single-light
-  shadow MVP, measured frustum culling, and alpha blend. Region picking returns
+  viewport and dome lighting, a single-light shadow MVP, measured frustum
+  culling, and alpha blend. Region picking returns
   prim/instance/depth without reading the entire ID buffer back to the CPU. Exit
   requires prim/instance selection and highlighting plus a deterministic
   directional-shadow reference test.

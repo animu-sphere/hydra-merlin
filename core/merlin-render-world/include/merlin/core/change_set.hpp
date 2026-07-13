@@ -8,6 +8,8 @@ namespace merlin {
 enum class ObjectKind {
   Mesh,
   Material,
+  Texture,
+  Sampler,
   Instance,
   Camera,
   Light,
@@ -27,7 +29,10 @@ enum class ChangeAspect : std::uint32_t {
   Camera = 1U << 7U,
   LightParameters = 1U << 8U,
   RenderSettings = 1U << 9U,
-  All = (1U << 10U) - 1U
+  MaterialFeatures = 1U << 10U,
+  TextureData = 1U << 11U,
+  SamplerParameters = 1U << 12U,
+  All = (1U << 13U) - 1U
 };
 
 [[nodiscard]] constexpr ChangeAspect operator|(ChangeAspect lhs,
@@ -60,7 +65,11 @@ constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
       return ChangeAspect::Topology | ChangeAspect::Points |
              ChangeAspect::Primvars;
     case ObjectKind::Material:
-      return ChangeAspect::MaterialParameters;
+      return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures;
+    case ObjectKind::Texture:
+      return ChangeAspect::TextureData;
+    case ObjectKind::Sampler:
+      return ChangeAspect::SamplerParameters;
     case ObjectKind::Instance:
       return ChangeAspect::Transform | ChangeAspect::Visibility |
              ChangeAspect::MaterialBinding;

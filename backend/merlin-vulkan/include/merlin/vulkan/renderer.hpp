@@ -78,10 +78,19 @@ struct FrameCounters {
   std::uint64_t scene_cache_misses{};
   std::uint64_t geometry_cache_hits{};
   std::uint64_t geometry_cache_misses{};
+  std::uint64_t texture_cache_hits{};
+  std::uint64_t texture_cache_misses{};
+  std::uint64_t sampler_cache_hits{};
+  std::uint64_t sampler_cache_misses{};
   std::uint64_t buffer_suballocation_count{};
   std::uint64_t buffer_range_release_count{};
   std::uint64_t pipeline_cache_hits{};
   std::uint64_t pipeline_cache_misses{};
+  std::uint64_t shader_module_cache_hits{};
+  std::uint64_t shader_module_cache_misses{};
+  std::uint64_t descriptor_layout_cache_hits{};
+  std::uint64_t descriptor_layout_cache_misses{};
+  std::uint64_t descriptor_update_count{};
 
   // Member-wise equality keeps steady-state drift detection in lockstep with
   // this field list; adding a counter cannot silently escape the comparison.

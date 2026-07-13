@@ -21,6 +21,7 @@ target_include_directories(merlin-hydra2-runtime PUBLIC
 target_link_libraries(merlin-hydra2-runtime
   PUBLIC hd
   PRIVATE
+    hio
     Merlin::RenderWorld
     Merlin::RenderExtraction
     Merlin::Vulkan
@@ -78,7 +79,7 @@ install(FILES resources/plugInfo.json
   DESTINATION "${_merlin_hydra_install_dir}/resources")
 install(FILES "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
   DESTINATION "${_merlin_hydra_install_dir}/shaders")
-install(FILES tests/usdview-smoke.usda
+install(FILES tests/usdview-smoke.usda tests/checker.ppm
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/tests")
 
 if(MERLIN_BUILD_TESTS)

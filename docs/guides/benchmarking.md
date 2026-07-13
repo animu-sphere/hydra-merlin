@@ -65,8 +65,9 @@ The structural counters are `draw_count`, `triangle_count`, `upload_bytes`
 (bytes staged through the upload ring this frame), `readback_bytes`,
 total/buffer/image allocation counts, `pipeline_creation_count`, snapshot-level
 `scene_cache_hits`/`scene_cache_misses`, per-mesh `geometry_cache_hits`/
-`geometry_cache_misses`, arena `buffer_suballocation_count` and
-`buffer_range_release_count`, and pipeline cache hits and misses. Static
+`geometry_cache_misses`, texture/sampler cache hits and misses, arena
+`buffer_suballocation_count` and `buffer_range_release_count`, shader-module,
+descriptor-layout, and pipeline cache hits/misses, and descriptor updates. Static
 steady-state samples must have zero upload bytes, allocations, and pipeline
 creations; the executable rejects a run if those samples do not have identical
 structural counters or perform any upload/allocation/pipeline work.

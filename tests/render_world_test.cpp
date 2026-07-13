@@ -168,7 +168,7 @@ int main() {
       classification_world.CreateInstance(classification_instance);
   (void)classification_world.Commit();
 
-  first_material.roughness = 0.25F;
+  first_material.parameters.roughness = 0.25F;
   classification_world.UpdateMaterial(
       first_material_handle, first_material,
       merlin::ChangeAspect::MaterialParameters);
@@ -195,5 +195,78 @@ int main() {
   assert(binding_change != classification_changes.changes.end());
   assert(binding_change->aspects == merlin::ChangeAspect::MaterialBinding);
   assert(binding_change->resource_revision == 2);
+
+  merlin::RenderWorld material_world;
+  merlin::TextureDescriptor texture;
+  texture.width = 2;
+  texture.height = 1;
+  texture.pixels = {255, 0, 0, 255, 0, 255, 0, 255};
+  const auto texture_handle = material_world.CreateTexture(texture);
+  merlin::SamplerDescriptor sampler;
+  const auto sampler_handle = material_world.CreateSampler(sampler);
+  merlin::MaterialDescriptor textured_material;
+  textured_material.features |= merlin::MaterialFeature::BaseColorTexture;
+  textured_material.base_color_texture =
+      merlin::TextureBinding{texture_handle, sampler_handle, 0};
+  const auto textured_material_handle =
+      material_world.CreateMaterial(textured_material);
+  const auto resource_changes = material_world.Commit();
+  assert(resource_changes.changes.size() == 3);
+  assert(material_world.resource_revision(texture_handle) == 1);
+  assert(material_world.resource_revision(sampler_handle) == 1);
+  assert(material_world.Get(textured_material_handle).base_color_texture->texture ==
+         texture_handle);
+
+  texture.pixels[0] = 128;
+  material_world.UpdateTexture(texture_handle, texture);
+  sampler.mag_filter = merlin::FilterMode::Nearest;
+  material_world.UpdateSampler(sampler_handle, sampler);
+  const auto resource_updates = material_world.Commit();
+  assert(resource_updates.changes.size() == 2);
+  assert(material_world.resource_revision(texture_handle) == 2);
+  assert(material_world.resource_revision(sampler_handle) == 2);
+
+  bool bad_texture_rejected = false;
+  try {
+    merlin::TextureDescriptor invalid_texture;
+    invalid_texture.width = 2;
+    invalid_texture.height = 2;
+    invalid_texture.pixels.resize(3);
+    (void)material_world.CreateTexture(std::move(invalid_texture));
+  } catch (const std::invalid_argument&) {
+    bad_texture_rejected = true;
+  }
+  assert(bad_texture_rejected);
+
+  bool bad_material_rejected = false;
+  try {
+    auto invalid_material = textured_material;
+    invalid_material.parameters.alpha_cutoff = 2.0F;
+    (void)material_world.CreateMaterial(std::move(invalid_material));
+  } catch (const std::invalid_argument&) {
+    bad_material_rejected = true;
+  }
+  assert(bad_material_rejected);
+
+  bool missing_binding_rejected = false;
+  try {
+    merlin::MaterialDescriptor invalid_material;
+    invalid_material.features |=
+        merlin::MaterialFeature::BaseColorTexture;
+    (void)material_world.CreateMaterial(std::move(invalid_material));
+  } catch (const std::invalid_argument&) {
+    missing_binding_rejected = true;
+  }
+  assert(missing_binding_rejected);
+
+  bool unsupported_texcoord_rejected = false;
+  try {
+    auto invalid_material = textured_material;
+    invalid_material.base_color_texture->texcoord_set = 1;
+    (void)material_world.CreateMaterial(std::move(invalid_material));
+  } catch (const std::invalid_argument&) {
+    unsupported_texcoord_rejected = true;
+  }
+  assert(unsupported_texcoord_rejected);
   return 0;
 }

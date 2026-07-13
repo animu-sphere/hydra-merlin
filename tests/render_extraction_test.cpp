@@ -2,6 +2,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 
 #include <cassert>
+#include <algorithm>
 #include <stdexcept>
 
 int main() {
@@ -17,7 +18,7 @@ int main() {
   mesh.texcoords = {{0.0F, 0.0F}, {1.0F, 0.0F}, {0.5F, 1.0F}};
   const auto mesh_handle = world.CreateMesh(mesh);
   merlin::MaterialDescriptor material;
-  material.base_color = {0.25F, 0.5F, 0.75F, 1.0F};
+  material.parameters.base_color = {0.25F, 0.5F, 0.75F, 1.0F};
   const auto material_handle = world.CreateMaterial(material);
   merlin::InstanceDescriptor instance;
   instance.mesh = mesh_handle;
@@ -52,7 +53,7 @@ int main() {
   assert(first->instances[first->draws.back().instance_index]
              .transform.values[12] == 0.25F);
   assert(first->materials[first->draws.front().material_index]
-             .base_color.z == 0.75F);
+             .parameters.base_color.z == 0.75F);
 
   // A transform-only edit must not rebuild geometry payloads: the new snapshot
   // shares the same immutable vertex/index arrays.
@@ -148,5 +149,54 @@ int main() {
     old_revision_rejected = true;
   }
   assert(old_revision_rejected);
+
+  merlin::RenderWorld material_world;
+  merlin::TextureDescriptor texture;
+  texture.width = 1;
+  texture.height = 1;
+  texture.pixels = {255, 255, 255, 255};
+  const auto texture_handle = material_world.CreateTexture(texture);
+  const auto sampler_handle =
+      material_world.CreateSampler(merlin::SamplerDescriptor{});
+  merlin::MaterialDescriptor blended;
+  blended.alpha_mode = merlin::AlphaMode::Blended;
+  blended.features |= merlin::MaterialFeature::BaseColorTexture;
+  blended.base_color_texture =
+      merlin::TextureBinding{texture_handle, sampler_handle, 0};
+  const auto blended_handle = material_world.CreateMaterial(blended);
+  merlin::LightDescriptor light;
+  const auto light_handle = material_world.CreateLight(light);
+  merlin::extraction::SceneExtractor material_extractor;
+  material_extractor.Apply(material_world, material_world.Commit());
+  const auto material_snapshot = material_extractor.snapshot();
+  assert(material_snapshot->textures.size() == 1);
+  assert(material_snapshot->samplers.size() == 1);
+  assert(material_snapshot->materials.size() == 1);
+  assert(material_snapshot->materials.front().material == blended_handle.value());
+  assert(material_snapshot->materials.front().base_color_texture.has_value());
+  assert(material_snapshot->materials.front().alpha_mode ==
+         merlin::AlphaMode::Opaque);
+  assert(material_snapshot->lights.front().light == light_handle.value());
+  assert(material_snapshot->material_fallbacks.front().code ==
+         merlin::extraction::MaterialFallbackCode::UnsupportedAlphaBlend);
+
+  blended.parameters.roughness = 0.25F;
+  material_world.UpdateMaterial(blended_handle, blended,
+                                merlin::ChangeAspect::MaterialParameters);
+  material_extractor.Apply(material_world, material_world.Commit());
+  const auto parameter_snapshot = material_extractor.snapshot();
+  assert(parameter_snapshot->materials.front().parameter_revision == 2);
+  assert(parameter_snapshot->materials.front().feature_revision == 1);
+
+  material_world.Remove(texture_handle);
+  material_extractor.Apply(material_world, material_world.Commit());
+  const auto missing_texture = material_extractor.snapshot();
+  assert(!missing_texture->materials.front().base_color_texture.has_value());
+  assert(std::any_of(
+      missing_texture->material_fallbacks.begin(),
+      missing_texture->material_fallbacks.end(), [](const auto& fallback) {
+        return fallback.code ==
+               merlin::extraction::MaterialFallbackCode::MissingTexture;
+      }));
   return 0;
 }
