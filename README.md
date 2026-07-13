@@ -5,7 +5,8 @@
 hdMerlin is an OST-oriented, host-neutral Vulkan raster renderer. The current
 implementation provides a handle-based `RenderWorld`, deterministic extraction
 into an immutable resource-granular `FrameSnapshot`, and a persistent Vulkan
-offscreen renderer with color/depth CPU readback.
+offscreen renderer with explicit submission/completion lifetime and selectable
+color/depth/primId/instanceId CPU readback.
 
 The core library intentionally has no OpenUSD, Hydra, DCC, Qt, or Vulkan types
 in its public API. Hydra and host integrations will remain thin adapters around
@@ -45,6 +46,13 @@ Render the headless smoke image:
 ./build/adapters/merlin-headless/Debug/merlin-headless.exe --frames 6 --output merlin.ppm
 ```
 
+Retain unchanged-frame expected/actual/diff evidence as PNG and OpenEXR:
+
+```powershell
+./build/adapters/merlin-headless/Debug/merlin-headless.exe `
+  --frames 6 --artifact-dir artifacts --output merlin.ppm
+```
+
 Capture the reference-path performance baselines as deterministic JSON:
 
 ```powershell
@@ -59,7 +67,9 @@ counters for first-frame, steady-state, and per-aspect edit scenarios
 rules.
 
 The renderer keeps three frame contexts by default and returns tightly packed
-top-left color and depth products under one completion value. GPU geometry
+top-left products under renderer-specific completion tokens. `RenderRequest`
+selects produced AOVs and CPU readback; `Submit` records and queues work without
+waiting, and timeout-aware `Resolve` transfers only the selected products. GPU geometry
 residency is resource-granular: per-mesh vertex/index ranges are suballocated
 from device-local arenas, staged through a persistently mapped upload ring,
 keyed by handle generation and revision, shared across instances, and retired
@@ -93,7 +103,7 @@ Material-network shading, subdivision refinement, and zero-copy Vulkan/Hgi
 interop remain future work; usdview presentation currently uses Hydra's CPU
 RenderBuffer-to-Hgi upload path.
 
-## v0.1.0 limitations
+## Current limitations
 
 The foundation release intentionally does not provide:
 
@@ -178,6 +188,7 @@ readback without owning a native window or swapchain.
 - [Delivery history](docs/reports/delivery-history.md)
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
+- [Execution and render-product lifetime](docs/design/execution-lifetime.md)
 - [OpenStrata project layout](docs/design/openstrata-project.md)
 - [OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
 - [Build and install](docs/guides/build-and-install.md)

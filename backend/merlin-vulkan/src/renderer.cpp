@@ -19,9 +19,33 @@
 #include <vector>
 
 namespace merlin::vulkan {
+
+std::string_view RendererErrorCodeName(RendererErrorCode code) noexcept {
+  switch (code) {
+    case RendererErrorCode::InvalidRequest: return "invalid-request";
+    case RendererErrorCode::InvalidToken: return "invalid-token";
+    case RendererErrorCode::ResourceBusy: return "resource-busy";
+    case RendererErrorCode::Timeout: return "timeout";
+    case RendererErrorCode::DeviceLost: return "device-lost";
+    case RendererErrorCode::Unsupported: return "unsupported";
+    case RendererErrorCode::BackendFailure: return "backend-failure";
+  }
+  return "unknown";
+}
+
+RendererError::RendererError(RendererErrorCode code, std::string operation,
+                             std::string detail, std::int32_t native_code)
+    : std::runtime_error(std::string(RendererErrorCodeName(code)) + ": " +
+                         operation + ": " + detail),
+      code_(code),
+      operation_(std::move(operation)),
+      native_code_(native_code) {}
+
 namespace {
 
 using CpuClock = std::chrono::steady_clock;
+
+std::atomic<std::uint64_t> g_renderer_owner{1};
 
 std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
   return static_cast<std::uint64_t>(
@@ -37,10 +61,25 @@ constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kIdFormat = VK_FORMAT_R32_UINT;
 
 void Check(VkResult result, const char* operation) {
-  if (result != VK_SUCCESS) {
-    throw std::runtime_error(std::string(operation) + " failed with VkResult " +
-                             std::to_string(static_cast<int>(result)));
+  if (result == VK_SUCCESS) {
+    return;
   }
+  RendererErrorCode code = RendererErrorCode::BackendFailure;
+  if (result == VK_TIMEOUT) {
+    code = RendererErrorCode::Timeout;
+  } else if (result == VK_ERROR_DEVICE_LOST) {
+    code = RendererErrorCode::DeviceLost;
+  } else if (result == VK_ERROR_FEATURE_NOT_PRESENT ||
+             result == VK_ERROR_FORMAT_NOT_SUPPORTED ||
+             result == VK_ERROR_EXTENSION_NOT_PRESENT ||
+             result == VK_ERROR_LAYER_NOT_PRESENT ||
+             result == VK_ERROR_INCOMPATIBLE_DRIVER) {
+    code = RendererErrorCode::Unsupported;
+  }
+  throw RendererError(code, operation,
+                      "VkResult " +
+                          std::to_string(static_cast<std::int32_t>(result)),
+                      static_cast<std::int32_t>(result));
 }
 
 std::vector<std::uint32_t> ReadSpirv(const std::filesystem::path& path) {
@@ -306,6 +345,9 @@ class StagingRing {
   void Initialize(VkDevice device, VkPhysicalDevice physical_device) {
     device_ = device;
     physical_device_ = physical_device;
+    // RendererOptions caps frame contexts at eight, so this prevents metadata
+    // allocation failure after a queue submission has already succeeded.
+    regions_.reserve(8);
   }
 
   void Destroy() noexcept {
@@ -426,7 +468,9 @@ class Renderer::Impl {
  public:
   explicit Impl(RendererOptions options) {
     if (options.frames_in_flight < 2 || options.frames_in_flight > 8) {
-      throw std::invalid_argument("frames_in_flight must be between 2 and 8");
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "create renderer",
+                          "frames_in_flight must be between 2 and 8");
     }
     CreateDevice(options);
     CreateFrameContexts(options.frames_in_flight);
@@ -449,8 +493,8 @@ class Renderer::Impl {
       staging_.Destroy();
       vertex_arena_.Destroy();
       index_arena_.Destroy();
-      DestroyTarget();
       for (auto& frame : frames_) {
+        DestroyTarget(frame.target);
         if (frame.fence != VK_NULL_HANDLE) {
           vkDestroyFence(device_, frame.fence, nullptr);
         }
@@ -475,23 +519,33 @@ class Renderer::Impl {
     }
   }
 
-  RenderResult Render(const extraction::FrameSnapshot& snapshot,
-                      std::uint32_t width, std::uint32_t height,
-                      const ShaderPaths& shaders) {
+  std::uint64_t Submit(const RenderRequest& request) {
+    ValidateRequest(request);
     const auto backend_start = CpuClock::now();
     frame_counters_ = {};
-    for (const auto& draw : snapshot.draws) {
+    for (const auto& draw : request.snapshot->draws) {
       ++frame_counters_.draw_count;
       frame_counters_.triangle_count +=
-          snapshot.geometries[draw.geometry_index].indices->size() / 3U;
+          request.snapshot->geometries[draw.geometry_index].indices->size() / 3U;
     }
 
-    ValidateExtent(width, height);
-    auto& frame = BeginFrame();
-    EnsureTarget(width, height, shaders);
+    auto rendered_aovs = RenderedAovs(request);
+    auto cpu_readback_aovs = CpuReadbackAovs(request);
+    auto& frame = AcquireFrame(request.width, request.height, request.shaders,
+                               cpu_readback_aovs);
+    frame.scene_revision = request.snapshot->revision;
+    frame.rendered_aovs = std::move(rendered_aovs);
+    frame.cpu_readback_aovs = std::move(cpu_readback_aovs);
+    active_target_ = &frame.target;
+    struct ResetActiveTarget {
+      RenderTarget*& target;
+      ~ResetActiveTarget() { target = nullptr; }
+    } reset_active_target{active_target_};
+    EnsureTarget(frame.target, request.width, request.height, request.shaders,
+                 frame.cpu_readback_aovs);
 
     const auto upload_start = CpuClock::now();
-    SyncGeometry(snapshot);
+    SyncGeometry(*request.snapshot);
     const auto upload_ns = ElapsedNanoseconds(upload_start);
 
     const auto recording_start = CpuClock::now();
@@ -502,41 +556,83 @@ class Renderer::Impl {
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
           "begin frame command buffer");
     RecordUploads(frame.command_buffer);
-    RecordFrame(frame.command_buffer, snapshot);
+    RecordFrame(frame.command_buffer, *request.snapshot,
+                frame.cpu_readback_aovs);
     Check(vkEndCommandBuffer(frame.command_buffer), "end frame command buffer");
     const auto recording_ns = ElapsedNanoseconds(recording_start);
 
-    const auto readback_start = CpuClock::now();
-    const auto completion = SubmitAndWait(frame);
-    ++statistics_.frames_submitted;
+    frame.cpu_timings = {};
+    frame.cpu_timings.upload_ns = upload_ns;
+    frame.cpu_timings.command_recording_ns = recording_ns;
+    frame.counters = frame_counters_;
+    const auto completion = SubmitFrame(frame);
+    frame.cpu_timings.backend_total_ns = ElapsedNanoseconds(backend_start);
     staging_.FinishFrame(completion);
-    staging_.Collect(completion);
-    CollectDeferred(completion);
-
-    RenderResult result;
-    result.color = ReadColor(width, height);
-    result.depth = ReadDepth(width, height);
-    result.prim_id = ReadId(width, height, Aov::PrimId,
-                            target_.prim_id_readback);
-    result.instance_id = ReadId(width, height, Aov::InstanceId,
-                                target_.instance_id_readback);
-    const auto readback_ns = ElapsedNanoseconds(readback_start);
-    result.scene_revision = snapshot.revision;
-    result.completion_value = completion;
-    result.cpu_timings.upload_ns = upload_ns;
-    result.cpu_timings.command_recording_ns = recording_ns;
-    result.cpu_timings.readback_ns = readback_ns;
-    result.cpu_timings.backend_total_ns = ElapsedNanoseconds(backend_start);
-    result.counters = frame_counters_;
-    return result;
+    frame.outstanding = true;
+    ++statistics_.frames_submitted;
+    return completion;
   }
 
-  struct FrameContext {
-    VkCommandPool command_pool{};
-    VkCommandBuffer command_buffer{};
-    VkFence fence{};
-    std::uint64_t completion_value{};
-  };
+  bool IsComplete(std::uint64_t completion) const {
+    const auto& frame = FindFrame(completion);
+    if (timeline_semaphore_ != VK_NULL_HANDLE) {
+      std::uint64_t value{};
+      Check(vkGetSemaphoreCounterValue(device_, timeline_semaphore_, &value),
+            "query frame completion");
+      return value >= completion;
+    }
+    const auto status = vkGetFenceStatus(device_, frame.fence);
+    if (status == VK_NOT_READY) {
+      return false;
+    }
+    Check(status, "query frame fence");
+    return true;
+  }
+
+  RenderResult Resolve(std::uint64_t completion,
+                       std::chrono::nanoseconds timeout) {
+    auto& frame = FindFrame(completion);
+    const auto readback_start = CpuClock::now();
+    WaitForFrame(frame, timeout);
+    latest_completed_value_ = std::max(latest_completed_value_, completion);
+    staging_.Collect(completion);
+    CollectDeferred(completion);
+    active_target_ = &frame.target;
+    struct ResetActiveTarget {
+      RenderTarget*& target;
+      ~ResetActiveTarget() { target = nullptr; }
+    } reset_active_target{active_target_};
+    frame_counters_ = frame.counters;
+
+    RenderResult result;
+    if (HasAov(frame.cpu_readback_aovs, Aov::Color)) {
+      result.color = ReadColor(frame.target.width, frame.target.height);
+    }
+    if (HasAov(frame.cpu_readback_aovs, Aov::Depth)) {
+      result.depth = ReadDepth(frame.target.width, frame.target.height);
+    }
+    if (HasAov(frame.cpu_readback_aovs, Aov::PrimId)) {
+      result.prim_id = ReadId(frame.target.width, frame.target.height,
+                              Aov::PrimId, frame.target.prim_id_readback);
+    }
+    if (HasAov(frame.cpu_readback_aovs, Aov::InstanceId)) {
+      result.instance_id = ReadId(frame.target.width, frame.target.height,
+                                  Aov::InstanceId,
+                                  frame.target.instance_id_readback);
+    }
+    const auto readback_ns = ElapsedNanoseconds(readback_start);
+    result.rendered_aovs = frame.rendered_aovs;
+    result.cpu_readback_aovs = frame.cpu_readback_aovs;
+    result.scene_revision = frame.scene_revision;
+    result.completion_value = completion;
+    result.cpu_timings = frame.cpu_timings;
+    result.cpu_timings.readback_ns = readback_ns;
+    result.cpu_timings.backend_total_ns += readback_ns;
+    result.counters = frame_counters_;
+    frame.outstanding = false;
+    frame.counters = {};
+    return result;
+  }
 
   struct RetiredBuffer {
     Buffer buffer;
@@ -593,6 +689,21 @@ class Renderer::Impl {
     Buffer prim_id_readback;
     Buffer instance_id_readback;
     ShaderPaths shaders;
+    std::vector<Aov> cpu_readback_aovs;
+  };
+
+  struct FrameContext {
+    VkCommandPool command_pool{};
+    VkCommandBuffer command_buffer{};
+    VkFence fence{};
+    std::uint64_t completion_value{};
+    bool outstanding{};
+    RenderTarget target;
+    std::uint64_t scene_revision{};
+    std::vector<Aov> rendered_aovs;
+    std::vector<Aov> cpu_readback_aovs;
+    FrameCpuTimings cpu_timings;
+    FrameCounters counters;
   };
 
   void CreateDevice(const RendererOptions& options) {
@@ -634,9 +745,10 @@ class Renderer::Impl {
             "query Vulkan loader version");
     }
     if (loader_api_version < kMinimumVulkanApiVersion) {
-      throw std::runtime_error(std::string("Vulkan ") +
-                               MERLIN_VULKAN_MIN_VERSION_STRING +
-                               " loader is required");
+      throw RendererError(RendererErrorCode::Unsupported, "create renderer",
+                          std::string("Vulkan ") +
+                              MERLIN_VULKAN_MIN_VERSION_STRING +
+                              " loader is required");
     }
     capabilities_.loader_api_version = loader_api_version;
     capabilities_.header_version = VK_HEADER_VERSION_COMPLETE;
@@ -666,7 +778,8 @@ class Renderer::Impl {
     Check(vkEnumeratePhysicalDevices(instance_, &device_count, nullptr),
           "enumerate physical devices");
     if (device_count == 0) {
-      throw std::runtime_error("no Vulkan physical device is available");
+      throw RendererError(RendererErrorCode::Unsupported, "create renderer",
+                          "no Vulkan physical device is available");
     }
     std::vector<VkPhysicalDevice> devices(device_count);
     Check(vkEnumeratePhysicalDevices(instance_, &device_count, devices.data()),
@@ -696,9 +809,10 @@ class Renderer::Impl {
       }
     }
     if (physical_device_ == VK_NULL_HANDLE) {
-      throw std::runtime_error(std::string("no Vulkan ") +
-                               MERLIN_VULKAN_MIN_VERSION_STRING +
-                               " physical device with a graphics queue is available");
+      throw RendererError(
+          RendererErrorCode::Unsupported, "create renderer",
+          std::string("no Vulkan ") + MERLIN_VULKAN_MIN_VERSION_STRING +
+              " physical device with a graphics queue is available");
     }
 
     VkPhysicalDeviceDriverProperties driver_properties{
@@ -729,7 +843,8 @@ class Renderer::Impl {
     const auto required_depth = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
                                 VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
     if ((depth_properties.optimalTilingFeatures & required_depth) != required_depth) {
-      throw std::runtime_error("D32 depth attachment readback is unsupported");
+      throw RendererError(RendererErrorCode::Unsupported, "create renderer",
+                          "D32 depth attachment readback is unsupported");
     }
 
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline{
@@ -925,10 +1040,11 @@ class Renderer::Impl {
       return;
     }
     const auto aligned = AlignUp(bytes, kArenaAlignment);
-    if (range.valid() && range.size == aligned) {
-      // Size-preserving edits update the existing range in place. Frames are
-      // currently synchronized before reuse; asynchronous execution must
-      // version ranges instead of writing over readable memory.
+    if (range.valid() && range.size == aligned &&
+        latest_completed_value_ >= timeline_value_) {
+      // Reuse in place only when every prior submission has completed. If an
+      // older command buffer can still read this range, allocate a new range
+      // and retire the old generation at its last possible completion value.
       return;
     }
     ReleaseRange(arena, range);
@@ -1002,32 +1118,123 @@ class Renderer::Impl {
     if (width == 0 || height == 0 ||
         width > capabilities_.max_image_dimension_2d ||
         height > capabilities_.max_image_dimension_2d) {
-      throw std::invalid_argument("offscreen extent is unsupported");
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "validate render request",
+                          "offscreen extent is unsupported");
     }
   }
 
-  FrameContext& BeginFrame() {
-    auto& frame = frames_[next_frame_];
-    next_frame_ = (next_frame_ + 1U) % frames_.size();
-    if (frame.completion_value == 0) {
-      return frame;
+  static bool IsSupportedAov(Aov aov) noexcept {
+    return aov == Aov::Color || aov == Aov::Depth ||
+           aov == Aov::PrimId || aov == Aov::InstanceId;
+  }
+
+  void ValidateRequest(const RenderRequest& request) const {
+    if (!request.snapshot) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request", "snapshot is null");
     }
-    if (timeline_semaphore_ != VK_NULL_HANDLE) {
-      VkSemaphoreWaitInfo wait_info{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
-      wait_info.semaphoreCount = 1;
-      wait_info.pSemaphores = &timeline_semaphore_;
-      wait_info.pValues = &frame.completion_value;
-      Check(vkWaitSemaphores(device_, &wait_info,
-                             std::numeric_limits<std::uint64_t>::max()),
-            "wait for reusable frame context");
-    } else {
-      Check(vkWaitForFences(device_, 1, &frame.fence, VK_TRUE,
-                            std::numeric_limits<std::uint64_t>::max()),
-            "wait for reusable frame fence");
-      Check(vkResetFences(device_, 1, &frame.fence), "reset frame fence");
+    ValidateExtent(request.width, request.height);
+    if (request.shaders.vertex.empty() || request.shaders.fragment.empty()) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "vertex and fragment shader paths are required");
     }
-    CollectDeferred(frame.completion_value);
-    return frame;
+    if (request.products.empty()) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "at least one render product is required");
+    }
+    std::vector<Aov> seen;
+    for (const auto& product : request.products) {
+      if (!IsSupportedAov(product.aov)) {
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "validate render request",
+                            "AOV " + std::string(AovName(product.aov)) +
+                                " is unsupported");
+      }
+      if (HasAov(seen, product.aov)) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "validate render request",
+                            "duplicate AOV " +
+                                std::string(AovName(product.aov)));
+      }
+      seen.push_back(product.aov);
+    }
+  }
+
+  static std::vector<Aov> RenderedAovs(const RenderRequest& request) {
+    std::vector<Aov> result;
+    result.reserve(request.products.size());
+    for (const auto& product : request.products) {
+      result.push_back(product.aov);
+    }
+    return result;
+  }
+
+  static std::vector<Aov> CpuReadbackAovs(const RenderRequest& request) {
+    std::vector<Aov> result;
+    for (const auto& product : request.products) {
+      if (product.cpu_readback) {
+        result.push_back(product.aov);
+      }
+    }
+    return result;
+  }
+
+  FrameContext& AcquireFrame(std::uint32_t width, std::uint32_t height,
+                             const ShaderPaths& shaders,
+                             const std::vector<Aov>& cpu_readback_aovs) {
+    auto reusable = [&](FrameContext& frame) {
+      return !frame.outstanding && frame.target.width == width &&
+             frame.target.height == height &&
+             frame.target.shaders.vertex == shaders.vertex &&
+             frame.target.shaders.fragment == shaders.fragment &&
+             frame.target.cpu_readback_aovs == cpu_readback_aovs;
+    };
+    auto found = std::find_if(frames_.begin(), frames_.end(), reusable);
+    if (found == frames_.end()) {
+      found = std::find_if(frames_.begin(), frames_.end(),
+                           [](const FrameContext& frame) {
+                             return !frame.outstanding;
+                           });
+    }
+    if (found == frames_.end()) {
+      throw RendererError(
+          RendererErrorCode::ResourceBusy, "acquire frame context",
+          "all frame contexts have unresolved completion tokens");
+    }
+    if (timeline_semaphore_ == VK_NULL_HANDLE &&
+        found->completion_value != 0) {
+      Check(vkResetFences(device_, 1, &found->fence), "reset frame fence");
+    }
+    return *found;
+  }
+
+  FrameContext& FindFrame(std::uint64_t completion) {
+    const auto found = std::find_if(
+        frames_.begin(), frames_.end(), [&](const FrameContext& frame) {
+          return frame.outstanding && frame.completion_value == completion;
+        });
+    if (found == frames_.end()) {
+      throw RendererError(RendererErrorCode::InvalidToken,
+                          "resolve completion token",
+                          "token is unknown or already resolved");
+    }
+    return *found;
+  }
+
+  const FrameContext& FindFrame(std::uint64_t completion) const {
+    const auto found = std::find_if(
+        frames_.begin(), frames_.end(), [&](const FrameContext& frame) {
+          return frame.outstanding && frame.completion_value == completion;
+        });
+    if (found == frames_.end()) {
+      throw RendererError(RendererErrorCode::InvalidToken,
+                          "query completion token",
+                          "token is unknown or already resolved");
+    }
+    return *found;
   }
 
   VkImage CreateImage(std::uint32_t width, std::uint32_t height, VkFormat format,
@@ -1083,86 +1290,93 @@ class Renderer::Impl {
     return view;
   }
 
-  void EnsureTarget(std::uint32_t width, std::uint32_t height,
-                    const ShaderPaths& shaders) {
-    if (target_.width == width && target_.height == height &&
-        target_.shaders.vertex == shaders.vertex &&
-        target_.shaders.fragment == shaders.fragment) {
+  void EnsureTarget(RenderTarget& target, std::uint32_t width,
+                    std::uint32_t height,
+                    const ShaderPaths& shaders,
+                    const std::vector<Aov>& cpu_readback_aovs) {
+    if (target.width == width && target.height == height &&
+        target.shaders.vertex == shaders.vertex &&
+        target.shaders.fragment == shaders.fragment &&
+        target.cpu_readback_aovs == cpu_readback_aovs) {
       ++frame_counters_.pipeline_cache_hits;
       return;
     }
     ++frame_counters_.pipeline_cache_misses;
-    Check(vkDeviceWaitIdle(device_), "wait before resizing render products");
-    DestroyTarget();
-    CreateTarget(width, height, shaders);
+    DestroyTarget(target);
+    CreateTarget(width, height, shaders, cpu_readback_aovs);
   }
 
   void CreateTarget(std::uint32_t width, std::uint32_t height,
-                    const ShaderPaths& shaders) {
-    target_.width = width;
-    target_.height = height;
-    target_.shaders = shaders;
+                    const ShaderPaths& shaders,
+                    const std::vector<Aov>& cpu_readback_aovs) {
+    active_target_->width = width;
+    active_target_->height = height;
+    active_target_->shaders = shaders;
+    active_target_->cpu_readback_aovs = cpu_readback_aovs;
     try {
-      target_.color = CreateImage(width, height, kColorFormat,
+      active_target_->color = CreateImage(
+          width, height, kColorFormat,
           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-          target_.color_memory);
-      target_.color_view = CreateImageView(target_.color, kColorFormat,
-                                           VK_IMAGE_ASPECT_COLOR_BIT);
-      target_.depth = CreateImage(width, height, kDepthFormat,
+          active_target_->color_memory);
+      active_target_->color_view =
+          CreateImageView(active_target_->color, kColorFormat,
+                          VK_IMAGE_ASPECT_COLOR_BIT);
+      active_target_->depth = CreateImage(
+          width, height, kDepthFormat,
           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
               VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-          target_.depth_memory);
-      target_.depth_view = CreateImageView(target_.depth, kDepthFormat,
-                                           VK_IMAGE_ASPECT_DEPTH_BIT);
-      target_.prim_id = CreateImage(
+          active_target_->depth_memory);
+      active_target_->depth_view =
+          CreateImageView(active_target_->depth, kDepthFormat,
+                          VK_IMAGE_ASPECT_DEPTH_BIT);
+      active_target_->prim_id = CreateImage(
           width, height, kIdFormat,
           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-          target_.prim_id_memory);
-      target_.prim_id_view = CreateImageView(
-          target_.prim_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
-      target_.instance_id = CreateImage(
+          active_target_->prim_id_memory);
+      active_target_->prim_id_view = CreateImageView(
+          active_target_->prim_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+      active_target_->instance_id = CreateImage(
           width, height, kIdFormat,
           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-          target_.instance_id_memory);
-      target_.instance_id_view = CreateImageView(
-          target_.instance_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+          active_target_->instance_id_memory);
+      active_target_->instance_id_view = CreateImageView(
+          active_target_->instance_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
       CreateRenderPass();
       const std::array<VkImageView, 4> views{
-          target_.color_view, target_.depth_view, target_.prim_id_view,
-          target_.instance_id_view};
+          active_target_->color_view, active_target_->depth_view,
+          active_target_->prim_id_view,
+          active_target_->instance_id_view};
       VkFramebufferCreateInfo framebuffer_info{
           VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-      framebuffer_info.renderPass = target_.render_pass;
+      framebuffer_info.renderPass = active_target_->render_pass;
       framebuffer_info.attachmentCount = static_cast<std::uint32_t>(views.size());
       framebuffer_info.pAttachments = views.data();
       framebuffer_info.width = width;
       framebuffer_info.height = height;
       framebuffer_info.layers = 1;
       Check(vkCreateFramebuffer(device_, &framebuffer_info, nullptr,
-                                &target_.framebuffer),
+                                &active_target_->framebuffer),
             "create framebuffer");
       const auto color_bytes = static_cast<VkDeviceSize>(width) * height * 4U;
       const auto depth_bytes = static_cast<VkDeviceSize>(width) * height *
                                sizeof(float);
-      target_.color_readback = CreateBuffer(
-          color_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      target_.depth_readback = CreateBuffer(
-          depth_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      target_.prim_id_readback = CreateBuffer(
-          depth_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      target_.instance_id_readback = CreateBuffer(
-          depth_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      const auto create_readback = [&](Aov aov, Buffer& buffer,
+                                       VkDeviceSize bytes) {
+        if (HasAov(cpu_readback_aovs, aov)) {
+          buffer = CreateBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        }
+      };
+      create_readback(Aov::Color, active_target_->color_readback, color_bytes);
+      create_readback(Aov::Depth, active_target_->depth_readback, depth_bytes);
+      create_readback(Aov::PrimId, active_target_->prim_id_readback,
+                      depth_bytes);
+      create_readback(Aov::InstanceId, active_target_->instance_id_readback,
+                      depth_bytes);
       CreatePipeline(shaders);
     } catch (...) {
-      DestroyTarget();
+      DestroyTarget(*active_target_);
       throw;
     }
   }
@@ -1225,7 +1439,7 @@ class Renderer::Impl {
     info.pSubpasses = &subpass;
     info.dependencyCount = static_cast<std::uint32_t>(dependencies.size());
     info.pDependencies = dependencies.data();
-    Check(vkCreateRenderPass(device_, &info, nullptr, &target_.render_pass),
+    Check(vkCreateRenderPass(device_, &info, nullptr, &active_target_->render_pass),
           "create color/depth render pass");
   }
 
@@ -1318,7 +1532,7 @@ class Renderer::Impl {
       layout_info.pushConstantRangeCount = 1;
       layout_info.pPushConstantRanges = &push_range;
       Check(vkCreatePipelineLayout(device_, &layout_info, nullptr,
-                                   &target_.pipeline_layout),
+                                   &active_target_->pipeline_layout),
             "create pipeline layout");
       VkGraphicsPipelineCreateInfo pipeline_info{
           VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -1332,11 +1546,11 @@ class Renderer::Impl {
       pipeline_info.pDepthStencilState = &depth;
       pipeline_info.pColorBlendState = &blend;
       pipeline_info.pDynamicState = &dynamic;
-      pipeline_info.layout = target_.pipeline_layout;
-      pipeline_info.renderPass = target_.render_pass;
+      pipeline_info.layout = active_target_->pipeline_layout;
+      pipeline_info.renderPass = active_target_->render_pass;
       Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
                                       &pipeline_info, nullptr,
-                                      &target_.pipeline),
+                                      &active_target_->pipeline),
             "create scene graphics pipeline");
     } catch (...) {
       if (fragment_shader != VK_NULL_HANDLE) {
@@ -1351,84 +1565,85 @@ class Renderer::Impl {
     vkDestroyShaderModule(device_, vertex_shader, nullptr);
   }
 
-  void DestroyTarget() noexcept {
+  void DestroyTarget(RenderTarget& target) noexcept {
     if (device_ == VK_NULL_HANDLE) {
       return;
     }
-    DestroyBuffer(target_.instance_id_readback);
-    DestroyBuffer(target_.prim_id_readback);
-    DestroyBuffer(target_.depth_readback);
-    DestroyBuffer(target_.color_readback);
-    if (target_.pipeline != VK_NULL_HANDLE) {
-      vkDestroyPipeline(device_, target_.pipeline, nullptr);
+    DestroyBuffer(target.instance_id_readback);
+    DestroyBuffer(target.prim_id_readback);
+    DestroyBuffer(target.depth_readback);
+    DestroyBuffer(target.color_readback);
+    if (target.pipeline != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device_, target.pipeline, nullptr);
     }
-    if (target_.pipeline_layout != VK_NULL_HANDLE) {
-      vkDestroyPipelineLayout(device_, target_.pipeline_layout, nullptr);
+    if (target.pipeline_layout != VK_NULL_HANDLE) {
+      vkDestroyPipelineLayout(device_, target.pipeline_layout, nullptr);
     }
-    if (target_.framebuffer != VK_NULL_HANDLE) {
-      vkDestroyFramebuffer(device_, target_.framebuffer, nullptr);
+    if (target.framebuffer != VK_NULL_HANDLE) {
+      vkDestroyFramebuffer(device_, target.framebuffer, nullptr);
     }
-    if (target_.render_pass != VK_NULL_HANDLE) {
-      vkDestroyRenderPass(device_, target_.render_pass, nullptr);
+    if (target.render_pass != VK_NULL_HANDLE) {
+      vkDestroyRenderPass(device_, target.render_pass, nullptr);
     }
-    if (target_.instance_id_view != VK_NULL_HANDLE) {
-      vkDestroyImageView(device_, target_.instance_id_view, nullptr);
+    if (target.instance_id_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, target.instance_id_view, nullptr);
     }
-    if (target_.instance_id != VK_NULL_HANDLE) {
-      vkDestroyImage(device_, target_.instance_id, nullptr);
+    if (target.instance_id != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, target.instance_id, nullptr);
     }
-    if (target_.instance_id_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target_.instance_id_memory, nullptr);
+    if (target.instance_id_memory != VK_NULL_HANDLE) {
+      vkFreeMemory(device_, target.instance_id_memory, nullptr);
     }
-    if (target_.prim_id_view != VK_NULL_HANDLE) {
-      vkDestroyImageView(device_, target_.prim_id_view, nullptr);
+    if (target.prim_id_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, target.prim_id_view, nullptr);
     }
-    if (target_.prim_id != VK_NULL_HANDLE) {
-      vkDestroyImage(device_, target_.prim_id, nullptr);
+    if (target.prim_id != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, target.prim_id, nullptr);
     }
-    if (target_.prim_id_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target_.prim_id_memory, nullptr);
+    if (target.prim_id_memory != VK_NULL_HANDLE) {
+      vkFreeMemory(device_, target.prim_id_memory, nullptr);
     }
-    if (target_.depth_view != VK_NULL_HANDLE) {
-      vkDestroyImageView(device_, target_.depth_view, nullptr);
+    if (target.depth_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, target.depth_view, nullptr);
     }
-    if (target_.depth != VK_NULL_HANDLE) {
-      vkDestroyImage(device_, target_.depth, nullptr);
+    if (target.depth != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, target.depth, nullptr);
     }
-    if (target_.depth_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target_.depth_memory, nullptr);
+    if (target.depth_memory != VK_NULL_HANDLE) {
+      vkFreeMemory(device_, target.depth_memory, nullptr);
     }
-    if (target_.color_view != VK_NULL_HANDLE) {
-      vkDestroyImageView(device_, target_.color_view, nullptr);
+    if (target.color_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, target.color_view, nullptr);
     }
-    if (target_.color != VK_NULL_HANDLE) {
-      vkDestroyImage(device_, target_.color, nullptr);
+    if (target.color != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, target.color, nullptr);
     }
-    if (target_.color_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target_.color_memory, nullptr);
+    if (target.color_memory != VK_NULL_HANDLE) {
+      vkFreeMemory(device_, target.color_memory, nullptr);
     }
-    target_ = {};
+    target = {};
   }
 
   void RecordFrame(VkCommandBuffer command,
-                   const extraction::FrameSnapshot& snapshot) {
+                   const extraction::FrameSnapshot& snapshot,
+                   const std::vector<Aov>& cpu_readback_aovs) {
     std::array<VkClearValue, 4> clear{};
     clear[0].color = {{0.018F, 0.025F, 0.045F, 1.0F}};
     clear[1].depthStencil = {1.0F, 0};
     clear[2].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
     clear[3].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    pass.renderPass = target_.render_pass;
-    pass.framebuffer = target_.framebuffer;
-    pass.renderArea = {{0, 0}, {target_.width, target_.height}};
+    pass.renderPass = active_target_->render_pass;
+    pass.framebuffer = active_target_->framebuffer;
+    pass.renderArea = {{0, 0}, {active_target_->width, active_target_->height}};
     pass.clearValueCount = static_cast<std::uint32_t>(clear.size());
     pass.pClearValues = clear.data();
     vkCmdBeginRenderPass(command, &pass, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      target_.pipeline);
-    const VkViewport viewport{0.0F, 0.0F, static_cast<float>(target_.width),
-                              static_cast<float>(target_.height), 0.0F, 1.0F};
-    const VkRect2D scissor{{0, 0}, {target_.width, target_.height}};
+                      active_target_->pipeline);
+    const VkViewport viewport{0.0F, 0.0F, static_cast<float>(active_target_->width),
+                              static_cast<float>(active_target_->height), 0.0F, 1.0F};
+    const VkRect2D scissor{{0, 0}, {active_target_->width, active_target_->height}};
     vkCmdSetViewport(command, 0, 1, &viewport);
     vkCmdSetScissor(command, 0, 1, &scissor);
     const auto view_projection = Multiply(snapshot.projection, snapshot.view);
@@ -1446,7 +1661,7 @@ class Renderer::Impl {
                          material.base_color,
                          static_cast<std::uint32_t>(geometry.mesh),
                          static_cast<std::uint32_t>(instance.instance)};
-      vkCmdPushConstants(command, target_.pipeline_layout,
+      vkCmdPushConstants(command, active_target_->pipeline_layout,
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(push), &push);
@@ -1454,33 +1669,43 @@ class Renderer::Impl {
     }
     vkCmdEndRenderPass(command);
 
-    VkBufferImageCopy color_copy{};
-    color_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    color_copy.imageSubresource.layerCount = 1;
-    color_copy.imageExtent = {target_.width, target_.height, 1};
-    vkCmdCopyImageToBuffer(command, target_.color,
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           target_.color_readback.handle, 1, &color_copy);
-    VkBufferImageCopy depth_copy{};
-    depth_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    depth_copy.imageSubresource.layerCount = 1;
-    depth_copy.imageExtent = {target_.width, target_.height, 1};
-    vkCmdCopyImageToBuffer(command, target_.depth,
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           target_.depth_readback.handle, 1, &depth_copy);
+    if (HasAov(cpu_readback_aovs, Aov::Color)) {
+      VkBufferImageCopy copy{};
+      copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      copy.imageSubresource.layerCount = 1;
+      copy.imageExtent = {active_target_->width, active_target_->height, 1};
+      vkCmdCopyImageToBuffer(command, active_target_->color,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             active_target_->color_readback.handle, 1, &copy);
+    }
+    if (HasAov(cpu_readback_aovs, Aov::Depth)) {
+      VkBufferImageCopy copy{};
+      copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+      copy.imageSubresource.layerCount = 1;
+      copy.imageExtent = {active_target_->width, active_target_->height, 1};
+      vkCmdCopyImageToBuffer(command, active_target_->depth,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             active_target_->depth_readback.handle, 1, &copy);
+    }
     VkBufferImageCopy id_copy{};
     id_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     id_copy.imageSubresource.layerCount = 1;
-    id_copy.imageExtent = {target_.width, target_.height, 1};
-    vkCmdCopyImageToBuffer(command, target_.prim_id,
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           target_.prim_id_readback.handle, 1, &id_copy);
-    vkCmdCopyImageToBuffer(command, target_.instance_id,
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           target_.instance_id_readback.handle, 1, &id_copy);
+    id_copy.imageExtent = {active_target_->width, active_target_->height, 1};
+    if (HasAov(cpu_readback_aovs, Aov::PrimId)) {
+      vkCmdCopyImageToBuffer(command, active_target_->prim_id,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             active_target_->prim_id_readback.handle, 1,
+                             &id_copy);
+    }
+    if (HasAov(cpu_readback_aovs, Aov::InstanceId)) {
+      vkCmdCopyImageToBuffer(command, active_target_->instance_id,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             active_target_->instance_id_readback.handle, 1,
+                             &id_copy);
+    }
   }
 
-  std::uint64_t SubmitAndWait(FrameContext& frame) {
+  std::uint64_t SubmitFrame(FrameContext& frame) {
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &frame.command_buffer;
@@ -1496,23 +1721,30 @@ class Renderer::Impl {
       submit.pSignalSemaphores = &timeline_semaphore_;
       Check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE),
             "submit extracted scene frame");
-      VkSemaphoreWaitInfo wait_info{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
-      wait_info.semaphoreCount = 1;
-      wait_info.pSemaphores = &timeline_semaphore_;
-      wait_info.pValues = &completion;
-      Check(vkWaitSemaphores(device_, &wait_info,
-                             std::numeric_limits<std::uint64_t>::max()),
-            "wait for render product readback");
     } else {
       completion = ++timeline_value_;
       Check(vkQueueSubmit(queue_, 1, &submit, frame.fence),
             "submit extracted scene frame");
-      Check(vkWaitForFences(device_, 1, &frame.fence, VK_TRUE,
-                            std::numeric_limits<std::uint64_t>::max()),
-            "wait for render product readback");
     }
     frame.completion_value = completion;
     return completion;
+  }
+
+  void WaitForFrame(FrameContext& frame, std::chrono::nanoseconds timeout) {
+    const auto timeout_ns = timeout == std::chrono::nanoseconds::max()
+                                ? std::numeric_limits<std::uint64_t>::max()
+                                : static_cast<std::uint64_t>(timeout.count());
+    if (timeline_semaphore_ != VK_NULL_HANDLE) {
+      VkSemaphoreWaitInfo wait_info{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+      wait_info.semaphoreCount = 1;
+      wait_info.pSemaphores = &timeline_semaphore_;
+      wait_info.pValues = &frame.completion_value;
+      Check(vkWaitSemaphores(device_, &wait_info, timeout_ns),
+            "wait for render completion");
+    } else {
+      Check(vkWaitForFences(device_, 1, &frame.fence, VK_TRUE, timeout_ns),
+            "wait for render completion");
+    }
   }
 
   ImageRgba8 ReadColor(std::uint32_t width, std::uint32_t height) {
@@ -1524,11 +1756,11 @@ class Renderer::Impl {
     result.pixels.resize(static_cast<std::size_t>(result.row_pitch_bytes) *
                          height);
     void* mapped{};
-    Check(vkMapMemory(device_, target_.color_readback.memory, 0,
-                      target_.color_readback.size, 0, &mapped),
+    Check(vkMapMemory(device_, active_target_->color_readback.memory, 0,
+                      active_target_->color_readback.size, 0, &mapped),
           "map color readback");
     std::memcpy(result.pixels.data(), mapped, result.pixels.size());
-    vkUnmapMemory(device_, target_.color_readback.memory);
+    vkUnmapMemory(device_, active_target_->color_readback.memory);
     return result;
   }
 
@@ -1540,12 +1772,12 @@ class Renderer::Impl {
     result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
     result.pixels.resize(static_cast<std::size_t>(width) * height);
     void* mapped{};
-    Check(vkMapMemory(device_, target_.depth_readback.memory, 0,
-                      target_.depth_readback.size, 0, &mapped),
+    Check(vkMapMemory(device_, active_target_->depth_readback.memory, 0,
+                      active_target_->depth_readback.size, 0, &mapped),
           "map depth readback");
     std::memcpy(result.pixels.data(), mapped,
                 result.pixels.size() * sizeof(float));
-    vkUnmapMemory(device_, target_.depth_readback.memory);
+    vkUnmapMemory(device_, active_target_->depth_readback.memory);
     return result;
   }
 
@@ -1600,7 +1832,9 @@ class Renderer::Impl {
   VkSemaphore timeline_semaphore_{};
   std::uint32_t queue_family_{};
   std::uint64_t timeline_value_{};
-  std::size_t next_frame_{};
+  std::uint64_t latest_completed_value_{};
+  const std::uint64_t owner_id_{
+      g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};
   RendererCapabilities capabilities_;
   RendererStatistics statistics_;
   FrameCounters frame_counters_;
@@ -1612,7 +1846,7 @@ class Renderer::Impl {
   std::map<std::uint64_t, GeometrySlot> geometry_slots_;
   std::vector<RetiredRange> retired_ranges_;
   std::vector<PendingCopy> pending_copies_;
-  RenderTarget target_;
+  RenderTarget* active_target_{};
   std::atomic<std::uint64_t> validation_messages_{};
 };
 
@@ -1637,65 +1871,129 @@ RendererStatistics Renderer::statistics() const noexcept {
   return result;
 }
 
+bool HasAov(const std::vector<Aov>& aovs, Aov aov) noexcept {
+  return std::find(aovs.begin(), aovs.end(), aov) != aovs.end();
+}
+
+bool HasCpuReadback(const RenderResult& result, Aov aov) noexcept {
+  return HasAov(result.cpu_readback_aovs, aov);
+}
+
 void ValidateRenderResult(const RenderResult& result) {
-  const auto& color = result.color;
-  const auto& depth = result.depth;
-  const auto& prim_id = result.prim_id;
-  const auto& instance_id = result.instance_id;
-  if (!IsCanonicalRenderProduct(color.product) ||
-      color.product.aov != Aov::Color) {
-    throw std::invalid_argument("invalid color render product metadata");
+  if (result.rendered_aovs.empty()) {
+    throw std::invalid_argument("render result has no rendered AOVs");
   }
-  if (!IsCanonicalRenderProduct(depth.product) ||
-      depth.product.aov != Aov::Depth) {
-    throw std::invalid_argument("invalid depth render product metadata");
+  for (const auto aov : result.cpu_readback_aovs) {
+    if (!HasAov(result.rendered_aovs, aov)) {
+      throw std::invalid_argument("CPU readback AOV was not rendered");
+    }
   }
-  if (!IsCanonicalRenderProduct(prim_id.product) ||
-      prim_id.product.aov != Aov::PrimId ||
-      !IsCanonicalRenderProduct(instance_id.product) ||
-      instance_id.product.aov != Aov::InstanceId) {
-    throw std::invalid_argument("invalid id render product metadata");
+
+  std::uint32_t width{};
+  std::uint32_t height{};
+  auto validate_metadata = [&](const RenderProduct& product, Aov aov,
+                               std::uint32_t row_pitch) {
+    if (!IsCanonicalRenderProduct(product) || product.aov != aov) {
+      throw std::invalid_argument("invalid " + std::string(AovName(aov)) +
+                                  " render product metadata");
+    }
+    if (row_pitch != TightRowPitchBytes(product)) {
+      throw std::invalid_argument("render product row pitch is not tight");
+    }
+    if (width == 0) {
+      width = product.width;
+      height = product.height;
+    } else if (width != product.width || height != product.height) {
+      throw std::invalid_argument("render product extents do not match");
+    }
+  };
+  if (HasCpuReadback(result, Aov::Color)) {
+    validate_metadata(result.color.product, Aov::Color,
+                      result.color.row_pitch_bytes);
+    const auto bytes = static_cast<std::uint64_t>(result.color.row_pitch_bytes) *
+                       result.color.product.height;
+    if (bytes != result.color.pixels.size()) {
+      throw std::invalid_argument("color render product payload size is invalid");
+    }
   }
-  if (color.product.width != depth.product.width ||
-      color.product.height != depth.product.height ||
-      color.product.width != prim_id.product.width ||
-      color.product.height != prim_id.product.height ||
-      color.product.width != instance_id.product.width ||
-      color.product.height != instance_id.product.height) {
-    throw std::invalid_argument("render product extents do not match");
+  if (HasCpuReadback(result, Aov::Depth)) {
+    validate_metadata(result.depth.product, Aov::Depth,
+                      result.depth.row_pitch_bytes);
+    const auto values = static_cast<std::uint64_t>(result.depth.product.width) *
+                        result.depth.product.height;
+    if (values != result.depth.pixels.size()) {
+      throw std::invalid_argument("depth render product payload size is invalid");
+    }
+    if (std::any_of(result.depth.pixels.begin(), result.depth.pixels.end(),
+                    [](float value) {
+                      return !std::isfinite(value) || value < 0.0F ||
+                             value > 1.0F;
+                    })) {
+      throw std::invalid_argument(
+          "depth render product contains invalid values");
+    }
   }
-  if (color.row_pitch_bytes != TightRowPitchBytes(color.product) ||
-      depth.row_pitch_bytes != TightRowPitchBytes(depth.product) ||
-      prim_id.row_pitch_bytes != TightRowPitchBytes(prim_id.product) ||
-      instance_id.row_pitch_bytes != TightRowPitchBytes(instance_id.product)) {
-    throw std::invalid_argument("render product row pitch is not tight");
+  auto validate_id = [&](const ImageUint32& image, Aov aov) {
+    validate_metadata(image.product, aov, image.row_pitch_bytes);
+    const auto values = static_cast<std::uint64_t>(image.product.width) *
+                        image.product.height;
+    if (values != image.pixels.size()) {
+      throw std::invalid_argument("ID render product payload size is invalid");
+    }
+  };
+  if (HasCpuReadback(result, Aov::PrimId)) {
+    validate_id(result.prim_id, Aov::PrimId);
   }
-  const auto color_bytes = static_cast<std::uint64_t>(color.row_pitch_bytes) *
-                           color.product.height;
-  const auto depth_values =
-      static_cast<std::uint64_t>(depth.product.width) * depth.product.height;
-  if (color_bytes != color.pixels.size() ||
-      depth_values != depth.pixels.size() ||
-      depth_values != prim_id.pixels.size() ||
-      depth_values != instance_id.pixels.size()) {
-    throw std::invalid_argument("render product payload size is invalid");
-  }
-  if (std::any_of(depth.pixels.begin(), depth.pixels.end(), [](float value) {
-        return !std::isfinite(value) || value < 0.0F || value > 1.0F;
-      })) {
-    throw std::invalid_argument("depth render product contains invalid values");
+  if (HasCpuReadback(result, Aov::InstanceId)) {
+    validate_id(result.instance_id, Aov::InstanceId);
   }
   if (result.completion_value == 0) {
     throw std::invalid_argument("render result has no completion value");
   }
 }
 
+CompletionToken Renderer::Submit(const RenderRequest& request) {
+  return CompletionToken(impl_->owner_id_, impl_->Submit(request));
+}
+
+bool Renderer::IsComplete(CompletionToken token) const {
+  if (!token || token.owner_ != impl_->owner_id_) {
+    throw RendererError(RendererErrorCode::InvalidToken,
+                        "query completion token",
+                        "token belongs to a different renderer");
+  }
+  return impl_->IsComplete(token.value_);
+}
+
+RenderResult Renderer::Resolve(CompletionToken token,
+                               std::chrono::nanoseconds timeout) {
+  if (!token || token.owner_ != impl_->owner_id_) {
+    throw RendererError(RendererErrorCode::InvalidToken,
+                        "resolve completion token",
+                        "token belongs to a different renderer");
+  }
+  if (timeout < std::chrono::nanoseconds::zero()) {
+    throw RendererError(RendererErrorCode::InvalidRequest,
+                        "resolve completion token",
+                        "timeout must not be negative");
+  }
+  auto result = impl_->Resolve(token.value_, timeout);
+  ValidateRenderResult(result);
+  return result;
+}
+
 RenderResult Renderer::Render(const extraction::FrameSnapshot& snapshot,
                               std::uint32_t width, std::uint32_t height,
                               const ShaderPaths& shaders) {
-  auto result = impl_->Render(snapshot, width, height, shaders);
-  ValidateRenderResult(result);
-  return result;
+  RenderRequest request;
+  request.snapshot =
+      std::make_shared<const extraction::FrameSnapshot>(snapshot);
+  request.width = width;
+  request.height = height;
+  request.shaders = shaders;
+  request.products = {{Aov::Color, true}, {Aov::Depth, true},
+                      {Aov::PrimId, true}, {Aov::InstanceId, true}};
+  return Resolve(Submit(request));
 }
 
 }  // namespace merlin::vulkan

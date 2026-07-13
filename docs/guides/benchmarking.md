@@ -46,8 +46,9 @@ The schema always emits these baselines in this order:
 
 Each baseline has integer nanosecond CPU scopes for `scene_update`,
 `extraction`, `upload`, `command_recording`, `readback`, and `total_frame`.
-`readback` includes GPU submission/completion wait and copying both AOVs into
-CPU-owned arrays. `total_frame` covers all work in the named baseline after the
+`readback` includes GPU completion wait and copying all four benchmark AOVs
+(color, depth, primId, and instanceId) into CPU-owned arrays. `total_frame`
+covers all work in the named baseline after the
 renderer and Vulkan device have been initialized. The named scopes are not
 exhaustive: render-target allocation, pipeline creation, and frame-pacing waits
 fall inside `total_frame` but outside `upload`/`command_recording`/`readback`,

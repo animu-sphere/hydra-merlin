@@ -1,6 +1,6 @@
 # Renderer architecture
 
-**Status:** accepted direction · **Last reviewed:** 2026-07-12
+**Status:** v0.4.0 implementation · **Last reviewed:** 2026-07-14
 
 hdMerlin is a lightweight, host-neutral Vulkan raster renderer. It is not a DCC
 plugin by itself: the product is the composition of a renderer core, an
@@ -65,8 +65,10 @@ Vulkan commands
 ```
 
 The snapshot is the ownership boundary between host updates, renderer work, and
-GPU frame latency. Early implementations may execute synchronously, but the API
-must preserve this boundary.
+GPU frame latency. Request, submission, completion token, and resolve are
+separate backend operations; frame targets and readback buffers remain owned by
+their frame context until the single-use token resolves. See the
+[execution lifetime contract](execution-lifetime.md).
 
 ## Vulkan baseline
 

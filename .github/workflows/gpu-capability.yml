@@ -50,7 +50,7 @@ jobs:
       - name: Run reproducibility, headless smoke, and validation tests
         run: >-
           ctest --test-dir build-native -C ${{ matrix.build_type }}
-          -R "^merlin-(render-world|render-extraction|render-product-contract|install-consumer|release-metadata|vulkan-(offscreen|validation))$"
+          -R "^merlin-(render-world|render-extraction|render-product-contract|render-artifacts|install-consumer|release-metadata|vulkan-(execution-lifetime|offscreen|validation))$"
           --output-on-failure --verbose
 
       - name: Validate the OpenStrata renderer lifecycle
@@ -79,6 +79,9 @@ jobs:
             build-native/renderer-report.json
             build-native/tests/merlin-vulkan-capabilities.json
             build-native/tests/merlin-validation.ppm
+            build-native/tests/offscreen-artifacts
+            build-native/tests/validation-artifacts
+            build-native/tests/render-artifacts
             build-native/Testing/Temporary/LastTest.log
 
   hydra:

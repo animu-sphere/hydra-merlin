@@ -1,9 +1,12 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <merlin/core/render_product.hpp>
@@ -59,7 +62,7 @@ struct FrameCpuTimings {
   std::uint64_t backend_total_ns{};
 };
 
-// Structural counters describe work performed by a single Render() call.
+// Structural counters describe work performed by one submission and resolve.
 // They are stable enough for CI assertions even when wall-clock timings are
 // too noisy for performance comparisons.
 struct FrameCounters {
@@ -90,6 +93,78 @@ struct ShaderPaths {
   std::filesystem::path fragment;
 };
 
+struct RenderProductRequest {
+  Aov aov{Aov::Color};
+  bool cpu_readback{true};
+
+  friend constexpr bool operator==(const RenderProductRequest&,
+                                   const RenderProductRequest&) = default;
+};
+
+struct RenderRequest {
+  // The request owns the immutable scene boundary until Submit has recorded
+  // every command that refers to it. Completion owns only backend frame,
+  // target, and readback resources; callers may release the request itself
+  // immediately after Submit returns.
+  std::shared_ptr<const extraction::FrameSnapshot> snapshot;
+  std::uint32_t width{512};
+  std::uint32_t height{512};
+  ShaderPaths shaders;
+  std::vector<RenderProductRequest> products{
+      {Aov::Color, true}, {Aov::Depth, true}};
+};
+
+enum class RendererErrorCode {
+  InvalidRequest,
+  InvalidToken,
+  ResourceBusy,
+  Timeout,
+  DeviceLost,
+  Unsupported,
+  BackendFailure,
+};
+
+[[nodiscard]] std::string_view RendererErrorCodeName(
+    RendererErrorCode code) noexcept;
+
+class RendererError : public std::runtime_error {
+ public:
+  RendererError(RendererErrorCode code, std::string operation,
+                std::string detail, std::int32_t native_code = 0);
+
+  [[nodiscard]] RendererErrorCode code() const noexcept { return code_; }
+  [[nodiscard]] const std::string& operation() const noexcept {
+    return operation_;
+  }
+  [[nodiscard]] std::int32_t native_code() const noexcept {
+    return native_code_;
+  }
+
+ private:
+  RendererErrorCode code_;
+  std::string operation_;
+  std::int32_t native_code_{};
+};
+
+class CompletionToken {
+ public:
+  CompletionToken() = default;
+
+  [[nodiscard]] explicit operator bool() const noexcept { return value_ != 0; }
+  [[nodiscard]] std::uint64_t value() const noexcept { return value_; }
+
+  friend constexpr bool operator==(const CompletionToken&,
+                                   const CompletionToken&) = default;
+
+ private:
+  friend class Renderer;
+  CompletionToken(std::uint64_t owner, std::uint64_t value) noexcept
+      : owner_(owner), value_(value) {}
+
+  std::uint64_t owner_{};
+  std::uint64_t value_{};
+};
+
 struct ImageRgba8 {
   RenderProduct product;
   std::uint32_t row_pitch_bytes{};
@@ -113,14 +188,20 @@ struct RenderResult {
   ImageDepth32 depth;
   ImageUint32 prim_id;
   ImageUint32 instance_id;
+  std::vector<Aov> rendered_aovs;
+  std::vector<Aov> cpu_readback_aovs;
   std::uint64_t scene_revision{};
   std::uint64_t completion_value{};
   FrameCpuTimings cpu_timings;
   FrameCounters counters;
 };
 
-// Throws std::invalid_argument when a backend result violates Merlin's Tier 0
-// CPU readback contract.
+[[nodiscard]] bool HasAov(const std::vector<Aov>& aovs, Aov aov) noexcept;
+[[nodiscard]] bool HasCpuReadback(const RenderResult& result, Aov aov) noexcept;
+
+// Throws std::invalid_argument when a selected backend result violates Merlin's
+// Tier 0 CPU readback contract. Rendered GPU-only AOVs have no payload to
+// validate.
 void ValidateRenderResult(const RenderResult& result);
 
 class Renderer {
@@ -135,6 +216,15 @@ class Renderer {
 
   [[nodiscard]] const RendererCapabilities& capabilities() const noexcept;
   [[nodiscard]] RendererStatistics statistics() const noexcept;
+  [[nodiscard]] CompletionToken Submit(const RenderRequest& request);
+  [[nodiscard]] bool IsComplete(CompletionToken token) const;
+  [[nodiscard]] RenderResult Resolve(
+      CompletionToken token,
+      std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max());
+
+  // Convenience wrapper for synchronous callers. New execution paths should
+  // construct a RenderRequest explicitly so AOV production and CPU readback
+  // are visible at the call site.
   [[nodiscard]] RenderResult Render(const extraction::FrameSnapshot& snapshot,
                                     std::uint32_t width,
                                     std::uint32_t height,
