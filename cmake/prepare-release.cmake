@@ -19,10 +19,12 @@ endif()
 
 set(_merlin_version_file "${MERLIN_SOURCE_DIR}/VERSION")
 set(_merlin_changelog_file "${MERLIN_SOURCE_DIR}/CHANGELOG.md")
+set(_merlin_openstrata_file "${MERLIN_SOURCE_DIR}/openstrata.toml")
 if(NOT EXISTS "${_merlin_version_file}" OR
-   NOT EXISTS "${_merlin_changelog_file}")
+   NOT EXISTS "${_merlin_changelog_file}" OR
+   NOT EXISTS "${_merlin_openstrata_file}")
   message(FATAL_ERROR
-    "MERLIN_SOURCE_DIR must contain VERSION and CHANGELOG.md")
+    "MERLIN_SOURCE_DIR must contain VERSION, CHANGELOG.md, and openstrata.toml")
 endif()
 
 file(READ "${_merlin_version_file}" _merlin_current_version)
@@ -35,6 +37,28 @@ if(MERLIN_RELEASE_VERSION VERSION_LESS _merlin_current_version)
   message(FATAL_ERROR
     "release ${MERLIN_RELEASE_VERSION} cannot go backwards from VERSION ${_merlin_current_version}")
 endif()
+
+file(READ "${_merlin_openstrata_file}" _merlin_openstrata)
+string(REGEX MATCHALL
+  "version[ \t]*=[ \t]*\"[0-9]+[.][0-9]+[.][0-9]+\""
+  _merlin_openstrata_version_entries "${_merlin_openstrata}")
+list(LENGTH _merlin_openstrata_version_entries
+  _merlin_openstrata_version_entry_count)
+if(NOT _merlin_openstrata_version_entry_count EQUAL 1)
+  message(FATAL_ERROR
+    "openstrata.toml must contain exactly one stable project version")
+endif()
+string(REGEX MATCH
+  "version[ \t]*=[ \t]*\"([0-9]+[.][0-9]+[.][0-9]+)\""
+  _merlin_openstrata_version_match "${_merlin_openstrata}")
+if(NOT "${CMAKE_MATCH_1}" STREQUAL "${_merlin_current_version}")
+  message(FATAL_ERROR
+    "openstrata.toml version ${CMAKE_MATCH_1} does not match VERSION ${_merlin_current_version}")
+endif()
+string(REGEX REPLACE
+  "version[ \t]*=[ \t]*\"[0-9]+[.][0-9]+[.][0-9]+\""
+  "version = \"${MERLIN_RELEASE_VERSION}\""
+  _merlin_openstrata "${_merlin_openstrata}")
 
 file(READ "${_merlin_changelog_file}" _merlin_changelog)
 string(REPLACE "\r\n" "\n" _merlin_changelog "${_merlin_changelog}")
@@ -108,6 +132,7 @@ if(MERLIN_DRY_RUN)
     "Would prepare hdMerlin ${MERLIN_RELEASE_VERSION} (${MERLIN_RELEASE_DATE}) from ${_merlin_previous_version}")
 else()
   file(WRITE "${_merlin_version_file}" "${MERLIN_RELEASE_VERSION}\n")
+  file(WRITE "${_merlin_openstrata_file}" "${_merlin_openstrata}")
   file(WRITE "${_merlin_changelog_file}" "${_merlin_changelog}")
   message(STATUS
     "Prepared hdMerlin ${MERLIN_RELEASE_VERSION} (${MERLIN_RELEASE_DATE}) from ${_merlin_previous_version}")

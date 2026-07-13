@@ -8,6 +8,19 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- OpenStrata 0.16 renderer-project manifests, logical target composition,
+  machine-readable renderer evidence, and the `ost renderer view` development
+  path for the co-built Hydra adapter, with a v0.17.0 dogfooding handoff covering
+  build correctness, renderer adoption, evidence composition, and DCC hosts.
+
+### Changed
+
+- Capability CI now pins OST 0.16.0 and exercises `ost build` plus
+  `ost validate`; release preparation keeps the OpenStrata project version in
+  sync with `VERSION`.
+
 ## [0.3.0] - 2026-07-13
 
 ### Added

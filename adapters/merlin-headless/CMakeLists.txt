@@ -22,6 +22,16 @@ add_custom_command(TARGET merlin-headless POST_BUILD
   VERBATIM
 )
 
+if(MERLIN_GENERATE_RENDERER_REPORT AND NOT CMAKE_CROSSCOMPILING)
+  add_custom_command(TARGET merlin-headless POST_BUILD
+    COMMAND "$<TARGET_FILE:merlin-headless>"
+            --report "${CMAKE_BINARY_DIR}/renderer-report.json"
+            --output "${CMAKE_BINARY_DIR}/renderer-smoke.ppm"
+    COMMENT "Writing OpenStrata renderer-report.json"
+    VERBATIM
+  )
+endif()
+
 install(TARGETS merlin-headless
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )

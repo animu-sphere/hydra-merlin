@@ -11,6 +11,26 @@ The core library intentionally has no OpenUSD, Hydra, DCC, Qt, or Vulkan types
 in its public API. Hydra and host integrations will remain thin adapters around
 that core.
 
+## OpenStrata project
+
+The repository is an OpenStrata renderer project targeting `cy2026`. With OST
+0.16.0 or newer, the default host-neutral lifecycle is:
+
+```powershell
+ost runtime pull cy2026 --profile core
+ost build
+ost validate --json
+```
+
+The existing CMake targets remain project-owned renderer units; adopting OST
+does not split them into artificial packages or plugin bundles. Vulkan builds
+emit the renderer evidence consumed by `ost validate`. After configuring the
+optional Hydra adapter against a real OpenUSD runtime, it can be opened through
+`ost renderer view --build-dir <build-dir> --profile usd`.
+
+See the [OpenStrata project layout](docs/design/openstrata-project.md) for the
+composition mapping and adoption decisions.
+
 ## Build
 
 ```powershell
@@ -114,7 +134,7 @@ headless and Hydra jobs. Both require only a self-hosted Windows x64 runner with
 the `vulkan-1.4` GPU/driver label. They download and checksum-verify LunarG
 Vulkan SDK 1.4.350.0 into a cached workspace prefix. Hydra also obtains the
 Animusphere OpenUSD 26.05/cy2026 runtime from its digest-pinned public GHCR
-package using pinned `ost` 0.13.0. No operator-managed SDK installation is
+package using pinned `ost` 0.16.0. No operator-managed SDK installation is
 required. The jobs run the 64-frame validation loop and install-tree usdview
 stable-update regression, retaining dependency/runtime provenance, images,
 regression logs, and CTest logs as evidence artifacts.
@@ -158,6 +178,8 @@ readback without owning a native window or swapchain.
 - [Delivery history](docs/reports/delivery-history.md)
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
+- [OpenStrata project layout](docs/design/openstrata-project.md)
+- [OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
 - [Build and install](docs/guides/build-and-install.md)
 - [Benchmarking](docs/guides/benchmarking.md)
 - [Using the CMake package](docs/guides/cmake-package.md)

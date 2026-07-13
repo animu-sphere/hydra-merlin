@@ -11,6 +11,8 @@ jobs:
     name: Vulkan 1.4 headless / ${{ matrix.build_type }}
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 30
+    env:
+      OST_HOME: ${{ github.workspace }}/.ost-ci-home
     strategy:
       fail-fast: false
       matrix:
@@ -34,18 +36,32 @@ jobs:
         run: |
           vulkaninfo --summary | Out-File -Encoding utf8 vulkaninfo-summary.txt
 
+      - name: Bootstrap pinned ost 0.16.0
+        shell: pwsh
+        run: .github/scripts/setup-ost.ps1 -Version 0.16.0
+
       - name: Configure Vulkan headless
         shell: pwsh
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S . -B build-native -G "Visual Studio 17 2022" -A x64
 
       - name: Build
-        run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
+        run: cmake --build build-native --config ${{ matrix.build_type }} --parallel 4
 
       - name: Run reproducibility, headless smoke, and validation tests
         run: >-
-          ctest --test-dir build -C ${{ matrix.build_type }}
+          ctest --test-dir build-native -C ${{ matrix.build_type }}
           -R "^merlin-(render-world|render-extraction|render-product-contract|install-consumer|release-metadata|vulkan-(offscreen|validation))$"
           --output-on-failure --verbose
+
+      - name: Validate the OpenStrata renderer lifecycle
+        if: matrix.build_type == 'Release'
+        shell: pwsh
+        run: |
+          ost runtime pull cy2026 --profile core
+          ost build --jobs 4 --progress plain
+          ost validate --json |
+            Tee-Object -FilePath .ost-ci/renderer-validate.json
+          if ($LASTEXITCODE -ne 0) { throw "OpenStrata renderer validation failed" }
 
       - name: Upload Vulkan evidence
         if: always()
@@ -55,9 +71,13 @@ jobs:
           if-no-files-found: warn
           path: |
             vulkaninfo-summary.txt
-            build/tests/merlin-vulkan-capabilities.json
-            build/tests/merlin-validation.ppm
-            build/Testing/Temporary/LastTest.log
+            .ost-ci/*.json
+            .strata/targets/*/build.log
+            build/*/renderer-report.json
+            build-native/renderer-report.json
+            build-native/tests/merlin-vulkan-capabilities.json
+            build-native/tests/merlin-validation.ppm
+            build-native/Testing/Temporary/LastTest.log
 
   hydra:
     name: OpenUSD 26.05 Hydra
@@ -86,25 +106,9 @@ jobs:
         run: |
           vulkaninfo --summary | Out-Null
 
-      - name: Bootstrap pinned ost 0.13.0
+      - name: Bootstrap pinned ost 0.16.0
         shell: pwsh
-        run: |
-          $asset = "ost-cli-x86_64-pc-windows-msvc.zip"
-          $base = "https://github.com/animu-sphere/open-strata/releases/download/v0.13.0"
-          New-Item -ItemType Directory -Force .ost-ci/bootstrap-bin | Out-Null
-          Invoke-WebRequest "$base/$asset" -OutFile $asset
-          Invoke-WebRequest "$base/$asset.sha256" -OutFile "$asset.sha256"
-          $actual = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLowerInvariant()
-          $published = ((Get-Content "$asset.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-          if ($actual -ne $published) {
-            throw "$asset hashes to $actual but the release publishes $published"
-          }
-          Expand-Archive -LiteralPath $asset -DestinationPath .ost-ci/bootstrap-bin -Force
-          $ost = Get-ChildItem .ost-ci/bootstrap-bin -Recurse -Filter ost.exe | Select-Object -First 1
-          if (-not $ost) { throw "no ost.exe inside $asset" }
-          $ost.Directory.FullName | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-          @{ schema = 1; version = "0.13.0"; asset = $asset; sha256 = $actual } |
-            ConvertTo-Json -Compress | Out-File -Encoding utf8 .ost-ci/bootstrap.json
+        run: .github/scripts/setup-ost.ps1 -Version 0.16.0
 
       - name: Restore the pinned runtime cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

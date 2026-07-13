@@ -10,19 +10,38 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
 struct Arguments {
   std::filesystem::path output{"merlin.ppm"};
   std::filesystem::path metadata;
+  std::filesystem::path report;
   std::uint32_t width{512};
   std::uint32_t height{512};
   std::uint32_t frames{3};
   bool validation{};
   bool probe_only{};
+  bool install_tree{};
+};
+
+struct RendererCheck {
+  std::string id;
+  std::string status;
+  std::string detail;
+};
+
+enum class ReportPhase {
+  Arguments,
+  Core,
+  Backend,
+  Frame,
+  Reporting,
 };
 
 std::uint32_t ParseUnsigned(std::string_view text, std::string_view option) {
@@ -36,6 +55,9 @@ std::uint32_t ParseUnsigned(std::string_view text, std::string_view option) {
 
 Arguments ParseArguments(int argc, char** argv) {
   Arguments result;
+  bool width_explicit{};
+  bool height_explicit{};
+  bool frames_explicit{};
   for (int i = 1; i < argc; ++i) {
     const std::string_view argument = argv[i];
     auto require_value = [&](std::string_view option) -> std::string_view {
@@ -48,22 +70,43 @@ Arguments ParseArguments(int argc, char** argv) {
       result.output = require_value(argument);
     } else if (argument == "--metadata") {
       result.metadata = require_value(argument);
+    } else if (argument == "--report") {
+      result.report = require_value(argument);
     } else if (argument == "--width") {
       result.width = ParseUnsigned(require_value(argument), argument);
+      width_explicit = true;
     } else if (argument == "--height") {
       result.height = ParseUnsigned(require_value(argument), argument);
+      height_explicit = true;
     } else if (argument == "--frames") {
       result.frames = ParseUnsigned(require_value(argument), argument);
+      frames_explicit = true;
     } else if (argument == "--validate") {
       result.validation = true;
     } else if (argument == "--probe") {
       result.probe_only = true;
+    } else if (argument == "--install-tree") {
+      result.install_tree = true;
     } else if (argument == "--help") {
-      std::cout << "Usage: merlin-headless [--output FILE] [--metadata FILE] "
-                   "[--width N] [--height N] [--frames N] [--validate] [--probe]\n";
+      std::cout
+          << "Usage: merlin-headless [--output FILE] [--metadata FILE] "
+             "[--report FILE] [--width N] [--height N] [--frames N] "
+             "[--validate] [--probe] [--install-tree]\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(argument));
+    }
+  }
+  if (!result.report.empty()) {
+    result.validation = true;
+    if (!width_explicit) {
+      result.width = 64;
+    }
+    if (!height_explicit) {
+      result.height = 64;
+    }
+    if (!frames_explicit) {
+      result.frames = 1000;
     }
   }
   return result;
@@ -137,6 +180,121 @@ void WriteMetadata(const std::filesystem::path& path,
   if (!stream) {
     throw std::runtime_error("could not write metadata: " + path.string());
   }
+}
+
+void WriteRendererReport(
+    const std::filesystem::path& path,
+    const std::optional<merlin::vulkan::RendererCapabilities>& capabilities,
+    const std::vector<RendererCheck>& checks) {
+  if (path.has_parent_path()) {
+    std::filesystem::create_directories(path.parent_path());
+  }
+  std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+  if (!stream) {
+    throw std::runtime_error("could not create renderer report: " + path.string());
+  }
+  stream << "{\n  \"schema\": \"openstrata.renderer-report/v1alpha1\",\n"
+         << "  \"renderer\": {\"name\": \"hdMerlin\"}";
+  if (capabilities && !capabilities->device_name.empty()) {
+    stream << ",\n  \"device\": {\n    \"backend\": \"vulkan\",\n"
+           << "    \"name\": ";
+    WriteJsonString(stream, capabilities->device_name);
+    stream << ",\n    \"api_version\": ";
+    WriteJsonString(stream, VersionString(capabilities->api_version));
+    stream << ",\n    \"driver_version\": ";
+    WriteJsonString(stream, std::to_string(capabilities->driver_version));
+    stream << ",\n    \"vendor_id\": " << capabilities->vendor_id
+           << ",\n    \"device_id\": " << capabilities->device_id << "\n  }";
+  }
+  stream << ",\n  \"checks\": [\n";
+  for (std::size_t index = 0; index < checks.size(); ++index) {
+    const auto& check = checks[index];
+    stream << "    {\"id\":";
+    WriteJsonString(stream, check.id);
+    stream << ",\"status\":";
+    WriteJsonString(stream, check.status);
+    if (!check.detail.empty()) {
+      stream << ",\"detail\":";
+      WriteJsonString(stream, check.detail);
+    }
+    stream << '}' << (index + 1U == checks.size() ? "\n" : ",\n");
+  }
+  stream << "  ]\n}\n";
+  if (!stream) {
+    throw std::runtime_error("could not write renderer report: " + path.string());
+  }
+}
+
+void AppendHydraSkips(std::vector<RendererCheck>& checks) {
+  constexpr std::string_view detail =
+      "Hydra 2 evidence requires the optional installed host test";
+  checks.push_back({"renderer.plugin.discovery", "skip", std::string(detail)});
+  checks.push_back({"renderer.delegate.creation", "skip", std::string(detail)});
+  checks.push_back({"renderer.render_buffer.cpu", "skip", std::string(detail)});
+  checks.push_back({"renderer.host.first_frame", "skip", std::string(detail)});
+  checks.push_back({"renderer.host.stable_update", "skip", std::string(detail)});
+}
+
+bool ReportPassed(const std::vector<RendererCheck>& checks) {
+  for (const auto& check : checks) {
+    if (check.status == "fail") {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool IsUnavailableCapability(std::string_view detail) {
+  return detail.find("no Vulkan physical device is available") !=
+             std::string_view::npos ||
+         detail.find("physical device with a graphics queue is available") !=
+             std::string_view::npos ||
+         detail.find("D32 depth attachment readback is unsupported") !=
+             std::string_view::npos ||
+         detail.find("Vulkan 1.4 loader is required") != std::string_view::npos;
+}
+
+std::vector<RendererCheck> FailureChecks(ReportPhase phase,
+                                         std::string_view detail,
+                                         bool unavailable,
+                                         bool install_tree) {
+  std::vector<RendererCheck> checks;
+  if (phase > ReportPhase::Core) {
+    checks.push_back({"renderer.core.boundary", "pass", {}});
+  } else {
+    checks.push_back({"renderer.core.boundary", "fail", std::string(detail)});
+  }
+
+  if (phase > ReportPhase::Backend) {
+    checks.push_back({"renderer.backend.capability", "pass", {}});
+  } else if (phase == ReportPhase::Backend) {
+    checks.push_back({"renderer.backend.capability",
+                      unavailable ? "skip" : "fail", std::string(detail)});
+  } else {
+    checks.push_back({"renderer.backend.capability", "skip",
+                      "core validation did not complete"});
+  }
+
+  if (phase >= ReportPhase::Frame) {
+    checks.push_back({"renderer.gpu.frame", "fail", std::string(detail)});
+  } else {
+    checks.push_back({"renderer.gpu.frame", "skip",
+                      unavailable ? std::string(detail)
+                                  : "renderer backend was not available"});
+  }
+  checks.push_back({"renderer.validation.messages", "skip",
+                    "no validated GPU frame completed"});
+  checks.push_back({"renderer.render_product.color", "skip",
+                    "no validated GPU frame completed"});
+  checks.push_back({"renderer.render_product.depth", "skip",
+                    "no validated GPU frame completed"});
+  checks.push_back({"renderer.frame.persistence", "skip",
+                    "no validated GPU frame completed"});
+  checks.push_back(
+      {"renderer.install_tree", install_tree ? "pass" : "skip",
+       install_tree ? "" : "install-tree validation was not exercised"});
+  AppendHydraSkips(checks);
+  return checks;
 }
 
 void WritePpm(const std::filesystem::path& path,
@@ -222,15 +380,21 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  Arguments arguments;
+  ReportPhase report_phase = ReportPhase::Arguments;
+  std::optional<merlin::vulkan::RendererCapabilities> report_capabilities;
   try {
-    const auto arguments = ParseArguments(argc, argv);
+    arguments = ParseArguments(argc, argv);
+    report_phase = ReportPhase::Core;
     merlin::RenderWorld world;
     const auto changes = BuildSmokeWorld(world);
     merlin::extraction::SceneExtractor extractor;
     extractor.Apply(world, changes);
 
+    report_phase = ReportPhase::Backend;
     merlin::vulkan::Renderer renderer({arguments.validation});
     const auto& capabilities = renderer.capabilities();
+    report_capabilities = capabilities;
     std::cout << "Merlin Vulkan device: " << capabilities.device_name << '\n'
               << "Loader API version: "
               << VersionString(capabilities.loader_api_version) << '\n'
@@ -244,17 +408,19 @@ int main(int argc, char** argv) {
               << changes.changes.size() << " changes)\n";
     WriteMetadata(arguments.metadata, capabilities);
 
-    if (arguments.validation && !capabilities.validation_enabled) {
+    if (arguments.validation && !capabilities.validation_enabled &&
+        arguments.report.empty()) {
       std::cerr << "merlin-headless: Vulkan validation layer is unavailable\n";
       return 77;
     }
 
+    report_phase = ReportPhase::Frame;
+    merlin::vulkan::RenderResult result;
     if (!arguments.probe_only) {
       const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
       const merlin::vulkan::ShaderPaths shaders{
           executable_dir / "shaders" / "triangle.vert.spv",
           executable_dir / "shaders" / "triangle.frag.spv"};
-      merlin::vulkan::RenderResult result;
       for (std::uint32_t frame = 0; frame < arguments.frames; ++frame) {
         result = renderer.Render(*extractor.snapshot(), arguments.width,
                                  arguments.height, shaders);
@@ -262,10 +428,11 @@ int main(int argc, char** argv) {
       ValidateSmokeResult(result);
       WritePpm(arguments.output, result.color);
       const auto statistics = renderer.statistics();
-      if (statistics.scene_uploads != 1) {
+      if (statistics.scene_uploads != 1 && arguments.report.empty()) {
         throw std::runtime_error("unchanged scene was uploaded more than once");
       }
-      if (arguments.validation && statistics.validation_messages != 0) {
+      if (arguments.validation && statistics.validation_messages != 0 &&
+          arguments.report.empty()) {
         throw std::runtime_error("Vulkan validation reported warnings or errors");
       }
       std::cout << "Wrote " << arguments.output.string() << " ("
@@ -274,8 +441,64 @@ int main(int argc, char** argv) {
                 << statistics.frames_submitted << " frames, completion "
                 << result.completion_value << ")\n";
     }
+
+    if (!arguments.report.empty()) {
+      const auto statistics = renderer.statistics();
+      const bool persistence_ok =
+          !arguments.probe_only &&
+          statistics.frames_submitted == arguments.frames &&
+          result.completion_value == arguments.frames &&
+          statistics.scene_uploads == 1 && statistics.frame_context_count == 3;
+      std::vector<RendererCheck> checks{
+          {"renderer.core.boundary", "pass", {}},
+          {"renderer.backend.capability", "pass", {}},
+          {"renderer.gpu.frame", arguments.probe_only ? "skip" : "pass",
+           arguments.probe_only ? "probe-only mode did not render a frame" : ""},
+          {"renderer.validation.messages",
+           capabilities.validation_enabled
+               ? (statistics.validation_messages == 0 ? "pass" : "fail")
+               : "skip",
+           capabilities.validation_enabled
+               ? (statistics.validation_messages == 0
+                      ? ""
+                      : "Vulkan validation reported warnings or errors")
+               : "VK_LAYER_KHRONOS_validation is unavailable"},
+          {"renderer.render_product.color",
+           arguments.probe_only ? "skip" : "pass",
+           arguments.probe_only ? "probe-only mode did not render color" : ""},
+          {"renderer.render_product.depth",
+           arguments.probe_only ? "skip" : "pass",
+           arguments.probe_only ? "probe-only mode did not render depth" : ""},
+          {"renderer.frame.persistence", persistence_ok ? "pass" : "fail",
+           persistence_ok
+               ? ""
+               : "frame count, completion, context, or unchanged-upload contract failed"},
+          {"renderer.install_tree", arguments.install_tree ? "pass" : "skip",
+           arguments.install_tree ? ""
+                                  : "install-tree validation was not exercised"},
+      };
+      AppendHydraSkips(checks);
+      report_phase = ReportPhase::Reporting;
+      WriteRendererReport(arguments.report, report_capabilities, checks);
+      return ReportPassed(checks) ? 0 : 1;
+    }
     return 0;
   } catch (const std::exception& error) {
+    if (!arguments.report.empty() && report_phase != ReportPhase::Reporting) {
+      const bool unavailable =
+          report_phase == ReportPhase::Backend &&
+          IsUnavailableCapability(error.what());
+      const auto checks = FailureChecks(report_phase, error.what(), unavailable,
+                                        arguments.install_tree);
+      try {
+        WriteRendererReport(arguments.report, report_capabilities, checks);
+      } catch (const std::exception& report_error) {
+        std::cerr << "merlin-headless: " << report_error.what() << '\n';
+        return 1;
+      }
+      std::cerr << "merlin-headless: " << error.what() << '\n';
+      return unavailable ? 0 : 1;
+    }
     std::cerr << "merlin-headless: " << error.what() << '\n';
     return 1;
   }

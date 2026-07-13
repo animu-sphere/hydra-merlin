@@ -20,6 +20,26 @@ if(NOT "${_merlin_tag_version}" STREQUAL "${_merlin_project_version}")
     "release tag ${MERLIN_RELEASE_TAG} does not match VERSION ${_merlin_project_version}")
 endif()
 
+file(READ "${MERLIN_SOURCE_DIR}/openstrata.toml" _merlin_openstrata)
+string(REGEX MATCHALL
+  "version[ \t]*=[ \t]*\"[0-9]+[.][0-9]+[.][0-9]+\""
+  _merlin_openstrata_version_entries "${_merlin_openstrata}")
+list(LENGTH _merlin_openstrata_version_entries
+  _merlin_openstrata_version_entry_count)
+if(NOT _merlin_openstrata_version_entry_count EQUAL 1)
+  message(FATAL_ERROR
+    "openstrata.toml must contain exactly one stable project version")
+endif()
+list(GET _merlin_openstrata_version_entries 0
+  _merlin_openstrata_version_entry)
+string(REGEX REPLACE
+  "^version[ \t]*=[ \t]*\"([^\"]+)\"$" "\\1"
+  _merlin_openstrata_version "${_merlin_openstrata_version_entry}")
+if(NOT "${_merlin_openstrata_version}" STREQUAL "${_merlin_project_version}")
+  message(FATAL_ERROR
+    "openstrata.toml version ${_merlin_openstrata_version} does not match VERSION ${_merlin_project_version}")
+endif()
+
 file(READ "${MERLIN_SOURCE_DIR}/CHANGELOG.md" _merlin_changelog)
 if(NOT _merlin_changelog MATCHES
    "## \\[${_merlin_project_version}\\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]")
