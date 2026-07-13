@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -25,6 +26,15 @@ std::size_t CoveredPixels(const merlin::vulkan::RenderResult& result) {
   return covered;
 }
 
+std::uint32_t CenterBrightness(const merlin::vulkan::RenderResult& result) {
+  const auto x = result.color.product.width / 2U;
+  const auto y = result.color.product.height / 2U;
+  const auto index = static_cast<std::size_t>(y) * result.color.row_pitch_bytes +
+                     static_cast<std::size_t>(x) * 4U;
+  return static_cast<std::uint32_t>(result.color.pixels[index]) +
+         result.color.pixels[index + 1U] + result.color.pixels[index + 2U];
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -38,7 +48,7 @@ int main(int argc, char** argv) {
 
   std::optional<merlin::vulkan::Renderer> renderer;
   try {
-    renderer.emplace();
+    renderer.emplace(merlin::vulkan::RendererOptions{true});
   } catch (const std::exception& error) {
     std::cerr << "skip: Vulkan renderer unavailable: " << error.what() << '\n';
     return 77;
@@ -98,7 +108,7 @@ int main(int argc, char** argv) {
   const auto opaque_coverage = CoveredPixels(first);
   assert(opaque_coverage > 1000);
 
-  // Parameter values travel through push constants and never enter the
+  // Parameter values travel through per-frame uniforms and never enter the
   // feature/state pipeline key.
   material.parameters.base_color = {0.5F, 0.75F, 1.0F, 1.0F};
   world.UpdateMaterial(material_handle, material,
@@ -129,6 +139,30 @@ int main(int argc, char** argv) {
   texture.pixels = {255, 255, 0, 255, 255, 0, 255, 255,
                     255, 255, 0, 255, 255, 0, 255, 255};
   world.UpdateTexture(texture_handle, texture);
+  // A failed submission must not leave the new texture revision marked as
+  // resident. Retrying the snapshot with valid shaders must upload it.
+  extractor.Apply(world, world.Commit());
+  merlin::vulkan::RenderRequest abandoned;
+  auto invalid_snapshot =
+      std::make_shared<merlin::extraction::FrameSnapshot>(
+          *extractor.snapshot());
+  invalid_snapshot->materials.front().base_color_texture->texture_index =
+      static_cast<std::uint32_t>(invalid_snapshot->textures.size());
+  abandoned.snapshot = std::move(invalid_snapshot);
+  abandoned.width = 64;
+  abandoned.height = 64;
+  abandoned.shaders = shaders;
+  abandoned.products = {
+      {merlin::Aov::Color, true}, {merlin::Aov::Depth, true},
+      {merlin::Aov::PrimId, true}, {merlin::Aov::InstanceId, true}};
+  bool failed_submission_rejected{};
+  try {
+    (void)renderer->Submit(abandoned);
+  } catch (const merlin::vulkan::RendererError& error) {
+    failed_submission_rejected =
+        error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest;
+  }
+  assert(failed_submission_rejected);
   const auto texture_edit = render();
   assert(texture_edit.counters.upload_bytes == texture.pixels.size());
   assert(texture_edit.counters.texture_cache_misses == 1);
@@ -181,6 +215,50 @@ int main(int argc, char** argv) {
          merlin::extraction::MaterialFallbackCode::MissingTexture);
   assert(fallback.counters.texture_cache_misses == 0);
   assert(CoveredPixels(fallback) == opaque_coverage);
+
+  // Directional lights emit along local -Z, so an identity light illuminates
+  // a +Z-facing surface. Tilting the instance must rotate its normals into
+  // world space and reduce the Lambert term.
+  merlin::RenderWorld lighting_world;
+  merlin::extraction::SceneExtractor lighting_extractor;
+  merlin::MeshDescriptor lit_mesh;
+  lit_mesh.positions = {{-0.8F, -0.4F, 0.0F}, {0.8F, -0.4F, 0.0F},
+                        {0.8F, 0.4F, 0.0F}, {-0.8F, 0.4F, 0.0F}};
+  lit_mesh.normals.assign(4, {0.0F, 0.0F, 1.0F});
+  lit_mesh.indices = {0, 1, 2, 0, 2, 3};
+  const auto lit_mesh_handle = lighting_world.CreateMesh(lit_mesh);
+  merlin::MaterialDescriptor lit_material;
+  lit_material.features = merlin::MaterialFeature::DirectionalLight;
+  lit_material.double_sided = true;
+  const auto lit_material_handle =
+      lighting_world.CreateMaterial(lit_material);
+  merlin::InstanceDescriptor lit_instance;
+  lit_instance.mesh = lit_mesh_handle;
+  lit_instance.material = lit_material_handle;
+  const auto lit_instance_handle =
+      lighting_world.CreateInstance(lit_instance);
+  lighting_world.CreateLight(merlin::LightDescriptor{});
+  lighting_extractor.Apply(lighting_world, lighting_world.Commit());
+  const auto front_lit = renderer->Render(
+      *lighting_extractor.snapshot(), 64, 64, shaders);
+
+  constexpr float half = 0.5F;
+  constexpr float sqrt_three_over_two = 0.8660254F;
+  lit_instance.transform.values[5] = half;
+  lit_instance.transform.values[6] = sqrt_three_over_two;
+  lit_instance.transform.values[9] = -sqrt_three_over_two;
+  lit_instance.transform.values[10] = half;
+  lit_instance.transform.values[14] = 0.5F;
+  lighting_world.UpdateInstance(lit_instance_handle, lit_instance,
+                                merlin::ChangeAspect::Transform);
+  lighting_extractor.Apply(lighting_world, lighting_world.Commit());
+  const auto tilted = renderer->Render(
+      *lighting_extractor.snapshot(), 64, 64, shaders);
+  assert(CoveredPixels(front_lit) > 500);
+  assert(CoveredPixels(tilted) > 200);
+  assert(CenterBrightness(front_lit) * 3U >
+         CenterBrightness(tilted) * 4U);
+  assert(renderer->statistics().validation_messages == 0);
 
   std::cout << "MaterialIR texture/sampler and variant contract verified\n";
   return 0;

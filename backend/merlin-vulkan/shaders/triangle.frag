@@ -9,9 +9,9 @@ layout(location = 2) out uint out_instance_id;
 
 layout(push_constant) uniform DrawConstants {
   mat4 model_view_projection;
-  vec4 base_color;
-  vec4 light_direction_intensity;
-  vec4 light_color_alpha_cutoff;
+  vec4 normal_matrix_column0;
+  vec4 normal_matrix_column1;
+  vec4 normal_matrix_column2;
   uint feature_mask;
   uint prim_id;
   uint instance_id;
@@ -19,6 +19,11 @@ layout(push_constant) uniform DrawConstants {
 } draw_constants;
 
 layout(set = 0, binding = 0) uniform sampler2D base_color_texture;
+layout(std140, set = 0, binding = 1) uniform MaterialConstants {
+  vec4 base_color;
+  vec4 light_direction_intensity;
+  vec4 light_color_alpha_cutoff;
+} material_constants;
 
 void main() {
   vec4 shaded = color;
@@ -27,14 +32,14 @@ void main() {
   }
   if ((draw_constants.feature_mask & 4u) != 0u) {
     float n_dot_l = max(dot(normalize(shading_normal),
-                            normalize(draw_constants.light_direction_intensity.xyz)),
+                            normalize(material_constants.light_direction_intensity.xyz)),
                         0.0);
     float light_scale = 0.15 + 0.85 * n_dot_l *
-                                  draw_constants.light_direction_intensity.w;
-    shaded.rgb *= draw_constants.light_color_alpha_cutoff.rgb * light_scale;
+                                  material_constants.light_direction_intensity.w;
+    shaded.rgb *= material_constants.light_color_alpha_cutoff.rgb * light_scale;
   }
   if ((draw_constants.feature_mask & 0x10000000u) != 0u &&
-      shaded.a < draw_constants.light_color_alpha_cutoff.a) {
+      shaded.a < material_constants.light_color_alpha_cutoff.a) {
     discard;
   }
   out_color = shaded;

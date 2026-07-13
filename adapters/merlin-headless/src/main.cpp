@@ -404,7 +404,6 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
 
   merlin::LightDescriptor light;
   light.label = "headless-key";
-  light.transform.values[10] = -1.0F;
   world.CreateLight(std::move(light));
   return world.Commit();
 }

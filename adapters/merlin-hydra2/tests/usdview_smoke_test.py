@@ -97,6 +97,8 @@ def testUsdviewInputFunction(appController):
 
     baseline = _render_phase(appController, "baseline")
     assert baseline["textured_materials"] >= 1
+    assert baseline["texcoord_geometries"] == 1
+    assert baseline["missing_texcoord_geometries"] == 3
     assert baseline["material_fallbacks"] == 0
     assert baseline["texture_cache_hits"] >= 1
     points = _render_phase(appController, "points", edit=_edit_points)

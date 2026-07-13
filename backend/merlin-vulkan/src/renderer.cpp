@@ -147,11 +147,43 @@ Mat4 Multiply(const Mat4& lhs, const Mat4& rhs) {
   return result;
 }
 
+std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
+  const Vec3 column0{transform.values[0], transform.values[1],
+                     transform.values[2]};
+  const Vec3 column1{transform.values[4], transform.values[5],
+                     transform.values[6]};
+  const Vec3 column2{transform.values[8], transform.values[9],
+                     transform.values[10]};
+  const auto cross = [](const Vec3& lhs, const Vec3& rhs) {
+    return Vec3{lhs.y * rhs.z - lhs.z * rhs.y,
+                lhs.z * rhs.x - lhs.x * rhs.z,
+                lhs.x * rhs.y - lhs.y * rhs.x};
+  };
+  const auto cofactor0 = cross(column1, column2);
+  const auto cofactor1 = cross(column2, column0);
+  const auto cofactor2 = cross(column0, column1);
+  const auto determinant = column0.x * cofactor0.x +
+                           column0.y * cofactor0.y +
+                           column0.z * cofactor0.z;
+  if (std::abs(determinant) <= 1.0e-20F) {
+    return {Vec4{1.0F, 0.0F, 0.0F, 0.0F},
+            Vec4{0.0F, 1.0F, 0.0F, 0.0F},
+            Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
+  }
+  const auto inverse_determinant = 1.0F / determinant;
+  const auto column = [inverse_determinant](const Vec3& value) {
+    return Vec4{value.x * inverse_determinant,
+                value.y * inverse_determinant,
+                value.z * inverse_determinant, 0.0F};
+  };
+  return {column(cofactor0), column(cofactor1), column(cofactor2)};
+}
+
 struct PushConstants {
   Mat4 model_view_projection;
-  Vec4 base_color;
-  Vec4 light_direction_intensity;
-  Vec4 light_color_alpha_cutoff;
+  Vec4 normal_matrix_column0;
+  Vec4 normal_matrix_column1;
+  Vec4 normal_matrix_column2;
   std::uint32_t feature_mask{};
   std::uint32_t prim_id{};
   std::uint32_t instance_id{};
@@ -160,6 +192,14 @@ struct PushConstants {
 
 static_assert(sizeof(PushConstants) == 128);
 static_assert(offsetof(PushConstants, feature_mask) == 112);
+
+struct MaterialUniforms {
+  Vec4 base_color;
+  Vec4 light_direction_intensity;
+  Vec4 light_color_alpha_cutoff;
+};
+
+static_assert(sizeof(MaterialUniforms) == 48);
 
 constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
 constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;
@@ -537,6 +577,7 @@ class Renderer::Impl {
       index_arena_.Destroy();
       for (auto& frame : frames_) {
         DestroyTarget(frame.target);
+        DestroyBuffer(frame.material_uniforms);
         if (frame.descriptor_pool != VK_NULL_HANDLE) {
           vkDestroyDescriptorPool(device_, frame.descriptor_pool, nullptr);
         }
@@ -627,6 +668,7 @@ class Renderer::Impl {
     frame.cpu_timings.command_recording_ns = recording_ns;
     frame.counters = frame_counters_;
     const auto completion = SubmitFrame(frame);
+    CommitTextureUploads();
     for (auto& buffer : frame_upload_buffers_) {
       deferred_.push_back({buffer, completion});
       buffer = {};
@@ -710,6 +752,7 @@ class Renderer::Impl {
     VkImage image{};
     VkDeviceMemory memory{};
     VkImageView view{};
+    bool pending_upload{};
   };
 
   struct SamplerSlot {
@@ -802,6 +845,7 @@ class Renderer::Impl {
     VkDescriptorPool descriptor_pool{};
     std::uint32_t descriptor_capacity{};
     std::vector<VkDescriptorSet> material_descriptor_sets;
+    Buffer material_uniforms;
   };
 
   void CreateDevice(const RendererOptions& options) {
@@ -928,6 +972,8 @@ class Renderer::Impl {
     capabilities_.device_id = properties.properties.deviceID;
     capabilities_.max_image_dimension_2d =
         properties.properties.limits.maxImageDimension2D;
+    uniform_buffer_alignment_ = std::max<VkDeviceSize>(
+        16U, properties.properties.limits.minUniformBufferOffsetAlignment);
     capabilities_.validation_enabled = use_validation;
     capabilities_.graphics_queue = true;
     capabilities_.compute_queue =
@@ -1029,6 +1075,15 @@ class Renderer::Impl {
 
   void ResetAbandonedUploads() {
     pending_image_copies_.clear();
+    for (auto& [handle, texture] : texture_slots_) {
+      (void)handle;
+      if (texture.pending_upload) {
+        DestroyTexture(texture);
+      }
+    }
+    if (fallback_texture_.pending_upload) {
+      DestroyTexture(fallback_texture_);
+    }
     for (auto& buffer : frame_upload_buffers_) {
       DestroyBuffer(buffer);
     }
@@ -1048,6 +1103,7 @@ class Renderer::Impl {
           slot.memory);
       slot.view =
           CreateImageView(slot.image, kColorFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+      slot.pending_upload = true;
       staging = CreateBuffer(
           static_cast<VkDeviceSize>(pixels.size()),
           VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -1071,6 +1127,14 @@ class Renderer::Impl {
       throw;
     }
     return slot;
+  }
+
+  void CommitTextureUploads() noexcept {
+    for (auto& [handle, texture] : texture_slots_) {
+      (void)handle;
+      texture.pending_upload = false;
+    }
+    fallback_texture_.pending_upload = false;
   }
 
   VkSampler CreateSamplerResource(FilterMode min_filter, FilterMode mag_filter,
@@ -1200,18 +1264,59 @@ class Renderer::Impl {
       return;
     }
     ++frame_counters_.descriptor_layout_cache_misses;
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
+                             VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo info{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    info.bindingCount = 1;
-    info.pBindings = &binding;
+    info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    info.pBindings = bindings.data();
     Check(vkCreateDescriptorSetLayout(device_, &info, nullptr,
                                       &descriptor_set_layout_),
           "create material descriptor layout");
+  }
+
+  struct DirectionalLighting {
+    Vec4 direction_intensity{0.0F, 0.0F, 1.0F, 1.0F};
+    Vec3 color{1.0F, 1.0F, 1.0F};
+  };
+
+  static DirectionalLighting ExtractDirectionalLighting(
+      const extraction::FrameSnapshot& snapshot) {
+    DirectionalLighting result;
+    const auto directional =
+        std::find_if(snapshot.lights.begin(), snapshot.lights.end(),
+                     [](const extraction::LightRecord& light) {
+                       return light.type == LightType::Directional;
+                     });
+    if (directional == snapshot.lights.end()) {
+      return result;
+    }
+    // Directional lights emit along local -Z. Lambert shading needs the
+    // opposite vector, from the surface toward the source, so transform +Z.
+    auto x = directional->transform.values[8];
+    auto y = directional->transform.values[9];
+    auto z = directional->transform.values[10];
+    const auto length = std::sqrt(x * x + y * y + z * z);
+    if (length > 0.0F) {
+      x /= length;
+      y /= length;
+      z /= length;
+    } else {
+      x = 0.0F;
+      y = 0.0F;
+      z = 1.0F;
+    }
+    result.direction_intensity = {x, y, z, directional->intensity};
+    result.color = directional->color;
+    return result;
   }
 
   void PrepareMaterialDescriptors(
@@ -1227,14 +1332,18 @@ class Renderer::Impl {
         frame.descriptor_capacity < material_count) {
       if (frame.descriptor_pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device_, frame.descriptor_pool, nullptr);
+        frame.descriptor_pool = VK_NULL_HANDLE;
+        frame.descriptor_capacity = 0;
       }
-      VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                material_count};
+      const std::array<VkDescriptorPoolSize, 2> sizes{{
+          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count},
+          {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, material_count},
+      }};
       VkDescriptorPoolCreateInfo info{
           VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
       info.maxSets = material_count;
-      info.poolSizeCount = 1;
-      info.pPoolSizes = &size;
+      info.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+      info.pPoolSizes = sizes.data();
       Check(vkCreateDescriptorPool(device_, &info, nullptr,
                                    &frame.descriptor_pool),
             "create material descriptor pool");
@@ -1243,6 +1352,34 @@ class Renderer::Impl {
       Check(vkResetDescriptorPool(device_, frame.descriptor_pool, 0),
             "reset material descriptor pool");
     }
+
+    const auto uniform_stride =
+        AlignUp(sizeof(MaterialUniforms), uniform_buffer_alignment_);
+    const auto uniform_bytes = uniform_stride * material_count;
+    if (frame.material_uniforms.handle == VK_NULL_HANDLE ||
+        frame.material_uniforms.size < uniform_bytes) {
+      DestroyBuffer(frame.material_uniforms);
+      frame.material_uniforms = CreateBuffer(
+          uniform_bytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    }
+    void* mapped{};
+    Check(vkMapMemory(device_, frame.material_uniforms.memory, 0,
+                      uniform_bytes, 0, &mapped),
+          "map material uniform buffer");
+    const auto lighting = ExtractDirectionalLighting(snapshot);
+    for (std::uint32_t i = 0; i < material_count; ++i) {
+      const auto& material = snapshot.materials[i];
+      const MaterialUniforms uniforms{
+          material.parameters.base_color,
+          lighting.direction_intensity,
+          {lighting.color.x, lighting.color.y, lighting.color.z,
+           material.parameters.alpha_cutoff}};
+      std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
+                  &uniforms, sizeof(uniforms));
+    }
+    vkUnmapMemory(device_, frame.material_uniforms.memory);
 
     std::vector<VkDescriptorSetLayout> layouts(material_count,
                                                 descriptor_set_layout_);
@@ -1257,7 +1394,8 @@ class Renderer::Impl {
           "allocate material descriptor sets");
 
     std::vector<VkDescriptorImageInfo> image_infos(material_count);
-    std::vector<VkWriteDescriptorSet> writes(material_count);
+    std::vector<VkDescriptorBufferInfo> buffer_infos(material_count);
+    std::vector<VkWriteDescriptorSet> writes(material_count * 2U);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       auto image_view = fallback_texture_.view;
       auto sampler = fallback_sampler_.sampler;
@@ -1282,15 +1420,26 @@ class Renderer::Impl {
       }
       image_infos[i] =
           {sampler, image_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-      writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-      writes[i].dstSet = frame.material_descriptor_sets[i];
-      writes[i].dstBinding = 0;
-      writes[i].descriptorCount = 1;
-      writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-      writes[i].pImageInfo = &image_infos[i];
+      buffer_infos[i] = {frame.material_uniforms.handle, uniform_stride * i,
+                         sizeof(MaterialUniforms)};
+      auto& image_write = writes[i * 2U];
+      image_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      image_write.dstSet = frame.material_descriptor_sets[i];
+      image_write.dstBinding = 0;
+      image_write.descriptorCount = 1;
+      image_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      image_write.pImageInfo = &image_infos[i];
+      auto& buffer_write = writes[i * 2U + 1U];
+      buffer_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      buffer_write.dstSet = frame.material_descriptor_sets[i];
+      buffer_write.dstBinding = 1;
+      buffer_write.descriptorCount = 1;
+      buffer_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      buffer_write.pBufferInfo = &buffer_infos[i];
     }
-    vkUpdateDescriptorSets(device_, material_count, writes.data(), 0, nullptr);
-    frame_counters_.descriptor_update_count += material_count;
+    vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
+    frame_counters_.descriptor_update_count += writes.size();
   }
 
   // Reconciles GPU geometry residency with one immutable snapshot: retires
@@ -2088,30 +2237,6 @@ class Renderer::Impl {
                    const FrameContext& frame,
                    const extraction::FrameSnapshot& snapshot,
                    const std::vector<Aov>& cpu_readback_aovs) {
-    Vec4 light_direction_intensity{0.0F, 0.0F, 1.0F, 1.0F};
-    Vec3 light_color{1.0F, 1.0F, 1.0F};
-    const auto directional =
-        std::find_if(snapshot.lights.begin(), snapshot.lights.end(),
-                     [](const extraction::LightRecord& light) {
-                       return light.type == LightType::Directional;
-                     });
-    if (directional != snapshot.lights.end()) {
-      auto x = -directional->transform.values[8];
-      auto y = -directional->transform.values[9];
-      auto z = -directional->transform.values[10];
-      const auto length = std::sqrt(x * x + y * y + z * z);
-      if (length > 0.0F) {
-        x /= length;
-        y /= length;
-        z /= length;
-      } else {
-        x = 0.0F;
-        y = 0.0F;
-        z = 1.0F;
-      }
-      light_direction_intensity = {x, y, z, directional->intensity};
-      light_color = directional->color;
-    }
     std::array<VkClearValue, 4> clear{};
     clear[0].color = {{0.018F, 0.025F, 0.045F, 1.0F}};
     clear[1].depthStencil = {1.0F, 0};
@@ -2166,11 +2291,10 @@ class Renderer::Impl {
       PushConstants push;
       push.model_view_projection =
           Multiply(view_projection, instance.transform);
-      push.base_color = material.parameters.base_color;
-      push.light_direction_intensity = light_direction_intensity;
-      push.light_color_alpha_cutoff =
-          {light_color.x, light_color.y, light_color.z,
-           material.parameters.alpha_cutoff};
+      const auto normal_matrix = NormalMatrix(instance.transform);
+      push.normal_matrix_column0 = normal_matrix[0];
+      push.normal_matrix_column1 = normal_matrix[1];
+      push.normal_matrix_column2 = normal_matrix[2];
       push.feature_mask = feature_mask;
       if (material.alpha_mode == AlphaMode::Masked) {
         push.feature_mask |= kMaskedAlphaFlag;
@@ -2349,6 +2473,7 @@ class Renderer::Impl {
   std::uint32_t queue_family_{};
   std::uint64_t timeline_value_{};
   std::uint64_t latest_completed_value_{};
+  VkDeviceSize uniform_buffer_alignment_{16U};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};
   RendererCapabilities capabilities_;

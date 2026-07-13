@@ -1158,6 +1158,13 @@ class SceneBridge {
                           snapshot->materials.end(), [](const auto& material) {
                             return material.base_color_texture.has_value();
                           }));
+        const auto texcoord_geometries = static_cast<std::size_t>(
+            std::count_if(snapshot->geometries.begin(),
+                          snapshot->geometries.end(), [](const auto& geometry) {
+                            return geometry.has_texcoords;
+                          }));
+        const auto missing_texcoord_geometries =
+            snapshot->geometries.size() - texcoord_geometries;
         stream << "phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
                << " completion_value=" << result.completion_value
@@ -1169,6 +1176,9 @@ class SceneBridge {
                << " covered_x_sum=" << covered_x_sum
                << " covered_y_sum=" << covered_y_sum
                << " textured_materials=" << textured_materials
+               << " texcoord_geometries=" << texcoord_geometries
+               << " missing_texcoord_geometries="
+               << missing_texcoord_geometries
                << " material_fallbacks=" << snapshot->material_fallbacks.size()
                << " texture_cache_hits="
                << result.counters.texture_cache_hits
@@ -1658,6 +1668,7 @@ class HdMerlinMesh final : public HdMesh {
         FindPrimvar(*this, delegate, HdTokens->displayOpacity);
     const auto texcoords =
         FindPrimvar(*this, delegate, TfToken("st"), true);
+    const bool has_display_color = colors.present || opacities.present;
 
     std::size_t offset{};
     for (std::uint32_t face_index = 0; face_index < counts.size();
@@ -1746,7 +1757,9 @@ class HdMerlinMesh final : public HdMesh {
               return;
             }
             color.w = std::clamp(color.w, 0.0F, 1.0F);
-            descriptor_.colors.push_back(color);
+            if (has_display_color) {
+              descriptor_.colors.push_back(color);
+            }
             merlin::Vec2 texcoord;
             if (texcoords.present && !ReadVec2(texcoords, corner, texcoord)) {
               TF_WARN("Merlin mesh %s has malformed texture coordinate primvar",
@@ -1754,7 +1767,9 @@ class HdMerlinMesh final : public HdMesh {
               reset();
               return;
             }
-            descriptor_.texcoords.push_back(texcoord);
+            if (texcoords.present) {
+              descriptor_.texcoords.push_back(texcoord);
+            }
             descriptor_.indices.push_back(
                 static_cast<std::uint32_t>(descriptor_.indices.size()));
           }

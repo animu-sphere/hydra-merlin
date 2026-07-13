@@ -194,6 +194,8 @@ struct LightDescriptor {
   LightType type{LightType::Directional};
   Vec3 color{1.0F, 1.0F, 1.0F};
   float intensity{1.0F};
+  // Directional lights emit along transformed local -Z; shading uses the
+  // opposite transformed +Z vector toward the source.
   Mat4 transform;
 };
 

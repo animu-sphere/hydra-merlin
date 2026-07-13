@@ -97,8 +97,10 @@ Future material source ┘
   alpha/double-sided state, and feature flags; resource handles supply stable
   identity and independent revisions.
 - Shader variant keys contain vertex-color, texture, directional-light,
-  alpha-mask, and double-sided feature classes. Per-material values are push
-  data, so a value-only edit does not rebuild the pipeline.
+  alpha-mask, and double-sided feature classes. Per-material values use
+  per-frame uniform buffers while per-draw transforms, normal matrices, feature
+  masks, and IDs use push constants, so a value-only edit does not rebuild the
+  pipeline.
 - Textures and samplers are revisioned scene resources. The Vulkan backend
   uploads changed images, caches sampler objects, updates per-frame descriptors,
   and retires replaced GPU objects only after their last submission completes.
