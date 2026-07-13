@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.3.0 implementation · **Last reviewed:** 2026-07-13
+**Status:** v0.4.0 implementation · **Last reviewed:** 2026-07-14
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -39,6 +39,9 @@ compatibility checks remain planned work.
 | --- | --- |
 | Host-neutral scene model and draw extraction | Available |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available |
+| Explicit submit/completion/timeout-aware resolve | Available |
+| Per-request AOV production and CPU readback selection | Available for color, depth, primId, and instanceId |
+| PNG/EXR expected/actual/diff regression artifacts | Available for color, depth, and primId |
 | Deterministic reference-path benchmark JSON and structural counters | Available |
 | Core/Vulkan installed CMake targets | Available |
 | Versioned dependency and package metadata | Available as installed JSON |

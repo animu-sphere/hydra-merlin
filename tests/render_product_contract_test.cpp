@@ -36,6 +36,9 @@ int main() {
   result.instance_id.row_pitch_bytes = 8;
   result.instance_id.pixels.assign(
       4, std::numeric_limits<std::uint32_t>::max());
+  result.rendered_aovs = {merlin::Aov::Color, merlin::Aov::Depth,
+                          merlin::Aov::PrimId, merlin::Aov::InstanceId};
+  result.cpu_readback_aovs = result.rendered_aovs;
   result.completion_value = 1;
   merlin::vulkan::ValidateRenderResult(result);
 
@@ -59,5 +62,27 @@ int main() {
   invalid = result;
   invalid.completion_value = 0;
   assert(Rejects(invalid));
+
+  // Per-request readback may omit payloads for rendered GPU-only AOVs.
+  auto selected = result;
+  selected.cpu_readback_aovs = {merlin::Aov::Color};
+  selected.depth = {};
+  selected.prim_id = {};
+  selected.instance_id = {};
+  merlin::vulkan::ValidateRenderResult(selected);
+  assert(merlin::vulkan::HasCpuReadback(selected, merlin::Aov::Color));
+  assert(!merlin::vulkan::HasCpuReadback(selected, merlin::Aov::Depth));
+
+  selected.cpu_readback_aovs = {merlin::Aov::Normal};
+  assert(Rejects(selected));
+
+  assert(merlin::vulkan::RendererErrorCodeName(
+             merlin::vulkan::RendererErrorCode::Timeout) == "timeout");
+  const merlin::vulkan::RendererError classified(
+      merlin::vulkan::RendererErrorCode::DeviceLost, "submit", "lost", -4);
+  assert(classified.code() ==
+         merlin::vulkan::RendererErrorCode::DeviceLost);
+  assert(classified.operation() == "submit");
+  assert(classified.native_code() == -4);
   return 0;
 }

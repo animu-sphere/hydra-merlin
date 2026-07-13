@@ -116,3 +116,46 @@ execute_process(
 if(NOT _run_result EQUAL 0)
   message(FATAL_ERROR "Merlin consumer run failed: ${_run_result}")
 endif()
+
+# Vulkan-enabled installs additionally compile the v0.4.0 execution and image
+# artifact public headers through the isolated package export.
+if(EXISTS "${_headless}")
+  set(_vulkan_consumer_build_dir
+      "${MERLIN_TEST_BINARY_DIR}/vulkan-install-consumer-build")
+  execute_process(
+    COMMAND "${MERLIN_CMAKE_COMMAND}"
+            -S "${MERLIN_SOURCE_DIR}/tests/vulkan-install-consumer"
+            -B "${_vulkan_consumer_build_dir}"
+            ${_generator_args}
+            "-DMerlin_DIR=${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin"
+    RESULT_VARIABLE _vulkan_configure_result
+  )
+  if(NOT _vulkan_configure_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin Vulkan consumer configure failed: ${_vulkan_configure_result}")
+  endif()
+  execute_process(
+    COMMAND "${MERLIN_CMAKE_COMMAND}" --build "${_vulkan_consumer_build_dir}"
+            ${_config_args}
+    RESULT_VARIABLE _vulkan_build_result
+  )
+  if(NOT _vulkan_build_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin Vulkan consumer build failed: ${_vulkan_build_result}")
+  endif()
+  set(_vulkan_consumer_executable
+      "${_vulkan_consumer_build_dir}/merlin-vulkan-install-consumer${CMAKE_EXECUTABLE_SUFFIX}")
+  if(MERLIN_MULTI_CONFIG AND NOT "${MERLIN_CONFIG}" STREQUAL "")
+    set(_vulkan_consumer_executable
+        "${_vulkan_consumer_build_dir}/${MERLIN_CONFIG}/merlin-vulkan-install-consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    )
+  endif()
+  execute_process(
+    COMMAND "${_vulkan_consumer_executable}"
+    RESULT_VARIABLE _vulkan_run_result
+  )
+  if(NOT _vulkan_run_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin Vulkan consumer run failed: ${_vulkan_run_result}")
+  endif()
+endif()

@@ -14,9 +14,9 @@ Legend: 🚧 in progress · ⬜ not started
 | [current.md](current.md) | The next release milestone and active carry-over work. |
 | [backlog.md](backlog.md) | Ordered but unscheduled releases and cross-cutting open work. |
 
-The next milestone is the reproducible development baseline for v0.1.0. Later
-releases move from resource-granular GPU scene updates through practical Hydra
-mesh support, execution lifetime, materials, and DCC integration.
+The active milestone is v0.4.0 release verification for execution lifetime and
+selectable render products. Later releases move through host-neutral materials,
+MaterialX translation, viewport features, and DCC integration.
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.

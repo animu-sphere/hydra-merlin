@@ -10,6 +10,17 @@ after its public API and release process are established.
 
 ### Added
 
+- Explicit Vulkan `RenderRequest` → `Submit` → renderer-specific
+  `CompletionToken` → timeout-aware `Resolve` execution, with frame-owned
+  targets/readback lifetime and generation-safe geometry updates while older
+  submissions remain in flight.
+- Per-request color, depth, primId, and instanceId selection with independent
+  Tier 0 CPU readback, structured invalid-request/resource-busy/timeout/
+  device-lost/unsupported/backend error classification, and single-use token
+  validation.
+- Dependency-free RGBA PNG and float/uint OpenEXR sinks plus deterministic
+  color/depth/primId expected/actual/diff artifact sets retained by Vulkan
+  capability CI.
 - OpenStrata 0.16 renderer-project manifests, logical target composition,
   machine-readable renderer evidence, and the `ost renderer view` development
   path for the co-built Hydra adapter, with a v0.17.0 dogfooding handoff covering

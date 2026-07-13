@@ -699,8 +699,37 @@ class SceneBridge {
     const merlin::vulkan::ShaderPaths shaders{
         shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
     const auto snapshot = extractor_.snapshot();
-    const auto result =
-        renderer_->Render(*snapshot, width, height, shaders);
+    merlin::vulkan::RenderRequest request;
+    request.snapshot = snapshot;
+    request.width = width;
+    request.height = height;
+    request.shaders = shaders;
+    request.products.clear();
+    const auto request_product = [&](merlin::Aov aov) {
+      const auto found = std::find_if(
+          request.products.begin(), request.products.end(),
+          [aov](const merlin::vulkan::RenderProductRequest& product) {
+            return product.aov == aov;
+          });
+      if (found == request.products.end()) {
+        request.products.push_back({aov, true});
+      }
+    };
+    for (const auto& binding : bindings) {
+      if (binding.aovName == HdAovTokens->color) {
+        request_product(merlin::Aov::Color);
+      } else if (HdAovHasDepthSemantic(binding.aovName)) {
+        request_product(merlin::Aov::Depth);
+      } else if (binding.aovName == HdAovTokens->primId) {
+        request_product(merlin::Aov::PrimId);
+      } else if (binding.aovName == HdAovTokens->instanceId) {
+        request_product(merlin::Aov::InstanceId);
+      }
+    }
+    // Regression evidence uses depth coverage even when the host binds only a
+    // display color product.
+    request_product(merlin::Aov::Depth);
+    const auto result = renderer_->Resolve(renderer_->Submit(request));
     const auto renderer_statistics = renderer_->statistics();
     if (ValidationRequested() &&
         renderer_statistics.validation_messages != 0) {

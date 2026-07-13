@@ -8,11 +8,6 @@ Legend: ⬜ not started
 
 ## Milestone ladder beyond the current milestone
 
-- ⬜ **v0.4.0 — execution and render-product lifetime.** Separate render request,
-  submit, completion token, and resolve; document ownership of frame contexts,
-  targets, and readback buffers; classify timeout/device-lost/unsupported errors;
-  select AOVs and CPU readback per request; and save color/depth/primId
-  expected/actual/diff artifacts with PNG/EXR sinks.
 - ⬜ **v0.5.0 — MaterialIR and basic shading.** Introduce host-neutral graph
   identity, parameter blocks, texture/sampler bindings, alpha mode, and
   double-sided state; add texture, descriptor, shader, and pipeline caches; render

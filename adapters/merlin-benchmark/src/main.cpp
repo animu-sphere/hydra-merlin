@@ -297,8 +297,16 @@ int main(int argc, char** argv) {
     std::vector<Baseline> baselines;
 
     const auto render = [&] {
-      return renderer.Render(*extractor.snapshot(), arguments.width,
-                             arguments.height, shaders);
+      merlin::vulkan::RenderRequest request;
+      request.snapshot = extractor.snapshot();
+      request.width = arguments.width;
+      request.height = arguments.height;
+      request.shaders = shaders;
+      request.products = {{merlin::Aov::Color, true},
+                          {merlin::Aov::Depth, true},
+                          {merlin::Aov::PrimId, true},
+                          {merlin::Aov::InstanceId, true}};
+      return renderer.Resolve(renderer.Submit(request));
     };
 
     // Measures one edit scenario: the RenderWorld mutation, commit,

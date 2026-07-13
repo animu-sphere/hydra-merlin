@@ -1,5 +1,6 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
+#include <merlin/vulkan/render_artifacts.hpp>
 #include <merlin/vulkan/renderer.hpp>
 
 #include <vulkan/vulkan_core.h>
@@ -22,6 +23,7 @@ struct Arguments {
   std::filesystem::path output{"merlin.ppm"};
   std::filesystem::path metadata;
   std::filesystem::path report;
+  std::filesystem::path artifact_dir;
   std::uint32_t width{512};
   std::uint32_t height{512};
   std::uint32_t frames{3};
@@ -72,6 +74,8 @@ Arguments ParseArguments(int argc, char** argv) {
       result.metadata = require_value(argument);
     } else if (argument == "--report") {
       result.report = require_value(argument);
+    } else if (argument == "--artifact-dir") {
+      result.artifact_dir = require_value(argument);
     } else if (argument == "--width") {
       result.width = ParseUnsigned(require_value(argument), argument);
       width_explicit = true;
@@ -90,7 +94,7 @@ Arguments ParseArguments(int argc, char** argv) {
     } else if (argument == "--help") {
       std::cout
           << "Usage: merlin-headless [--output FILE] [--metadata FILE] "
-             "[--report FILE] [--width N] [--height N] [--frames N] "
+             "[--report FILE] [--artifact-dir DIR] [--width N] [--height N] [--frames N] "
              "[--validate] [--probe] [--install-tree]\n";
       std::exit(0);
     } else {
@@ -420,17 +424,39 @@ int main(int argc, char** argv) {
 
     report_phase = ReportPhase::Frame;
     merlin::vulkan::RenderResult result;
+    std::optional<merlin::vulkan::RenderResult> expected_result;
     if (!arguments.probe_only) {
       const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
       const merlin::vulkan::ShaderPaths shaders{
           executable_dir / "shaders" / "triangle.vert.spv",
           executable_dir / "shaders" / "triangle.frag.spv"};
+      merlin::vulkan::RenderRequest request;
+      request.snapshot = extractor.snapshot();
+      request.width = arguments.width;
+      request.height = arguments.height;
+      request.shaders = shaders;
+      request.products = {{merlin::Aov::Color, true},
+                          {merlin::Aov::Depth, true}};
+      if (!arguments.artifact_dir.empty()) {
+        request.products.push_back({merlin::Aov::PrimId, true});
+      }
       for (std::uint32_t frame = 0; frame < arguments.frames; ++frame) {
-        result = renderer.Render(*extractor.snapshot(), arguments.width,
-                                 arguments.height, shaders);
+        const auto completion = renderer.Submit(request);
+        result = renderer.Resolve(completion);
+        if (!expected_result) {
+          expected_result = result;
+        }
       }
       ValidateSmokeResult(result);
       WritePpm(arguments.output, result.color);
+      if (!arguments.artifact_dir.empty()) {
+        const auto artifacts = merlin::vulkan::SaveComparisonArtifacts(
+            *expected_result, result, arguments.artifact_dir);
+        if (!artifacts.matches) {
+          throw std::runtime_error(
+              "unchanged-frame comparison artifacts do not match");
+        }
+      }
       const auto statistics = renderer.statistics();
       if (statistics.scene_uploads != 1 && arguments.report.empty()) {
         throw std::runtime_error("unchanged scene was uploaded more than once");

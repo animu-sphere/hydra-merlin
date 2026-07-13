@@ -43,9 +43,34 @@ if(TARGET Merlin::Vulkan)
     PRIVATE Merlin::Vulkan)
   add_test(NAME merlin-render-product-contract
            COMMAND merlin-render-product-contract-tests)
+
+  add_executable(merlin-render-artifact-tests
+    render_artifact_test.cpp
+  )
+  target_link_libraries(merlin-render-artifact-tests
+    PRIVATE Merlin::Vulkan)
+  add_test(NAME merlin-render-artifacts
+           COMMAND merlin-render-artifact-tests
+                   "${CMAKE_CURRENT_BINARY_DIR}/render-artifacts")
 endif()
 
 if(TARGET merlin-headless)
+  add_executable(merlin-execution-lifetime-tests
+    execution_lifetime_test.cpp
+  )
+  target_link_libraries(merlin-execution-lifetime-tests
+    PRIVATE Merlin::RenderWorld Merlin::RenderExtraction Merlin::Vulkan)
+  add_test(
+    NAME merlin-vulkan-execution-lifetime
+    COMMAND merlin-execution-lifetime-tests
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+  )
+  set_tests_properties(merlin-vulkan-execution-lifetime PROPERTIES
+    LABELS "gpu;lifetime"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 60
+  )
+
   add_executable(merlin-resource-update-tests
     resource_update_test.cpp
   )
@@ -67,6 +92,7 @@ if(TARGET merlin-headless)
             --width 64
             --height 64
             --frames 6
+            --artifact-dir "${CMAKE_CURRENT_BINARY_DIR}/offscreen-artifacts"
             --output "${CMAKE_CURRENT_BINARY_DIR}/merlin-smoke.ppm"
   )
   add_test(
@@ -76,6 +102,7 @@ if(TARGET merlin-headless)
             --height 64
             --frames 64
             --validate
+            --artifact-dir "${CMAKE_CURRENT_BINARY_DIR}/validation-artifacts"
             --metadata "${CMAKE_CURRENT_BINARY_DIR}/merlin-vulkan-capabilities.json"
             --output "${CMAKE_CURRENT_BINARY_DIR}/merlin-validation.ppm"
   )
