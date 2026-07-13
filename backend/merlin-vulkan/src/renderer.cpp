@@ -85,18 +85,24 @@ void Check(VkResult result, const char* operation) {
 std::vector<std::uint32_t> ReadSpirv(const std::filesystem::path& path) {
   std::ifstream stream(path, std::ios::binary | std::ios::ate);
   if (!stream) {
-    throw std::runtime_error("could not open SPIR-V file: " + path.string());
+    throw RendererError(RendererErrorCode::InvalidRequest,
+                        "load SPIR-V shader",
+                        "could not open file: " + path.string());
   }
   const auto end = stream.tellg();
   if (end <= 0 || (end % static_cast<std::streamoff>(sizeof(std::uint32_t))) != 0) {
-    throw std::runtime_error("invalid SPIR-V file size: " + path.string());
+    throw RendererError(RendererErrorCode::InvalidRequest,
+                        "load SPIR-V shader",
+                        "file size is invalid: " + path.string());
   }
   std::vector<std::uint32_t> code(static_cast<std::size_t>(end) /
                                   sizeof(std::uint32_t));
   stream.seekg(0);
   stream.read(reinterpret_cast<char*>(code.data()), end);
   if (!stream) {
-    throw std::runtime_error("could not read SPIR-V file: " + path.string());
+    throw RendererError(RendererErrorCode::BackendFailure,
+                        "load SPIR-V shader",
+                        "could not read file: " + path.string());
   }
   return code;
 }
@@ -1986,8 +1992,11 @@ RenderResult Renderer::Render(const extraction::FrameSnapshot& snapshot,
                               std::uint32_t width, std::uint32_t height,
                               const ShaderPaths& shaders) {
   RenderRequest request;
-  request.snapshot =
-      std::make_shared<const extraction::FrameSnapshot>(snapshot);
+  // Submit consumes all snapshot CPU storage before returning. An empty-owner
+  // alias keeps the synchronous compatibility path allocation-free without
+  // weakening the owning boundary required by the asynchronous public API.
+  request.snapshot = std::shared_ptr<const extraction::FrameSnapshot>(
+      std::shared_ptr<const extraction::FrameSnapshot>{}, &snapshot);
   request.width = width;
   request.height = height;
   request.shaders = shaders;

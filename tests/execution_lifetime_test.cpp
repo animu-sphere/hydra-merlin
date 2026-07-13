@@ -77,6 +77,19 @@ int main(int argc, char** argv) {
   }
   assert(classified_unsupported);
 
+  auto missing_shader = first;
+  missing_shader.shaders.vertex =
+      shader_dir / "missing-for-error-classification.vert.spv";
+  bool classified_missing_shader{};
+  try {
+    (void)renderer->Submit(missing_shader);
+  } catch (const merlin::vulkan::RendererError& error) {
+    classified_missing_shader =
+        IsCode(error, merlin::vulkan::RendererErrorCode::InvalidRequest) &&
+        error.operation() == "load SPIR-V shader";
+  }
+  assert(classified_missing_shader);
+
   const auto first_token = renderer->Submit(first);
   assert(first_token);
 
