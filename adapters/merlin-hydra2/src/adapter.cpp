@@ -399,7 +399,17 @@ struct MeshState {
   std::vector<merlin::InstanceHandle> instances;
   merlin::MeshDescriptor mesh_descriptor;
   std::vector<merlin::InstanceDescriptor> instance_descriptors;
+  // Key into SceneBridge::materials_ for the currently bound material, or empty
+  // when the mesh uses the shared fallback material. Holds one reference.
+  std::string material_key;
   bool authored_visible{true};
+};
+
+// Shared material tracked by authored path so the render-world material and its
+// map entry are released once no mesh references it.
+struct MaterialEntry {
+  merlin::MaterialHandle handle;
+  std::size_t references{};
 };
 
 bool IsInCollection(const SdfPath& path,
@@ -459,6 +469,7 @@ class SceneBridge {
           world_.Remove(instance);
         }
         world_.Remove(found->second.mesh);
+        ReleaseMaterialLocked(found->second.material_key);
         meshes_.erase(found);
       }
       return;
@@ -468,7 +479,8 @@ class SceneBridge {
       state.mesh_descriptor = std::move(mesh);
       state.mesh = world_.CreateMesh(state.mesh_descriptor);
       state.authored_visible = visible;
-      const auto material = MaterialForPathLocked(material_path);
+      const auto material =
+          AcquireMaterialLocked(material_path, state.material_key);
       for (std::size_t i = 0; i < transforms.size(); ++i) {
         merlin::InstanceDescriptor descriptor;
         descriptor.label = key + "[" + std::to_string(i) + "]";
@@ -489,7 +501,22 @@ class SceneBridge {
       world_.UpdateMesh(state.mesh, state.mesh_descriptor, mesh_aspects);
     }
     state.authored_visible = visible;
-    const auto material = MaterialForPathLocked(material_path);
+    // Re-resolve the binding. Acquire the new material before repointing any
+    // instances and defer releasing the previous one until after the update
+    // loop, so no committed instance references a retired material handle, and
+    // an unchanged binding neither creates nor retires materials.
+    merlin::MaterialHandle material;
+    std::string released_key;
+    const std::string desired_key =
+        material_path.IsEmpty() ? std::string() : material_path.GetString();
+    if (desired_key != state.material_key) {
+      released_key = state.material_key;
+      material = AcquireMaterialLocked(material_path, state.material_key);
+    } else if (state.material_key.empty()) {
+      material = fallback_material_;
+    } else {
+      material = materials_.at(state.material_key).handle;
+    }
     while (state.instances.size() > transforms.size()) {
       world_.Remove(state.instances.back());
       state.instances.pop_back();
@@ -516,6 +543,9 @@ class SceneBridge {
                               instance_aspects);
       }
     }
+    // No-op unless the binding changed above; retires the previous material
+    // once its last referencing mesh has moved off it.
+    ReleaseMaterialLocked(released_key);
   }
 
   void RemoveMesh(const SdfPath& path) {
@@ -528,6 +558,7 @@ class SceneBridge {
       world_.Remove(instance);
     }
     world_.Remove(found->second.mesh);
+    ReleaseMaterialLocked(found->second.material_key);
     meshes_.erase(found);
   }
 
@@ -763,20 +794,45 @@ class SceneBridge {
   }
 
  private:
-  merlin::MaterialHandle MaterialForPathLocked(const SdfPath& path) {
+  // Resolves the material bound at `path`, creating it on first use, and takes
+  // one reference. `key_out` receives the tracking key to pass back to
+  // ReleaseMaterialLocked (empty for the untracked fallback material).
+  merlin::MaterialHandle AcquireMaterialLocked(const SdfPath& path,
+                                               std::string& key_out) {
     if (path.IsEmpty()) {
+      key_out.clear();
       return fallback_material_;
     }
-    const auto key = path.GetString();
-    const auto found = materials_.find(key);
-    if (found != materials_.end()) {
-      return found->second;
+    auto key = path.GetString();
+    auto found = materials_.find(key);
+    if (found == materials_.end()) {
+      merlin::MaterialDescriptor descriptor;
+      descriptor.label = key;
+      found = materials_
+                  .emplace(key, MaterialEntry{
+                                    world_.CreateMaterial(std::move(descriptor)),
+                                    0})
+                  .first;
     }
-    merlin::MaterialDescriptor descriptor;
-    descriptor.label = key;
-    const auto handle = world_.CreateMaterial(std::move(descriptor));
-    materials_.emplace(key, handle);
-    return handle;
+    ++found->second.references;
+    key_out = std::move(key);
+    return found->second.handle;
+  }
+
+  // Drops one reference to a tracked material, retiring the render-world
+  // resource and map entry once the last mesh releases it.
+  void ReleaseMaterialLocked(const std::string& key) {
+    if (key.empty()) {
+      return;
+    }
+    const auto found = materials_.find(key);
+    if (found == materials_.end()) {
+      return;
+    }
+    if (--found->second.references == 0) {
+      world_.Remove(found->second.handle);
+      materials_.erase(found);
+    }
   }
 
   merlin::CameraHandle SyncCameraLocked(const std::string& key,
@@ -813,7 +869,7 @@ class SceneBridge {
   merlin::RenderSettingsHandle render_settings_;
   merlin::RenderSettingsDescriptor render_settings_descriptor_;
   std::unordered_map<std::string, MeshState> meshes_;
-  std::unordered_map<std::string, merlin::MaterialHandle> materials_;
+  std::unordered_map<std::string, MaterialEntry> materials_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
 };
 
@@ -1062,11 +1118,16 @@ class HdMerlinMesh final : public HdMesh {
 
  private:
   void RebuildMesh(HdSceneDelegate* delegate) {
-    descriptor_.positions.clear();
-    descriptor_.normals.clear();
-    descriptor_.colors.clear();
-    descriptor_.texcoords.clear();
-    descriptor_.indices.clear();
+    // Clears every packed vertex array so a partially built mesh never leaves
+    // stale normals/colors/texcoords behind on an error return.
+    const auto reset = [&] {
+      descriptor_.positions.clear();
+      descriptor_.normals.clear();
+      descriptor_.colors.clear();
+      descriptor_.texcoords.clear();
+      descriptor_.indices.clear();
+    };
+    reset();
 
     std::vector<GfVec3d> points;
     const auto authored_points = GetPoints(delegate);
@@ -1113,8 +1174,7 @@ class HdMerlinMesh final : public HdMesh {
               authored_indices.size() - offset) {
         TF_WARN("Merlin mesh %s face %u has malformed vertex count %d",
                 GetId().GetText(), face_index, count);
-        descriptor_.positions.clear();
-        descriptor_.indices.clear();
+        reset();
         return;
       }
       if (!holes.contains(face_index)) {
@@ -1126,8 +1186,7 @@ class HdMerlinMesh final : public HdMesh {
           if (point < 0 || static_cast<std::size_t>(point) >= points.size()) {
             TF_WARN("Merlin mesh %s face %u references invalid point %d",
                     GetId().GetText(), face_index, point);
-            descriptor_.positions.clear();
-            descriptor_.indices.clear();
+            reset();
             return;
           }
           face_points.push_back(static_cast<std::uint32_t>(point));
@@ -1137,8 +1196,7 @@ class HdMerlinMesh final : public HdMesh {
         if (triangles.empty()) {
           TF_WARN("Merlin mesh %s face %u: %s", GetId().GetText(),
                   face_index, diagnostic.c_str());
-          descriptor_.positions.clear();
-          descriptor_.indices.clear();
+          reset();
           return;
         }
         for (const auto& triangle : triangles) {
@@ -1161,8 +1219,7 @@ class HdMerlinMesh final : public HdMesh {
             if (normals.present && !ReadVec3(normals, corner, normal)) {
               TF_WARN("Merlin mesh %s has malformed normals primvar",
                       GetId().GetText());
-              descriptor_.positions.clear();
-              descriptor_.indices.clear();
+              reset();
               return;
             }
             const float length = std::sqrt(normal.x * normal.x +
@@ -1179,8 +1236,7 @@ class HdMerlinMesh final : public HdMesh {
             if (colors.present && !ReadVec3(colors, corner, rgb)) {
               TF_WARN("Merlin mesh %s has malformed displayColor primvar",
                       GetId().GetText());
-              descriptor_.positions.clear();
-              descriptor_.indices.clear();
+              reset();
               return;
             }
             if (colors.present) {
@@ -1192,8 +1248,7 @@ class HdMerlinMesh final : public HdMesh {
                 !ReadFloat(opacities, corner, color.w)) {
               TF_WARN("Merlin mesh %s has malformed displayOpacity primvar",
                       GetId().GetText());
-              descriptor_.positions.clear();
-              descriptor_.indices.clear();
+              reset();
               return;
             }
             color.w = std::clamp(color.w, 0.0F, 1.0F);
@@ -1202,8 +1257,7 @@ class HdMerlinMesh final : public HdMesh {
             if (texcoords.present && !ReadVec2(texcoords, corner, texcoord)) {
               TF_WARN("Merlin mesh %s has malformed texture coordinate primvar",
                       GetId().GetText());
-              descriptor_.positions.clear();
-              descriptor_.indices.clear();
+              reset();
               return;
             }
             descriptor_.texcoords.push_back(texcoord);
@@ -1215,8 +1269,7 @@ class HdMerlinMesh final : public HdMesh {
       offset += static_cast<std::size_t>(count);
     }
     if (offset != authored_indices.size()) {
-      descriptor_.positions.clear();
-      descriptor_.indices.clear();
+      reset();
       TF_WARN("Merlin mesh %s has trailing face-vertex indices",
               GetId().GetText());
     }
