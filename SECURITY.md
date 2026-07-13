@@ -2,16 +2,14 @@
 
 ## Supported versions
 
-hdMerlin has not published its first release. Until v0.1.0 ships, `main` is a
-development snapshot supported on a best-effort basis. After releases begin,
-security fixes will land on `main` and in the latest release; no long-term
+Security fixes land on `main` and in the latest stable release; no long-term
 support branches are currently planned.
 
 | Version | Supported |
 | --- | --- |
-| `main` before v0.1.0 | Best effort |
-| latest release | Yes |
-| older releases | No; upgrade to latest |
+| `main` | Best effort |
+| latest stable release | Yes |
+| older stable releases | No; upgrade to latest |
 
 ## Reporting a vulnerability
 

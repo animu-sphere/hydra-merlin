@@ -6,7 +6,7 @@ Ordered but unscheduled work. The next release and active carry-over work are in
 
 Legend: ⬜ not started
 
-## Milestone ladder beyond the current milestone
+## Milestone ladder
 
 - ⬜ **v0.5.0 — MaterialIR and basic shading.** Introduce host-neutral graph
   identity, parameter blocks, texture/sampler bindings, alpha mode, and

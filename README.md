@@ -105,7 +105,7 @@ RenderBuffer-to-Hgi upload path.
 
 ## Current limitations
 
-The foundation release intentionally does not provide:
+The current renderer intentionally does not provide:
 
 - MaterialX loading, graph translation, or authored Hydra material-network
   shading; authored binding identity is retained but currently uses the basic
