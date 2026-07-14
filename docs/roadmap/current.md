@@ -26,6 +26,9 @@ work from common Hydra changes.
 - Cache primvar descriptors, normalized/indexed primvars, and triangulation;
   track changed ranges so unchanged mesh payload is neither fetched nor
   uploaded.
+- Preserve distinct topology, points, primvar, material-partition, instance,
+  transform, and visibility revisions so later GPU Scene and derived-meshlet
+  invalidation does not require Hydra state inside the renderer backend.
 - Emit actionable diagnostics for unsupported or lossy Hydra data instead of
   silently rebuilding or dropping it.
 - Study ingestion of the existing OpenUSD Gaussian representation through

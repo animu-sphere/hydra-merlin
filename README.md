@@ -131,6 +131,8 @@ The current renderer intentionally does not yet provide:
 
 - MaterialX loading or general graph translation beyond the basic
   `UsdPreviewSurface` subset;
+- bindless GPU Scene tables, GPU-driven indexed submission, an opaque
+  Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
 - advanced viewport features such as alpha blending, dome lighting, shadows,
   selection, or production culling;
 - Vulkan/Hgi external-memory or other zero-copy GPU presentation; Hydra uses
@@ -145,11 +147,15 @@ The Unreleased v0.5.1 measurement foundation makes Hydra, Merlin, Vulkan,
 readback, host upload, and presentation costs separately observable. The active
 v0.6.0 path now delivers incremental Hydra sync, then completes the
 persistent Mesh/Gaussian resource model, adds a native Vulkan viewport, and
-establishes Gaussian rendering before GPU-driven optimization. MaterialX and
-lower-copy presentation remain later evidence-gated milestones. Tier 0 CPU
-readback remains the correctness and fallback path throughout. See the [current
-milestone](docs/roadmap/current.md) and [ordered backlog](docs/roadmap/backlog.md)
-for scope and exit criteria.
+establishes Gaussian rendering before GPU-driven optimization. The Mesh path
+then advances through bindless resource identity, GPU-driven indexed Forward,
+an experimental opaque Visibility Buffer, MaterialX quality, static meshlets,
+and only then an optional Mesh Shader/Hi-Z/LOD backend. Lower-copy presentation
+remains evidence-gated, Forward remains the rendering reference/fallback, and
+Tier 0 CPU readback remains the presentation correctness/fallback path. See the
+[current milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
+and [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md) for scope,
+dependencies, and exit criteria.
 
 Gaussian support will consume the standard Gaussian representation exposed by
 OpenUSD through Hydra. hdMerlin will not define a renderer-specific USD schema
@@ -227,6 +233,7 @@ readback without owning a native window or swapchain.
 - [Delivery history](docs/reports/delivery-history.md)
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
+- [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md)
 - [Execution and render-product lifetime](docs/design/execution-lifetime.md)
 - [OpenStrata project layout](docs/design/openstrata-project.md)
 - [Historical OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)

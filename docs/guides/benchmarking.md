@@ -95,6 +95,46 @@ pipeline creation.
 Field names, units, fixture order, and integer formatting are deterministic.
 Timing values are not.
 
+## GPU-driven roadmap evidence
+
+The following are planned benchmark contracts, not currently selectable v3
+fixtures or counters. Each is added with the milestone that implements the
+corresponding path, while the existing Forward fixtures remain the baseline.
+The detailed delivery gates are defined in the
+[GPU-driven rendering policy](../design/gpu-driven-rendering.md).
+
+| Planned fixture | Content | Primary decision |
+| --- | --- | --- |
+| `gpu-driven-small-objects` | Many shared small meshes, hundreds of thousands of instances, materials, and textures | Bindless update scaling, CPU submission slope, instance/draw compaction |
+| `visibility-bandwidth` | High resolution, material-heavy opaque Mesh, UV seams, primitive boundaries, and controlled overdraw | Visibility raster/resolve cost and bandwidth against Forward |
+| `meshlet-large-static` | Tens of millions of static triangles with substantial off-screen area | Meshlet build/cache cost, fine-culling rejection, emitted-triangle reduction |
+| `occlusion-heavy` | Urban/interior layers and repeatable camera cuts | Hi-Z rejection, conservative history reset, visibility stability |
+| `dynamic-geometry` | Transform, material, texture replacement, points deformation, and topology update phases | Dirty upload/descriptor retirement, rebuild cost, and fallback behavior |
+| `mixed-path` | Opaque, alpha-mask, transparent, Gaussian, selection, and overlay content | Specialized-path composition and depth/color/identity conventions |
+
+Planned structural/timing evidence is introduced in the same order as the
+implementation:
+
+- Bindless reports current/peak/capacity slots, allocation/retirement,
+  descriptor writes, exhaustion/fallback, material descriptor binds, and update
+  time. Static frames perform zero descriptor work; changes scale with changed
+  resources.
+- GPU-driven indexed rendering reports candidate/visible draws, rejection by
+  enabled stage, generated indirect commands, command-generation/culling time,
+  and CPU command-recording slope with increasing draw count.
+- Visibility reports selected derivative mode, visibility-raster and material-
+  resolve time separately, supported/fallback draw counts, and Forward
+  differential-image metadata for each material feature.
+- Meshlets report build/cache/invalidation time, total/visible meshlets,
+  frustum/cone/occlusion/LOD rejection, emitted triangles, selected indexed or
+  Mesh Shader backend, and conventional fallback counts.
+
+Path-on/path-off comparisons use the same scene, camera, resolution, AOVs,
+warm-up, and frame count. A faster result is not accepted when ID mapping,
+Forward differential images, fallback composition, or resource-lifetime tests
+fail. Mesh Shader automatic selection requires a repeatable win for the named
+GPU/driver profile and never weakens the indexed-indirect fallback.
+
 ## Comparing reports
 
 ```powershell
