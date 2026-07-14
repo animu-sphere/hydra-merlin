@@ -1537,6 +1537,10 @@ class Renderer::Impl {
     };
     std::vector<Upload> uploads;
     VkDeviceSize staging_bytes{};
+    // Partial copies overwrite the resident range, so they are safe only after
+    // every submission that could reference that generation has completed.
+    const bool resident_ranges_reusable =
+        latest_completed_value_ >= timeline_value_;
     for (const auto& geometry : snapshot.geometries) {
       const auto [entry, inserted] = geometry_slots_.try_emplace(geometry.mesh);
       auto& slot = entry->second;
@@ -1556,7 +1560,8 @@ class Renderer::Impl {
           geometry.indices->size() * sizeof(std::uint32_t));
       if (upload.vertices) {
         upload.partial_vertices =
-            !inserted && slot.vertex_revision == geometry.vertex_base_revision &&
+            resident_ranges_reusable && !inserted &&
+            slot.vertex_revision == geometry.vertex_base_revision &&
             !geometry.vertex_ranges.empty() && slot.vertices.valid() &&
             slot.vertices.size ==
                 AlignUp(upload.vertex_bytes, kArenaAlignment);
@@ -1573,7 +1578,7 @@ class Renderer::Impl {
       }
       if (upload.indices) {
         upload.partial_indices =
-            !inserted &&
+            resident_ranges_reusable && !inserted &&
             slot.topology_revision == geometry.index_base_revision &&
             !geometry.index_ranges.empty() && slot.indices.valid() &&
             slot.indices.size == AlignUp(upload.index_bytes, kArenaAlignment);
