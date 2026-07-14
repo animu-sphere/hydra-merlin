@@ -17,7 +17,11 @@ string(JSON _packaging_contract GET "${_merlin_metadata}"
 string(JSON _exported_target_count LENGTH "${_merlin_metadata}"
        packaging exported_targets)
 string(JSON _runtime_product_count LENGTH "${_merlin_metadata}"
-       packaging runtime_products)
+  packaging runtime_products)
+string(JSON _openusd_validated GET "${_merlin_metadata}"
+  requirements openusd validated)
+string(JSON _openusd_detected GET "${_merlin_metadata}"
+  requirements openusd detected)
 
 if(NOT _schema STREQUAL "animu-sphere.hdmerlin.release-metadata" OR
    NOT _schema_version EQUAL 1)
@@ -59,6 +63,10 @@ else()
 endif()
 
 if(MERLIN_EXPECTED_HYDRA2)
+  if(NOT _openusd_detected STREQUAL _openusd_validated)
+    message(FATAL_ERROR
+      "Hydra metadata OpenUSD ${_openusd_detected} != validated ${_openusd_validated}")
+  endif()
   if(NOT _runtime_product_count EQUAL 3)
     message(FATAL_ERROR "Hydra metadata must list three runtime products")
   endif()

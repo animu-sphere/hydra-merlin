@@ -77,8 +77,13 @@ cmake --build build-hydra2 --config Release --parallel
 ctest --test-dir build-hydra2 -C Release --output-on-failure
 ```
 
-The OpenUSD build configuration and C++ runtime ABI must match the consumer.
-Automatic configure-time ABI checks are not implemented yet.
+The Hydra configuration accepts the validated OpenUSD 26.05 shared SDK and
+records its detected header version in release metadata. It rejects other
+versions/layouts. On MSVC, a Debug hdMerlin build is also rejected when the SDK
+exports only Release libraries; use `--config Release` or provide a matching
+Debug OpenUSD SDK. Compiler/toolset ABI compatibility still has to match the
+consumer, and the discovery/usdview tests must run against the same runtime
+root used at configure time.
 
 ## Install
 

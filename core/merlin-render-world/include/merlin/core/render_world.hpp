@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <vector>
 
 #include <merlin/core/change_set.hpp>
 #include <merlin/core/types.hpp>
@@ -29,7 +31,9 @@ class RenderWorld {
 
   void UpdateMesh(
       MeshHandle handle, MeshDescriptor descriptor,
-      ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Mesh));
+      ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Mesh),
+      std::optional<std::vector<ElementRange>> vertex_ranges = std::nullopt,
+      std::optional<std::vector<ElementRange>> index_ranges = std::nullopt);
   void UpdateMaterial(
       MaterialHandle handle, MaterialDescriptor descriptor,
       ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Material));

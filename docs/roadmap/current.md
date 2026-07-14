@@ -7,48 +7,40 @@ recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone
 
-### 🚧 v0.6.0 — Incremental Hydra sync
+### 🚧 v0.7.0 — Persistent RenderWorld and GPU residency
 
-**Objective:** make camera and localized scene edits scale with the changed
-data instead of the total Hydra scene while preserving the v0.5.1 performance
-evidence and host-neutral Core boundary.
+**Objective:** make static and localized Mesh/Gaussian scene work scale with
+changed resources rather than total prim count while keeping resource identity
+stable across frames.
 
-v0.5.1 separates delegate, scene-index, RenderWorld, extraction, Vulkan,
-readback, host upload, composite, and presentation costs. This milestone uses
-that evidence to remove redundant fetch, normalization, snapshot, and upload
-work from common Hydra changes.
+v0.6.0 established locator-aware Hydra ingestion, resource-granular revisions,
+changed ranges, and safe partial upload. This milestone extends those contracts
+through persistent RenderWorld snapshots and bindless GPU residency.
 
 #### Scope
 
-- Separate dirty locator/bit processing and retain persistent
-  USD-path-to-Merlin state across Sync calls.
-- Add transform-only, visibility-only, and material-parameter-only fast paths.
-- Cache primvar descriptors, normalized/indexed primvars, and triangulation;
-  track changed ranges so unchanged mesh payload is neither fetched nor
-  uploaded.
-- Preserve distinct topology, points, primvar, material-partition, instance,
-  transform, and visibility revisions so later GPU Scene and derived-meshlet
-  invalidation does not require Hydra state inside the renderer backend.
-- Emit actionable diagnostics for unsupported or lossy Hydra data instead of
-  silently rebuilding or dropping it.
-- Study ingestion of the existing OpenUSD Gaussian representation through
-  Hydra without adding a renderer-specific USD schema, prim type, attribute
-  contract, or direct PLY/SPLAT parser.
-- Preserve the v0.5.1 stage reports, structural gates, and capability artifacts
-  as the optimization evidence.
+- Add persistent bindless resource tables with generation-safe stable handles
+  and descriptor slots, safe fallback texture slots, sampler deduplication, and
+  a conventional descriptor fallback when required capabilities are absent.
+- Add dirty queues, changed ranges, incremental snapshots, structural sharing,
+  and completion-safe delayed retirement.
+- Add persistent Mesh and Gaussian arenas, a mapped upload ring, asynchronous
+  transfer, and explicit VRAM-budget evidence.
+- Probe and report descriptor-indexing features, limits, and selected fallback
+  behavior in versioned capability artifacts.
 
 #### Exit criteria
 
-- Camera-only updates perform zero geometry, topology, primvar, and
-  Gaussian-attribute fetch or upload and zero pipeline creation.
-- Transform-only, visibility-only, and material-parameter-only changes avoid
-  unrelated mesh fetch, normalization, triangulation, and upload.
-- Cached primvar/topology state is invalidated by the relevant dirty locators or
-  bits and remains correct across removal and re-addition.
-- Unsupported data produces versioned, actionable diagnostics with a named
-  fallback or rejection.
-- The Gaussian study records a supported integration boundary and evidence;
-  any adapter remains outside the renderer-neutral Core model.
+- Static snapshot cost no longer scales with total prim count, and changing 100
+  resources in a one-million-prim scene scales approximately with those
+  changes.
+- Unchanged GPU resource addresses, handles, and descriptor indices remain
+  stable; stale generations are detectable and texture replacement is safe
+  across frames in flight.
+- Bindless Forward matches the reference image, while descriptor work scales
+  with changed resources rather than materials or draws.
+- Steady state performs zero upload, allocation, descriptor allocation/update,
+  shader compilation, pipeline creation, and CPU wait for GPU.
 
 ## Active carry-over
 
@@ -58,5 +50,3 @@ work from common Hydra changes.
   images, benchmark output, Hydra discovery, RenderBuffer, and usdview results
   as comparable artifacts rather than reducing capability jobs to a binary
   pass/fail signal.
-- Add a host-neutral diagnostic sink and actionable OpenUSD build/runtime
-  compatibility checks before the first DCC integration milestone.

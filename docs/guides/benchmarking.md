@@ -161,7 +161,7 @@ schema, exit criteria, and self-comparison in CTest.
 
 The install-tree usdview test retains three related artifacts:
 
-- `merlin-regression.log`: per-render version-3 event rows;
+- `merlin-regression.log`: per-render version-4 event rows;
 - `merlin-hydra-performance.json`: phase summaries;
 - `merlin-usdview-trace.json`: the raw OpenUSD Chrome trace.
 
@@ -174,8 +174,19 @@ are summed per presented host frame and marked with
 samples. Every stage also carries an `available` flag; an unavailable host
 scope remains explicit rather than being reported as a zero-duration operation.
 
-The camera phase asserts zero mesh Sync, points/topology/primvar fetch, geometry
-upload, geometry-cache miss, and pipeline creation. The static phase asserts
-zero upload, allocation, shader-module miss, geometry-cache miss, and pipeline
-creation. The capability workflow retains benchmark JSON/comparisons, Hydra
-JSON/log/trace, images, validation logs, and dependency/runtime provenance.
+The phases are `baseline`, `points`, `topology`, `primvar`, `transform`,
+`visibility`, `camera`, `material_parameter`, `diagnostic`, `recovery`,
+`remove`, `readd`, and `resize`. Version 4 adds triangulation/packed-mesh
+rebuild, changed-vertex, coarse-primvar-invalidation, and diagnostic counters.
+
+Camera, transform, visibility, and material-parameter phases assert zero
+unrelated mesh fetch, normalization, triangulation, and upload. Camera also
+asserts zero pipeline creation. The primvar phase records OpenUSD 26.05's
+coarse `primvars` locator, value-compares the fetched semantics, avoids
+triangulation, and requires upload bytes to equal the changed packed-vertex
+ranges. Static baseline still asserts zero upload, allocation, shader-module
+miss, geometry-cache miss, and pipeline creation. Diagnostic/recovery verifies
+the versioned unsupported-topology path, while remove/readd verifies that path
+caches and generations do not survive Rprim lifetime. The capability workflow
+retains benchmark JSON/comparisons, Hydra JSON/log/trace, images, validation
+logs, and dependency/runtime provenance.

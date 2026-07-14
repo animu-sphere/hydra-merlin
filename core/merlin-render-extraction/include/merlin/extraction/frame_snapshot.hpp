@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include <merlin/core/change_set.hpp>
 #include <merlin/core/types.hpp>
 
 namespace merlin::extraction {
@@ -24,11 +25,21 @@ struct DrawVertex {
 
 struct GeometryRecord {
   std::uint64_t mesh{};
-  // Vertex and index payloads carry independent revisions so consumers can
-  // transfer only the sub-resource that actually changed.
-  // The packed vertex payload changes for point or primvar edits.
+  // Source aspects retain independent revisions. The packed vertex payload
+  // changes when either points_revision or primvar_revision changes.
   std::uint64_t points_revision{};
+  std::uint64_t primvar_revision{};
   std::uint64_t topology_revision{};
+  std::uint64_t material_partition_revision{};
+  std::uint64_t vertex_revision{};
+  std::uint64_t index_revision{};
+  // Ranges are relative to the matching base revision. A consumer may apply
+  // them only when its resident revision equals the base; otherwise it must
+  // fall back to the complete immutable payload.
+  std::uint64_t vertex_base_revision{};
+  std::uint64_t index_base_revision{};
+  std::vector<ElementRange> vertex_ranges;
+  std::vector<ElementRange> index_ranges;
   std::shared_ptr<const std::vector<DrawVertex>> vertices;
   std::shared_ptr<const std::vector<std::uint32_t>> indices;
   bool has_normals{};
@@ -87,6 +98,9 @@ struct MaterialFallbackRecord {
 struct InstanceRecord {
   std::uint64_t instance{};
   std::uint64_t revision{};
+  std::uint64_t transform_revision{};
+  std::uint64_t visibility_revision{};
+  std::uint64_t material_binding_revision{};
   std::uint64_t mesh{};
   std::uint64_t material{};
   Mat4 transform;

@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -201,6 +202,63 @@ void ValidateChangeAspects(ObjectKind kind, ChangeAspect aspects) {
   }
 }
 
+std::vector<ElementRange> NormalizeRanges(std::vector<ElementRange> ranges,
+                                          std::size_t element_count,
+                                          const char* label) {
+  for (const auto& range : ranges) {
+    if (range.count == 0U || range.first > element_count ||
+        range.count > element_count - range.first) {
+      throw std::invalid_argument(std::string(label) +
+                                  " change range is out of bounds");
+    }
+  }
+  std::sort(ranges.begin(), ranges.end(),
+            [](const ElementRange& lhs, const ElementRange& rhs) {
+              return lhs.first < rhs.first;
+            });
+  std::vector<ElementRange> normalized;
+  for (const auto& range : ranges) {
+    if (normalized.empty()) {
+      normalized.push_back(range);
+      continue;
+    }
+    auto& previous = normalized.back();
+    const auto previous_end = previous.first + previous.count;
+    const auto range_end = range.first + range.count;
+    if (range.first <= previous_end) {
+      previous.count = std::max(previous_end, range_end) - previous.first;
+    } else {
+      normalized.push_back(range);
+    }
+  }
+  return normalized;
+}
+
+void MergeKnownRanges(std::vector<ElementRange>& destination,
+                      const std::vector<ElementRange>& source) {
+  destination.insert(destination.end(), source.begin(), source.end());
+  std::sort(destination.begin(), destination.end(),
+            [](const ElementRange& lhs, const ElementRange& rhs) {
+              return lhs.first < rhs.first;
+            });
+  std::vector<ElementRange> merged;
+  for (const auto& range : destination) {
+    if (merged.empty()) {
+      merged.push_back(range);
+      continue;
+    }
+    auto& previous = merged.back();
+    const auto previous_end = previous.first + previous.count;
+    const auto range_end = range.first + range.count;
+    if (range.first <= previous_end) {
+      previous.count = std::max(previous_end, range_end) - previous.first;
+    } else {
+      merged.push_back(range);
+    }
+  }
+  destination = std::move(merged);
+}
+
 }  // namespace
 
 class RenderWorld::Impl {
@@ -210,7 +268,8 @@ class RenderWorld::Impl {
                     Descriptor descriptor) {
     auto handle = store.Create(std::move(descriptor));
     pending.push_back({kind, ChangeKind::Created, handle.value(),
-                       DefaultChangeAspects(kind), store.Revision(handle)});
+                       DefaultChangeAspects(kind), store.Revision(handle),
+                       false, false, {}, {}});
     return handle;
   }
 
@@ -221,7 +280,7 @@ class RenderWorld::Impl {
     ValidateChangeAspects(kind, aspects);
     const auto resource_revision = store.Update(handle, std::move(descriptor));
     pending.push_back({kind, ChangeKind::Updated, handle.value(), aspects,
-                       resource_revision});
+                       resource_revision, false, false, {}, {}});
   }
 
   template <typename Descriptor, typename HandleType>
@@ -229,7 +288,8 @@ class RenderWorld::Impl {
               HandleType handle) {
     const auto resource_revision = store.Remove(handle);
     pending.push_back({kind, ChangeKind::Removed, handle.value(),
-                       DefaultChangeAspects(kind), resource_revision});
+                       DefaultChangeAspects(kind), resource_revision, false,
+                       false, {}, {}});
   }
 
   Store<MeshDescriptor, MeshHandle> meshes;
@@ -295,9 +355,51 @@ RenderSettingsHandle RenderWorld::CreateRenderSettings(
 }
 
 void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
-                             ChangeAspect aspects) {
+                             ChangeAspect aspects,
+                             std::optional<std::vector<ElementRange>> vertex_ranges,
+                             std::optional<std::vector<ElementRange>> index_ranges) {
   ValidateMesh(d);
-  impl_->Update(impl_->meshes, ObjectKind::Mesh, h, std::move(d), aspects);
+  const auto& previous = impl_->meshes.Get(h);
+  const auto vertex_aspects = ChangeAspect::Points | ChangeAspect::Primvars |
+                              ChangeAspect::VertexLayout;
+  if (vertex_ranges && !HasAnyAspect(aspects, vertex_aspects)) {
+    throw std::invalid_argument(
+        "vertex change ranges require a vertex-payload aspect");
+  }
+  if (index_ranges && !HasAnyAspect(aspects, ChangeAspect::Topology)) {
+    throw std::invalid_argument(
+        "index change ranges require the topology aspect");
+  }
+  if (vertex_ranges) {
+    const bool shape_changed =
+        previous.positions.size() != d.positions.size() ||
+        previous.normals.size() != d.normals.size() ||
+        previous.colors.size() != d.colors.size() ||
+        previous.texcoords.size() != d.texcoords.size();
+    if (shape_changed) {
+      vertex_ranges.reset();
+    } else {
+      *vertex_ranges = NormalizeRanges(std::move(*vertex_ranges),
+                                       d.positions.size(), "vertex");
+    }
+  }
+  if (index_ranges) {
+    if (previous.indices.size() != d.indices.size()) {
+      index_ranges.reset();
+    } else {
+      *index_ranges = NormalizeRanges(std::move(*index_ranges),
+                                      d.indices.size(), "index");
+    }
+  }
+  ValidateChangeAspects(ObjectKind::Mesh, aspects);
+  const auto resource_revision = impl_->meshes.Update(h, std::move(d));
+  impl_->pending.push_back({ObjectKind::Mesh, ChangeKind::Updated, h.value(),
+                            aspects, resource_revision,
+                            vertex_ranges.has_value(), index_ranges.has_value(),
+                            vertex_ranges ? std::move(*vertex_ranges)
+                                          : std::vector<ElementRange>{},
+                            index_ranges ? std::move(*index_ranges)
+                                         : std::vector<ElementRange>{}});
 }
 void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d,
                                  ChangeAspect aspects) {
@@ -403,6 +505,35 @@ ChangeSet RenderWorld::Commit() {
     if (existing == compact.end()) {
       compact.push_back(change);
       continue;
+    }
+    const auto old_aspects = existing->aspects;
+    const auto vertex_aspects = ChangeAspect::Points | ChangeAspect::Primvars |
+                                ChangeAspect::VertexLayout;
+    if (HasAnyAspect(change.aspects, vertex_aspects)) {
+      if (HasAnyAspect(old_aspects, vertex_aspects)) {
+        if (existing->vertex_ranges_known && change.vertex_ranges_known) {
+          MergeKnownRanges(existing->vertex_ranges, change.vertex_ranges);
+        } else {
+          existing->vertex_ranges_known = false;
+          existing->vertex_ranges.clear();
+        }
+      } else {
+        existing->vertex_ranges_known = change.vertex_ranges_known;
+        existing->vertex_ranges = change.vertex_ranges;
+      }
+    }
+    if (change.HasAspect(ChangeAspect::Topology)) {
+      if (HasAnyAspect(old_aspects, ChangeAspect::Topology)) {
+        if (existing->index_ranges_known && change.index_ranges_known) {
+          MergeKnownRanges(existing->index_ranges, change.index_ranges);
+        } else {
+          existing->index_ranges_known = false;
+          existing->index_ranges.clear();
+        }
+      } else {
+        existing->index_ranges_known = change.index_ranges_known;
+        existing->index_ranges = change.index_ranges;
+      }
     }
     existing->aspects |= change.aspects;
     existing->resource_revision = change.resource_revision;

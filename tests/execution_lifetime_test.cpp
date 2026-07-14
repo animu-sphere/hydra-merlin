@@ -12,6 +12,8 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -96,7 +98,11 @@ int main(int argc, char** argv) {
   // Record an edited scene while the first frame can still read the old
   // geometry range. The backend must version the range instead of overwriting
   // it in place.
-  world.UpdateMesh(mesh, Triangle(0.25F), merlin::ChangeAspect::Points);
+  auto edited_triangle = Triangle(-0.25F);
+  edited_triangle.positions[0].x += 0.5F;
+  world.UpdateMesh(mesh, std::move(edited_triangle),
+                   merlin::ChangeAspect::Points,
+                   std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   merlin::vulkan::RenderRequest second = first;
   second.snapshot = extractor.snapshot();
@@ -118,6 +124,9 @@ int main(int argc, char** argv) {
   assert(second_result.scene_revision == second.snapshot->revision);
   assert(second_result.cpu_readback_aovs.empty());
   assert(second_result.counters.readback_bytes == 0);
+  assert(second_result.counters.upload_bytes ==
+         3U * sizeof(merlin::extraction::DrawVertex));
+  assert(second_result.counters.buffer_suballocation_count == 1);
   assert(second_result.color.pixels.empty());
 
   assert(renderer->IsComplete(first_token));

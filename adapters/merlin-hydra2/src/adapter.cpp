@@ -16,20 +16,27 @@
 #include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
+#include <pxr/imaging/hd/dataSourceLocator.h>
 #include <pxr/imaging/hd/instancer.h>
 #include <pxr/imaging/hd/light.h>
 #include <pxr/imaging/hd/material.h>
 #include <pxr/imaging/hd/mesh.h>
 #include <pxr/imaging/hd/meshTopology.h>
+#include <pxr/imaging/hd/meshSchema.h>
+#include <pxr/imaging/hd/primvarsSchema.h>
+#include <pxr/imaging/hd/primvarSchema.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/renderPassState.h>
 #include <pxr/imaging/hd/resourceRegistry.h>
+#include <pxr/imaging/hd/sceneIndex.h>
+#include <pxr/imaging/hd/sceneIndexObserver.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hio/image.h>
 #include <pxr/usd/sdf/assetPath.h>
 
 #include <merlin/core/render_world.hpp>
+#include <merlin/core/diagnostic.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
 
@@ -60,6 +67,16 @@
 #include <unordered_set>
 #include <utility>
 
+#ifndef MERLIN_OPENUSD_VALIDATED_PXR_VERSION
+#error "hdMerlin requires the configured OpenUSD compatibility contract"
+#elif PXR_VERSION != MERLIN_OPENUSD_VALIDATED_PXR_VERSION
+#error "hdMerlin was compiled with an OpenUSD header different from the configured SDK"
+#endif
+
+#ifdef MERLIN_OPENUSD_RELEASE_ONLY
+#error "hdMerlin Debug requires Debug OpenUSD libraries; use Release or a matching Debug OpenUSD SDK"
+#endif
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {
@@ -88,6 +105,11 @@ struct HydraTelemetrySnapshot {
   std::uint64_t primvar_descriptor_fetch_count{};
   std::uint64_t primvar_fetch_count{};
   std::uint64_t material_fetch_count{};
+  std::uint64_t triangulation_rebuild_count{};
+  std::uint64_t packed_mesh_rebuild_count{};
+  std::uint64_t changed_vertex_count{};
+  std::uint64_t diagnostic_count{};
+  std::uint64_t coarse_primvar_invalidation_count{};
 };
 
 struct HydraTelemetry {
@@ -105,6 +127,11 @@ struct HydraTelemetry {
   std::atomic<std::uint64_t> primvar_descriptor_fetch_count{};
   std::atomic<std::uint64_t> primvar_fetch_count{};
   std::atomic<std::uint64_t> material_fetch_count{};
+  std::atomic<std::uint64_t> triangulation_rebuild_count{};
+  std::atomic<std::uint64_t> packed_mesh_rebuild_count{};
+  std::atomic<std::uint64_t> changed_vertex_count{};
+  std::atomic<std::uint64_t> diagnostic_count{};
+  std::atomic<std::uint64_t> coarse_primvar_invalidation_count{};
 
   HydraTelemetrySnapshot Consume() {
     const auto take = [](std::atomic<std::uint64_t>& value) {
@@ -123,11 +150,156 @@ struct HydraTelemetry {
             take(topology_fetch_count),
             take(primvar_descriptor_fetch_count),
             take(primvar_fetch_count),
-            take(material_fetch_count)};
+            take(material_fetch_count),
+            take(triangulation_rebuild_count),
+            take(packed_mesh_rebuild_count),
+            take(changed_vertex_count),
+            take(diagnostic_count),
+            take(coarse_primvar_invalidation_count)};
   }
 };
 
 HydraTelemetry g_hydra_telemetry;
+
+const char* DiagnosticDispositionName(
+    merlin::DiagnosticDisposition disposition) {
+  switch (disposition) {
+    case merlin::DiagnosticDisposition::Fallback:
+      return "fallback";
+    case merlin::DiagnosticDisposition::Rejected:
+      return "rejected";
+    case merlin::DiagnosticDisposition::Ignored:
+      return "ignored";
+  }
+  return "rejected";
+}
+
+class HydraDiagnosticSink final : public merlin::DiagnosticSink {
+ public:
+  void Report(const merlin::Diagnostic& diagnostic) override {
+    g_hydra_telemetry.diagnostic_count.fetch_add(
+        1, std::memory_order_relaxed);
+    TF_WARN("schema=%s code=%s disposition=%s source=%s message=%s "
+            "recovery=%s",
+            merlin::kDiagnosticSchema.data(), diagnostic.code.c_str(),
+            DiagnosticDispositionName(diagnostic.disposition),
+            diagnostic.source.c_str(), diagnostic.message.c_str(),
+            diagnostic.recovery.c_str());
+  }
+};
+
+HydraDiagnosticSink g_diagnostic_sink;
+
+void ReportHydraDiagnostic(
+    std::string code, const SdfPath& source, std::string message,
+    merlin::DiagnosticDisposition disposition,
+    std::string recovery) {
+  g_diagnostic_sink.Report(
+      {merlin::kDiagnosticSchemaVersion, std::move(code),
+       merlin::DiagnosticSeverity::Warning, disposition, source.GetString(),
+       std::move(message), std::move(recovery)});
+}
+
+struct SceneIndexPrimvarSources {
+  HdSampledDataSourceHandle value;
+  HdIntArrayDataSourceHandle indices;
+
+  [[nodiscard]] bool available() const noexcept { return bool(value); }
+
+  friend bool operator==(const SceneIndexPrimvarSources&,
+                         const SceneIndexPrimvarSources&) = default;
+};
+
+class HydraDirtyTracker final : public HdSceneIndexObserver {
+ public:
+  void SetSceneIndex(const HdSceneIndexBaseRefPtr& scene_index) {
+    std::scoped_lock lock(mutex_);
+    scene_index_ = scene_index;
+  }
+
+  SceneIndexPrimvarSources GetPrimvarSources(const SdfPath& path,
+                                             const TfToken& name) const {
+    HdSceneIndexBaseRefPtr scene_index;
+    {
+      std::scoped_lock lock(mutex_);
+      scene_index = scene_index_;
+    }
+    if (!scene_index) {
+      return {};
+    }
+    const auto prim = scene_index->GetPrim(path);
+    if (!prim) {
+      return {};
+    }
+    const auto primvar =
+        HdPrimvarsSchema::GetFromParent(prim.dataSource).GetPrimvar(name);
+    if (!primvar) {
+      return {};
+    }
+    return {primvar.IsIndexed() ? primvar.GetIndexedPrimvarValue()
+                                : primvar.GetPrimvarValue(),
+            primvar.GetIndices()};
+  }
+
+  std::optional<HdDataSourceLocatorSet> Consume(const SdfPath& path) {
+    std::scoped_lock lock(mutex_);
+    const auto found = dirty_.find(path);
+    if (found == dirty_.end()) {
+      return std::nullopt;
+    }
+    auto result = std::move(found->second);
+    dirty_.erase(found);
+    return result;
+  }
+
+  void PrimsAdded(const HdSceneIndexBase& sender,
+                  const AddedPrimEntries& entries) override {
+    (void)sender;
+    std::scoped_lock lock(mutex_);
+    for (const auto& entry : entries) {
+      dirty_.insert_or_assign(entry.primPath,
+                              HdDataSourceLocatorSet::UniversalSet());
+    }
+  }
+
+  void PrimsRemoved(const HdSceneIndexBase& sender,
+                    const RemovedPrimEntries& entries) override {
+    (void)sender;
+    std::scoped_lock lock(mutex_);
+    for (const auto& entry : entries) {
+      std::erase_if(dirty_, [&](const auto& item) {
+        return item.first.HasPrefix(entry.primPath);
+      });
+    }
+  }
+
+  void PrimsDirtied(const HdSceneIndexBase& sender,
+                    const DirtiedPrimEntries& entries) override {
+    (void)sender;
+    std::scoped_lock lock(mutex_);
+    for (const auto& entry : entries) {
+      dirty_[entry.primPath].insert(entry.dirtyLocators);
+    }
+  }
+
+  void PrimsRenamed(const HdSceneIndexBase& sender,
+                    const RenamedPrimEntries& entries) override {
+    (void)sender;
+    std::scoped_lock lock(mutex_);
+    for (const auto& entry : entries) {
+      std::erase_if(dirty_, [&](const auto& item) {
+        return item.first.HasPrefix(entry.oldPrimPath);
+      });
+      dirty_.insert_or_assign(entry.newPrimPath,
+                              HdDataSourceLocatorSet::UniversalSet());
+    }
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  HdSceneIndexBaseRefPtr scene_index_;
+  std::unordered_map<SdfPath, HdDataSourceLocatorSet, SdfPath::Hash> dirty_;
+};
 
 class ScopedHydraSync {
  public:
@@ -166,8 +338,11 @@ struct MeshCorner {
 struct PrimvarInput {
   VtValue value;
   VtIntArray indices;
+  TfToken source_name;
   HdInterpolation interpolation{HdInterpolationConstant};
+  bool indexed{};
   bool present{};
+  SceneIndexPrimvarSources sources;
 };
 
 float Cross2(const GfVec2d& a, const GfVec2d& b, const GfVec2d& c) {
@@ -303,38 +478,6 @@ std::optional<std::size_t> PrimvarElement(const PrimvarInput& input,
     element = static_cast<std::size_t>(input.indices[element]);
   }
   return element;
-}
-
-PrimvarInput FindPrimvar(const HdRprim& rprim, HdSceneDelegate* delegate,
-                         const TfToken& name,
-                         bool texture_coordinate_fallback = false) {
-  constexpr std::array<HdInterpolation, 5> interpolations{
-      HdInterpolationConstant, HdInterpolationUniform, HdInterpolationVertex,
-      HdInterpolationVarying, HdInterpolationFaceVarying};
-  for (const auto interpolation : interpolations) {
-    g_hydra_telemetry.primvar_descriptor_fetch_count.fetch_add(
-        1, std::memory_order_relaxed);
-    const auto descriptors =
-        rprim.GetPrimvarDescriptors(delegate, interpolation);
-    for (const auto& descriptor : descriptors) {
-      if (descriptor.name != name &&
-          !(texture_coordinate_fallback &&
-            descriptor.role == HdPrimvarRoleTokens->textureCoordinate)) {
-        continue;
-      }
-      PrimvarInput result;
-      result.interpolation = interpolation;
-      result.present = true;
-      g_hydra_telemetry.primvar_fetch_count.fetch_add(
-          1, std::memory_order_relaxed);
-      result.value = descriptor.indexed
-                         ? rprim.GetIndexedPrimvar(delegate, descriptor.name,
-                                                  &result.indices)
-                         : rprim.GetPrimvar(delegate, descriptor.name);
-      return result;
-    }
-  }
-  return {};
 }
 
 template <typename ArrayType, typename ResultType, typename Convert>
@@ -675,6 +818,48 @@ struct ParsedMaterial {
   std::string diagnostic;
 };
 
+bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
+                             const merlin::MaterialParameterBlock& rhs) {
+  return lhs.base_color.x == rhs.base_color.x &&
+         lhs.base_color.y == rhs.base_color.y &&
+         lhs.base_color.z == rhs.base_color.z &&
+         lhs.base_color.w == rhs.base_color.w &&
+         lhs.metallic == rhs.metallic && lhs.roughness == rhs.roughness &&
+         lhs.alpha_cutoff == rhs.alpha_cutoff;
+}
+
+bool MaterialFeaturesEqual(const merlin::MaterialDescriptor& lhs,
+                           const merlin::MaterialDescriptor& rhs) {
+  if (lhs.base_color_texture.has_value() !=
+      rhs.base_color_texture.has_value()) {
+    return false;
+  }
+  if (lhs.base_color_texture) {
+    const auto& a = *lhs.base_color_texture;
+    const auto& b = *rhs.base_color_texture;
+    if (a.texture != b.texture || a.sampler != b.sampler ||
+        a.texcoord_set != b.texcoord_set) {
+      return false;
+    }
+  }
+  return lhs.alpha_mode == rhs.alpha_mode &&
+         lhs.double_sided == rhs.double_sided && lhs.features == rhs.features;
+}
+
+bool TextureDescriptorsEqual(const merlin::TextureDescriptor& lhs,
+                             const merlin::TextureDescriptor& rhs) {
+  return lhs.label == rhs.label && lhs.width == rhs.width &&
+         lhs.height == rhs.height && lhs.format == rhs.format &&
+         lhs.pixels == rhs.pixels;
+}
+
+bool SamplerDescriptorsEqual(const merlin::SamplerDescriptor& lhs,
+                             const merlin::SamplerDescriptor& rhs) {
+  return lhs.label == rhs.label && lhs.min_filter == rhs.min_filter &&
+         lhs.mag_filter == rhs.mag_filter && lhs.address_u == rhs.address_u &&
+         lhs.address_v == rhs.address_v;
+}
+
 ParsedMaterial ParseMaterialResource(const SdfPath& path,
                                      const VtValue& resource) {
   ParsedMaterial result;
@@ -834,8 +1019,12 @@ class SceneBridge {
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
                 const SdfPath& material_path,
                 const std::vector<merlin::Mat4>& transforms, bool visible,
-                 merlin::ChangeAspect mesh_aspects,
-                 merlin::ChangeAspect instance_aspects) {
+                merlin::ChangeAspect mesh_aspects,
+                merlin::ChangeAspect instance_aspects,
+                std::optional<std::vector<merlin::ElementRange>> vertex_ranges =
+                    std::nullopt,
+                std::optional<std::vector<merlin::ElementRange>> index_ranges =
+                    std::nullopt) {
     ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
@@ -875,7 +1064,8 @@ class SceneBridge {
     auto& state = found->second;
     state.mesh_descriptor = std::move(mesh);
     if (mesh_aspects != merlin::ChangeAspect::None) {
-      world_.UpdateMesh(state.mesh, state.mesh_descriptor, mesh_aspects);
+      world_.UpdateMesh(state.mesh, state.mesh_descriptor, mesh_aspects,
+                        std::move(vertex_ranges), std::move(index_ranges));
     }
     state.authored_visible = visible;
     // Re-resolve the binding. Acquire the new material before repointing any
@@ -974,19 +1164,35 @@ class SceneBridge {
     auto descriptor = std::move(parsed.material);
     if (parsed.texture) {
       if (entry.texture) {
-        world_.UpdateTexture(*entry.texture, std::move(*parsed.texture));
+        if (!TextureDescriptorsEqual(world_.Get(*entry.texture),
+                                     *parsed.texture)) {
+          world_.UpdateTexture(*entry.texture, std::move(*parsed.texture));
+        }
       } else {
         entry.texture = world_.CreateTexture(std::move(*parsed.texture));
       }
       if (entry.sampler) {
-        world_.UpdateSampler(*entry.sampler, std::move(parsed.sampler));
+        if (!SamplerDescriptorsEqual(world_.Get(*entry.sampler),
+                                     parsed.sampler)) {
+          world_.UpdateSampler(*entry.sampler, std::move(parsed.sampler));
+        }
       } else {
         entry.sampler = world_.CreateSampler(std::move(parsed.sampler));
       }
       descriptor.base_color_texture =
           merlin::TextureBinding{*entry.texture, *entry.sampler, 0};
     }
-    world_.UpdateMaterial(entry.handle, descriptor);
+    merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
+    if (!MaterialParametersEqual(entry.descriptor.parameters,
+                                 descriptor.parameters)) {
+      aspects |= merlin::ChangeAspect::MaterialParameters;
+    }
+    if (!MaterialFeaturesEqual(entry.descriptor, descriptor)) {
+      aspects |= merlin::ChangeAspect::MaterialFeatures;
+    }
+    if (aspects != merlin::ChangeAspect::None) {
+      world_.UpdateMaterial(entry.handle, descriptor, aspects);
+    }
     entry.descriptor = std::move(descriptor);
     if (!parsed.texture) {
       if (entry.texture) {
@@ -1289,7 +1495,7 @@ class SceneBridge {
                           }));
         const auto missing_texcoord_geometries =
             snapshot->geometries.size() - texcoord_geometries;
-        stream << "schema_version=3"
+        stream << "schema_version=4"
                << " phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
                << " completion_value=" << result.completion_value
@@ -1351,6 +1557,16 @@ class SceneBridge {
                << frame_telemetry.primvar_fetch_count
                << " material_fetch_count="
                << frame_telemetry.material_fetch_count
+               << " triangulation_rebuild_count="
+               << frame_telemetry.triangulation_rebuild_count
+               << " packed_mesh_rebuild_count="
+               << frame_telemetry.packed_mesh_rebuild_count
+               << " changed_vertex_count="
+               << frame_telemetry.changed_vertex_count
+               << " diagnostic_count="
+               << frame_telemetry.diagnostic_count
+               << " coarse_primvar_invalidation_count="
+               << frame_telemetry.coarse_primvar_invalidation_count
                // Resolve, Map, and CPU-to-Hgi upload happen after this render
                // pass returns. Their current-frame scopes are therefore
                // sourced exclusively from the enclosing OpenUSD host trace.
@@ -1582,8 +1798,12 @@ class HdMerlinInstancer final : public HdInstancer {
     auto* parent = dynamic_cast<HdMerlinInstancer*>(
         GetDelegate()->GetRenderIndex().GetInstancer(GetParentId()));
     if (parent == nullptr) {
-      TF_WARN("Merlin instancer %s has unavailable parent %s",
-              GetId().GetText(), GetParentId().GetText());
+      ReportHydraDiagnostic(
+          "hydra.instancer.parent-unavailable", GetId(),
+          "parent instancer " + GetParentId().GetString() +
+              " is unavailable",
+          merlin::DiagnosticDisposition::Fallback,
+          "local-instancer-transform");
       return transforms;
     }
     const auto parent_transforms = parent->ComputeInstanceTransforms(GetId());
@@ -1671,8 +1891,9 @@ class HdMerlinMaterial final : public HdMaterial {
       auto parsed =
           ParseMaterialResource(GetId(), delegate->GetMaterialResource(GetId()));
       if (!parsed.diagnostic.empty()) {
-        TF_WARN("Merlin material %s: %s", GetId().GetText(),
-                parsed.diagnostic.c_str());
+        ReportHydraDiagnostic(
+            "hydra.material.translation", GetId(), parsed.diagnostic,
+            merlin::DiagnosticDisposition::Fallback, "constant-material");
       }
       bridge_->SyncMaterial(GetId(), std::move(parsed));
     }
@@ -1741,8 +1962,11 @@ class HdMerlinDistantLight final : public HdLight {
 
 class HdMerlinMesh final : public HdMesh {
  public:
-  HdMerlinMesh(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
-      : HdMesh(id), bridge_(std::move(bridge)) {
+  HdMerlinMesh(const SdfPath& id, std::shared_ptr<SceneBridge> bridge,
+               HydraDirtyTracker* dirty_tracker)
+      : HdMesh(id),
+        bridge_(std::move(bridge)),
+        dirty_tracker_(dirty_tracker) {
     descriptor_.label = id.GetString();
   }
 
@@ -1765,28 +1989,96 @@ class HdMerlinMesh final : public HdMesh {
     (void)render_param;
     (void)repr_token;
     _UpdateInstancer(delegate, dirty_bits);
+    const auto previous_descriptor = descriptor_;
+    const auto dirty_locators =
+        dirty_tracker_ == nullptr ? std::nullopt
+                                  : dirty_tracker_->Consume(GetId());
+    const bool topology_dirty = dirty_locators
+                                    ? dirty_locators->Intersects(
+                                          HdMeshSchema::GetTopologyLocator())
+                                    : (*dirty_bits &
+                                       HdChangeTracker::DirtyTopology) != 0;
+    const bool primvar_bit =
+        (*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0;
+    auto& change_tracker =
+        delegate->GetRenderIndex().GetChangeTracker();
+    const auto current_points_sources =
+        dirty_tracker_ == nullptr
+            ? SceneIndexPrimvarSources{}
+            : dirty_tracker_->GetPrimvarSources(GetId(), HdTokens->points);
+    const bool points_locator_dirty =
+        dirty_locators && dirty_locators->Intersects(
+                              HdPrimvarsSchema::GetPointsLocator());
     const bool points_dirty =
-        (*dirty_bits & HdChangeTracker::DirtyPoints) != 0;
-    const bool topology_dirty =
-        (*dirty_bits & HdChangeTracker::DirtyTopology) != 0;
+        dirty_locators ? points_locator_dirty
+                       : (*dirty_bits & HdChangeTracker::DirtyPoints) != 0;
     merlin::ChangeAspect mesh_aspects = merlin::ChangeAspect::None;
     merlin::ChangeAspect instance_aspects = merlin::ChangeAspect::None;
+    bool points_changed{};
     if (points_dirty) {
-      mesh_aspects |= merlin::ChangeAspect::Points;
+      points_changed = FetchPoints(delegate, current_points_sources);
+      if (points_changed) {
+        mesh_aspects |= merlin::ChangeAspect::Points;
+      }
     }
     if (topology_dirty) {
       mesh_aspects |= merlin::ChangeAspect::Topology;
+      mesh_aspects |= merlin::ChangeAspect::VertexLayout;
       g_hydra_telemetry.topology_fetch_count.fetch_add(
           1, std::memory_order_relaxed);
       topology_ = GetMeshTopology(delegate);
     }
     const bool primvars_dirty =
-        (*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0;
-    if (primvars_dirty) {
+        dirty_locators
+            ? HasNonPointPrimvarDirtiness(*dirty_locators)
+            : (primvar_bit &&
+               (!topology_dirty || !primvar_cache_initialized_ ||
+                AnyCachedPrimvarDirty(change_tracker)));
+    if (dirty_locators && dirty_locators->Contains(
+                              HdPrimvarsSchema::GetDefaultLocator())) {
+      g_hydra_telemetry.coarse_primvar_invalidation_count.fetch_add(
+          1, std::memory_order_relaxed);
+    }
+    const bool relevant_primvars_changed =
+        primvars_dirty && RefreshPrimvars(delegate, dirty_locators);
+    if (relevant_primvars_changed) {
       mesh_aspects |= merlin::ChangeAspect::Primvars;
     }
-    if (points_dirty || topology_dirty || primvars_dirty) {
-      RebuildMesh(delegate);
+    const bool triangulation_dirty =
+        points_changed || topology_dirty || !triangulation_initialized_;
+    if (triangulation_dirty) {
+      RebuildTriangulation();
+    }
+    if (triangulation_dirty || relevant_primvars_changed) {
+      RebuildPackedMesh();
+    }
+    auto vertex_ranges = ChangedVertexRanges(previous_descriptor, descriptor_);
+    std::optional<std::vector<merlin::ElementRange>> known_vertex_ranges;
+    if (merlin::HasAnyAspect(
+            mesh_aspects, merlin::ChangeAspect::Points |
+                              merlin::ChangeAspect::Primvars |
+                              merlin::ChangeAspect::VertexLayout)) {
+      known_vertex_ranges = vertex_ranges;
+    }
+    std::optional<std::vector<merlin::ElementRange>> known_index_ranges;
+    if (merlin::HasAnyAspect(mesh_aspects,
+                             merlin::ChangeAspect::Topology)) {
+      known_index_ranges =
+          ChangedIndexRanges(previous_descriptor, descriptor_);
+    }
+    const auto changed_vertex_count = [&] {
+      if (vertex_ranges.empty()) {
+        return std::size_t{};
+      }
+      std::size_t result{};
+      for (const auto& range : vertex_ranges) {
+        result += range.count;
+      }
+      return result;
+    }();
+    if (mesh_aspects != merlin::ChangeAspect::None) {
+      g_hydra_telemetry.changed_vertex_count.fetch_add(
+          changed_vertex_count, std::memory_order_relaxed);
     }
     const bool transform_dirty =
         (*dirty_bits & HdChangeTracker::DirtyTransform) != 0;
@@ -1809,8 +2101,12 @@ class HdMerlinMesh final : public HdMesh {
         auto* instancer = dynamic_cast<HdMerlinInstancer*>(
             delegate->GetRenderIndex().GetInstancer(GetInstancerId()));
         if (instancer == nullptr) {
-          TF_WARN("Merlin mesh %s has unavailable instancer %s",
-                  GetId().GetText(), GetInstancerId().GetText());
+          ReportHydraDiagnostic(
+              "hydra.mesh.instancer-unavailable", GetId(),
+              "instancer " + GetInstancerId().GetString() +
+                  " is unavailable",
+              merlin::DiagnosticDisposition::Rejected,
+              "reject-instanced-prim");
         } else {
           for (const auto& instance_transform :
                instancer->ComputeInstanceTransforms(GetId())) {
@@ -1832,7 +2128,9 @@ class HdMerlinMesh final : public HdMesh {
       instance_aspects |= merlin::ChangeAspect::Visibility;
     }
     bridge_->SyncMesh(GetId(), descriptor_, material_id_, transforms_, visible_,
-                      mesh_aspects, instance_aspects);
+                      mesh_aspects, instance_aspects,
+                      std::move(known_vertex_ranges),
+                      std::move(known_index_ranges));
     *dirty_bits = HdChangeTracker::Clean;
   }
 
@@ -1847,34 +2145,213 @@ class HdMerlinMesh final : public HdMesh {
   }
 
  private:
-  void RebuildMesh(HdSceneDelegate* delegate) {
-    // Clears every packed vertex array so a partially built mesh never leaves
-    // stale normals/colors/texcoords behind on an error return.
-    const auto reset = [&] {
-      descriptor_.positions.clear();
-      descriptor_.normals.clear();
-      descriptor_.colors.clear();
-      descriptor_.texcoords.clear();
-      descriptor_.indices.clear();
-    };
-    reset();
+  struct DiscoveredPrimvar {
+    TfToken name;
+    TfToken role;
+    HdInterpolation interpolation{HdInterpolationConstant};
+    bool indexed{};
+  };
 
-    std::vector<GfVec3d> points;
+  void ResetPackedMesh() {
+    descriptor_.positions.clear();
+    descriptor_.normals.clear();
+    descriptor_.colors.clear();
+    descriptor_.texcoords.clear();
+    descriptor_.indices.clear();
+  }
+
+  bool FetchPoints(HdSceneDelegate* delegate,
+                   SceneIndexPrimvarSources sources) {
+    std::vector<GfVec3d> next_points;
     g_hydra_telemetry.points_fetch_count.fetch_add(
         1, std::memory_order_relaxed);
     const auto authored_points = GetPoints(delegate);
     if (authored_points.IsHolding<VtVec3fArray>()) {
       const auto& values = authored_points.UncheckedGet<VtVec3fArray>();
-      points.reserve(values.size());
+      next_points.reserve(values.size());
       for (const auto& value : values) {
-        points.emplace_back(value);
+        next_points.emplace_back(value);
       }
     } else if (authored_points.IsHolding<VtVec3dArray>()) {
       const auto& values = authored_points.UncheckedGet<VtVec3dArray>();
-      points.assign(values.begin(), values.end());
+      next_points.assign(values.begin(), values.end());
     } else {
-      TF_WARN("Merlin mesh %s has unsupported points type",
-              GetId().GetText());
+      ReportHydraDiagnostic(
+          "hydra.mesh.points-type", GetId(),
+          "points value is not a float3 or double3 array",
+          merlin::DiagnosticDisposition::Rejected, "reject-prim");
+    }
+    const bool changed = next_points != points_;
+    points_ = std::move(next_points);
+    points_sources_ = std::move(sources);
+    return changed;
+  }
+
+  bool RefreshPrimvars(
+      HdSceneDelegate* delegate,
+      const std::optional<HdDataSourceLocatorSet>& dirty_locators) {
+    if (!primvar_cache_initialized_ ||
+        PrimvarDescriptorsDirty(dirty_locators)) {
+      constexpr std::array<HdInterpolation, 5> interpolations{
+          HdInterpolationConstant, HdInterpolationUniform,
+          HdInterpolationVertex, HdInterpolationVarying,
+          HdInterpolationFaceVarying};
+      primvar_descriptors_.clear();
+      for (const auto interpolation : interpolations) {
+        g_hydra_telemetry.primvar_descriptor_fetch_count.fetch_add(
+            1, std::memory_order_relaxed);
+        for (const auto& descriptor :
+             GetPrimvarDescriptors(delegate, interpolation)) {
+          primvar_descriptors_.push_back(
+              {descriptor.name, descriptor.role, interpolation,
+               descriptor.indexed});
+        }
+      }
+    }
+
+    struct Request {
+      PrimvarInput* cache{};
+      TfToken name;
+      bool texture_coordinate_fallback{};
+    };
+    std::array<Request, 4> requests{
+        Request{&normals_, HdTokens->normals, false},
+        Request{&colors_, HdTokens->displayColor, false},
+        Request{&opacities_, HdTokens->displayOpacity, false},
+        Request{&texcoords_, TfToken("st"), true}};
+
+    bool changed{};
+    for (auto& request : requests) {
+      const DiscoveredPrimvar* selected{};
+      const auto exact = std::find_if(
+          primvar_descriptors_.begin(), primvar_descriptors_.end(),
+          [&](const auto& candidate) {
+            return candidate.name == request.name;
+          });
+      if (exact != primvar_descriptors_.end()) {
+        selected = &*exact;
+      } else if (request.texture_coordinate_fallback) {
+        const auto fallback = std::find_if(
+            primvar_descriptors_.begin(), primvar_descriptors_.end(),
+            [](const auto& candidate) {
+              return candidate.role ==
+                     HdPrimvarRoleTokens->textureCoordinate;
+            });
+        if (fallback != primvar_descriptors_.end()) {
+          selected = &*fallback;
+        }
+      }
+
+      auto& cache = *request.cache;
+      if (selected == nullptr) {
+        if (cache.present) {
+          cache = {};
+          changed = true;
+        }
+        continue;
+      }
+      const bool descriptor_changed =
+          !cache.present || cache.source_name != selected->name ||
+          cache.interpolation != selected->interpolation ||
+          cache.indexed != selected->indexed;
+      auto& change_tracker =
+          delegate->GetRenderIndex().GetChangeTracker();
+      const auto current_sources =
+          dirty_tracker_ == nullptr
+              ? SceneIndexPrimvarSources{}
+              : dirty_tracker_->GetPrimvarSources(GetId(), selected->name);
+      const bool value_dirty =
+          !primvar_cache_initialized_ || descriptor_changed ||
+          (dirty_locators
+               ? dirty_locators->Intersects(
+                     HdPrimvarsSchema::GetDefaultLocator().Append(
+                         selected->name))
+               : change_tracker.IsPrimvarDirty(GetId(), selected->name));
+      if (!value_dirty) {
+        continue;
+      }
+      PrimvarInput next;
+      next.present = true;
+      next.source_name = selected->name;
+      next.interpolation = selected->interpolation;
+      next.indexed = selected->indexed;
+      next.sources = current_sources;
+      g_hydra_telemetry.primvar_fetch_count.fetch_add(
+          1, std::memory_order_relaxed);
+      next.value = selected->indexed
+                       ? GetIndexedPrimvar(delegate, selected->name,
+                                           &next.indices)
+                       : GetPrimvar(delegate, selected->name);
+      const bool input_changed =
+          descriptor_changed || cache.value != next.value ||
+          cache.indices != next.indices;
+      cache = std::move(next);
+      changed = changed || input_changed;
+    }
+    primvar_cache_initialized_ = true;
+    return changed;
+  }
+
+  bool AnyCachedPrimvarDirty(HdChangeTracker& change_tracker) const {
+    const std::array<const PrimvarInput*, 4> caches{
+        &normals_, &colors_, &opacities_, &texcoords_};
+    return std::any_of(caches.begin(), caches.end(), [&](const auto* cache) {
+      return cache->present &&
+             change_tracker.IsPrimvarDirty(GetId(), cache->source_name);
+    });
+  }
+
+  static bool HasNonPointPrimvarDirtiness(
+      const HdDataSourceLocatorSet& locators) {
+    const auto& primvars = HdPrimvarsSchema::GetDefaultLocator();
+    const auto& points = HdPrimvarsSchema::GetPointsLocator();
+    bool found_primvar{};
+    for (const auto& locator : locators) {
+      if (!locator.Intersects(primvars)) {
+        continue;
+      }
+      found_primvar = true;
+      if (!locator.HasPrefix(points)) {
+        return true;
+      }
+    }
+    return found_primvar && locators.Contains(primvars);
+  }
+
+  static bool PrimvarDescriptorsDirty(
+      const std::optional<HdDataSourceLocatorSet>& locators) {
+    if (!locators) {
+      return true;
+    }
+    const auto& primvars = HdPrimvarsSchema::GetDefaultLocator();
+    if (locators->Contains(primvars)) {
+      return true;
+    }
+    for (const auto& locator : *locators) {
+      if (!locator.HasPrefix(primvars)) {
+        continue;
+      }
+      // [primvars, name, member]. A primvar container or descriptor member can
+      // add/remove a semantic or change interpolation, role, or indexing.
+      const auto member_index = primvars.GetElementCount() + 1U;
+      if (locator.GetElementCount() <= member_index) {
+        return true;
+      }
+      const auto& member = locator.GetElement(member_index);
+      if (member != HdPrimvarSchemaTokens->primvarValue &&
+          member != HdPrimvarSchemaTokens->indexedPrimvarValue) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void RebuildTriangulation() {
+    g_hydra_telemetry.triangulation_rebuild_count.fetch_add(
+        1, std::memory_order_relaxed);
+    triangulation_initialized_ = true;
+    packed_corners_.clear();
+    if (points_.empty()) {
       return;
     }
 
@@ -1885,19 +2362,13 @@ class HdMerlinMesh final : public HdMesh {
     for (const auto hole : authored_holes) {
       if (hole < 0 || static_cast<std::size_t>(hole) >= counts.size() ||
           !holes.insert(hole).second) {
-        TF_WARN("Merlin mesh %s has invalid hole index %d",
-                GetId().GetText(), hole);
+        ReportHydraDiagnostic(
+            "hydra.mesh.hole-index", GetId(),
+            "hole index " + std::to_string(hole) + " is invalid",
+            merlin::DiagnosticDisposition::Rejected, "reject-prim");
         return;
       }
     }
-    const auto normals = FindPrimvar(*this, delegate, HdTokens->normals);
-    const auto colors = FindPrimvar(*this, delegate, HdTokens->displayColor);
-    const auto opacities =
-        FindPrimvar(*this, delegate, HdTokens->displayOpacity);
-    const auto texcoords =
-        FindPrimvar(*this, delegate, TfToken("st"), true);
-    const bool has_display_color = colors.present || opacities.present;
-
     std::size_t offset{};
     for (std::uint32_t face_index = 0; face_index < counts.size();
          ++face_index) {
@@ -1905,9 +2376,12 @@ class HdMerlinMesh final : public HdMesh {
       if (count < 3 || offset > authored_indices.size() ||
           static_cast<std::size_t>(count) >
               authored_indices.size() - offset) {
-        TF_WARN("Merlin mesh %s face %u has malformed vertex count %d",
-                GetId().GetText(), face_index, count);
-        reset();
+        ReportHydraDiagnostic(
+            "hydra.mesh.face-count", GetId(),
+            "face " + std::to_string(face_index) + " has vertex count " +
+                std::to_string(count) + " inconsistent with topology",
+            merlin::DiagnosticDisposition::Rejected, "reject-prim");
+        packed_corners_.clear();
         return;
       }
       if (!holes.contains(face_index)) {
@@ -1916,109 +2390,256 @@ class HdMerlinMesh final : public HdMesh {
         for (int corner = 0; corner < count; ++corner) {
           const int point = authored_indices[offset +
                                              static_cast<std::size_t>(corner)];
-          if (point < 0 || static_cast<std::size_t>(point) >= points.size()) {
-            TF_WARN("Merlin mesh %s face %u references invalid point %d",
-                    GetId().GetText(), face_index, point);
-            reset();
+          if (point < 0 ||
+              static_cast<std::size_t>(point) >= points_.size()) {
+            ReportHydraDiagnostic(
+                "hydra.mesh.point-index", GetId(),
+                "face " + std::to_string(face_index) +
+                    " references invalid point " + std::to_string(point),
+                merlin::DiagnosticDisposition::Rejected, "reject-prim");
+            packed_corners_.clear();
             return;
           }
           face_points.push_back(static_cast<std::uint32_t>(point));
         }
         std::string diagnostic;
-        const auto triangles = TriangulateFace(face_points, points, diagnostic);
+        const auto triangles =
+            TriangulateFace(face_points, points_, diagnostic);
         if (triangles.empty()) {
-          TF_WARN("Merlin mesh %s face %u: %s", GetId().GetText(),
-                  face_index, diagnostic.c_str());
-          reset();
+          ReportHydraDiagnostic(
+              "hydra.mesh.triangulation", GetId(),
+              "face " + std::to_string(face_index) + ": " + diagnostic,
+              merlin::DiagnosticDisposition::Rejected, "reject-prim");
+          packed_corners_.clear();
           return;
         }
         for (const auto& triangle : triangles) {
-          const auto& a = points[face_points[triangle[0]]];
-          const auto& b = points[face_points[triangle[1]]];
-          const auto& c = points[face_points[triangle[2]]];
-          GfVec3d generated_normal = GfCross(b - a, c - a);
-          generated_normal.Normalize();
           for (const auto local_corner : triangle) {
-            const MeshCorner corner{face_points[local_corner], face_index,
-                                    static_cast<std::uint32_t>(offset) +
-                                        local_corner};
-            const auto& point = points[corner.point];
-            descriptor_.positions.push_back(
-                {static_cast<float>(point[0]), static_cast<float>(point[1]),
-                 static_cast<float>(point[2])});
-            merlin::Vec3 normal{static_cast<float>(generated_normal[0]),
-                                static_cast<float>(generated_normal[1]),
-                                static_cast<float>(generated_normal[2])};
-            if (normals.present && !ReadVec3(normals, corner, normal)) {
-              TF_WARN("Merlin mesh %s has malformed normals primvar",
-                      GetId().GetText());
-              reset();
-              return;
-            }
-            const float length = std::sqrt(normal.x * normal.x +
-                                           normal.y * normal.y +
-                                           normal.z * normal.z);
-            if (length > 1.0e-20F) {
-              normal.x /= length;
-              normal.y /= length;
-              normal.z /= length;
-            }
-            descriptor_.normals.push_back(normal);
-            merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
-            merlin::Vec3 rgb;
-            if (colors.present && !ReadVec3(colors, corner, rgb)) {
-              TF_WARN("Merlin mesh %s has malformed displayColor primvar",
-                      GetId().GetText());
-              reset();
-              return;
-            }
-            if (colors.present) {
-              color.x = rgb.x;
-              color.y = rgb.y;
-              color.z = rgb.z;
-            }
-            if (opacities.present &&
-                !ReadFloat(opacities, corner, color.w)) {
-              TF_WARN("Merlin mesh %s has malformed displayOpacity primvar",
-                      GetId().GetText());
-              reset();
-              return;
-            }
-            color.w = std::clamp(color.w, 0.0F, 1.0F);
-            if (has_display_color) {
-              descriptor_.colors.push_back(color);
-            }
-            merlin::Vec2 texcoord;
-            if (texcoords.present && !ReadVec2(texcoords, corner, texcoord)) {
-              TF_WARN("Merlin mesh %s has malformed texture coordinate primvar",
-                      GetId().GetText());
-              reset();
-              return;
-            }
-            if (texcoords.present) {
-              descriptor_.texcoords.push_back(texcoord);
-            }
-            descriptor_.indices.push_back(
-                static_cast<std::uint32_t>(descriptor_.indices.size()));
+            packed_corners_.push_back(
+                {face_points[local_corner], face_index,
+                 static_cast<std::uint32_t>(offset) + local_corner});
           }
         }
       }
       offset += static_cast<std::size_t>(count);
     }
     if (offset != authored_indices.size()) {
-      reset();
-      TF_WARN("Merlin mesh %s has trailing face-vertex indices",
-              GetId().GetText());
+      packed_corners_.clear();
+      ReportHydraDiagnostic(
+          "hydra.mesh.trailing-indices", GetId(),
+          "topology contains trailing face-vertex indices",
+          merlin::DiagnosticDisposition::Rejected, "reject-prim");
     }
   }
 
+  void RebuildPackedMesh() {
+    g_hydra_telemetry.packed_mesh_rebuild_count.fetch_add(
+        1, std::memory_order_relaxed);
+    ResetPackedMesh();
+    if (packed_corners_.empty()) {
+      return;
+    }
+    const bool has_display_color = colors_.present || opacities_.present;
+    for (std::size_t triangle = 0; triangle < packed_corners_.size();
+         triangle += 3U) {
+      if (packed_corners_.size() - triangle < 3U) {
+        ResetPackedMesh();
+        ReportHydraDiagnostic(
+            "hydra.mesh.triangulation-cache", GetId(),
+            "cached triangulation is not a multiple of three corners",
+            merlin::DiagnosticDisposition::Rejected, "reject-prim");
+        return;
+      }
+      const auto& a = points_[packed_corners_[triangle].point];
+      const auto& b = points_[packed_corners_[triangle + 1U].point];
+      const auto& c = points_[packed_corners_[triangle + 2U].point];
+      GfVec3d generated_normal = GfCross(b - a, c - a);
+      generated_normal.Normalize();
+      for (std::size_t local = 0; local < 3U; ++local) {
+        const auto& corner = packed_corners_[triangle + local];
+        const auto& point = points_[corner.point];
+        descriptor_.positions.push_back(
+            {static_cast<float>(point[0]), static_cast<float>(point[1]),
+             static_cast<float>(point[2])});
+        merlin::Vec3 normal{static_cast<float>(generated_normal[0]),
+                            static_cast<float>(generated_normal[1]),
+                            static_cast<float>(generated_normal[2])};
+        if (normals_.present && !ReadVec3(normals_, corner, normal)) {
+          ReportHydraDiagnostic(
+              "hydra.mesh.primvar.normals", GetId(),
+              "normals primvar type, interpolation, or indices are malformed",
+              merlin::DiagnosticDisposition::Rejected, "reject-prim");
+          ResetPackedMesh();
+          return;
+        }
+        const float length = std::sqrt(normal.x * normal.x +
+                                       normal.y * normal.y +
+                                       normal.z * normal.z);
+        if (length > 1.0e-20F) {
+          normal.x /= length;
+          normal.y /= length;
+          normal.z /= length;
+        }
+        descriptor_.normals.push_back(normal);
+        merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
+        merlin::Vec3 rgb;
+        if (colors_.present && !ReadVec3(colors_, corner, rgb)) {
+          ReportHydraDiagnostic(
+              "hydra.mesh.primvar.display-color", GetId(),
+              "displayColor primvar type, interpolation, or indices are malformed",
+              merlin::DiagnosticDisposition::Rejected, "reject-prim");
+          ResetPackedMesh();
+          return;
+        }
+        if (colors_.present) {
+          color.x = rgb.x;
+          color.y = rgb.y;
+          color.z = rgb.z;
+        }
+        if (opacities_.present &&
+            !ReadFloat(opacities_, corner, color.w)) {
+          ReportHydraDiagnostic(
+              "hydra.mesh.primvar.display-opacity", GetId(),
+              "displayOpacity primvar type, interpolation, or indices are malformed",
+              merlin::DiagnosticDisposition::Rejected, "reject-prim");
+          ResetPackedMesh();
+          return;
+        }
+        color.w = std::clamp(color.w, 0.0F, 1.0F);
+        if (has_display_color) {
+          descriptor_.colors.push_back(color);
+        }
+        merlin::Vec2 texcoord;
+        if (texcoords_.present &&
+            !ReadVec2(texcoords_, corner, texcoord)) {
+          ReportHydraDiagnostic(
+              "hydra.mesh.primvar.texcoord", GetId(),
+              "texture-coordinate primvar type, interpolation, or indices are malformed",
+              merlin::DiagnosticDisposition::Rejected, "reject-prim");
+          ResetPackedMesh();
+          return;
+        }
+        if (texcoords_.present) {
+          descriptor_.texcoords.push_back(texcoord);
+        }
+        descriptor_.indices.push_back(
+            static_cast<std::uint32_t>(descriptor_.indices.size()));
+      }
+    }
+  }
+
+  static std::vector<merlin::ElementRange> FullRange(std::size_t size) {
+    if (size == 0U) {
+      return {};
+    }
+    return {{0U, static_cast<std::uint32_t>(size)}};
+  }
+
+  static std::vector<merlin::ElementRange> ChangedIndexRanges(
+      const merlin::MeshDescriptor& previous,
+      const merlin::MeshDescriptor& current) {
+    if (previous.indices.size() != current.indices.size()) {
+      return FullRange(current.indices.size());
+    }
+    std::vector<merlin::ElementRange> ranges;
+    std::size_t first = current.indices.size();
+    for (std::size_t i = 0; i < current.indices.size(); ++i) {
+      const bool changed = previous.indices[i] != current.indices[i];
+      if (changed && first == current.indices.size()) {
+        first = i;
+      }
+      if (!changed && first != current.indices.size()) {
+        ranges.push_back({static_cast<std::uint32_t>(first),
+                          static_cast<std::uint32_t>(i - first)});
+        first = current.indices.size();
+      }
+    }
+    if (first != current.indices.size()) {
+      ranges.push_back({static_cast<std::uint32_t>(first),
+                        static_cast<std::uint32_t>(current.indices.size() -
+                                                   first)});
+    }
+    return ranges;
+  }
+
+  static std::vector<merlin::ElementRange> ChangedVertexRanges(
+      const merlin::MeshDescriptor& previous,
+      const merlin::MeshDescriptor& current) {
+    const auto count = current.positions.size();
+    if (previous.positions.size() != count ||
+        previous.normals.size() != current.normals.size() ||
+        previous.colors.size() != current.colors.size() ||
+        previous.texcoords.size() != current.texcoords.size()) {
+      return FullRange(count);
+    }
+    const auto equal = [&](std::size_t index) {
+      const auto& a_position = previous.positions[index];
+      const auto& b_position = current.positions[index];
+      if (a_position.x != b_position.x || a_position.y != b_position.y ||
+          a_position.z != b_position.z) {
+        return false;
+      }
+      if (!current.normals.empty()) {
+        const auto& a = previous.normals[index];
+        const auto& b = current.normals[index];
+        if (a.x != b.x || a.y != b.y || a.z != b.z) {
+          return false;
+        }
+      }
+      if (!current.colors.empty()) {
+        const auto& a = previous.colors[index];
+        const auto& b = current.colors[index];
+        if (a.x != b.x || a.y != b.y || a.z != b.z || a.w != b.w) {
+          return false;
+        }
+      }
+      if (!current.texcoords.empty()) {
+        const auto& a = previous.texcoords[index];
+        const auto& b = current.texcoords[index];
+        if (a.x != b.x || a.y != b.y) {
+          return false;
+        }
+      }
+      return true;
+    };
+    std::vector<merlin::ElementRange> ranges;
+    std::size_t first = count;
+    for (std::size_t i = 0; i < count; ++i) {
+      const bool changed = !equal(i);
+      if (changed && first == count) {
+        first = i;
+      }
+      if (!changed && first != count) {
+        ranges.push_back({static_cast<std::uint32_t>(first),
+                          static_cast<std::uint32_t>(i - first)});
+        first = count;
+      }
+    }
+    if (first != count) {
+      ranges.push_back({static_cast<std::uint32_t>(first),
+                        static_cast<std::uint32_t>(count - first)});
+    }
+    return ranges;
+  }
+
   std::shared_ptr<SceneBridge> bridge_;
+  HydraDirtyTracker* dirty_tracker_{};
   merlin::MeshDescriptor descriptor_;
   HdMeshTopology topology_;
+  std::vector<GfVec3d> points_;
+  SceneIndexPrimvarSources points_sources_;
+  std::vector<MeshCorner> packed_corners_;
+  PrimvarInput normals_;
+  PrimvarInput colors_;
+  PrimvarInput opacities_;
+  PrimvarInput texcoords_;
+  std::vector<DiscoveredPrimvar> primvar_descriptors_;
   SdfPath material_id_;
   GfMatrix4d hydra_transform_{1.0};
   std::vector<merlin::Mat4> transforms_{merlin::Mat4{}};
   bool visible_{true};
+  bool primvar_cache_initialized_{};
+  bool triangulation_initialized_{};
 };
 
 class HdMerlinCamera final : public HdCamera {
@@ -2216,6 +2837,8 @@ void HdMerlinRenderBuffer::_Deallocate() {
 class HdMerlinRenderDelegate::Impl {
  public:
   std::shared_ptr<SceneBridge> bridge = std::make_shared<SceneBridge>();
+  HydraDirtyTracker dirty_tracker;
+  HdSceneIndexBaseRefPtr terminal_scene_index;
 };
 
 HdMerlinRenderDelegate::HdMerlinRenderDelegate(
@@ -2265,7 +2888,7 @@ void HdMerlinRenderDelegate::DestroyInstancer(HdInstancer* instancer) {
 HdRprim* HdMerlinRenderDelegate::CreateRprim(const TfToken& type_id,
                                              const SdfPath& rprim_id) {
   if (type_id == HdPrimTypeTokens->mesh) {
-    return new HdMerlinMesh(rprim_id, impl_->bridge);
+    return new HdMerlinMesh(rprim_id, impl_->bridge, &impl_->dirty_tracker);
   }
   return nullptr;
 }
@@ -2320,6 +2943,20 @@ HdBprim* HdMerlinRenderDelegate::CreateFallbackBprim(const TfToken& type_id) {
 }
 
 void HdMerlinRenderDelegate::DestroyBprim(HdBprim* bprim) { delete bprim; }
+
+void HdMerlinRenderDelegate::SetTerminalSceneIndex(
+    const HdSceneIndexBaseRefPtr& terminal_scene_index) {
+  if (impl_->terminal_scene_index) {
+    impl_->terminal_scene_index->RemoveObserver(
+        TfCreateWeakPtr(&impl_->dirty_tracker));
+  }
+  impl_->terminal_scene_index = terminal_scene_index;
+  impl_->dirty_tracker.SetSceneIndex(terminal_scene_index);
+  if (impl_->terminal_scene_index) {
+    impl_->terminal_scene_index->AddObserver(
+        TfCreateWeakPtr(&impl_->dirty_tracker));
+  }
+}
 
 void HdMerlinRenderDelegate::CommitResources(HdChangeTracker* tracker) {
   (void)tracker;

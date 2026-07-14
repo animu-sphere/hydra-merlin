@@ -1,6 +1,6 @@
 # Renderer architecture
 
-**Status:** v0.5.0 · **Last reviewed:** 2026-07-14
+**Status:** v0.6.0 · **Last reviewed:** 2026-07-15
 
 hdMerlin is a lightweight, host-neutral Vulkan raster renderer. It is not a DCC
 plugin by itself: the product is the composition of a renderer core, an
@@ -34,7 +34,8 @@ Required rules:
   SDK types.
 - Hydra dirty bits, topology, and primvar interpolation are normalized in the
   adapter before entering the scene model.
-- The adapter owns the Hydra path-to-Merlin handle map.
+- The adapter owns the persistent Hydra path-to-Merlin handle map, scene-index
+  locator state, source descriptors, and host-value caches.
 - DCC discovery, UI, environment, and package metadata belong to integration
   packages rather than Core.
 - The Vulkan backend owns no native window or swapchain.
@@ -64,6 +65,27 @@ persistent GPU Scene + DrawPackets
 Vulkan commands
 ```
 
+## Incremental change contract
+
+RenderWorld changes identify independent topology, points, primvar,
+material-partition, vertex-layout, instance, transform, visibility, material,
+texture, sampler, camera, and render-setting aspects. Extraction preserves the
+corresponding revisions instead of collapsing them into one mesh or instance
+revision.
+
+Mesh changes may carry normalized vertex/index element ranges. A known empty
+range means the source revision advanced but the derived payload is unchanged;
+an unknown range requests a full safe update. Extraction retains the previous
+payload and derived revision for known-empty changes. Vulkan applies a partial
+upload only when the resident revision matches the range's base revision and
+the allocation size is unchanged, otherwise it falls back to a complete
+upload. Hydra dirty bits and locators never cross this boundary.
+
+Unsupported or lossy inputs use the host-neutral `merlin-diagnostic/v1`
+contract: schema version, stable code, severity, disposition, source, message,
+and named recovery. Host adapters decide how to present the record; the Hydra
+adapter forwards it through OpenUSD diagnostics and telemetry.
+
 ## Mesh and Gaussian boundary
 
 hdMerlin consumes standard OpenUSD scene data through Hydra; it does not define
@@ -92,6 +114,13 @@ sorting/tile binning, alpha compositing, spherical harmonics, and Gaussian LOD.
 Appearance likewise remains explicit: MaterialIR/MaterialX surface shading and
 Gaussian spherical-harmonic/opacity evaluation may share resources without
 forcing Gaussian appearance into a mesh BSDF.
+
+OpenUSD 26.05 already supplies the concrete
+`ParticleField3DGaussianSplat`, the `usdVolImaging` adapter, and Hydra's
+`particleField` Rprim token. The accepted attribute, fallback, invalidation,
+and compatibility boundary is recorded in the
+[Gaussian ingestion through Hydra](gaussian-hydra-ingestion.md).
+`GaussianResource` and native rendering remain v0.9.0 work.
 
 The Mesh pipeline evolves behind this boundary in measured stages: bindless
 resource tables, a persistent GPU Scene, GPU-driven indexed Forward, an opaque

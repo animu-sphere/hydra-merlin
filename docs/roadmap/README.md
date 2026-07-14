@@ -15,12 +15,12 @@ Legend: 🚧 in progress · ⬜ not started
 | [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
 
 v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
-slice. The v0.5.1 work completed the performance-observability foundation; its
-detail is retained in the delivery history and Unreleased changelog. The active
-v0.6.0 milestone adds incremental Hydra synchronization. The ordered ladder
-then extends the persistent resource model to Mesh and Gaussian data,
-establishes a native Vulkan performance reference, and lands Gaussian rendering
-before GPU-driven optimization. The Mesh path then advances through persistent
+slice. The v0.5.1 performance-observability foundation and v0.6.0 incremental
+Hydra synchronization work are retained in the delivery history and Unreleased
+changelog. The active v0.7.0 milestone extends the persistent resource model to
+Mesh and Gaussian data. The ordered ladder then establishes a native Vulkan
+performance reference and lands Gaussian rendering before GPU-driven
+optimization. The Mesh path then advances through persistent
 draw identity, GPU-driven indexed Forward, an experimental opaque Visibility
 Buffer, MaterialX quality work, and static meshlets. Low-copy presentation can
 proceed once evidence justifies it; Mesh Shader, Hi-Z/LOD, and large-scene
@@ -85,8 +85,8 @@ Every release must preserve these properties:
 
 | Priority | Direction |
 | --- | --- |
-| P0 | v0.6.0 incremental Hydra sync, comparable performance evidence, and GPU capability CI |
-| P1 | Persistent bindless Mesh/Gaussian resources, GPU residency, and native viewport |
+| P0 | v0.7.0 persistent bindless Mesh/Gaussian resources, comparable performance evidence, and GPU capability CI |
+| P1 | GPU residency completion and native viewport |
 | P2 | Gaussian MVP, persistent Mesh draw identity, and GPU-driven indexed rendering |
 | P3 | Opaque Visibility, GPU presentation interop, MaterialX quality, and static meshlets |
 | P4 | Optional Mesh Shader/Hi-Z/LOD, large-scene streaming, DCC integration, and v1.0 contracts |

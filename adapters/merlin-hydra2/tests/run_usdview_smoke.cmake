@@ -52,7 +52,8 @@ if(NOT EXISTS "${host_trace}")
 endif()
 file(READ "${marker}" marker_contents)
 foreach(phase IN ITEMS
-    baseline points topology transform visibility camera resize)
+    baseline points topology primvar transform visibility camera
+    material_parameter diagnostic recovery remove readd resize)
   if(NOT marker_contents MATCHES "phase=${phase} ")
     message(FATAL_ERROR
       "Merlin regression log is missing the ${phase} phase:\n${marker_contents}")

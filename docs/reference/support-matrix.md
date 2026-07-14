@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.5.0 · **Last reviewed:** 2026-07-14
+**Status:** v0.6.0 · **Last reviewed:** 2026-07-15
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -30,9 +30,12 @@ capability workflow is not continuous evidence. Enrollment is tracked in the
 | OpenUSD | 26.05 currently validated | Hydra 2 only |
 | Python + `testusdview` | Matching the OpenUSD runtime | Install-tree Hydra host test |
 
-OpenUSD shared/static mode, Debug/Release configuration, MSVC runtime, and plugin
-ABI compatibility are currently operator responsibilities. Configure-time
-compatibility checks remain planned work.
+Hydra configuration verifies the exact OpenUSD 26.05 header version and shared
+library target layout. On MSVC it rejects a Debug hdMerlin build when the SDK
+does not export Debug libraries. Plugin discovery and the install-tree usdview
+test then load the runtime from that SDK root. Compiler/toolset ABI differences
+between separately produced OpenUSD 26.05 SDKs remain the operator's
+responsibility.
 
 ## Product and feature coverage
 
@@ -50,7 +53,7 @@ compatibility checks remain planned work.
 | Core/Vulkan installed CMake targets | Available |
 | Versioned dependency and package metadata | Available as installed JSON |
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
-| Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available |
+| Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Hydra native and nested instancing | Available |
 | Bindless resource tables and common GPU Scene ABI | Planned for v0.7.0/v0.10.0; the current Forward path uses conventional per-frame descriptors and remains the fallback |
@@ -60,8 +63,8 @@ compatibility checks remain planned work.
 | Mesh Shader, Hi-Z, and discrete meshlet LOD | Planned as optional, capability- and benchmark-selected v0.16.0 paths with indexed fallback |
 | Hierarchical meshlets and virtualized geometry | Post-v1 research direction; unavailable and not implied by static meshlet support |
 | Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy, timeout, device-lost, unsupported, and backend-failure classes |
-| Host-neutral diagnostic sink | Planned cross-cutting work; some executable and adapter diagnostics still use stderr or host-local reporting |
-| Standard OpenUSD Gaussian ingestion and rendering | Planned; hdMerlin will not define a custom Gaussian USD schema or directly parse external Gaussian file formats |
+| Host-neutral diagnostic sink | `merlin-diagnostic/v1` is available with stable codes, dispositions, source paths, and named recovery; Hydra forwards records to OpenUSD diagnostics and telemetry |
+| Standard OpenUSD Gaussian ingestion and rendering | The OpenUSD 26.05 `ParticleField3DGaussianSplat` → `usdVolImaging` → Hydra `particleField` boundary is accepted and documented; host-neutral Gaussian resources and rendering remain v0.9.0 work |
 | Subdivision refinement | Unavailable |
 | Dome/multi-light viewport lighting, shadows, selection, alpha blending, and production culling | Unavailable |
 | Vulkan/Hgi external-memory or zero-copy host presentation | Unavailable; CPU readback/upload reference path only |
