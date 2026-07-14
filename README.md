@@ -143,8 +143,8 @@ These are roadmap boundaries, not implicit compatibility claims. See the
 feature coverage.
 
 v0.5.0 releases the host-neutral MaterialIR and basic textured shading slice.
-The Unreleased v0.5.1 measurement foundation and v0.6.0 incremental Hydra sync
-work make changed-scene costs and host presentation separately observable. The
+v0.6.0 releases the measurement foundation and incremental Hydra sync work,
+making changed-scene costs and host presentation separately observable. The
 active v0.7.0 path completes the persistent Mesh/Gaussian resource model, then
 adds a native Vulkan viewport and establishes Gaussian rendering before
 GPU-driven optimization. The Mesh path advances through bindless resource

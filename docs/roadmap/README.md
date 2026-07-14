@@ -15,11 +15,11 @@ Legend: 🚧 in progress · ⬜ not started
 | [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
 
 v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
-slice. The v0.5.1 performance-observability foundation and v0.6.0 incremental
-Hydra synchronization work are retained in the delivery history and Unreleased
-changelog. The active v0.7.0 milestone extends the persistent resource model to
-Mesh and Gaussian data. The ordered ladder then establishes a native Vulkan
-performance reference and lands Gaussian rendering before GPU-driven
+slice. v0.6.0 shipped the performance-observability foundation and incremental
+Hydra synchronization work, with completed detail retained in the changelog and
+delivery history. The active v0.7.0 milestone extends the persistent resource
+model to Mesh and Gaussian data. The ordered ladder then establishes a native
+Vulkan performance reference and lands Gaussian rendering before GPU-driven
 optimization. The Mesh path then advances through persistent
 draw identity, GPU-driven indexed Forward, an experimental opaque Visibility
 Buffer, MaterialX quality work, and static meshlets. Low-copy presentation can
