@@ -65,12 +65,15 @@ Capture the reference-path performance baselines as deterministic JSON:
 
 ```powershell
 ./build/adapters/merlin-benchmark/Debug/merlin-benchmark.exe `
-  --width 512 --height 512 --steady-frames 30 --output benchmark.json
+  --fixture reference --width 512 --height 512 --steady-frames 30 `
+  --output benchmark.json
 ```
 
-The report records build/machine metadata, CPU scope timings, and structural
-counters for first-frame, steady-state, and per-aspect edit scenarios
-(transform, visibility, material, points, removal). See the
+The v3 report records build/machine metadata, CPU/GPU stage distributions,
+hitches, AOV selection, transfer/allocation/descriptor work, and structural
+counters for first-frame, steady-state, camera, per-aspect edits, and AOV
+combinations. Fixed million-triangle, 10,000-mesh, 1,000-instance, and 4K
+fixtures are selectable explicitly. See the
 [benchmark guide](docs/guides/benchmarking.md) for the schema and comparison
 rules.
 
@@ -106,6 +109,12 @@ and a Vulkan-backed render pass. The test suite separately verifies plugin
 discovery and delegate creation, RenderBuffer resize/map lifetime, and an
 install-tree `testusdview` first frame with rendered geometry.
 
+The install-tree regression also emits a versioned Hydra performance report
+and raw OpenUSD Chrome trace. Together they separate delegate Sync, scene-index
+processing, RenderWorld/extraction, Vulkan CPU/GPU work, selected readback,
+RenderBuffer map/resolve, CPU-to-Hgi upload, host composite, and presentation;
+camera-only motion is gated against geometry/topology/primvar fetch or upload.
+
 The current mesh path normalizes indexed and face-varying normals, display
 color/opacity, and UVs, robustly triangulates concave polygonal faces, preserves
 authored material binding identity, and supports native Hydra instancing. The
@@ -132,9 +141,9 @@ These are roadmap boundaries, not implicit compatibility claims. See the
 feature coverage.
 
 v0.5.0 releases the host-neutral MaterialIR and basic textured shading slice.
-The active v0.5.1 milestone now expands the measurement foundation so Hydra,
-Merlin, Vulkan, readback, host upload, and presentation costs can be attributed
-separately. The ordered path then delivers incremental Hydra sync, completes the
+The Unreleased v0.5.1 measurement foundation makes Hydra, Merlin, Vulkan,
+readback, host upload, and presentation costs separately observable. The active
+v0.6.0 path now delivers incremental Hydra sync, then completes the
 persistent Mesh/Gaussian resource model, adds a native Vulkan viewport, and
 establishes Gaussian rendering before GPU-driven optimization. MaterialX and
 lower-copy presentation remain later evidence-gated milestones. Tier 0 CPU

@@ -36,6 +36,9 @@ struct RendererCapabilities {
   bool graphics_queue{};
   bool compute_queue{};
   bool transfer_queue{};
+  // True when the selected graphics queue exposes timestamp bits. Per-frame
+  // GPU execution durations are zero only when this capability is false.
+  bool timestamp_queries{};
 };
 
 struct RendererStatistics {
@@ -52,13 +55,20 @@ struct RendererStatistics {
   std::uint32_t geometry_arena_blocks{};
 };
 
-// CPU wall-clock durations for the backend-owned portions of one frame.
-// Nanoseconds keep the result machine-readable without floating-point
-// formatting differences between standard library implementations.
+// Backend-owned durations for one frame. Fields are CPU wall-clock durations
+// except gpu_execution_ns, which comes from device timestamps. Nanoseconds keep
+// the result machine-readable without floating-point formatting differences
+// between standard library implementations.
 struct FrameCpuTimings {
+  // CPU work that reconciles immutable snapshot resources with GPU residency.
   std::uint64_t upload_ns{};
   std::uint64_t command_recording_ns{};
+  std::uint64_t queue_submission_ns{};
+  std::uint64_t completion_wait_ns{};
   std::uint64_t readback_ns{};
+  // Device timestamps spanning uploads, draws, and selected AOV copies. This
+  // is a GPU duration despite living beside the correlated CPU timeline.
+  std::uint64_t gpu_execution_ns{};
   std::uint64_t backend_total_ns{};
 };
 
@@ -67,12 +77,24 @@ struct FrameCpuTimings {
 // too noisy for performance comparisons.
 struct FrameCounters {
   std::uint64_t draw_count{};
+  std::uint64_t visible_primitive_count{};
   std::uint64_t triangle_count{};
   std::uint64_t upload_bytes{};
   std::uint64_t readback_bytes{};
+  std::uint64_t requested_aov_mask{};
+  std::uint64_t rendered_aov_mask{};
+  std::uint64_t cpu_readback_aov_mask{};
+  std::uint64_t requested_aov_count{};
+  std::uint64_t rendered_aov_count{};
+  std::uint64_t cpu_readback_aov_count{};
+  std::uint64_t wait_count{};
+  std::uint64_t resolve_count{};
+  std::uint64_t map_count{};
   std::uint64_t allocation_count{};
   std::uint64_t buffer_allocation_count{};
   std::uint64_t image_allocation_count{};
+  std::uint64_t buffer_allocation_bytes{};
+  std::uint64_t image_allocation_bytes{};
   std::uint64_t pipeline_creation_count{};
   std::uint64_t scene_cache_hits{};
   std::uint64_t scene_cache_misses{};
@@ -90,6 +112,8 @@ struct FrameCounters {
   std::uint64_t shader_module_cache_misses{};
   std::uint64_t descriptor_layout_cache_hits{};
   std::uint64_t descriptor_layout_cache_misses{};
+  std::uint64_t descriptor_pool_creation_count{};
+  std::uint64_t descriptor_allocation_count{};
   std::uint64_t descriptor_update_count{};
 
   // Member-wise equality keeps steady-state drift detection in lockstep with

@@ -10,6 +10,7 @@
 #include <pxr/base/gf/vec4d.h>
 #include <pxr/base/gf/vec4f.h>
 #include <pxr/base/tf/diagnostic.h>
+#include <pxr/base/trace/trace.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/imaging/hd/aov.h>
@@ -40,8 +41,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -60,6 +63,114 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {
+
+using CpuClock = std::chrono::steady_clock;
+
+std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(CpuClock::now() -
+                                                           start)
+          .count());
+}
+
+struct HydraTelemetrySnapshot {
+  std::uint64_t hydra_sync_ns{};
+  std::uint64_t hydra_sync_count{};
+  std::uint64_t mesh_sync_count{};
+  std::uint64_t material_sync_count{};
+  std::uint64_t light_sync_count{};
+  std::uint64_t instancer_sync_count{};
+  std::uint64_t camera_sync_count{};
+  std::uint64_t render_world_update_ns{};
+  std::uint64_t snapshot_extraction_ns{};
+  std::uint64_t points_fetch_count{};
+  std::uint64_t topology_fetch_count{};
+  std::uint64_t primvar_descriptor_fetch_count{};
+  std::uint64_t primvar_fetch_count{};
+  std::uint64_t material_fetch_count{};
+  std::uint64_t render_buffer_resolve_ns{};
+  std::uint64_t render_buffer_resolve_count{};
+  std::uint64_t render_buffer_map_ns{};
+  std::uint64_t render_buffer_map_count{};
+  std::uint64_t host_upload_bytes{};
+};
+
+struct HydraTelemetry {
+  std::atomic<std::uint64_t> hydra_sync_ns{};
+  std::atomic<std::uint64_t> hydra_sync_count{};
+  std::atomic<std::uint64_t> mesh_sync_count{};
+  std::atomic<std::uint64_t> material_sync_count{};
+  std::atomic<std::uint64_t> light_sync_count{};
+  std::atomic<std::uint64_t> instancer_sync_count{};
+  std::atomic<std::uint64_t> camera_sync_count{};
+  std::atomic<std::uint64_t> render_world_update_ns{};
+  std::atomic<std::uint64_t> snapshot_extraction_ns{};
+  std::atomic<std::uint64_t> points_fetch_count{};
+  std::atomic<std::uint64_t> topology_fetch_count{};
+  std::atomic<std::uint64_t> primvar_descriptor_fetch_count{};
+  std::atomic<std::uint64_t> primvar_fetch_count{};
+  std::atomic<std::uint64_t> material_fetch_count{};
+  std::atomic<std::uint64_t> render_buffer_resolve_ns{};
+  std::atomic<std::uint64_t> render_buffer_resolve_count{};
+  std::atomic<std::uint64_t> render_buffer_map_ns{};
+  std::atomic<std::uint64_t> render_buffer_map_count{};
+  std::atomic<std::uint64_t> host_upload_bytes{};
+
+  HydraTelemetrySnapshot Consume() {
+    const auto take = [](std::atomic<std::uint64_t>& value) {
+      return value.exchange(0, std::memory_order_relaxed);
+    };
+    return {take(hydra_sync_ns),
+            take(hydra_sync_count),
+            take(mesh_sync_count),
+            take(material_sync_count),
+            take(light_sync_count),
+            take(instancer_sync_count),
+            take(camera_sync_count),
+            take(render_world_update_ns),
+            take(snapshot_extraction_ns),
+            take(points_fetch_count),
+            take(topology_fetch_count),
+            take(primvar_descriptor_fetch_count),
+            take(primvar_fetch_count),
+            take(material_fetch_count),
+            take(render_buffer_resolve_ns),
+            take(render_buffer_resolve_count),
+            take(render_buffer_map_ns),
+            take(render_buffer_map_count),
+            take(host_upload_bytes)};
+  }
+};
+
+HydraTelemetry g_hydra_telemetry;
+
+class ScopedHydraSync {
+ public:
+  ScopedHydraSync() : start_(CpuClock::now()) {}
+  ~ScopedHydraSync() {
+    g_hydra_telemetry.hydra_sync_ns.fetch_add(
+        ElapsedNanoseconds(start_), std::memory_order_relaxed);
+    g_hydra_telemetry.hydra_sync_count.fetch_add(1,
+                                                  std::memory_order_relaxed);
+  }
+
+ private:
+  CpuClock::time_point start_;
+};
+
+class ScopedAtomicTimer {
+ public:
+  explicit ScopedAtomicTimer(std::atomic<std::uint64_t>& destination)
+      : destination_(destination), start_(CpuClock::now()) {}
+  ~ScopedAtomicTimer() {
+    destination_.fetch_add(ElapsedNanoseconds(start_),
+                           std::memory_order_relaxed);
+  }
+
+ private:
+  std::atomic<std::uint64_t>& destination_;
+  CpuClock::time_point start_;
+};
 
 struct MeshCorner {
   std::uint32_t point{};
@@ -216,6 +327,8 @@ PrimvarInput FindPrimvar(const HdRprim& rprim, HdSceneDelegate* delegate,
       HdInterpolationConstant, HdInterpolationUniform, HdInterpolationVertex,
       HdInterpolationVarying, HdInterpolationFaceVarying};
   for (const auto interpolation : interpolations) {
+    g_hydra_telemetry.primvar_descriptor_fetch_count.fetch_add(
+        1, std::memory_order_relaxed);
     const auto descriptors =
         rprim.GetPrimvarDescriptors(delegate, interpolation);
     for (const auto& descriptor : descriptors) {
@@ -227,6 +340,8 @@ PrimvarInput FindPrimvar(const HdRprim& rprim, HdSceneDelegate* delegate,
       PrimvarInput result;
       result.interpolation = interpolation;
       result.present = true;
+      g_hydra_telemetry.primvar_fetch_count.fetch_add(
+          1, std::memory_order_relaxed);
       result.value = descriptor.indexed
                          ? rprim.GetIndexedPrimvar(delegate, descriptor.name,
                                                   &result.indices)
@@ -734,8 +849,9 @@ class SceneBridge {
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
                 const SdfPath& material_path,
                 const std::vector<merlin::Mat4>& transforms, bool visible,
-                merlin::ChangeAspect mesh_aspects,
-                merlin::ChangeAspect instance_aspects) {
+                 merlin::ChangeAspect mesh_aspects,
+                 merlin::ChangeAspect instance_aspects) {
+    ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
     auto found = meshes_.find(key);
@@ -849,6 +965,7 @@ class SceneBridge {
   }
 
   void SyncMaterial(const SdfPath& path, ParsedMaterial parsed) {
+    ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
     auto found = materials_.find(key);
@@ -912,6 +1029,7 @@ class SceneBridge {
 
   void SyncLight(const SdfPath& path, merlin::LightDescriptor descriptor,
                  merlin::ChangeAspect aspects) {
+    ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
     const auto found = lights_.find(key);
@@ -937,6 +1055,7 @@ class SceneBridge {
               const HdRprimCollection& collection,
               const TfTokenVector& render_tags,
               HdRenderIndex* render_index) {
+    const auto render_execute_start = CpuClock::now();
     std::scoped_lock lock(mutex_);
 
     for (auto& [path_string, mesh] : meshes_) {
@@ -997,9 +1116,15 @@ class SceneBridge {
                                   render_settings_descriptor_);
     }
 
+    const auto world_update_start = CpuClock::now();
     const auto changes = world_.Commit();
+    g_hydra_telemetry.render_world_update_ns.fetch_add(
+        ElapsedNanoseconds(world_update_start), std::memory_order_relaxed);
     if (!changes.empty()) {
+      const auto extraction_start = CpuClock::now();
       extractor_.Apply(world_, changes);
+      g_hydra_telemetry.snapshot_extraction_ns.fetch_add(
+          ElapsedNanoseconds(extraction_start), std::memory_order_relaxed);
     }
 
     std::uint32_t mesh_aspects{};
@@ -1133,6 +1258,9 @@ class SceneBridge {
       buffers_written += written ? 1U : 0U;
     }
 
+    const auto frame_telemetry = g_hydra_telemetry.Consume();
+    const auto render_execute_ns = ElapsedNanoseconds(render_execute_start);
+
     if (buffers_written != 0) {
       if (const auto marker_path = RegressionLogPath()) {
         std::size_t covered_pixels{};
@@ -1165,7 +1293,8 @@ class SceneBridge {
                           }));
         const auto missing_texcoord_geometries =
             snapshot->geometries.size() - texcoord_geometries;
-        stream << "phase=" << RegressionPhase()
+        stream << "schema_version=3"
+               << " phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
                << " completion_value=" << result.completion_value
                << " draw_count=" << snapshot->draws.size()
@@ -1188,6 +1317,92 @@ class SceneBridge {
                << renderer_->capabilities().validation_enabled
                << " validation_messages="
                << renderer_statistics.validation_messages
+               << " hydra_sync_ns=" << frame_telemetry.hydra_sync_ns
+               << " hydra_sync_count=" << frame_telemetry.hydra_sync_count
+               << " mesh_sync_count=" << frame_telemetry.mesh_sync_count
+               << " material_sync_count="
+               << frame_telemetry.material_sync_count
+               << " light_sync_count=" << frame_telemetry.light_sync_count
+               << " instancer_sync_count="
+               << frame_telemetry.instancer_sync_count
+               << " camera_sync_count=" << frame_telemetry.camera_sync_count
+               << " scene_index_processing_ns=0"
+               << " scene_index_processing_available=0"
+               << " render_world_update_ns="
+               << frame_telemetry.render_world_update_ns
+               << " snapshot_extraction_ns="
+               << frame_telemetry.snapshot_extraction_ns
+               << " gpu_scene_update_ns=" << result.cpu_timings.upload_ns
+               << " command_recording_ns="
+               << result.cpu_timings.command_recording_ns
+               << " queue_submission_ns="
+               << result.cpu_timings.queue_submission_ns
+               << " gpu_execution_ns="
+               << result.cpu_timings.gpu_execution_ns
+               << " completion_wait_ns="
+               << result.cpu_timings.completion_wait_ns
+               << " readback_ns=" << result.cpu_timings.readback_ns
+               << " backend_total_ns="
+               << result.cpu_timings.backend_total_ns
+               << " render_pass_execute_ns=" << render_execute_ns
+               << " points_fetch_count="
+               << frame_telemetry.points_fetch_count
+               << " topology_fetch_count="
+               << frame_telemetry.topology_fetch_count
+               << " primvar_descriptor_fetch_count="
+               << frame_telemetry.primvar_descriptor_fetch_count
+               << " primvar_fetch_count="
+               << frame_telemetry.primvar_fetch_count
+               << " material_fetch_count="
+               << frame_telemetry.material_fetch_count
+               << " render_buffer_resolve_ns="
+               << frame_telemetry.render_buffer_resolve_ns
+               << " render_buffer_resolve_count="
+               << frame_telemetry.render_buffer_resolve_count
+               << " render_buffer_map_ns="
+               << frame_telemetry.render_buffer_map_ns
+               << " render_buffer_map_count="
+               << frame_telemetry.render_buffer_map_count
+               << " host_upload_bytes=" << frame_telemetry.host_upload_bytes
+               << " host_upload_ns=0 host_upload_ns_available=0"
+               << " host_composite_ns=0 host_composite_ns_available=0"
+               << " presentation_ns=0 presentation_ns_available=0"
+               << " requested_aov_count="
+               << result.counters.requested_aov_count
+               << " rendered_aov_count="
+               << result.counters.rendered_aov_count
+               << " cpu_readback_aov_count="
+               << result.counters.cpu_readback_aov_count
+               << " requested_aov_mask="
+               << result.counters.requested_aov_mask
+               << " rendered_aov_mask="
+               << result.counters.rendered_aov_mask
+               << " cpu_readback_aov_mask="
+               << result.counters.cpu_readback_aov_mask
+               << " upload_bytes=" << result.counters.upload_bytes
+               << " readback_bytes=" << result.counters.readback_bytes
+               << " allocation_count=" << result.counters.allocation_count
+               << " visible_primitive_count="
+               << result.counters.visible_primitive_count
+               << " wait_count=" << result.counters.wait_count
+               << " map_count=" << result.counters.map_count
+               << " resolve_count=" << result.counters.resolve_count
+               << " descriptor_pool_creation_count="
+               << result.counters.descriptor_pool_creation_count
+               << " descriptor_allocation_count="
+               << result.counters.descriptor_allocation_count
+               << " descriptor_update_count="
+               << result.counters.descriptor_update_count
+               << " pipeline_creation_count="
+               << result.counters.pipeline_creation_count
+               << " shader_module_cache_misses="
+               << result.counters.shader_module_cache_misses
+               << " geometry_cache_misses="
+               << result.counters.geometry_cache_misses
+               << " buffer_allocation_bytes="
+               << result.counters.buffer_allocation_bytes
+               << " image_allocation_bytes="
+               << result.counters.image_allocation_bytes
                << " mesh_aspects=" << mesh_aspects
                << " material_aspects=" << material_aspects
                << " instance_aspects=" << instance_aspects
@@ -1305,6 +1520,9 @@ class HdMerlinInstancer final : public HdInstancer {
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits) override {
+    ScopedHydraSync sync_timer;
+    g_hydra_telemetry.instancer_sync_count.fetch_add(
+        1, std::memory_order_relaxed);
     (void)render_param;
     if ((*dirty_bits & HdChangeTracker::DirtyVisibility) != 0) {
       visible_ = delegate->GetVisible(GetId());
@@ -1448,8 +1666,13 @@ class HdMerlinMaterial final : public HdMaterial {
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits) override {
+    ScopedHydraSync sync_timer;
+    g_hydra_telemetry.material_sync_count.fetch_add(
+        1, std::memory_order_relaxed);
     (void)render_param;
     if (*dirty_bits != HdMaterial::Clean) {
+      g_hydra_telemetry.material_fetch_count.fetch_add(
+          1, std::memory_order_relaxed);
       auto parsed =
           ParseMaterialResource(GetId(), delegate->GetMaterialResource(GetId()));
       if (!parsed.diagnostic.empty()) {
@@ -1481,6 +1704,9 @@ class HdMerlinDistantLight final : public HdLight {
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits) override {
+    ScopedHydraSync sync_timer;
+    g_hydra_telemetry.light_sync_count.fetch_add(1,
+                                                  std::memory_order_relaxed);
     (void)render_param;
     merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
     if ((*dirty_bits & HdLight::DirtyTransform) != 0) {
@@ -1538,6 +1764,9 @@ class HdMerlinMesh final : public HdMesh {
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
+    ScopedHydraSync sync_timer;
+    g_hydra_telemetry.mesh_sync_count.fetch_add(1,
+                                                 std::memory_order_relaxed);
     (void)render_param;
     (void)repr_token;
     _UpdateInstancer(delegate, dirty_bits);
@@ -1552,6 +1781,8 @@ class HdMerlinMesh final : public HdMesh {
     }
     if (topology_dirty) {
       mesh_aspects |= merlin::ChangeAspect::Topology;
+      g_hydra_telemetry.topology_fetch_count.fetch_add(
+          1, std::memory_order_relaxed);
       topology_ = GetMeshTopology(delegate);
     }
     const bool primvars_dirty =
@@ -1634,6 +1865,8 @@ class HdMerlinMesh final : public HdMesh {
     reset();
 
     std::vector<GfVec3d> points;
+    g_hydra_telemetry.points_fetch_count.fetch_add(
+        1, std::memory_order_relaxed);
     const auto authored_points = GetPoints(delegate);
     if (authored_points.IsHolding<VtVec3fArray>()) {
       const auto& values = authored_points.UncheckedGet<VtVec3fArray>();
@@ -1802,6 +2035,9 @@ class HdMerlinCamera final : public HdCamera {
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
             HdDirtyBits* dirty_bits) override {
+    ScopedHydraSync sync_timer;
+    g_hydra_telemetry.camera_sync_count.fetch_add(1,
+                                                   std::memory_order_relaxed);
     HdCamera::Sync(delegate, render_param, dirty_bits);
   }
 
@@ -1891,11 +2127,19 @@ bool HdMerlinRenderBuffer::IsMultiSampled() const {
 }
 
 void* HdMerlinRenderBuffer::Map() {
+  TRACE_SCOPE("HdMerlinRenderBuffer::Map");
+  const auto start = CpuClock::now();
   std::scoped_lock lock(mutex_);
   if (data_.empty()) {
     return nullptr;
   }
   ++map_count_;
+  g_hydra_telemetry.render_buffer_map_count.fetch_add(
+      1, std::memory_order_relaxed);
+  g_hydra_telemetry.host_upload_bytes.fetch_add(
+      data_.size(), std::memory_order_relaxed);
+  g_hydra_telemetry.render_buffer_map_ns.fetch_add(
+      ElapsedNanoseconds(start), std::memory_order_relaxed);
   return data_.data();
 }
 
@@ -1911,7 +2155,14 @@ bool HdMerlinRenderBuffer::IsMapped() const {
   return map_count_ != 0;
 }
 
-void HdMerlinRenderBuffer::Resolve() {}
+void HdMerlinRenderBuffer::Resolve() {
+  TRACE_SCOPE("HdMerlinRenderBuffer::Resolve");
+  const auto start = CpuClock::now();
+  g_hydra_telemetry.render_buffer_resolve_count.fetch_add(
+      1, std::memory_order_relaxed);
+  g_hydra_telemetry.render_buffer_resolve_ns.fetch_add(
+      ElapsedNanoseconds(start), std::memory_order_relaxed);
+}
 
 bool HdMerlinRenderBuffer::IsConverged() const {
   std::scoped_lock lock(mutex_);

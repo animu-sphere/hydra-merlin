@@ -8,6 +8,25 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- `merlin-benchmark/v3` CPU/GPU stage distributions with queue timestamps,
+  median/p95/p99/maximum and hitch summaries, expanded AOV/descriptor/map/wait/
+  allocation counters, and fixed reference, million-triangle, 10,000-mesh,
+  1,000-instance, AOV-combination, and 4K fixtures.
+- Structural benchmark comparison reports with opt-in controlled-hardware
+  timing thresholds and limiting-stage identification.
+- Versioned Hydra performance JSON and raw OpenUSD Chrome traces separating
+  delegate Sync, scene-index work, RenderWorld/extraction, Vulkan execution,
+  readback, RenderBuffer map/resolve, CPU-to-Hgi upload, host composite, and
+  presentation scopes.
+
+### Changed
+
+- Capability CI now runs and retains comparable benchmark and Hydra
+  performance evidence. Camera-only and static usdview phases enforce zero
+  irrelevant geometry fetch/upload, allocation, shader, and pipeline work.
+
 ## [0.5.0] - 2026-07-14
 
 ### Added

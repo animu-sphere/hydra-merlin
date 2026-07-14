@@ -291,6 +291,7 @@ class DeviceArena {
   struct Allocation {
     BufferRange range;
     bool created_block{};
+    VkDeviceSize block_bytes{};
   };
 
   void Initialize(VkDevice device, VkPhysicalDevice physical_device,
@@ -321,7 +322,7 @@ class DeviceArena {
         if (span->size == 0) {
           spans.erase(span);
         }
-        return {range, false};
+        return {range, false, 0};
       }
     }
     const auto block_bytes = std::max(kMinArenaBlockBytes, aligned);
@@ -333,7 +334,8 @@ class DeviceArena {
       block.free_spans.push_back({aligned, block_bytes - aligned});
     }
     blocks_.push_back(std::move(block));
-    return {{static_cast<std::uint32_t>(blocks_.size() - 1U), 0, aligned}, true};
+    return {{static_cast<std::uint32_t>(blocks_.size() - 1U), 0, aligned},
+            true, block_bytes};
   }
 
   void Release(const BufferRange& range) noexcept {
@@ -578,6 +580,9 @@ class Renderer::Impl {
       for (auto& frame : frames_) {
         DestroyTarget(frame.target);
         DestroyBuffer(frame.material_uniforms);
+        if (frame.timestamp_pool != VK_NULL_HANDLE) {
+          vkDestroyQueryPool(device_, frame.timestamp_pool, nullptr);
+        }
         if (frame.descriptor_pool != VK_NULL_HANDLE) {
           vkDestroyDescriptorPool(device_, frame.descriptor_pool, nullptr);
         }
@@ -620,12 +625,29 @@ class Renderer::Impl {
     ResetAbandonedUploads();
     for (const auto& draw : request.snapshot->draws) {
       ++frame_counters_.draw_count;
+      ++frame_counters_.visible_primitive_count;
       frame_counters_.triangle_count +=
           request.snapshot->geometries[draw.geometry_index].indices->size() / 3U;
     }
 
     auto rendered_aovs = RenderedAovs(request);
     auto cpu_readback_aovs = CpuReadbackAovs(request);
+    const auto aov_mask = [](const auto& aovs) {
+      std::uint64_t mask{};
+      for (const auto aov : aovs) {
+        mask |= std::uint64_t{1} << static_cast<std::uint32_t>(aov);
+      }
+      return mask;
+    };
+    frame_counters_.requested_aov_count = request.products.size();
+    for (const auto& product : request.products) {
+      frame_counters_.requested_aov_mask |=
+          std::uint64_t{1} << static_cast<std::uint32_t>(product.aov);
+    }
+    frame_counters_.rendered_aov_count = rendered_aovs.size();
+    frame_counters_.rendered_aov_mask = aov_mask(rendered_aovs);
+    frame_counters_.cpu_readback_aov_count = cpu_readback_aovs.size();
+    frame_counters_.cpu_readback_aov_mask = aov_mask(cpu_readback_aovs);
     EnsureDescriptorSetLayout();
     auto& frame = AcquireFrame(request.width, request.height, request.shaders,
                                cpu_readback_aovs);
@@ -657,9 +679,20 @@ class Renderer::Impl {
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
           "begin frame command buffer");
+    if (frame.timestamp_pool != VK_NULL_HANDLE) {
+      vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0, 2);
+      vkCmdWriteTimestamp(frame.command_buffer,
+                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                          frame.timestamp_pool, 0);
+    }
     RecordUploads(frame.command_buffer);
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
                  frame.cpu_readback_aovs);
+    if (frame.timestamp_pool != VK_NULL_HANDLE) {
+      vkCmdWriteTimestamp(frame.command_buffer,
+                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                          frame.timestamp_pool, 1);
+    }
     Check(vkEndCommandBuffer(frame.command_buffer), "end frame command buffer");
     const auto recording_ns = ElapsedNanoseconds(recording_start);
 
@@ -667,7 +700,10 @@ class Renderer::Impl {
     frame.cpu_timings.upload_ns = upload_ns;
     frame.cpu_timings.command_recording_ns = recording_ns;
     frame.counters = frame_counters_;
+    const auto submission_start = CpuClock::now();
     const auto completion = SubmitFrame(frame);
+    frame.cpu_timings.queue_submission_ns =
+        ElapsedNanoseconds(submission_start);
     CommitTextureUploads();
     for (auto& buffer : frame_upload_buffers_) {
       deferred_.push_back({buffer, completion});
@@ -700,8 +736,10 @@ class Renderer::Impl {
   RenderResult Resolve(std::uint64_t completion,
                        std::chrono::nanoseconds timeout) {
     auto& frame = FindFrame(completion);
-    const auto readback_start = CpuClock::now();
+    const auto resolve_start = CpuClock::now();
+    const auto wait_start = CpuClock::now();
     WaitForFrame(frame, timeout);
+    const auto wait_ns = ElapsedNanoseconds(wait_start);
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
     CollectDeferred(completion);
@@ -713,6 +751,7 @@ class Renderer::Impl {
     frame_counters_ = frame.counters;
 
     RenderResult result;
+    const auto readback_start = CpuClock::now();
     if (HasAov(frame.cpu_readback_aovs, Aov::Color)) {
       result.color = ReadColor(frame.target.width, frame.target.height);
     }
@@ -734,8 +773,12 @@ class Renderer::Impl {
     result.scene_revision = frame.scene_revision;
     result.completion_value = completion;
     result.cpu_timings = frame.cpu_timings;
+    result.cpu_timings.completion_wait_ns = wait_ns;
     result.cpu_timings.readback_ns = readback_ns;
-    result.cpu_timings.backend_total_ns += readback_ns;
+    result.cpu_timings.gpu_execution_ns = ReadGpuExecutionNanoseconds(frame);
+    result.cpu_timings.backend_total_ns += ElapsedNanoseconds(resolve_start);
+    ++frame_counters_.wait_count;
+    ++frame_counters_.resolve_count;
     result.counters = frame_counters_;
     frame.outstanding = false;
     frame.counters = {};
@@ -834,6 +877,7 @@ class Renderer::Impl {
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
     VkFence fence{};
+    VkQueryPool timestamp_pool{};
     std::uint64_t completion_value{};
     bool outstanding{};
     RenderTarget target;
@@ -943,6 +987,7 @@ class Renderer::Impl {
           physical_device_ = candidate;
           queue_family_ = index;
           selected_queue_flags = queues[index].queueFlags;
+          selected_timestamp_valid_bits_ = queues[index].timestampValidBits;
           break;
         }
       }
@@ -980,6 +1025,10 @@ class Renderer::Impl {
         (selected_queue_flags & VK_QUEUE_COMPUTE_BIT) != 0U;
     capabilities_.transfer_queue =
         (selected_queue_flags & VK_QUEUE_TRANSFER_BIT) != 0U;
+    capabilities_.timestamp_queries =
+        properties.properties.limits.timestampPeriod > 0.0F &&
+        selected_timestamp_valid_bits_ != 0U;
+    timestamp_period_ns_ = properties.properties.limits.timestampPeriod;
 
     VkFormatProperties depth_properties{};
     vkGetPhysicalDeviceFormatProperties(physical_device_, kDepthFormat,
@@ -1046,6 +1095,15 @@ class Renderer::Impl {
         Check(vkCreateFence(device_, &fence_info, nullptr, &frame.fence),
               "create frame fence");
       }
+      if (capabilities_.timestamp_queries) {
+        VkQueryPoolCreateInfo query_info{
+            VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+        query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        query_info.queryCount = 2;
+        Check(vkCreateQueryPool(device_, &query_info, nullptr,
+                                &frame.timestamp_pool),
+              "create frame timestamp query pool");
+      }
     }
   }
 
@@ -1053,6 +1111,7 @@ class Renderer::Impl {
                       VkMemoryPropertyFlags properties) {
     ++frame_counters_.allocation_count;
     ++frame_counters_.buffer_allocation_count;
+    frame_counters_.buffer_allocation_bytes += size;
     return CreateBufferRaw(device_, physical_device_, size, usage, properties);
   }
 
@@ -1347,6 +1406,7 @@ class Renderer::Impl {
       Check(vkCreateDescriptorPool(device_, &info, nullptr,
                                    &frame.descriptor_pool),
             "create material descriptor pool");
+      ++frame_counters_.descriptor_pool_creation_count;
       frame.descriptor_capacity = material_count;
     } else {
       Check(vkResetDescriptorPool(device_, frame.descriptor_pool, 0),
@@ -1392,6 +1452,7 @@ class Renderer::Impl {
     Check(vkAllocateDescriptorSets(device_, &allocate,
                                    frame.material_descriptor_sets.data()),
           "allocate material descriptor sets");
+    frame_counters_.descriptor_allocation_count += material_count;
 
     std::vector<VkDescriptorImageInfo> image_infos(material_count);
     std::vector<VkDescriptorBufferInfo> buffer_infos(material_count);
@@ -1518,6 +1579,7 @@ class Renderer::Impl {
       if (staging_grew) {
         ++frame_counters_.allocation_count;
         ++frame_counters_.buffer_allocation_count;
+        frame_counters_.buffer_allocation_bytes += staging_bytes;
         Retire(retired_staging);
       }
     }
@@ -1575,6 +1637,7 @@ class Renderer::Impl {
     if (allocation.created_block) {
       ++frame_counters_.allocation_count;
       ++frame_counters_.buffer_allocation_count;
+      frame_counters_.buffer_allocation_bytes += allocation.block_bytes;
     }
     ++frame_counters_.buffer_suballocation_count;
     range = allocation.range;
@@ -1853,6 +1916,7 @@ class Renderer::Impl {
     vkGetImageMemoryRequirements(device_, image, &requirements);
     VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocation.allocationSize = requirements.size;
+    frame_counters_.image_allocation_bytes += requirements.size;
     allocation.memoryTypeIndex = FindMemoryTypeRaw(
         physical_device_, requirements.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -2387,6 +2451,25 @@ class Renderer::Impl {
     }
   }
 
+  std::uint64_t ReadGpuExecutionNanoseconds(const FrameContext& frame) const {
+    if (frame.timestamp_pool == VK_NULL_HANDLE) {
+      return 0;
+    }
+    std::array<std::uint64_t, 2> timestamps{};
+    Check(vkGetQueryPoolResults(device_, frame.timestamp_pool, 0,
+                                static_cast<std::uint32_t>(timestamps.size()),
+                                sizeof(timestamps), timestamps.data(),
+                                sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT),
+          "read frame timestamp queries");
+    const std::uint64_t mask = selected_timestamp_valid_bits_ >= 64U
+                                   ? std::numeric_limits<std::uint64_t>::max()
+                                   : (std::uint64_t{1}
+                                      << selected_timestamp_valid_bits_) - 1U;
+    const auto ticks = (timestamps[1] - timestamps[0]) & mask;
+    return static_cast<std::uint64_t>(
+        static_cast<long double>(ticks) * timestamp_period_ns_);
+  }
+
   ImageRgba8 ReadColor(std::uint32_t width, std::uint32_t height) {
     frame_counters_.readback_bytes +=
         static_cast<std::uint64_t>(width) * height * 4U;
@@ -2396,6 +2479,7 @@ class Renderer::Impl {
     result.pixels.resize(static_cast<std::size_t>(result.row_pitch_bytes) *
                          height);
     void* mapped{};
+    ++frame_counters_.map_count;
     Check(vkMapMemory(device_, active_target_->color_readback.memory, 0,
                       active_target_->color_readback.size, 0, &mapped),
           "map color readback");
@@ -2412,6 +2496,7 @@ class Renderer::Impl {
     result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
     result.pixels.resize(static_cast<std::size_t>(width) * height);
     void* mapped{};
+    ++frame_counters_.map_count;
     Check(vkMapMemory(device_, active_target_->depth_readback.memory, 0,
                       active_target_->depth_readback.size, 0, &mapped),
           "map depth readback");
@@ -2430,6 +2515,7 @@ class Renderer::Impl {
     result.row_pitch_bytes = width * BytesPerPixel(result.product.format);
     result.pixels.resize(static_cast<std::size_t>(width) * height);
     void* mapped{};
+    ++frame_counters_.map_count;
     Check(vkMapMemory(device_, readback.memory, 0, readback.size, 0, &mapped),
           "map id readback");
     std::memcpy(result.pixels.data(), mapped,
@@ -2471,6 +2557,8 @@ class Renderer::Impl {
   VkDebugUtilsMessengerEXT debug_messenger_{};
   VkSemaphore timeline_semaphore_{};
   std::uint32_t queue_family_{};
+  std::uint32_t selected_timestamp_valid_bits_{};
+  float timestamp_period_ns_{};
   std::uint64_t timeline_value_{};
   std::uint64_t latest_completed_value_{};
   VkDeviceSize uniform_buffer_alignment_{16U};

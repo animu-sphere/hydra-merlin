@@ -15,12 +15,14 @@ Legend: 🚧 in progress · ⬜ not started
 | [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
 
 v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
-slice. The active v0.5.1 milestone completes the performance-observability
-foundation. The ordered ladder then adds incremental Hydra synchronization,
-extends the persistent resource model to Mesh and Gaussian data, establishes a
-native Vulkan performance reference, and lands Gaussian rendering before
-GPU-driven optimization. MaterialX, low-copy presentation, and large-scene
-streaming follow only after their prerequisites and measurements are available.
+slice. The v0.5.1 work completed the performance-observability foundation; its
+detail is retained in the delivery history and Unreleased changelog. The active
+v0.6.0 milestone adds incremental Hydra synchronization. The ordered ladder
+then extends the persistent resource model to Mesh and Gaussian data,
+establishes a native Vulkan performance reference, and lands Gaussian rendering
+before GPU-driven optimization. MaterialX, low-copy presentation, and
+large-scene streaming follow only after their prerequisites and measurements
+are available.
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
@@ -71,8 +73,8 @@ Every release must preserve these properties:
 
 | Priority | Direction |
 | --- | --- |
-| P0 | v0.5.1 performance foundation, comparable Hydra/host-stage evidence, and GPU capability CI |
-| P1 | Incremental Hydra sync, persistent Mesh/Gaussian resources, GPU residency, and native viewport |
+| P0 | v0.6.0 incremental Hydra sync, comparable performance evidence, and GPU capability CI |
+| P1 | Persistent Mesh/Gaussian resources, GPU residency, and native viewport |
 | P2 | Gaussian MVP, persistent Mesh draw packets, and GPU-driven Mesh/Gaussian rendering |
 | P3 | GPU presentation interop, MaterialX, large-scene streaming, and parallel Hydra processing |
 | P4 | DCC production integration and v1.0 quality, compatibility, and performance contracts |

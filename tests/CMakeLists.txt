@@ -141,6 +141,23 @@ if(TARGET merlin-benchmark)
     LABELS "benchmark;gpu"
     TIMEOUT 60
   )
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(
+      NAME merlin-benchmark-compare
+      COMMAND ${CMAKE_COMMAND}
+        "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+        "-DMERLIN_COMPARE_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/compare-benchmarks.py"
+        "-DMERLIN_BENCHMARK_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/merlin-benchmark.json"
+        "-DMERLIN_COMPARISON_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/merlin-benchmark-comparison.json"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/run_benchmark_compare_test.cmake"
+    )
+    set_tests_properties(merlin-benchmark-compare PROPERTIES
+      DEPENDS merlin-benchmark-json
+      LABELS "benchmark;gpu"
+      TIMEOUT 30
+    )
+  endif()
 endif()
 
 get_property(_merlin_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)

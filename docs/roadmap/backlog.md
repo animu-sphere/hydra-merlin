@@ -1,24 +1,11 @@
 # Backlog
 
-Ordered work after the active v0.5.1 milestone in [current.md](current.md).
+Ordered work after the active v0.6.0 milestone in [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 
 ## Milestone ladder
-
-### ⬜ v0.6.0 — Incremental Hydra sync
-
-Separate dirty locator/bit processing and retain persistent USD-path-to-Merlin
-state. Add transform-only, visibility-only, and material-parameter-only fast
-paths; primvar descriptor, triangulation, and indexed-primvar caches; changed
-range tracking; actionable unsupported-data diagnostics; and an ingestion study
-for the existing OpenUSD Gaussian representation.
-
-Exit requires a camera-only update to perform zero geometry, topology, primvar,
-and Gaussian-attribute fetch or upload and zero pipeline creation. The Gaussian
-study may add an adapter or Scene Index bridge for an existing schema, but must
-not introduce a renderer-specific USD schema, prim type, or attribute contract.
 
 ### ⬜ v0.7.0 — Persistent RenderWorld and GPU residency
 

@@ -1,6 +1,6 @@
 import os
 
-from pxr import Gf, UsdGeom, Vt
+from pxr import Gf, Trace, UsdGeom, Vt
 
 
 def _read_events():
@@ -19,6 +19,17 @@ def _read_events():
 
 
 def _render_phase(app_controller, phase, edit=None, size=None):
+    trace = Trace.Collector()
+    trace_label = f"MerlinPhase:{phase}"
+    trace.BeginEvent(trace_label)
+    try:
+        return _render_phase_traced(
+            app_controller, phase, edit=edit, size=size)
+    finally:
+        trace.EndEvent(trace_label)
+
+
+def _render_phase_traced(app_controller, phase, edit=None, size=None):
     os.environ["MERLIN_HYDRA2_REGRESSION_PHASE"] = phase
     previous_count = sum(
         event["phase"] == phase for event in _read_events())
@@ -101,6 +112,12 @@ def testUsdviewInputFunction(appController):
     assert baseline["missing_texcoord_geometries"] == 3
     assert baseline["material_fallbacks"] == 0
     assert baseline["texture_cache_hits"] >= 1
+    assert baseline["schema_version"] == 3
+    assert baseline["upload_bytes"] == 0
+    assert baseline["allocation_count"] == 0
+    assert baseline["pipeline_creation_count"] == 0
+    assert baseline["shader_module_cache_misses"] == 0
+    assert baseline["geometry_cache_misses"] == 0
     points = _render_phase(appController, "points", edit=_edit_points)
     topology = _render_phase(
         appController, "topology", edit=_edit_topology)
@@ -163,6 +180,20 @@ def testUsdviewInputFunction(appController):
     assert all(event["instance_aspects"] == 0 for event in camera_changes)
     assert all(
         event["camera_resource_revision"] >= 2
+        for event in camera_changes)
+    assert all(event["mesh_sync_count"] == 0 for event in camera_changes)
+    assert all(event["points_fetch_count"] == 0 for event in camera_changes)
+    assert all(event["topology_fetch_count"] == 0 for event in camera_changes)
+    assert all(
+        event["primvar_descriptor_fetch_count"] == 0
+        for event in camera_changes)
+    assert all(event["primvar_fetch_count"] == 0 for event in camera_changes)
+    assert all(event["upload_bytes"] == 0 for event in camera_changes)
+    assert all(
+        event["pipeline_creation_count"] == 0
+        for event in camera_changes)
+    assert all(
+        event["geometry_cache_misses"] == 0
         for event in camera_changes)
 
     assert resized["draw_count"] == 5

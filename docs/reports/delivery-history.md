@@ -98,3 +98,20 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Added a textured directional-lit headless reference scene and a basic Hydra
   `UsdPreviewSurface`/`UsdUVTexture`/distant-light translation with install-tree
   usdview evidence.
+
+## Performance observability foundation ✅
+
+- ✅ Split GPU scene update, command recording, queue submission, GPU timestamp
+  execution, completion wait, and CPU readback; recorded selected AOVs, bytes,
+  maps, resolves, descriptor work, allocation bytes, and visible primitives.
+- ✅ Upgraded the renderer benchmark to versioned distribution and hitch
+  summaries with static, camera, edit, AOV, million-triangle, 10,000-mesh,
+  1,000-instance, and 4K fixtures.
+- ✅ Added structural comparison reports with limiting-stage identification and
+  optional controlled-hardware timing thresholds.
+- ✅ Added Hydra Sync/fetch telemetry and combined it with OpenUSD Chrome trace
+  scopes for scene-index processing, CPU-to-Hgi upload, composite, and
+  presentation in a versioned install-tree report.
+- ✅ Gated static and camera-only paths against irrelevant fetch, upload,
+  allocation, shader, pipeline, and geometry-cache work, and retained all
+  reports in capability CI.
