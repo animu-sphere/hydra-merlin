@@ -15,12 +15,17 @@ Legend: 🚧 in progress · ⬜ not started
 | [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
 
 v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
-slice. The active v0.5.1 milestone completes the performance-observability
-foundation. The ordered ladder then adds incremental Hydra synchronization,
-extends the persistent resource model to Mesh and Gaussian data, establishes a
-native Vulkan performance reference, and lands Gaussian rendering before
-GPU-driven optimization. MaterialX, low-copy presentation, and large-scene
-streaming follow only after their prerequisites and measurements are available.
+slice. The v0.5.1 work completed the performance-observability foundation; its
+detail is retained in the delivery history and Unreleased changelog. The active
+v0.6.0 milestone adds incremental Hydra synchronization. The ordered ladder
+then extends the persistent resource model to Mesh and Gaussian data,
+establishes a native Vulkan performance reference, and lands Gaussian rendering
+before GPU-driven optimization. The Mesh path then advances through persistent
+draw identity, GPU-driven indexed Forward, an experimental opaque Visibility
+Buffer, MaterialX quality work, and static meshlets. Low-copy presentation can
+proceed once evidence justifies it; Mesh Shader, Hi-Z/LOD, and large-scene
+streaming follow only after their indexed fallbacks and measurements are
+available.
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
@@ -60,6 +65,15 @@ Every release must preserve these properties:
 - **Measure before optimizing.** Hydra Sync, scene normalization, command
   recording, GPU work, readback, host upload, and presentation must be separated
   before selecting an optimization.
+- **Establish the shared ABI before specialized paths.** Bindless resource
+  tables and a persistent GPU Scene with stable resource/draw identity precede
+  GPU-driven submission, Visibility, and meshlets.
+- **Prove indexed execution before Mesh Shader execution.** GPU-driven Forward
+  and meshlet rendering start with indexed indirect commands. Mesh Shader is an
+  optional measured backend, not the definition of a meshlet.
+- **Keep Visibility scoped.** The Visibility Buffer initially handles supported
+  opaque indexed Mesh only. Forward remains the image reference and fallback;
+  transparent Mesh, Gaussian primitives, and overlays keep specialized passes.
 - **Keep the reference path.** Tier 0 CPU readback remains available for
   headless execution, image comparison, debugging, and unsupported-host
   fallback even when a lower-copy path exists.
@@ -71,8 +85,8 @@ Every release must preserve these properties:
 
 | Priority | Direction |
 | --- | --- |
-| P0 | v0.5.1 performance foundation, comparable Hydra/host-stage evidence, and GPU capability CI |
-| P1 | Incremental Hydra sync, persistent Mesh/Gaussian resources, GPU residency, and native viewport |
-| P2 | Gaussian MVP, persistent Mesh draw packets, and GPU-driven Mesh/Gaussian rendering |
-| P3 | GPU presentation interop, MaterialX, large-scene streaming, and parallel Hydra processing |
-| P4 | DCC production integration and v1.0 quality, compatibility, and performance contracts |
+| P0 | v0.6.0 incremental Hydra sync, comparable performance evidence, and GPU capability CI |
+| P1 | Persistent bindless Mesh/Gaussian resources, GPU residency, and native viewport |
+| P2 | Gaussian MVP, persistent Mesh draw identity, and GPU-driven indexed rendering |
+| P3 | Opaque Visibility, GPU presentation interop, MaterialX quality, and static meshlets |
+| P4 | Optional Mesh Shader/Hi-Z/LOD, large-scene streaming, DCC integration, and v1.0 contracts |

@@ -5,6 +5,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -24,31 +26,51 @@ namespace {
 
 using CpuClock = std::chrono::steady_clock;
 
+constexpr std::uint64_t kHitchFloorNanoseconds = 2'000'000;
+
 struct Arguments {
   std::filesystem::path output;
+  std::string fixture{"reference"};
   std::uint32_t width{512};
   std::uint32_t height{512};
   std::uint32_t steady_frames{30};
+  bool resolution_overridden{};
 };
 
-struct CpuTimings {
+struct FrameTimings {
   std::uint64_t scene_update_ns{};
   std::uint64_t extraction_ns{};
-  std::uint64_t upload_ns{};
+  std::uint64_t gpu_scene_update_ns{};
   std::uint64_t command_recording_ns{};
+  std::uint64_t queue_submission_ns{};
+  std::uint64_t completion_wait_ns{};
   std::uint64_t readback_ns{};
+  std::uint64_t gpu_execution_ns{};
   std::uint64_t total_frame_ns{};
+};
+
+struct Distribution {
+  std::uint64_t median{};
+  std::uint64_t p95{};
+  std::uint64_t p99{};
+  std::uint64_t maximum{};
 };
 
 struct Baseline {
   std::string name;
-  std::uint32_t samples{1};
-  CpuTimings timings;
+  std::vector<FrameTimings> timings;
   merlin::vulkan::FrameCounters counters;
 };
 
-// The fixture covers the v0.2.0 resource-granular contract: two meshes, two
-// materials, and three instances where two instances share one mesh.
+struct FixtureSummary {
+  std::string name;
+  std::uint64_t mesh_count{};
+  std::uint64_t instance_count{};
+  std::uint64_t triangle_count{};
+};
+
+// The reference fixture covers shared geometry, independent materials, a
+// camera-only update, every resource edit class, and AOV readback combinations.
 struct SceneFixture {
   merlin::RenderWorld world;
   merlin::MeshHandle triangle;
@@ -58,6 +80,14 @@ struct SceneFixture {
   merlin::InstanceHandle first_triangle;
   merlin::InstanceHandle second_triangle;
   merlin::InstanceHandle quad_instance;
+  merlin::CameraHandle camera;
+};
+
+struct ScaleFixture {
+  merlin::RenderWorld world;
+  merlin::MaterialHandle material;
+  std::vector<merlin::MeshHandle> meshes;
+  std::vector<merlin::InstanceHandle> instances;
 };
 
 std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
@@ -78,6 +108,15 @@ std::uint32_t ParseUnsigned(std::string_view text, std::string_view option) {
   return value;
 }
 
+bool IsFixture(std::string_view value) {
+  constexpr std::array fixtures{
+      std::string_view("reference"), std::string_view("million-triangles"),
+      std::string_view("ten-thousand-meshes"),
+      std::string_view("thousand-instances"),
+      std::string_view("aov-combinations"), std::string_view("4k")};
+  return std::find(fixtures.begin(), fixtures.end(), value) != fixtures.end();
+}
+
 Arguments ParseArguments(int argc, char** argv) {
   Arguments result;
   for (int i = 1; i < argc; ++i) {
@@ -90,19 +129,35 @@ Arguments ParseArguments(int argc, char** argv) {
     };
     if (argument == "--output") {
       result.output = value(argument);
+    } else if (argument == "--fixture") {
+      const auto selected = value(argument);
+      if (!IsFixture(selected)) {
+        throw std::invalid_argument("unsupported fixture: " +
+                                    std::string(selected));
+      }
+      result.fixture = selected;
     } else if (argument == "--width") {
       result.width = ParseUnsigned(value(argument), argument);
+      result.resolution_overridden = true;
     } else if (argument == "--height") {
       result.height = ParseUnsigned(value(argument), argument);
+      result.resolution_overridden = true;
     } else if (argument == "--steady-frames") {
       result.steady_frames = ParseUnsigned(value(argument), argument);
     } else if (argument == "--help") {
-      std::cout << "Usage: merlin-benchmark [--output FILE] [--width N] "
-                   "[--height N] [--steady-frames N]\n";
+      std::cout
+          << "Usage: merlin-benchmark [--output FILE] [--fixture NAME] "
+             "[--width N] [--height N] [--steady-frames N]\n"
+             "Fixtures: reference, million-triangles, ten-thousand-meshes, "
+             "thousand-instances, aov-combinations, 4k\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(argument));
     }
+  }
+  if (result.fixture == "4k" && !result.resolution_overridden) {
+    result.width = 3840;
+    result.height = 2160;
   }
   return result;
 }
@@ -146,44 +201,116 @@ void PopulateScene(SceneFixture& fixture) {
   instance.material = fixture.primary_material;
   instance.transform = {};
   fixture.quad_instance = fixture.world.CreateInstance(std::move(instance));
+
+  merlin::CameraDescriptor camera;
+  camera.label = "benchmark-camera";
+  fixture.camera = fixture.world.CreateCamera(std::move(camera));
 }
 
-CpuTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
-  CpuTimings result;
-  result.upload_ns = timings.upload_ns;
+FixtureSummary PopulateScaleFixture(std::string_view name,
+                                    ScaleFixture& fixture) {
+  merlin::MaterialDescriptor material;
+  material.label = "scale-material";
+  material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+  fixture.material = fixture.world.CreateMaterial(std::move(material));
+
+  auto make_mesh = [](std::string label) {
+    merlin::MeshDescriptor mesh;
+    mesh.label = std::move(label);
+    mesh.positions = {{-0.01F, -0.01F, 0.0F}, {0.01F, -0.01F, 0.0F},
+                      {0.0F, 0.01F, 0.0F}};
+    mesh.indices = {0, 1, 2};
+    return mesh;
+  };
+  auto add_instance = [&](merlin::MeshHandle mesh, std::uint32_t index) {
+    merlin::InstanceDescriptor instance;
+    instance.label = "scale-instance-" + std::to_string(index);
+    instance.mesh = mesh;
+    instance.material = fixture.material;
+    const auto column = index % 100U;
+    const auto row = (index / 100U) % 100U;
+    instance.transform.values[12] = static_cast<float>(column) * 0.018F - 0.9F;
+    instance.transform.values[13] = static_cast<float>(row) * 0.018F - 0.9F;
+    fixture.instances.push_back(fixture.world.CreateInstance(std::move(instance)));
+  };
+
+  FixtureSummary summary;
+  summary.name = name;
+  if (name == "million-triangles") {
+    auto mesh = make_mesh("million-triangle-mesh");
+    mesh.indices.resize(3'000'000);
+    for (std::size_t i = 0; i < mesh.indices.size(); i += 3) {
+      mesh.indices[i] = 0;
+      mesh.indices[i + 1] = 1;
+      mesh.indices[i + 2] = 2;
+    }
+    fixture.meshes.push_back(fixture.world.CreateMesh(std::move(mesh)));
+    add_instance(fixture.meshes.front(), 0);
+    summary = {std::string(name), 1, 1, 1'000'000};
+  } else if (name == "ten-thousand-meshes") {
+    fixture.meshes.reserve(10'000);
+    fixture.instances.reserve(10'000);
+    for (std::uint32_t i = 0; i < 10'000; ++i) {
+      fixture.meshes.push_back(
+          fixture.world.CreateMesh(make_mesh("scale-mesh-" +
+                                             std::to_string(i))));
+      add_instance(fixture.meshes.back(), i);
+    }
+    summary = {std::string(name), 10'000, 10'000, 10'000};
+  } else if (name == "thousand-instances") {
+    fixture.meshes.push_back(
+        fixture.world.CreateMesh(make_mesh("shared-instance-mesh")));
+    fixture.instances.reserve(1'000);
+    for (std::uint32_t i = 0; i < 1'000; ++i) {
+      add_instance(fixture.meshes.front(), i);
+    }
+    summary = {std::string(name), 1, 1'000, 1'000};
+  } else {
+    throw std::invalid_argument("fixture is not a scale fixture");
+  }
+  return summary;
+}
+
+FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
+  FrameTimings result;
+  result.gpu_scene_update_ns = timings.upload_ns;
   result.command_recording_ns = timings.command_recording_ns;
+  result.queue_submission_ns = timings.queue_submission_ns;
+  result.completion_wait_ns = timings.completion_wait_ns;
   result.readback_ns = timings.readback_ns;
+  result.gpu_execution_ns = timings.gpu_execution_ns;
   return result;
 }
 
-std::uint64_t Median(std::vector<std::uint64_t> values) {
-  if (values.empty()) {
+std::uint64_t Percentile(const std::vector<std::uint64_t>& sorted,
+                         std::uint32_t percentile) {
+  if (sorted.empty()) {
     return 0;
   }
-  const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2U);
-  std::nth_element(values.begin(), middle, values.end());
-  if ((values.size() & 1U) != 0U) {
-    return *middle;
-  }
-  const auto lower = *std::max_element(values.begin(), middle);
-  return lower + (*middle - lower) / 2U;
+  const auto rank = (static_cast<std::uint64_t>(percentile) * sorted.size() +
+                     99U) /
+                    100U;
+  return sorted[std::max<std::size_t>(1, static_cast<std::size_t>(rank)) - 1U];
 }
 
-CpuTimings MedianTimings(const std::vector<CpuTimings>& values) {
-  auto collect = [&](auto member) {
-    std::vector<std::uint64_t> samples;
-    samples.reserve(values.size());
-    for (const auto& value : values) {
-      samples.push_back(value.*member);
-    }
-    return Median(std::move(samples));
-  };
-  return {collect(&CpuTimings::scene_update_ns),
-          collect(&CpuTimings::extraction_ns),
-          collect(&CpuTimings::upload_ns),
-          collect(&CpuTimings::command_recording_ns),
-          collect(&CpuTimings::readback_ns),
-          collect(&CpuTimings::total_frame_ns)};
+Distribution Summarize(const std::vector<FrameTimings>& values,
+                       std::uint64_t FrameTimings::*member) {
+  std::vector<std::uint64_t> samples;
+  samples.reserve(values.size());
+  for (const auto& value : values) {
+    samples.push_back(value.*member);
+  }
+  std::sort(samples.begin(), samples.end());
+  if (samples.empty()) {
+    return {};
+  }
+  const auto middle = samples.size() / 2U;
+  const auto median = (samples.size() & 1U) != 0U
+                          ? samples[middle]
+                          : samples[middle - 1U] +
+                                (samples[middle] - samples[middle - 1U]) / 2U;
+  return {median, Percentile(samples, 95), Percentile(samples, 99),
+          samples.back()};
 }
 
 std::string VersionString(std::uint32_t version) {
@@ -216,53 +343,131 @@ void JsonString(std::ostream& stream, std::string_view value) {
   stream << '"';
 }
 
+void WriteDistribution(std::ostream& stream, const Distribution& value) {
+  stream << "{\"median\": " << value.median << ", \"p95\": " << value.p95
+         << ", \"p99\": " << value.p99 << ", \"max\": " << value.maximum
+         << '}';
+}
+
+void WriteCounter(std::ostream& stream, std::string_view indent,
+                  std::string_view name, std::uint64_t value, bool last = false) {
+  stream << indent << "\"" << name << "\": " << value
+         << (last ? "\n" : ",\n");
+}
+
 void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                    std::string_view indent) {
   stream << indent << "{\n" << indent << "  \"name\": ";
   JsonString(stream, baseline.name);
-  const auto& timing = baseline.timings;
+  stream << ",\n" << indent << "  \"samples\": " << baseline.timings.size()
+         << ",\n" << indent << "  \"stages_ns\": {\n";
+  constexpr std::array stages{
+      std::pair{"render_world_update", &FrameTimings::scene_update_ns},
+      std::pair{"snapshot_extraction", &FrameTimings::extraction_ns},
+      std::pair{"gpu_scene_update", &FrameTimings::gpu_scene_update_ns},
+      std::pair{"command_recording", &FrameTimings::command_recording_ns},
+      std::pair{"queue_submission", &FrameTimings::queue_submission_ns},
+      std::pair{"completion_wait", &FrameTimings::completion_wait_ns},
+      std::pair{"readback", &FrameTimings::readback_ns},
+      std::pair{"gpu_execution", &FrameTimings::gpu_execution_ns},
+      std::pair{"total_frame", &FrameTimings::total_frame_ns}};
+  for (std::size_t i = 0; i < stages.size(); ++i) {
+    stream << indent << "    \"" << stages[i].first << "\": ";
+    WriteDistribution(stream, Summarize(baseline.timings, stages[i].second));
+    stream << (i + 1U == stages.size() ? "\n" : ",\n");
+  }
+  const auto total = Summarize(baseline.timings, &FrameTimings::total_frame_ns);
+  const auto hitch_threshold =
+      std::max(total.median * 2U, total.median + kHitchFloorNanoseconds);
+  const auto hitch_count = static_cast<std::uint64_t>(std::count_if(
+      baseline.timings.begin(), baseline.timings.end(),
+      [&](const FrameTimings& timing) {
+        return timing.total_frame_ns > hitch_threshold;
+      }));
+  stream << indent << "  },\n" << indent << "  \"frame_hitches\": {"
+         << "\"threshold_ns\": " << hitch_threshold << ", \"count\": "
+         << hitch_count << "},\n" << indent << "  \"counters\": {\n";
   const auto& count = baseline.counters;
-  stream << ",\n" << indent << "  \"samples\": " << baseline.samples
-         << ",\n" << indent << "  \"cpu_ns\": {\n"
-         << indent << "    \"scene_update\": " << timing.scene_update_ns << ",\n"
-         << indent << "    \"extraction\": " << timing.extraction_ns << ",\n"
-         << indent << "    \"upload\": " << timing.upload_ns << ",\n"
-         << indent << "    \"command_recording\": " << timing.command_recording_ns << ",\n"
-         << indent << "    \"readback\": " << timing.readback_ns << ",\n"
-         << indent << "    \"total_frame\": " << timing.total_frame_ns << "\n"
-         << indent << "  },\n" << indent << "  \"counters\": {\n"
-         << indent << "    \"draw_count\": " << count.draw_count << ",\n"
-         << indent << "    \"triangle_count\": " << count.triangle_count << ",\n"
-         << indent << "    \"upload_bytes\": " << count.upload_bytes << ",\n"
-         << indent << "    \"readback_bytes\": " << count.readback_bytes << ",\n"
-         << indent << "    \"allocation_count\": " << count.allocation_count << ",\n"
-         << indent << "    \"buffer_allocation_count\": " << count.buffer_allocation_count << ",\n"
-         << indent << "    \"image_allocation_count\": " << count.image_allocation_count << ",\n"
-         << indent << "    \"pipeline_creation_count\": " << count.pipeline_creation_count << ",\n"
-         << indent << "    \"scene_cache_hits\": " << count.scene_cache_hits << ",\n"
-         << indent << "    \"scene_cache_misses\": " << count.scene_cache_misses << ",\n"
-         << indent << "    \"geometry_cache_hits\": " << count.geometry_cache_hits << ",\n"
-         << indent << "    \"geometry_cache_misses\": " << count.geometry_cache_misses << ",\n"
-         << indent << "    \"texture_cache_hits\": " << count.texture_cache_hits << ",\n"
-         << indent << "    \"texture_cache_misses\": " << count.texture_cache_misses << ",\n"
-         << indent << "    \"sampler_cache_hits\": " << count.sampler_cache_hits << ",\n"
-         << indent << "    \"sampler_cache_misses\": " << count.sampler_cache_misses << ",\n"
-         << indent << "    \"buffer_suballocation_count\": " << count.buffer_suballocation_count << ",\n"
-         << indent << "    \"buffer_range_release_count\": " << count.buffer_range_release_count << ",\n"
-         << indent << "    \"pipeline_cache_hits\": " << count.pipeline_cache_hits << ",\n"
-         << indent << "    \"pipeline_cache_misses\": " << count.pipeline_cache_misses << ",\n"
-         << indent << "    \"shader_module_cache_hits\": " << count.shader_module_cache_hits << ",\n"
-         << indent << "    \"shader_module_cache_misses\": " << count.shader_module_cache_misses << ",\n"
-         << indent << "    \"descriptor_layout_cache_hits\": " << count.descriptor_layout_cache_hits << ",\n"
-         << indent << "    \"descriptor_layout_cache_misses\": " << count.descriptor_layout_cache_misses << ",\n"
-         << indent << "    \"descriptor_update_count\": " << count.descriptor_update_count << "\n"
-         << indent << "  }\n" << indent << '}';
+  const auto counter_indent = std::string(indent) + "    ";
+  WriteCounter(stream, counter_indent, "draw_count", count.draw_count);
+  WriteCounter(stream, counter_indent, "visible_primitive_count",
+               count.visible_primitive_count);
+  WriteCounter(stream, counter_indent, "triangle_count", count.triangle_count);
+  WriteCounter(stream, counter_indent, "upload_bytes", count.upload_bytes);
+  WriteCounter(stream, counter_indent, "readback_bytes", count.readback_bytes);
+  WriteCounter(stream, counter_indent, "requested_aov_mask",
+               count.requested_aov_mask);
+  WriteCounter(stream, counter_indent, "rendered_aov_mask",
+               count.rendered_aov_mask);
+  WriteCounter(stream, counter_indent, "cpu_readback_aov_mask",
+               count.cpu_readback_aov_mask);
+  WriteCounter(stream, counter_indent, "requested_aov_count",
+               count.requested_aov_count);
+  WriteCounter(stream, counter_indent, "rendered_aov_count",
+               count.rendered_aov_count);
+  WriteCounter(stream, counter_indent, "cpu_readback_aov_count",
+               count.cpu_readback_aov_count);
+  WriteCounter(stream, counter_indent, "wait_count", count.wait_count);
+  WriteCounter(stream, counter_indent, "resolve_count", count.resolve_count);
+  WriteCounter(stream, counter_indent, "map_count", count.map_count);
+  WriteCounter(stream, counter_indent, "allocation_count",
+               count.allocation_count);
+  WriteCounter(stream, counter_indent, "buffer_allocation_count",
+               count.buffer_allocation_count);
+  WriteCounter(stream, counter_indent, "image_allocation_count",
+               count.image_allocation_count);
+  WriteCounter(stream, counter_indent, "buffer_allocation_bytes",
+               count.buffer_allocation_bytes);
+  WriteCounter(stream, counter_indent, "image_allocation_bytes",
+               count.image_allocation_bytes);
+  WriteCounter(stream, counter_indent, "pipeline_creation_count",
+               count.pipeline_creation_count);
+  WriteCounter(stream, counter_indent, "scene_cache_hits",
+               count.scene_cache_hits);
+  WriteCounter(stream, counter_indent, "scene_cache_misses",
+               count.scene_cache_misses);
+  WriteCounter(stream, counter_indent, "geometry_cache_hits",
+               count.geometry_cache_hits);
+  WriteCounter(stream, counter_indent, "geometry_cache_misses",
+               count.geometry_cache_misses);
+  WriteCounter(stream, counter_indent, "texture_cache_hits",
+               count.texture_cache_hits);
+  WriteCounter(stream, counter_indent, "texture_cache_misses",
+               count.texture_cache_misses);
+  WriteCounter(stream, counter_indent, "sampler_cache_hits",
+               count.sampler_cache_hits);
+  WriteCounter(stream, counter_indent, "sampler_cache_misses",
+               count.sampler_cache_misses);
+  WriteCounter(stream, counter_indent, "buffer_suballocation_count",
+               count.buffer_suballocation_count);
+  WriteCounter(stream, counter_indent, "buffer_range_release_count",
+               count.buffer_range_release_count);
+  WriteCounter(stream, counter_indent, "pipeline_cache_hits",
+               count.pipeline_cache_hits);
+  WriteCounter(stream, counter_indent, "pipeline_cache_misses",
+               count.pipeline_cache_misses);
+  WriteCounter(stream, counter_indent, "shader_module_cache_hits",
+               count.shader_module_cache_hits);
+  WriteCounter(stream, counter_indent, "shader_module_cache_misses",
+               count.shader_module_cache_misses);
+  WriteCounter(stream, counter_indent, "descriptor_layout_cache_hits",
+               count.descriptor_layout_cache_hits);
+  WriteCounter(stream, counter_indent, "descriptor_layout_cache_misses",
+               count.descriptor_layout_cache_misses);
+  WriteCounter(stream, counter_indent, "descriptor_pool_creation_count",
+               count.descriptor_pool_creation_count);
+  WriteCounter(stream, counter_indent, "descriptor_allocation_count",
+               count.descriptor_allocation_count);
+  WriteCounter(stream, counter_indent, "descriptor_update_count",
+               count.descriptor_update_count, true);
+  stream << indent << "  }\n" << indent << '}';
 }
 
 void WriteJson(std::ostream& stream, const Arguments& arguments,
+               const FixtureSummary& fixture,
                const merlin::vulkan::RendererCapabilities& capabilities,
                const std::vector<Baseline>& baselines) {
-  stream << "{\n  \"schema\": \"merlin-benchmark/v2\",\n"
+  stream << "{\n  \"schema\": \"merlin-benchmark/v3\",\n"
          << "  \"environment\": {\n    \"commit\": ";
   JsonString(stream, MERLIN_BENCHMARK_COMMIT);
   stream << ",\n    \"build_type\": ";
@@ -282,7 +487,14 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   stream << ",\n      \"version\": " << capabilities.driver_version
          << "\n    },\n    \"vulkan_api\": ";
   JsonString(stream, VersionString(capabilities.api_version));
-  stream << ",\n    \"resolution\": {\n      \"width\": " << arguments.width
+  stream << ",\n    \"timestamp_queries\": "
+         << (capabilities.timestamp_queries ? "true" : "false")
+         << "\n  },\n  \"fixture\": {\n    \"name\": ";
+  JsonString(stream, fixture.name);
+  stream << ",\n    \"mesh_count\": " << fixture.mesh_count
+         << ",\n    \"instance_count\": " << fixture.instance_count
+         << ",\n    \"triangle_count\": " << fixture.triangle_count
+         << ",\n    \"resolution\": {\n      \"width\": " << arguments.width
          << ",\n      \"height\": " << arguments.height
          << "\n    }\n  },\n  \"baselines\": [\n";
   for (std::size_t index = 0; index < baselines.size(); ++index) {
@@ -290,6 +502,40 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
     stream << (index + 1U == baselines.size() ? "\n" : ",\n");
   }
   stream << "  ]\n}\n";
+}
+
+using Products = std::vector<merlin::vulkan::RenderProductRequest>;
+
+const Products& AllProducts() {
+  static const Products products{{merlin::Aov::Color, true},
+                                 {merlin::Aov::Depth, true},
+                                 {merlin::Aov::PrimId, true},
+                                 {merlin::Aov::InstanceId, true}};
+  return products;
+}
+
+merlin::vulkan::RenderResult Render(
+    merlin::vulkan::Renderer& renderer,
+    const merlin::extraction::SceneExtractor& extractor,
+    const merlin::vulkan::ShaderPaths& shaders, const Arguments& arguments,
+    const Products& products) {
+  merlin::vulkan::RenderRequest request;
+  request.snapshot = extractor.snapshot();
+  request.width = arguments.width;
+  request.height = arguments.height;
+  request.shaders = shaders;
+  request.products = products;
+  return renderer.Resolve(renderer.Submit(request));
+}
+
+void AssertStatic(const merlin::vulkan::FrameCounters& counters) {
+  if (counters.upload_bytes != 0 || counters.allocation_count != 0 ||
+      counters.pipeline_creation_count != 0 ||
+      counters.shader_module_cache_misses != 0 ||
+      counters.geometry_cache_misses != 0) {
+    throw std::runtime_error(
+        "static frame performed upload/allocation/shader/pipeline/geometry work");
+  }
 }
 
 }  // namespace
@@ -304,24 +550,23 @@ int main(int argc, char** argv) {
     merlin::vulkan::Renderer renderer;
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;
+    FixtureSummary fixture_summary;
 
-    const auto render = [&] {
-      merlin::vulkan::RenderRequest request;
-      request.snapshot = extractor.snapshot();
-      request.width = arguments.width;
-      request.height = arguments.height;
-      request.shaders = shaders;
-      request.products = {{merlin::Aov::Color, true},
-                          {merlin::Aov::Depth, true},
-                          {merlin::Aov::PrimId, true},
-                          {merlin::Aov::InstanceId, true}};
-      return renderer.Resolve(renderer.Submit(request));
+    const auto render = [&](const Products& products = AllProducts()) {
+      return Render(renderer, extractor, shaders, arguments, products);
     };
-
-    // Measures one edit scenario: the RenderWorld mutation, commit,
-    // incremental extraction, and one rendered frame.
+    const auto record_render = [&](std::string name, const Products& products) {
+      const auto start = CpuClock::now();
+      const auto result = render(products);
+      auto timings = FromBackend(result.cpu_timings);
+      timings.total_frame_ns = ElapsedNanoseconds(start);
+      baselines.push_back(
+          {std::move(name), {timings}, result.counters});
+      return result;
+    };
     const auto measure = [&](std::string name, merlin::RenderWorld& world,
-                             const auto& edit) {
+                             const auto& edit,
+                             const Products& products = AllProducts()) {
       const auto start = CpuClock::now();
       const auto update_start = CpuClock::now();
       edit();
@@ -330,87 +575,137 @@ int main(int argc, char** argv) {
       const auto extraction_start = CpuClock::now();
       extractor.Apply(world, changes);
       const auto extraction_ns = ElapsedNanoseconds(extraction_start);
-      const auto result = render();
+      const auto result = render(products);
       auto timings = FromBackend(result.cpu_timings);
       timings.scene_update_ns = update_ns;
       timings.extraction_ns = extraction_ns;
       timings.total_frame_ns = ElapsedNanoseconds(start);
-      baselines.push_back({std::move(name), 1, timings, result.counters});
+      baselines.push_back(
+          {std::move(name), {timings}, result.counters});
       return result;
     };
-
-    SceneFixture fixture;
-    measure("first-frame", fixture.world, [&] { PopulateScene(fixture); });
-
-    std::vector<CpuTimings> steady_timings;
-    steady_timings.reserve(arguments.steady_frames);
-    merlin::vulkan::FrameCounters steady_counters;
-    for (std::uint32_t frame = 0; frame < arguments.steady_frames; ++frame) {
-      const auto frame_start = CpuClock::now();
-      const auto result = render();
-      auto timing = FromBackend(result.cpu_timings);
-      timing.total_frame_ns = ElapsedNanoseconds(frame_start);
-      steady_timings.push_back(timing);
-      if (frame == 0) {
-        steady_counters = result.counters;
-      } else if (result.counters != steady_counters) {
-        throw std::runtime_error("steady-state structural counters changed");
+    const auto steady = [&](std::string name) {
+      std::vector<FrameTimings> samples;
+      samples.reserve(arguments.steady_frames);
+      merlin::vulkan::FrameCounters counters;
+      for (std::uint32_t frame = 0; frame < arguments.steady_frames; ++frame) {
+        const auto start = CpuClock::now();
+        const auto result = render();
+        auto timing = FromBackend(result.cpu_timings);
+        timing.total_frame_ns = ElapsedNanoseconds(start);
+        samples.push_back(timing);
+        if (frame == 0) {
+          counters = result.counters;
+        } else if (result.counters != counters) {
+          throw std::runtime_error("steady-state structural counters changed");
+        }
       }
+      AssertStatic(counters);
+      baselines.push_back({std::move(name), std::move(samples), counters});
+    };
+
+    const bool reference_fixture =
+        arguments.fixture == "reference" ||
+        arguments.fixture == "aov-combinations" || arguments.fixture == "4k";
+    if (reference_fixture) {
+      SceneFixture fixture;
+      measure("first-frame", fixture.world, [&] {
+        PopulateScene(fixture);
+        extractor.SetActiveCamera(fixture.camera);
+      });
+      fixture_summary = {arguments.fixture, 2, 3, 4};
+      steady("steady-state");
+
+      const auto camera = measure("camera-only", fixture.world, [&] {
+        auto descriptor = fixture.world.Get(fixture.camera);
+        descriptor.view.values[12] = 0.125F;
+        fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
+                                   merlin::ChangeAspect::Camera);
+      });
+      AssertStatic(camera.counters);
+
+      measure("edit-transform", fixture.world, [&] {
+        auto instance = fixture.world.Get(fixture.second_triangle);
+        instance.transform.values[12] = -0.31F;
+        fixture.world.UpdateInstance(fixture.second_triangle,
+                                     std::move(instance),
+                                     merlin::ChangeAspect::Transform);
+      });
+      measure("edit-visibility", fixture.world, [&] {
+        auto instance = fixture.world.Get(fixture.quad_instance);
+        instance.visible = false;
+        fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
+                                     merlin::ChangeAspect::Visibility);
+      });
+      {
+        auto instance = fixture.world.Get(fixture.quad_instance);
+        instance.visible = true;
+        fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
+                                     merlin::ChangeAspect::Visibility);
+        extractor.Apply(fixture.world, fixture.world.Commit());
+        (void)render();
+      }
+      measure("edit-material", fixture.world, [&] {
+        auto material = fixture.world.Get(fixture.primary_material);
+        material.parameters.base_color = {0.35F, 0.92F, 0.35F, 1.0F};
+        fixture.world.UpdateMaterial(fixture.primary_material,
+                                     std::move(material));
+      });
+      measure("edit-points", fixture.world, [&] {
+        auto mesh = fixture.world.Get(fixture.triangle);
+        mesh.positions[0].y = -0.6F;
+        fixture.world.UpdateMesh(fixture.triangle, std::move(mesh),
+                                 merlin::ChangeAspect::Points);
+      });
+      measure("edit-topology", fixture.world, [&] {
+        auto mesh = fixture.world.Get(fixture.triangle);
+        mesh.indices = {1, 2, 0};
+        fixture.world.UpdateMesh(fixture.triangle, std::move(mesh),
+                                 merlin::ChangeAspect::Topology);
+      });
+
+      const auto warm = [&](const Products& products) {
+        for (std::uint32_t i = 0; i < renderer.statistics().frame_context_count;
+             ++i) {
+          (void)render(products);
+        }
+      };
+      const Products color_only{{merlin::Aov::Color, true}};
+      warm(color_only);
+      const auto color = record_render("aov-color-only", color_only);
+      const auto expected_color_bytes =
+          static_cast<std::uint64_t>(arguments.width) * arguments.height * 4U;
+      if (color.counters.readback_bytes != expected_color_bytes ||
+          color.counters.cpu_readback_aov_count != 1 ||
+          color.counters.cpu_readback_aov_mask !=
+              (std::uint64_t{1} <<
+               static_cast<std::uint32_t>(merlin::Aov::Color))) {
+        throw std::runtime_error(
+            "color-only fixture performed non-color CPU readback");
+      }
+      const Products color_depth{{merlin::Aov::Color, true},
+                                 {merlin::Aov::Depth, true}};
+      warm(color_depth);
+      (void)record_render("aov-color-depth", color_depth);
+      warm(AllProducts());
+      (void)record_render("aov-all", AllProducts());
+
+      measure("remove-mesh", fixture.world, [&] {
+        fixture.world.Remove(fixture.quad_instance);
+        fixture.world.Remove(fixture.quad);
+      });
+    } else {
+      ScaleFixture fixture;
+      measure("first-frame", fixture.world, [&] {
+        fixture_summary =
+            PopulateScaleFixture(arguments.fixture, fixture);
+      });
+      steady("steady-state");
     }
-    if (steady_counters.upload_bytes != 0 ||
-        steady_counters.allocation_count != 0 ||
-        steady_counters.pipeline_creation_count != 0) {
-      throw std::runtime_error(
-          "static steady-state frames performed upload/allocation/pipeline work");
-    }
-    baselines.push_back({"steady-state", arguments.steady_frames,
-                         MedianTimings(steady_timings), steady_counters});
-
-    measure("edit-transform", fixture.world, [&] {
-      auto instance = fixture.world.Get(fixture.second_triangle);
-      instance.transform.values[12] = -0.31F;
-      fixture.world.UpdateInstance(fixture.second_triangle,
-                                   std::move(instance),
-                                   merlin::ChangeAspect::Transform);
-    });
-
-    measure("edit-visibility", fixture.world, [&] {
-      auto instance = fixture.world.Get(fixture.quad_instance);
-      instance.visible = false;
-      fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
-                                   merlin::ChangeAspect::Visibility);
-    });
-    {
-      // Unmeasured restore keeps later scenarios on the full three-draw scene.
-      auto instance = fixture.world.Get(fixture.quad_instance);
-      instance.visible = true;
-      fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
-                                   merlin::ChangeAspect::Visibility);
-      extractor.Apply(fixture.world, fixture.world.Commit());
-      (void)render();
-    }
-
-    measure("edit-material", fixture.world, [&] {
-      auto material = fixture.world.Get(fixture.primary_material);
-      material.parameters.base_color = {0.35F, 0.92F, 0.35F, 1.0F};
-      fixture.world.UpdateMaterial(fixture.primary_material,
-                                   std::move(material));
-    });
-
-    measure("edit-points", fixture.world, [&] {
-      auto mesh = fixture.world.Get(fixture.triangle);
-      mesh.positions[0].y = -0.6F;
-      fixture.world.UpdateMesh(fixture.triangle, std::move(mesh),
-                               merlin::ChangeAspect::Points);
-    });
-
-    measure("remove-mesh", fixture.world, [&] {
-      fixture.world.Remove(fixture.quad_instance);
-      fixture.world.Remove(fixture.quad);
-    });
 
     if (arguments.output.empty()) {
-      WriteJson(std::cout, arguments, renderer.capabilities(), baselines);
+      WriteJson(std::cout, arguments, fixture_summary, renderer.capabilities(),
+                baselines);
     } else {
       if (arguments.output.has_parent_path()) {
         std::filesystem::create_directories(arguments.output.parent_path());
@@ -420,7 +715,8 @@ int main(int argc, char** argv) {
         throw std::runtime_error("could not create output: " +
                                  arguments.output.string());
       }
-      WriteJson(stream, arguments, renderer.capabilities(), baselines);
+      WriteJson(stream, arguments, fixture_summary, renderer.capabilities(),
+                baselines);
       if (!stream) {
         throw std::runtime_error("could not write output: " +
                                  arguments.output.string());

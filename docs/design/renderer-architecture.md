@@ -93,6 +93,16 @@ Appearance likewise remains explicit: MaterialIR/MaterialX surface shading and
 Gaussian spherical-harmonic/opacity evaluation may share resources without
 forcing Gaussian appearance into a mesh BSDF.
 
+The Mesh pipeline evolves behind this boundary in measured stages: bindless
+resource tables, a persistent GPU Scene, GPU-driven indexed Forward, an opaque
+Visibility Buffer path, static meshlets rendered through indexed indirect, and
+an optional Mesh Shader backend. Visibility is not a universal primitive
+format: transparent Mesh, unsupported materials, Gaussian primitives, and
+overlays retain specialized paths, while conventional Forward remains the
+correctness and fallback reference. The complete dependency order, common GPU
+ABI, visibility encoding, fallback policy, and meshlet invalidation contract are
+defined in the [GPU-driven rendering policy](gpu-driven-rendering.md).
+
 The snapshot is the ownership boundary between host updates, renderer work, and
 GPU frame latency. Request, submission, completion token, and resolve are
 separate backend operations; frame targets and readback buffers remain owned by
@@ -106,6 +116,10 @@ their frame context until the single-use token resolves. See the
 - Shader compilation uses `glslc` from a compatible Vulkan SDK.
 - The backend uses persistent frame contexts and completion-based resource
   retirement.
+- Descriptor indexing, fragment-shader barycentrics, and Mesh Shader features
+  are separately probed optional capabilities. A Vulkan 1.4 device is not
+  assumed to support every future fast path with the required limits or driver
+  quality.
 - Validation/performance messages are renderer quality signals. Unrelated
   general loader/host diagnostics remain observable but are not counted as
   renderer validation failures.
@@ -186,6 +200,6 @@ reference path after any faster presentation adapter is added.
 - Arbitrary OSL/custom MaterialX code nodes.
 - Complete volume, hair, subdivision, motion-blur, or advanced-transparency
   support.
-- Early bindless, multi-draw indirect, meshlet, or path-tracing work without
-  benchmark evidence.
+- Activating bindless, multi-draw indirect, Visibility, meshlet, or Mesh Shader
+  paths without capability, correctness, fallback, and benchmark evidence.
 - DCC-specific workarounds in Core.

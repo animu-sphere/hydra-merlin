@@ -45,13 +45,20 @@ compatibility checks remain planned work.
 | Explicit submit/completion/timeout-aware resolve | Available |
 | Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Available for color, depth, and primId |
-| Deterministic reference-path benchmark JSON and structural counters | Available |
+| Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
+| Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes |
 | Core/Vulkan installed CMake targets | Available |
 | Versioned dependency and package metadata | Available as installed JSON |
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available |
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Hydra native and nested instancing | Available |
+| Bindless resource tables and common GPU Scene ABI | Planned for v0.7.0/v0.10.0; the current Forward path uses conventional per-frame descriptors and remains the fallback |
+| GPU-driven indexed Mesh submission | Planned for v0.11.0; current Mesh submission is not claimed to have draw-count-independent CPU cost |
+| Opaque Visibility Buffer | Planned experimental path for v0.12.0; current shading is Forward |
+| Static meshlet indexed-indirect rendering | Planned for v0.15.0 from standard Hydra mesh data; no custom USD schema is planned |
+| Mesh Shader, Hi-Z, and discrete meshlet LOD | Planned as optional, capability- and benchmark-selected v0.16.0 paths with indexed fallback |
+| Hierarchical meshlets and virtualized geometry | Post-v1 research direction; unavailable and not implied by static meshlet support |
 | Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy, timeout, device-lost, unsupported, and backend-failure classes |
 | Host-neutral diagnostic sink | Planned cross-cutting work; some executable and adapter diagnostics still use stderr or host-local reporting |
 | Standard OpenUSD Gaussian ingestion and rendering | Planned; hdMerlin will not define a custom Gaussian USD schema or directly parse external Gaussian file formats |
@@ -59,6 +66,23 @@ compatibility checks remain planned work.
 | Dome/multi-light viewport lighting, shadows, selection, alpha blending, and production culling | Unavailable |
 | Vulkan/Hgi external-memory or zero-copy host presentation | Unavailable; CPU readback/upload reference path only |
 | Houdini, Husk, Hydra 1, and Maya integration packages | Unavailable |
+
+## Future GPU path capability tiers
+
+These tiers describe selection policy, not current support claims. Every feature
+and relevant limit is probed and included in the versioned capability report;
+meeting the Vulkan 1.4 baseline alone does not select every fast path.
+
+| Path | Additional selection contract | Required fallback |
+| --- | --- | --- |
+| Bindless Forward / GPU Scene | Required descriptor-indexing, non-uniform access, table-size, and update/lifetime behavior pass validation | Conventional Forward descriptors |
+| GPU-driven indexed | Indirect count/draw identity and compute culling pass correctness and performance gates | Conventional indexed submission |
+| Visibility | Storage/compute resolve and ID attachment support; fragment-shader barycentrics are optional because reconstruction is available | Forward opaque/material fallback |
+| Meshlet indexed indirect | Compute compaction and meshlet data limits pass builder, culling, identity, and performance gates | GPU-driven or conventional indexed geometry |
+| Meshlet Mesh Shader | `VK_EXT_mesh_shader`, device limits, subgroup behavior, driver stability, and a named-profile benchmark win | Meshlet indexed indirect |
+
+The complete ABI, encoding, and fallback rules are in the
+[GPU-driven rendering policy](../design/gpu-driven-rendering.md).
 
 Unsupported inputs must produce an actionable diagnostic or explicit fallback;
 they are not implied to work by the availability of the surrounding adapter.

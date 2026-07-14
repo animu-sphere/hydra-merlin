@@ -7,48 +7,48 @@ recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone
 
-### 🚧 v0.5.1 — Performance foundation
+### 🚧 v0.6.0 — Incremental Hydra sync
 
-**Objective:** make first-frame, steady-state, and edit latency attributable
-across Hydra, Merlin Core, Vulkan execution, readback, host upload, and
-presentation before choosing the next optimization.
+**Objective:** make camera and localized scene edits scale with the changed
+data instead of the total Hydra scene while preserving the v0.5.1 performance
+evidence and host-neutral Core boundary.
 
-v0.5.0 already provides deterministic reference-path benchmark JSON, CPU
-scopes, structural counters, and first-frame/steady/edit fixtures. This
-milestone extends that foundation through the Hydra presentation path and makes
-the resulting artifacts comparable between runs.
+v0.5.1 separates delegate, scene-index, RenderWorld, extraction, Vulkan,
+readback, host upload, composite, and presentation costs. This milestone uses
+that evidence to remove redundant fetch, normalization, snapshot, and upload
+work from common Hydra changes.
 
 #### Scope
 
-- Record Hydra Sync and scene-index processing, RenderWorld update, snapshot
-  extraction, GPU scene update, command recording, queue submission, GPU
-  execution, readback, RenderBuffer resolve/map, CPU-to-Hgi upload, host
-  composite, and presentation time as separately attributable stages.
-- Record upload/readback bytes, requested and generated AOVs, descriptor and
-  pipeline work, waits, maps, resolves, host uploads, draw count, visible
-  primitive count, and GPU memory where the owning layer exposes them.
-- Add fixed static, camera-only, transform, visibility, material, topology,
-  1M-triangle, 10k-mesh, 1k-instance, AOV-combination, and 4K fixtures.
-- Export versioned JSON or CSV with build/machine metadata and first-frame,
-  median, p95, p99, maximum, and frame-hitch summaries.
-- Retain dependency/runtime provenance, validation logs, images, benchmark
-  output, plugin discovery, RenderBuffer, and usdview results as comparable
-  capability artifacts.
-- Detect stable structural performance regressions in CI; timing thresholds are
-  enabled only on controlled hardware.
+- Separate dirty locator/bit processing and retain persistent
+  USD-path-to-Merlin state across Sync calls.
+- Add transform-only, visibility-only, and material-parameter-only fast paths.
+- Cache primvar descriptors, normalized/indexed primvars, and triangulation;
+  track changed ranges so unchanged mesh payload is neither fetched nor
+  uploaded.
+- Preserve distinct topology, points, primvar, material-partition, instance,
+  transform, and visibility revisions so later GPU Scene and derived-meshlet
+  invalidation does not require Hydra state inside the renderer backend.
+- Emit actionable diagnostics for unsupported or lossy Hydra data instead of
+  silently rebuilding or dropping it.
+- Study ingestion of the existing OpenUSD Gaussian representation through
+  Hydra without adding a renderer-specific USD schema, prim type, attribute
+  contract, or direct PLY/SPLAT parser.
+- Preserve the v0.5.1 stage reports, structural gates, and capability artifacts
+  as the optimization evidence.
 
 #### Exit criteria
 
-- First frame and steady state are reported separately and CPU/GPU timelines can
-  be correlated.
-- A camera-only run proves zero geometry/topology/primvar fetch and upload.
-- A static steady-state run proves zero resource allocation, shader compile,
-  pipeline creation, and geometry upload.
-- Color-only requests prove zero depth/ID CPU readback.
-- A regression report identifies the limiting stage rather than reporting only
-  aggregate FPS.
-- The Windows Vulkan/Hydra capability workflow retains comparable evidence; a
-  missing runner remains distinguishable from a renderer failure.
+- Camera-only updates perform zero geometry, topology, primvar, and
+  Gaussian-attribute fetch or upload and zero pipeline creation.
+- Transform-only, visibility-only, and material-parameter-only changes avoid
+  unrelated mesh fetch, normalization, triangulation, and upload.
+- Cached primvar/topology state is invalidated by the relevant dirty locators or
+  bits and remains correct across removal and re-addition.
+- Unsupported data produces versioned, actionable diagnostics with a named
+  fallback or rejection.
+- The Gaussian study records a supported integration boundary and evidence;
+  any adapter remains outside the renderer-neutral Core model.
 
 ## Active carry-over
 

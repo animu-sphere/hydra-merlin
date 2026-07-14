@@ -65,12 +65,15 @@ Capture the reference-path performance baselines as deterministic JSON:
 
 ```powershell
 ./build/adapters/merlin-benchmark/Debug/merlin-benchmark.exe `
-  --width 512 --height 512 --steady-frames 30 --output benchmark.json
+  --fixture reference --width 512 --height 512 --steady-frames 30 `
+  --output benchmark.json
 ```
 
-The report records build/machine metadata, CPU scope timings, and structural
-counters for first-frame, steady-state, and per-aspect edit scenarios
-(transform, visibility, material, points, removal). See the
+The v3 report records build/machine metadata, CPU/GPU stage distributions,
+hitches, AOV selection, transfer/allocation/descriptor work, and structural
+counters for first-frame, steady-state, camera, per-aspect edits, and AOV
+combinations. Fixed million-triangle, 10,000-mesh, 1,000-instance, and 4K
+fixtures are selectable explicitly. See the
 [benchmark guide](docs/guides/benchmarking.md) for the schema and comparison
 rules.
 
@@ -106,6 +109,12 @@ and a Vulkan-backed render pass. The test suite separately verifies plugin
 discovery and delegate creation, RenderBuffer resize/map lifetime, and an
 install-tree `testusdview` first frame with rendered geometry.
 
+The install-tree regression also emits a versioned Hydra performance report
+and raw OpenUSD Chrome trace. Together they separate delegate Sync, scene-index
+processing, RenderWorld/extraction, Vulkan CPU/GPU work, selected readback,
+RenderBuffer map/resolve, CPU-to-Hgi upload, host composite, and presentation;
+camera-only motion is gated against geometry/topology/primvar fetch or upload.
+
 The current mesh path normalizes indexed and face-varying normals, display
 color/opacity, and UVs, robustly triangulates concave polygonal faces, preserves
 authored material binding identity, and supports native Hydra instancing. The
@@ -122,6 +131,8 @@ The current renderer intentionally does not yet provide:
 
 - MaterialX loading or general graph translation beyond the basic
   `UsdPreviewSurface` subset;
+- bindless GPU Scene tables, GPU-driven indexed submission, an opaque
+  Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
 - advanced viewport features such as alpha blending, dome lighting, shadows,
   selection, or production culling;
 - Vulkan/Hgi external-memory or other zero-copy GPU presentation; Hydra uses
@@ -132,15 +143,19 @@ These are roadmap boundaries, not implicit compatibility claims. See the
 feature coverage.
 
 v0.5.0 releases the host-neutral MaterialIR and basic textured shading slice.
-The active v0.5.1 milestone now expands the measurement foundation so Hydra,
-Merlin, Vulkan, readback, host upload, and presentation costs can be attributed
-separately. The ordered path then delivers incremental Hydra sync, completes the
+The Unreleased v0.5.1 measurement foundation makes Hydra, Merlin, Vulkan,
+readback, host upload, and presentation costs separately observable. The active
+v0.6.0 path now delivers incremental Hydra sync, then completes the
 persistent Mesh/Gaussian resource model, adds a native Vulkan viewport, and
-establishes Gaussian rendering before GPU-driven optimization. MaterialX and
-lower-copy presentation remain later evidence-gated milestones. Tier 0 CPU
-readback remains the correctness and fallback path throughout. See the [current
-milestone](docs/roadmap/current.md) and [ordered backlog](docs/roadmap/backlog.md)
-for scope and exit criteria.
+establishes Gaussian rendering before GPU-driven optimization. The Mesh path
+then advances through bindless resource identity, GPU-driven indexed Forward,
+an experimental opaque Visibility Buffer, MaterialX quality, static meshlets,
+and only then an optional Mesh Shader/Hi-Z/LOD backend. Lower-copy presentation
+remains evidence-gated, Forward remains the rendering reference/fallback, and
+Tier 0 CPU readback remains the presentation correctness/fallback path. See the
+[current milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
+and [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md) for scope,
+dependencies, and exit criteria.
 
 Gaussian support will consume the standard Gaussian representation exposed by
 OpenUSD through Hydra. hdMerlin will not define a renderer-specific USD schema
@@ -218,6 +233,7 @@ readback without owning a native window or swapchain.
 - [Delivery history](docs/reports/delivery-history.md)
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
+- [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md)
 - [Execution and render-product lifetime](docs/design/execution-lifetime.md)
 - [OpenStrata project layout](docs/design/openstrata-project.md)
 - [Historical OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)

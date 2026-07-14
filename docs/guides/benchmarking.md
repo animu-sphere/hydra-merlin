@@ -1,94 +1,181 @@
 # Benchmarking
 
-`merlin-benchmark` measures the RenderWorld → snapshot extraction → Vulkan →
-CPU readback reference path. It emits one JSON document to stdout, or to the
-path selected with `--output`.
+hdMerlin keeps two complementary performance records:
+
+- `merlin-benchmark/v3` measures the renderer-owned RenderWorld → extraction →
+  Vulkan → selected CPU readback path.
+- `merlin-hydra-performance/v1` combines delegate telemetry with an OpenUSD
+  Chrome trace for scene-index, CPU-to-Hgi upload, composite, and presentation
+  scopes in the install-tree usdview regression.
+
+Use Release builds, a fixed driver and resolution, and fixed GPU clock/power
+policy for timing comparisons. Ordinary CI gates structural work; timing gates
+are opt-in for controlled hardware.
+
+## Renderer benchmark
 
 ```powershell
 ./build/adapters/merlin-benchmark/Release/merlin-benchmark.exe `
-  --width 512 --height 512 --steady-frames 30 --output benchmark.json
+  --fixture reference --width 512 --height 512 --steady-frames 30 `
+  --output benchmark.json
 ```
 
-Use a Release build, fixed resolution, fixed GPU clocks/power policy, and the
-same driver when comparing timings. The report records commit, build type,
-compiler, OS/architecture, selected GPU and driver, Vulkan device API, and
-resolution so incompatible runs can be rejected before comparison.
+The report records commit, build type, compiler, OS/architecture, GPU/driver,
+Vulkan API, timestamp-query availability, fixture identity, and resolution.
+Each stage contains integer-nanosecond `median`, `p95`, `p99`, and `max`
+summaries. Each baseline also reports hitches above the larger of twice its
+median or median plus 2 ms.
 
-## Fixture
+### Fixed fixtures
 
-The `merlin-benchmark/v2` fixture exercises the resource-granular GPU scene:
-two meshes (a triangle and a quad), two materials, and three instances where
-the two triangle instances share one mesh. Shared geometry is uploaded once
-regardless of how many instances reference it.
+Select a fixture with `--fixture`:
 
-This executable is the current renderer-owned reference-path benchmark. The
-planned v0.5.1 usdview fixture extends it with host stages; those future fields
-must not be inferred from the current v2 schema.
+| Name | Contract |
+| --- | --- |
+| `reference` | Shared geometry plus first-frame, static, camera, transform, visibility, material, points, topology, AOV, and removal scenarios |
+| `million-triangles` | One indexed mesh and one instance with exactly 1,000,000 triangles |
+| `ten-thousand-meshes` | 10,000 independently handled one-triangle meshes and instances |
+| `thousand-instances` | 1,000 instances sharing one mesh |
+| `aov-combinations` | The reference sequence with explicit color-only, color+depth, and all-AOV gates |
+| `4k` | The reference sequence at 3840×2160 unless width/height are overridden |
 
-## Baselines
+Large fixtures are explicit so the normal CTest remains fast. Capture them on
+the same controlled machine when comparing scale or 4K behavior.
 
-The schema always emits these baselines in this order:
+### Reference baselines
 
-1. `first-frame`: initial scene creation/extraction, per-mesh geometry
-   suballocation and staging-ring upload, render-target allocation, pipeline
-   creation, submission, and CPU readback.
-2. `steady-state`: the median of `--steady-frames` unchanged-scene frames.
-   Scene update and extraction are zero by definition; upload bytes,
-   allocations, and pipeline creations must be zero.
-3. `edit-transform`: an instance transform edit. Zero geometry bytes staged and
-   zero geometry-cache misses.
-4. `edit-visibility`: hides the quad instance. The draw disappears without any
-   geometry work. An unmeasured restore frame follows so later scenarios run
-   against the full scene again.
-5. `edit-material`: a material color edit. Zero geometry work.
-6. `edit-points`: a points-only mesh edit with an unchanged vertex count. Only
-   the edited mesh's vertex payload is re-staged, in place, without
-   suballocation churn; topology is untouched.
-7. `remove-mesh`: removes the quad instance and mesh. Nothing is staged and
-   exactly the removed mesh's vertex and index ranges are released; retirement
-   is deferred until the last frame that could reference them completes.
+The reference fixture emits, in order:
 
-Each baseline has integer nanosecond CPU scopes for `scene_update`,
-`extraction`, `upload`, `command_recording`, `readback`, and `total_frame`.
-`readback` includes GPU completion wait and copying all four benchmark AOVs
-(color, depth, primId, and instanceId) into CPU-owned arrays. `total_frame`
-covers all work in the named baseline after the
-renderer and Vulkan device have been initialized. The named scopes are not
-exhaustive: render-target allocation, pipeline creation, and frame-pacing waits
-fall inside `total_frame` but outside `upload`/`command_recording`/`readback`,
-so the sub-scopes are not expected to sum to `total_frame` (most visibly in
-`first-frame`).
+1. `first-frame`
+2. `steady-state`
+3. `camera-only`
+4. `edit-transform`
+5. `edit-visibility`
+6. `edit-material`
+7. `edit-points`
+8. `edit-topology`
+9. `aov-color-only`
+10. `aov-color-depth`
+11. `aov-all`
+12. `remove-mesh`
 
-## Structural counters
+Static and camera-only frames must perform zero geometry upload, allocation,
+shader-module miss, pipeline creation, and geometry-cache miss. The color-only
+gate transfers and maps exactly the color product, proving that depth and ID
+readback are not hidden inside a color request.
 
-The structural counters are `draw_count`, `triangle_count`, `upload_bytes`
-(bytes staged through the upload ring this frame), `readback_bytes`,
-total/buffer/image allocation counts, `pipeline_creation_count`, snapshot-level
-`scene_cache_hits`/`scene_cache_misses`, per-mesh `geometry_cache_hits`/
-`geometry_cache_misses`, texture/sampler cache hits and misses, arena
-`buffer_suballocation_count` and `buffer_range_release_count`, shader-module,
-descriptor-layout, and pipeline cache hits/misses, and descriptor updates. Static
-steady-state samples must have zero upload bytes, allocations, and pipeline
-creations; the executable rejects a run if those samples do not have identical
-structural counters or perform any upload/allocation/pipeline work.
+### Stages
 
-JSON field order, names, units, baseline order, and integer formatting are
-deterministic. Timing values intentionally are not deterministic. Prefer
-structural-counter assertions in normal CI and compare timing results only in a
-controlled capability environment. The `merlin-benchmark-json` CTest asserts
-the per-baseline structural counters listed above on every GPU-capable run.
+`stages_ns` separates:
 
-## Planned usdview observability
+- `render_world_update`
+- `snapshot_extraction`
+- `gpu_scene_update`
+- `command_recording`
+- `queue_submission`
+- `completion_wait`
+- `readback`
+- `gpu_execution`
+- `total_frame`
 
-Before selecting a lower-copy presentation path, the host benchmark will
-separate Hydra Sync, snapshot extraction, GPU scene update, command recording,
-queue submit, GPU execution, GPU-to-CPU readback, RenderBuffer resolve/map,
-CPU-to-Hgi upload, and host composite/present. It will also record requested and
-generated render products, per-product transfer bytes, readback wait, map and
-resolve counts, and host upload bytes.
+GPU execution uses two timestamps on the selected graphics queue and is zero
+only when timestamp queries are unavailable. Completion waiting and CPU mapping
+are no longer folded into readback, so CPU and GPU timelines can be correlated
+without interpreting one aggregate duration as both.
 
-The comparison set will cover a static scene, camera-only motion, transform,
-material, topology, and primvar edits, 1,000,000 triangles, 10,000 small meshes,
-1,000 instances, and color/depth/ID product combinations. These are v0.5.1 exit
-criteria in the [roadmap](../roadmap/backlog.md), not claims about the current
-benchmark schema.
+### Structural counters
+
+The v3 counters include draw/visible-primitive/triangle counts; upload and
+readback bytes; requested, rendered, and CPU-readback AOV masks/counts; waits,
+resolves, and maps; buffer/image allocation counts and bytes; geometry arena
+suballocation/release; shader, descriptor-layout, pipeline, geometry, texture,
+sampler, and scene cache behavior; descriptor pool/allocation/update work; and
+pipeline creation.
+
+Field names, units, fixture order, and integer formatting are deterministic.
+Timing values are not.
+
+## GPU-driven roadmap evidence
+
+The following are planned benchmark contracts, not currently selectable v3
+fixtures or counters. Each is added with the milestone that implements the
+corresponding path, while the existing Forward fixtures remain the baseline.
+The detailed delivery gates are defined in the
+[GPU-driven rendering policy](../design/gpu-driven-rendering.md).
+
+| Planned fixture | Content | Primary decision |
+| --- | --- | --- |
+| `gpu-driven-small-objects` | Many shared small meshes, hundreds of thousands of instances, materials, and textures | Bindless update scaling, CPU submission slope, instance/draw compaction |
+| `visibility-bandwidth` | High resolution, material-heavy opaque Mesh, UV seams, primitive boundaries, and controlled overdraw | Visibility raster/resolve cost and bandwidth against Forward |
+| `meshlet-large-static` | Tens of millions of static triangles with substantial off-screen area | Meshlet build/cache cost, fine-culling rejection, emitted-triangle reduction |
+| `occlusion-heavy` | Urban/interior layers and repeatable camera cuts | Hi-Z rejection, conservative history reset, visibility stability |
+| `dynamic-geometry` | Transform, material, texture replacement, points deformation, and topology update phases | Dirty upload/descriptor retirement, rebuild cost, and fallback behavior |
+| `mixed-path` | Opaque, alpha-mask, transparent, Gaussian, selection, and overlay content | Specialized-path composition and depth/color/identity conventions |
+
+Planned structural/timing evidence is introduced in the same order as the
+implementation:
+
+- Bindless reports current/peak/capacity slots, allocation/retirement,
+  descriptor writes, exhaustion/fallback, material descriptor binds, and update
+  time. Static frames perform zero descriptor work; changes scale with changed
+  resources.
+- GPU-driven indexed rendering reports candidate/visible draws, rejection by
+  enabled stage, generated indirect commands, command-generation/culling time,
+  and CPU command-recording slope with increasing draw count.
+- Visibility reports selected derivative mode, visibility-raster and material-
+  resolve time separately, supported/fallback draw counts, and Forward
+  differential-image metadata for each material feature.
+- Meshlets report build/cache/invalidation time, total/visible meshlets,
+  frustum/cone/occlusion/LOD rejection, emitted triangles, selected indexed or
+  Mesh Shader backend, and conventional fallback counts.
+
+Path-on/path-off comparisons use the same scene, camera, resolution, AOVs,
+warm-up, and frame count. A faster result is not accepted when ID mapping,
+Forward differential images, fallback composition, or resource-lifetime tests
+fail. Mesh Shader automatic selection requires a repeatable win for the named
+GPU/driver profile and never weakens the indexed-indirect fallback.
+
+## Comparing reports
+
+```powershell
+python scripts/compare-benchmarks.py baseline.json current.json `
+  --output comparison.json
+```
+
+The `merlin-benchmark-comparison/v1` report fails on stable structural drift and
+identifies the largest measured stage for every baseline. Timing thresholds are
+disabled by default. When enabled, build, OS, compiler, GPU/driver, Vulkan, and
+timestamp-query metadata must also match. Enable them only on controlled
+hardware:
+
+```powershell
+python scripts/compare-benchmarks.py baseline.json current.json `
+  --timing-threshold-percent 10 --output comparison.json
+```
+
+Exit code 2 means a regression was found; exit code 1 means an input/reporting
+error. `merlin-benchmark-json` and `merlin-benchmark-compare` exercise the
+schema, exit criteria, and self-comparison in CTest.
+
+## Hydra and host evidence
+
+The install-tree usdview test retains three related artifacts:
+
+- `merlin-regression.log`: per-render version-3 event rows;
+- `merlin-hydra-performance.json`: phase summaries;
+- `merlin-usdview-trace.json`: the raw OpenUSD Chrome trace.
+
+The JSON report separates Hydra Sync, RenderWorld update, extraction, GPU scene
+update, command recording, queue submission, GPU execution, completion wait,
+readback, RenderBuffer resolve/map, CPU-to-Hgi upload, host composite, and
+presentation. Renderer/delegate stages use per-frame samples. Host-owned scopes
+are summed per presented host frame and marked with
+`sample_kind: trace_scope` so they cannot be mistaken for renderer-frame
+samples. Every stage also carries an `available` flag; an unavailable host
+scope remains explicit rather than being reported as a zero-duration operation.
+
+The camera phase asserts zero mesh Sync, points/topology/primvar fetch, geometry
+upload, geometry-cache miss, and pipeline creation. The static phase asserts
+zero upload, allocation, shader-module miss, geometry-cache miss, and pipeline
+creation. The capability workflow retains benchmark JSON/comparisons, Hydra
+JSON/log/trace, images, validation logs, and dependency/runtime provenance.
