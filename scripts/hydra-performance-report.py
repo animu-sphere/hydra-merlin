@@ -29,6 +29,8 @@ STAGES = (
 )
 AVAILABILITY = {
     "scene_index_processing_ns": "scene_index_processing_available",
+    "render_buffer_resolve_ns": "render_buffer_resolve_ns_available",
+    "render_buffer_map_ns": "render_buffer_map_ns_available",
     "host_upload_ns": "host_upload_ns_available",
     "host_composite_ns": "host_composite_ns_available",
     "presentation_ns": "presentation_ns_available",
@@ -52,7 +54,6 @@ COUNTERS = (
     "cpu_readback_aov_mask",
     "upload_bytes",
     "readback_bytes",
-    "host_upload_bytes",
     "visible_primitive_count",
     "wait_count",
     "map_count",

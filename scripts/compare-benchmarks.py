@@ -33,7 +33,6 @@ STABLE_COUNTERS = (
     "buffer_allocation_count",
     "image_allocation_count",
     "buffer_allocation_bytes",
-    "image_allocation_bytes",
     "pipeline_creation_count",
     "scene_cache_hits",
     "scene_cache_misses",

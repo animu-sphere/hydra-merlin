@@ -88,11 +88,6 @@ struct HydraTelemetrySnapshot {
   std::uint64_t primvar_descriptor_fetch_count{};
   std::uint64_t primvar_fetch_count{};
   std::uint64_t material_fetch_count{};
-  std::uint64_t render_buffer_resolve_ns{};
-  std::uint64_t render_buffer_resolve_count{};
-  std::uint64_t render_buffer_map_ns{};
-  std::uint64_t render_buffer_map_count{};
-  std::uint64_t host_upload_bytes{};
 };
 
 struct HydraTelemetry {
@@ -110,11 +105,6 @@ struct HydraTelemetry {
   std::atomic<std::uint64_t> primvar_descriptor_fetch_count{};
   std::atomic<std::uint64_t> primvar_fetch_count{};
   std::atomic<std::uint64_t> material_fetch_count{};
-  std::atomic<std::uint64_t> render_buffer_resolve_ns{};
-  std::atomic<std::uint64_t> render_buffer_resolve_count{};
-  std::atomic<std::uint64_t> render_buffer_map_ns{};
-  std::atomic<std::uint64_t> render_buffer_map_count{};
-  std::atomic<std::uint64_t> host_upload_bytes{};
 
   HydraTelemetrySnapshot Consume() {
     const auto take = [](std::atomic<std::uint64_t>& value) {
@@ -133,12 +123,7 @@ struct HydraTelemetry {
             take(topology_fetch_count),
             take(primvar_descriptor_fetch_count),
             take(primvar_fetch_count),
-            take(material_fetch_count),
-            take(render_buffer_resolve_ns),
-            take(render_buffer_resolve_count),
-            take(render_buffer_map_ns),
-            take(render_buffer_map_count),
-            take(host_upload_bytes)};
+            take(material_fetch_count)};
   }
 };
 
@@ -1057,7 +1042,9 @@ class SceneBridge {
               HdRenderIndex* render_index) {
     const auto render_execute_start = CpuClock::now();
     std::scoped_lock lock(mutex_);
+    std::uint64_t render_world_update_ns{};
 
+    const auto visibility_update_start = CpuClock::now();
     for (auto& [path_string, mesh] : meshes_) {
       const SdfPath path(path_string);
       const bool selected =
@@ -1073,13 +1060,16 @@ class SceneBridge {
         }
       }
     }
+    render_world_update_ns += ElapsedNanoseconds(visibility_update_start);
 
     merlin::CameraHandle active_camera;
     if (const HdCamera* camera = state.GetCamera()) {
       const auto key = camera->GetId().GetString();
       const auto view = ToMerlinMatrix(state.GetWorldToViewMatrix());
       const auto projection = ToMerlinMatrix(state.GetProjectionMatrix());
+      const auto camera_update_start = CpuClock::now();
       active_camera = SyncCameraLocked(key, view, projection);
+      render_world_update_ns += ElapsedNanoseconds(camera_update_start);
     }
     extractor_.SetActiveCamera(active_camera);
 
@@ -1102,6 +1092,8 @@ class SceneBridge {
       }
     }
     if (width == 0 || height == 0) {
+      g_hydra_telemetry.render_world_update_ns.fetch_add(
+          render_world_update_ns, std::memory_order_relaxed);
       return;
     }
     if (render_settings_descriptor_.width != width ||
@@ -1112,14 +1104,18 @@ class SceneBridge {
       render_settings_descriptor_.height = height;
       render_settings_descriptor_.color_aov = color_aov;
       render_settings_descriptor_.depth_aov = depth_aov;
+      const auto render_settings_update_start = CpuClock::now();
       world_.UpdateRenderSettings(render_settings_,
                                   render_settings_descriptor_);
+      render_world_update_ns +=
+          ElapsedNanoseconds(render_settings_update_start);
     }
 
-    const auto world_update_start = CpuClock::now();
+    const auto commit_start = CpuClock::now();
     const auto changes = world_.Commit();
+    render_world_update_ns += ElapsedNanoseconds(commit_start);
     g_hydra_telemetry.render_world_update_ns.fetch_add(
-        ElapsedNanoseconds(world_update_start), std::memory_order_relaxed);
+        render_world_update_ns, std::memory_order_relaxed);
     if (!changes.empty()) {
       const auto extraction_start = CpuClock::now();
       extractor_.Apply(world_, changes);
@@ -1355,15 +1351,14 @@ class SceneBridge {
                << frame_telemetry.primvar_fetch_count
                << " material_fetch_count="
                << frame_telemetry.material_fetch_count
-               << " render_buffer_resolve_ns="
-               << frame_telemetry.render_buffer_resolve_ns
-               << " render_buffer_resolve_count="
-               << frame_telemetry.render_buffer_resolve_count
-               << " render_buffer_map_ns="
-               << frame_telemetry.render_buffer_map_ns
-               << " render_buffer_map_count="
-               << frame_telemetry.render_buffer_map_count
-               << " host_upload_bytes=" << frame_telemetry.host_upload_bytes
+               // Resolve, Map, and CPU-to-Hgi upload happen after this render
+               // pass returns. Their current-frame scopes are therefore
+               // sourced exclusively from the enclosing OpenUSD host trace.
+               << " render_buffer_resolve_ns=0"
+               << " render_buffer_resolve_ns_available=0"
+               << " render_buffer_map_ns=0"
+               << " render_buffer_map_ns_available=0"
+               << " host_upload_bytes=0 host_upload_bytes_available=0"
                << " host_upload_ns=0 host_upload_ns_available=0"
                << " host_composite_ns=0 host_composite_ns_available=0"
                << " presentation_ns=0 presentation_ns_available=0"
@@ -2128,18 +2123,11 @@ bool HdMerlinRenderBuffer::IsMultiSampled() const {
 
 void* HdMerlinRenderBuffer::Map() {
   TRACE_SCOPE("HdMerlinRenderBuffer::Map");
-  const auto start = CpuClock::now();
   std::scoped_lock lock(mutex_);
   if (data_.empty()) {
     return nullptr;
   }
   ++map_count_;
-  g_hydra_telemetry.render_buffer_map_count.fetch_add(
-      1, std::memory_order_relaxed);
-  g_hydra_telemetry.host_upload_bytes.fetch_add(
-      data_.size(), std::memory_order_relaxed);
-  g_hydra_telemetry.render_buffer_map_ns.fetch_add(
-      ElapsedNanoseconds(start), std::memory_order_relaxed);
   return data_.data();
 }
 
@@ -2157,11 +2145,6 @@ bool HdMerlinRenderBuffer::IsMapped() const {
 
 void HdMerlinRenderBuffer::Resolve() {
   TRACE_SCOPE("HdMerlinRenderBuffer::Resolve");
-  const auto start = CpuClock::now();
-  g_hydra_telemetry.render_buffer_resolve_count.fetch_add(
-      1, std::memory_order_relaxed);
-  g_hydra_telemetry.render_buffer_resolve_ns.fetch_add(
-      ElapsedNanoseconds(start), std::memory_order_relaxed);
 }
 
 bool HdMerlinRenderBuffer::IsConverged() const {

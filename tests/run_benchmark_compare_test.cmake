@@ -25,6 +25,31 @@ if(NOT status STREQUAL "pass")
 endif()
 
 file(READ "${MERLIN_BENCHMARK_OUTPUT}" benchmark)
+
+# Device image-memory requirements are implementation-dependent and must not
+# turn the default structural comparison into a cross-GPU false regression.
+string(JSON old_image_bytes GET "${benchmark}"
+       baselines 0 counters image_allocation_bytes)
+math(EXPR new_image_bytes "${old_image_bytes} + 1")
+string(JSON portable_mutation SET "${benchmark}"
+       baselines 0 counters image_allocation_bytes ${new_image_bytes})
+set(portable_input "${MERLIN_COMPARISON_OUTPUT}.portable-input.json")
+set(portable_output "${MERLIN_COMPARISON_OUTPUT}.portable.json")
+file(WRITE "${portable_input}" "${portable_mutation}\n")
+execute_process(
+  COMMAND "${MERLIN_PYTHON}" "${MERLIN_COMPARE_SCRIPT}"
+          "${MERLIN_BENCHMARK_OUTPUT}" "${portable_input}"
+          --output "${portable_output}"
+  RESULT_VARIABLE portable_result
+  OUTPUT_VARIABLE portable_stdout
+  ERROR_VARIABLE portable_error
+)
+if(NOT portable_result EQUAL 0)
+  message(FATAL_ERROR
+    "device-dependent image bytes caused a structural regression "
+    "(${portable_result}):\n${portable_stdout}\n${portable_error}")
+endif()
+
 string(JSON structural_mutation SET "${benchmark}"
        baselines 1 counters upload_bytes 1)
 set(structural_input "${MERLIN_COMPARISON_OUTPUT}.structural-input.json")

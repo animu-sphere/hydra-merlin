@@ -93,3 +93,30 @@ if(NOT performance_schema STREQUAL "merlin-hydra-performance/v1")
   message(FATAL_ERROR
     "Unexpected Hydra performance schema: ${performance_schema}")
 endif()
+
+# RenderBuffer resolve/map and CPU-to-Hgi upload occur after the delegate
+# render pass returns, so their current-frame samples must come from the host
+# trace rather than lagged delegate telemetry.
+string(JSON performance_phase_count LENGTH "${performance_json}" phases)
+math(EXPR performance_last_phase "${performance_phase_count} - 1")
+set(baseline_phase_index "")
+foreach(index RANGE 0 ${performance_last_phase})
+  string(JSON phase_name GET "${performance_json}" phases ${index} name)
+  if(phase_name STREQUAL "baseline")
+    set(baseline_phase_index ${index})
+    break()
+  endif()
+endforeach()
+if(baseline_phase_index STREQUAL "")
+  message(FATAL_ERROR "Hydra performance report has no baseline phase")
+endif()
+foreach(stage IN ITEMS render_buffer_resolve render_buffer_map host_upload)
+  string(JSON sample_kind GET "${performance_json}" phases
+         ${baseline_phase_index} stages ${stage} sample_kind)
+  string(JSON available GET "${performance_json}" phases
+         ${baseline_phase_index} stages ${stage} available)
+  if(NOT sample_kind STREQUAL "trace_scope" OR NOT available)
+    message(FATAL_ERROR
+      "Hydra ${stage} evidence is not sourced from the host trace")
+  endif()
+endforeach()
