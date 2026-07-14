@@ -143,19 +143,19 @@ These are roadmap boundaries, not implicit compatibility claims. See the
 feature coverage.
 
 v0.5.0 releases the host-neutral MaterialIR and basic textured shading slice.
-The Unreleased v0.5.1 measurement foundation makes Hydra, Merlin, Vulkan,
-readback, host upload, and presentation costs separately observable. The active
-v0.6.0 path now delivers incremental Hydra sync, then completes the
-persistent Mesh/Gaussian resource model, adds a native Vulkan viewport, and
-establishes Gaussian rendering before GPU-driven optimization. The Mesh path
-then advances through bindless resource identity, GPU-driven indexed Forward,
-an experimental opaque Visibility Buffer, MaterialX quality, static meshlets,
-and only then an optional Mesh Shader/Hi-Z/LOD backend. Lower-copy presentation
-remains evidence-gated, Forward remains the rendering reference/fallback, and
-Tier 0 CPU readback remains the presentation correctness/fallback path. See the
-[current milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
-and [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md) for scope,
-dependencies, and exit criteria.
+The Unreleased v0.5.1 measurement foundation and v0.6.0 incremental Hydra sync
+work make changed-scene costs and host presentation separately observable. The
+active v0.7.0 path completes the persistent Mesh/Gaussian resource model, then
+adds a native Vulkan viewport and establishes Gaussian rendering before
+GPU-driven optimization. The Mesh path advances through bindless resource
+identity, GPU-driven indexed Forward, an experimental opaque Visibility Buffer,
+MaterialX quality, static meshlets, and only then an optional Mesh
+Shader/Hi-Z/LOD backend. Lower-copy presentation remains evidence-gated,
+Forward remains the rendering reference/fallback, and Tier 0 CPU readback
+remains the presentation correctness/fallback path. See the [current
+milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
+and [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md) for
+scope, dependencies, and exit criteria.
 
 Gaussian support will consume the standard Gaussian representation exposed by
 OpenUSD through Hydra. hdMerlin will not define a renderer-specific USD schema
@@ -236,6 +236,7 @@ readback without owning a native window or swapchain.
 - [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md)
 - [Execution and render-product lifetime](docs/design/execution-lifetime.md)
 - [OpenStrata project layout](docs/design/openstrata-project.md)
+- [OST v0.17 dogfooding and v0.18 asks](docs/reports/2026-07-15-v0.17.0-dogfooding-v0.18.0-asks.md)
 - [Historical OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
 - [Build and install](docs/guides/build-and-install.md)
 - [Benchmarking](docs/guides/benchmarking.md)

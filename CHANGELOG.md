@@ -20,6 +20,12 @@ after its public API and release process are established.
   delegate Sync, scene-index work, RenderWorld/extraction, Vulkan execution,
   readback, RenderBuffer map/resolve, CPU-to-Hgi upload, host composite, and
   presentation scopes.
+- Host-neutral `merlin-diagnostic/v1` records with stable codes, source paths,
+  dispositions, and named recovery actions, bridged to Hydra diagnostics and
+  telemetry.
+- A documented OpenUSD 26.05 Gaussian ingestion boundary using the standard
+  `ParticleField3DGaussianSplat` and Hydra `particleField` representation,
+  without a custom USD schema or direct PLY/SPLAT parser.
 
 ### Changed
 
@@ -30,6 +36,19 @@ after its public API and release process are established.
   into one staged design and aligned the architecture, roadmap, benchmark
   contracts, support claims, capability fallbacks, and project overview with
   indexed-indirect-first delivery.
+- Hydra mesh Sync now retains per-path topology, points, primvar, normalized
+  payload, triangulation, and material state; transform, visibility, camera,
+  and material-parameter edits avoid unrelated mesh work.
+- RenderWorld, extraction, and Vulkan residency now preserve per-aspect
+  revisions and changed ranges, allowing exact partial vertex/index uploads
+  with safe full-upload fallback when the resident base revision differs.
+- Hydra regression event schema v4 reports triangulation/packing rebuilds,
+  changed vertices, coarse primvar invalidation, and diagnostics, and validates
+  localized points, topology, primvar, transform, visibility, camera, and
+  material-parameter phases.
+- Hydra configuration now requires the validated OpenUSD 26.05 shared SDK,
+  records the detected version, and rejects MSVC Debug builds when only Release
+  OpenUSD libraries are available.
 
 ## [0.5.0] - 2026-07-14
 

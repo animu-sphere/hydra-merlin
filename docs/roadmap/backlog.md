@@ -1,31 +1,11 @@
 # Backlog
 
-Ordered work after the active v0.6.0 milestone in [current.md](current.md).
+Ordered work after the active v0.7.0 milestone in [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 
 ## Milestone ladder
-
-### ⬜ v0.7.0 — Persistent RenderWorld and GPU residency
-
-Extend the existing handle/revision and resource-granular residency foundations
-to the full Hydra-scale Mesh/Gaussian model: persistent bindless resource tables,
-generation-safe stable handles and descriptor slots, dirty queues, changed
-ranges, incremental snapshots, structural sharing, delayed retirement, geometry
-and Gaussian arenas, a persistently mapped upload ring, asynchronous transfer,
-and explicit VRAM budget evidence. Probe and report descriptor-indexing features
-and limits, reserve safe fallback texture slots, deduplicate samplers, and keep
-the conventional descriptor path when the required capability set is absent.
-
-Exit requires static snapshot cost to stop scaling with total prim count, 100
-changes in a one-million-prim scene to scale approximately with those changes,
-and unchanged GPU resource addresses and indices to remain stable. Texture
-replacement remains safe across frames in flight, stale generations are
-detectable, bindless Forward matches the reference image, and descriptor work
-scales with changed resources rather than materials or draws. Steady state
-performs zero upload, allocation, descriptor allocation/update, shader
-compilation, pipeline creation, and CPU wait for GPU.
 
 ### ⬜ v0.8.0 — Native Vulkan viewport
 
@@ -210,11 +190,11 @@ smoke tests; Core remains independent of every DCC SDK.
   fragment barycentric, subgroup, and Mesh Shader capabilities before the paths
   that consume them. A missing runner must remain distinguishable from a product
   failure.
-- ⬜ **Capabilities and diagnostics.** Define versioned host-neutral capability
-  and diagnostic schemas with backend extensions and explicit unsupported/
-  fallback reporting.
-- ⬜ **OpenUSD compatibility.** Detect shared/static mode, Debug/Release and MSVC
-  runtime mismatch, runtime bin/lib locations, and plugin ABI compatibility.
+- ⬜ **Capabilities.** Extend versioned host-neutral capability reporting with
+  backend feature/limit extensions and explicit unsupported/fallback states.
+- ⬜ **OpenUSD compatibility.** Extend the validated 26.05 shared-SDK and MSVC
+  configuration checks with runtime plugin ABI diagnostics where supported by
+  the host.
 - ⬜ **Shader artifacts.** Define generated shader manifests, versioning, and
   cache-compatibility contracts.
 - ⬜ **Build and exported products.** Add independently justified options and

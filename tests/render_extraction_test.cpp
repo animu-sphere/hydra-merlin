@@ -41,8 +41,17 @@ int main() {
   assert(first->geometries.front().vertices->front().normal.z == 1.0F);
   assert(first->geometries.front().vertices->front().color.w == 0.5F);
   assert(first->geometries.front().vertices->back().texcoord.y == 1.0F);
+  assert(first->geometries.front().points_revision == 1);
+  assert(first->geometries.front().primvar_revision == 1);
+  assert(first->geometries.front().topology_revision == 1);
+  assert(first->geometries.front().material_partition_revision == 1);
+  assert(first->geometries.front().vertex_revision == 1);
+  assert(first->geometries.front().index_revision == 1);
   assert(first->materials.size() == 1);
   assert(first->instances.size() == 2);
+  assert(first->instances.front().transform_revision == 1);
+  assert(first->instances.front().visibility_revision == 1);
+  assert(first->instances.front().material_binding_revision == 1);
   assert(first->draws.size() == 2);
   assert(first->draws.front().geometry_index == 0);
   assert(first->draws.back().geometry_index == 0);
@@ -70,6 +79,10 @@ int main() {
   assert(transformed->geometries.front().points_revision ==
          first->geometries.front().points_revision);
   assert(transformed->instances[transformed->draws.back().instance_index]
+             .transform_revision == 2);
+  assert(transformed->instances[transformed->draws.back().instance_index]
+             .visibility_revision == 1);
+  assert(transformed->instances[transformed->draws.back().instance_index]
              .transform.values[12] == 0.5F);
   // The previous snapshot stays immutable across later applies.
   assert(first->instances[first->draws.back().instance_index]
@@ -77,7 +90,8 @@ int main() {
 
   // Points-only mesh edit refreshes the vertex payload but shares topology.
   mesh.positions[0].x = -0.75F;
-  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points);
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points,
+                   std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   const auto moved = extractor.snapshot();
   assert(moved->geometries.front().vertices !=
@@ -88,12 +102,19 @@ int main() {
          transformed->geometries.front().points_revision);
   assert(moved->geometries.front().topology_revision ==
          transformed->geometries.front().topology_revision);
+  assert(moved->geometries.front().primvar_revision ==
+         transformed->geometries.front().primvar_revision);
+  assert(moved->geometries.front().vertex_ranges ==
+         std::vector<merlin::ElementRange>({{0, 1}}));
+  assert(moved->geometries.front().vertex_base_revision ==
+         transformed->geometries.front().vertex_revision);
   assert(moved->geometries.front().vertices->front().position.x == -0.75F);
 
   // Primvar-only edits replace the packed vertex payload while retaining
   // topology and position values.
   mesh.colors[0].x = 0.25F;
-  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Primvars);
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Primvars,
+                   std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   const auto recolored = extractor.snapshot();
   assert(recolored->geometries.front().vertices !=
@@ -101,6 +122,32 @@ int main() {
   assert(recolored->geometries.front().indices ==
          moved->geometries.front().indices);
   assert(recolored->geometries.front().vertices->front().color.x == 0.25F);
+  assert(recolored->geometries.front().points_revision ==
+         moved->geometries.front().points_revision);
+  assert(recolored->geometries.front().primvar_revision >
+         moved->geometries.front().primvar_revision);
+
+  // A known-empty topology range advances the authored topology revision but
+  // preserves the unchanged derived index payload and its backend revision.
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Topology,
+                   std::nullopt, std::vector<merlin::ElementRange>{});
+  extractor.Apply(world, world.Commit());
+  const auto topology_metadata = extractor.snapshot();
+  assert(topology_metadata->geometries.front().topology_revision >
+         recolored->geometries.front().topology_revision);
+  assert(topology_metadata->geometries.front().index_revision ==
+         recolored->geometries.front().index_revision);
+  assert(topology_metadata->geometries.front().indices ==
+         recolored->geometries.front().indices);
+
+  world.UpdateMesh(mesh_handle, mesh,
+                   merlin::ChangeAspect::MaterialPartition);
+  extractor.Apply(world, world.Commit());
+  const auto partitioned = extractor.snapshot();
+  assert(partitioned->geometries.front().material_partition_revision >
+         topology_metadata->geometries.front().material_partition_revision);
+  assert(partitioned->geometries.front().vertices ==
+         topology_metadata->geometries.front().vertices);
 
   // Visibility-only edit drops the draw but keeps geometry and instance data.
   instance.transform.values[12] = 0.25F;
@@ -114,7 +161,7 @@ int main() {
   assert(hidden->geometries.size() == 1);
   assert(hidden->instances.size() == 2);
   assert(hidden->geometries.front().vertices ==
-         recolored->geometries.front().vertices);
+         partitioned->geometries.front().vertices);
 
   instance.visible = true;
   world.UpdateInstance(instance_handle, instance);

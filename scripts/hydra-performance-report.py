@@ -46,6 +46,11 @@ COUNTERS = (
     "primvar_descriptor_fetch_count",
     "primvar_fetch_count",
     "material_fetch_count",
+    "triangulation_rebuild_count",
+    "packed_mesh_rebuild_count",
+    "changed_vertex_count",
+    "diagnostic_count",
+    "coarse_primvar_invalidation_count",
     "requested_aov_count",
     "rendered_aov_count",
     "cpu_readback_aov_count",
@@ -89,7 +94,7 @@ def parse_events(path: Path) -> list[dict]:
             if not separator:
                 raise ValueError(f"{path}:{line_number}: malformed field")
             event[key] = value if key == "phase" else int(value)
-        if event.get("schema_version") != 3:
+        if event.get("schema_version") != 4:
             raise ValueError(f"{path}:{line_number}: unsupported event schema")
         events.append(event)
     if not events:

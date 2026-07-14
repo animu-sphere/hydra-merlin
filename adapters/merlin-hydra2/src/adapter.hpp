@@ -76,6 +76,8 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
                        const SdfPath& bprim_id) override;
   HdBprim* CreateFallbackBprim(const TfToken& type_id) override;
   void DestroyBprim(HdBprim* bprim) override;
+  void SetTerminalSceneIndex(
+      const HdSceneIndexBaseRefPtr& terminal_scene_index) override;
   void CommitResources(HdChangeTracker* tracker) override;
   HdAovDescriptor GetDefaultAovDescriptor(const TfToken& name) const override;
 

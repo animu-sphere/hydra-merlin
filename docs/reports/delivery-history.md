@@ -115,3 +115,28 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Gated static and camera-only paths against irrelevant fetch, upload,
   allocation, shader, pipeline, and geometry-cache work, and retained all
   reports in capability CI.
+
+## Incremental Hydra synchronization ✅
+
+- ✅ Retained per-USD-path Hydra topology, points, primvar descriptors and
+  values, normalized/indexed primvars, triangulation, packed geometry, material,
+  transform, and visibility state across Sync calls.
+- ✅ Added locator-aware points, topology, primvar, transform, visibility,
+  camera, and material-parameter fast paths with conservative fallback for
+  coarse or unavailable dirty information.
+- ✅ Preserved distinct source and derived resource revisions plus normalized
+  changed vertex/index ranges through RenderWorld, extraction, and Vulkan
+  residency; compatible resident revisions receive exact partial uploads and
+  incompatible shapes safely fall back to full upload.
+- ✅ Added versioned host-neutral `merlin-diagnostic/v1` records with stable
+  codes, source paths, dispositions, and recovery actions, bridged to Hydra
+  warnings and telemetry.
+- ✅ Validated removal/re-addition, malformed-topology rejection and recovery,
+  per-phase cache/fetch/rebuild counts, exact changed-byte upload, and zero
+  unrelated work through Core, Vulkan, and install-tree usdview regressions.
+- ✅ Required and recorded the OpenUSD 26.05 shared SDK for Hydra builds and
+  made Release-only MSVC SDK incompatibility fail with an actionable Debug
+  diagnostic.
+- ✅ Documented the standard OpenUSD `ParticleField3DGaussianSplat` through
+  Hydra `particleField` ingestion boundary for the later Gaussian milestone,
+  without adding a custom schema or direct PLY/SPLAT parser.

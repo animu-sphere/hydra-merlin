@@ -32,7 +32,11 @@ enum class ChangeAspect : std::uint32_t {
   MaterialFeatures = 1U << 10U,
   TextureData = 1U << 11U,
   SamplerParameters = 1U << 12U,
-  All = (1U << 13U) - 1U
+  MaterialPartition = 1U << 13U,
+  // Derived packed-vertex layout changed (for example face-varying expansion
+  // after topology edits) without claiming that authored points/primvars did.
+  VertexLayout = 1U << 14U,
+  All = (1U << 15U) - 1U
 };
 
 [[nodiscard]] constexpr ChangeAspect operator|(ChangeAspect lhs,
@@ -63,7 +67,8 @@ constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
   switch (kind) {
     case ObjectKind::Mesh:
       return ChangeAspect::Topology | ChangeAspect::Points |
-             ChangeAspect::Primvars;
+             ChangeAspect::Primvars | ChangeAspect::MaterialPartition |
+             ChangeAspect::VertexLayout;
     case ObjectKind::Material:
       return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures;
     case ObjectKind::Texture:
@@ -83,12 +88,28 @@ constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
   return ChangeAspect::None;
 }
 
+// Half-open element range [first, first + count). Mesh adapters may attach
+// normalized vertex/index ranges to a Change so extraction and a backend can
+// preserve unchanged payload. A false *_ranges_known flag means the complete
+// sub-resource may have changed; a true flag with an empty list means its
+// derived payload is unchanged even though source metadata was revised.
+struct ElementRange {
+  std::uint32_t first{};
+  std::uint32_t count{};
+
+  friend constexpr bool operator==(ElementRange, ElementRange) = default;
+};
+
 struct Change {
   ObjectKind object_kind{};
   ChangeKind change_kind{};
   std::uint64_t handle{};
   ChangeAspect aspects{ChangeAspect::None};
   std::uint64_t resource_revision{};
+  bool vertex_ranges_known{};
+  bool index_ranges_known{};
+  std::vector<ElementRange> vertex_ranges;
+  std::vector<ElementRange> index_ranges;
 
   [[nodiscard]] constexpr bool HasAspect(ChangeAspect aspect) const noexcept {
     return HasAnyAspect(aspects, aspect);

@@ -818,7 +818,7 @@ class Renderer::Impl {
   // mismatch re-uploads only the stale sub-resource; a size-preserving edit
   // reuses the existing range in place.
   struct GeometrySlot {
-    std::uint64_t points_revision{};
+    std::uint64_t vertex_revision{};
     std::uint64_t topology_revision{};
     BufferRange vertices;
     BufferRange indices;
@@ -1530,6 +1530,8 @@ class Renderer::Impl {
       GeometrySlot* slot{};
       bool vertices{};
       bool indices{};
+      bool partial_vertices{};
+      bool partial_indices{};
       VkDeviceSize vertex_bytes{};
       VkDeviceSize index_bytes{};
     };
@@ -1540,9 +1542,9 @@ class Renderer::Impl {
       auto& slot = entry->second;
       Upload upload{&geometry, &slot};
       upload.vertices =
-          inserted || slot.points_revision != geometry.points_revision;
+          inserted || slot.vertex_revision != geometry.vertex_revision;
       upload.indices =
-          inserted || slot.topology_revision != geometry.topology_revision;
+          inserted || slot.topology_revision != geometry.index_revision;
       if (!upload.vertices && !upload.indices) {
         ++frame_counters_.geometry_cache_hits;
         continue;
@@ -1553,10 +1555,38 @@ class Renderer::Impl {
       upload.index_bytes = static_cast<VkDeviceSize>(
           geometry.indices->size() * sizeof(std::uint32_t));
       if (upload.vertices) {
-        staging_bytes += AlignUp(upload.vertex_bytes, kArenaAlignment);
+        upload.partial_vertices =
+            !inserted && slot.vertex_revision == geometry.vertex_base_revision &&
+            !geometry.vertex_ranges.empty() && slot.vertices.valid() &&
+            slot.vertices.size ==
+                AlignUp(upload.vertex_bytes, kArenaAlignment);
+        if (upload.partial_vertices) {
+          for (const auto& range : geometry.vertex_ranges) {
+            staging_bytes += AlignUp(
+                static_cast<VkDeviceSize>(range.count) *
+                    sizeof(extraction::DrawVertex),
+                kArenaAlignment);
+          }
+        } else {
+          staging_bytes += AlignUp(upload.vertex_bytes, kArenaAlignment);
+        }
       }
       if (upload.indices) {
-        staging_bytes += AlignUp(upload.index_bytes, kArenaAlignment);
+        upload.partial_indices =
+            !inserted &&
+            slot.topology_revision == geometry.index_base_revision &&
+            !geometry.index_ranges.empty() && slot.indices.valid() &&
+            slot.indices.size == AlignUp(upload.index_bytes, kArenaAlignment);
+        if (upload.partial_indices) {
+          for (const auto& range : geometry.index_ranges) {
+            staging_bytes += AlignUp(
+                static_cast<VkDeviceSize>(range.count) *
+                    sizeof(std::uint32_t),
+                kArenaAlignment);
+          }
+        } else {
+          staging_bytes += AlignUp(upload.index_bytes, kArenaAlignment);
+        }
       }
       uploads.push_back(upload);
     }
@@ -1586,7 +1616,8 @@ class Renderer::Impl {
 
     VkDeviceSize cursor{};
     auto stage = [&](const void* payload, VkDeviceSize bytes,
-                     DeviceArena& arena, const BufferRange& range) {
+                     DeviceArena& arena, const BufferRange& range,
+                     VkDeviceSize destination_offset = 0) {
       if (bytes == 0) {
         return;
       }
@@ -1596,24 +1627,47 @@ class Renderer::Impl {
                                  reservation.offset + cursor,
                                  arena.buffer(range.block), range.offset,
                                  bytes});
+      pending_copies_.back().destination_offset += destination_offset;
       cursor += AlignUp(bytes, kArenaAlignment);
       frame_counters_.upload_bytes += bytes;
     };
     for (auto& upload : uploads) {
       auto& slot = *upload.slot;
       if (upload.vertices) {
-        EnsureRange(vertex_arena_, slot.vertices, upload.vertex_bytes);
-        stage(upload.record->vertices->data(), upload.vertex_bytes,
-              vertex_arena_, slot.vertices);
-        slot.points_revision = upload.record->points_revision;
+        if (upload.partial_vertices) {
+          for (const auto& range : upload.record->vertex_ranges) {
+            const auto byte_offset = static_cast<VkDeviceSize>(range.first) *
+                                     sizeof(extraction::DrawVertex);
+            const auto bytes = static_cast<VkDeviceSize>(range.count) *
+                               sizeof(extraction::DrawVertex);
+            stage(upload.record->vertices->data() + range.first, bytes,
+                  vertex_arena_, slot.vertices, byte_offset);
+          }
+        } else {
+          EnsureRange(vertex_arena_, slot.vertices, upload.vertex_bytes);
+          stage(upload.record->vertices->data(), upload.vertex_bytes,
+                vertex_arena_, slot.vertices);
+        }
+        slot.vertex_revision = upload.record->vertex_revision;
       }
       if (upload.indices) {
-        EnsureRange(index_arena_, slot.indices, upload.index_bytes);
-        stage(upload.record->indices->data(), upload.index_bytes, index_arena_,
-              slot.indices);
+        if (upload.partial_indices) {
+          for (const auto& range : upload.record->index_ranges) {
+            const auto byte_offset = static_cast<VkDeviceSize>(range.first) *
+                                     sizeof(std::uint32_t);
+            const auto bytes = static_cast<VkDeviceSize>(range.count) *
+                               sizeof(std::uint32_t);
+            stage(upload.record->indices->data() + range.first, bytes,
+                  index_arena_, slot.indices, byte_offset);
+          }
+        } else {
+          EnsureRange(index_arena_, slot.indices, upload.index_bytes);
+          stage(upload.record->indices->data(), upload.index_bytes,
+                index_arena_, slot.indices);
+        }
         slot.index_count =
             static_cast<std::uint32_t>(upload.record->indices->size());
-        slot.topology_revision = upload.record->topology_revision;
+        slot.topology_revision = upload.record->index_revision;
       }
     }
   }

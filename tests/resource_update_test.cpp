@@ -172,9 +172,10 @@ int main(int argc, char** argv) {
   // in place and topology is untouched.
   auto moved_triangle = Triangle();
   moved_triangle.positions[0].x = 0.1F;
-  world.UpdateMesh(triangle, moved_triangle, merlin::ChangeAspect::Points);
+  world.UpdateMesh(triangle, moved_triangle, merlin::ChangeAspect::Points,
+                   std::vector<merlin::ElementRange>{{0, 1}});
   const auto moved = render();
-  assert(moved.counters.upload_bytes == triangle_vertex_bytes);
+  assert(moved.counters.upload_bytes == kVertexBytes);
   assert(moved.counters.geometry_cache_misses == 1);
   assert(moved.counters.geometry_cache_hits == 1);
   assert(moved.counters.buffer_suballocation_count == 0);
@@ -243,10 +244,18 @@ int main(int argc, char** argv) {
   // geometry record must not produce a zero-sized Vulkan allocation or copy.
   merlin::extraction::FrameSnapshot empty_snapshot;
   empty_snapshot.revision = extractor.snapshot()->revision + 1U;
-  empty_snapshot.geometries.push_back(
-      {std::numeric_limits<std::uint64_t>::max(), 1, 1,
-       std::make_shared<const std::vector<merlin::extraction::DrawVertex>>(),
-       std::make_shared<const std::vector<std::uint32_t>>()});
+  merlin::extraction::GeometryRecord empty_record;
+  empty_record.mesh = std::numeric_limits<std::uint64_t>::max();
+  empty_record.points_revision = 1;
+  empty_record.primvar_revision = 1;
+  empty_record.topology_revision = 1;
+  empty_record.vertex_revision = 1;
+  empty_record.index_revision = 1;
+  empty_record.vertices =
+      std::make_shared<const std::vector<merlin::extraction::DrawVertex>>();
+  empty_record.indices =
+      std::make_shared<const std::vector<std::uint32_t>>();
+  empty_snapshot.geometries.push_back(std::move(empty_record));
   const auto empty_geometry =
       renderer->Render(empty_snapshot, 64, 64, shaders);
   assert(empty_geometry.counters.draw_count == 0);

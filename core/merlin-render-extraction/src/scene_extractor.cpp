@@ -20,7 +20,15 @@ std::uint64_t StableSortKey(std::uint64_t material_handle,
 
 struct MeshEntry {
   std::uint64_t points_revision{};
+  std::uint64_t primvar_revision{};
   std::uint64_t topology_revision{};
+  std::uint64_t material_partition_revision{};
+  std::uint64_t vertex_revision{};
+  std::uint64_t index_revision{};
+  std::uint64_t vertex_base_revision{};
+  std::uint64_t index_base_revision{};
+  std::vector<ElementRange> vertex_ranges;
+  std::vector<ElementRange> index_ranges;
   std::shared_ptr<const std::vector<DrawVertex>> vertices;
   std::shared_ptr<const std::vector<std::uint32_t>> indices;
   bool has_normals{};
@@ -55,6 +63,9 @@ struct LightEntry {
 
 struct InstanceEntry {
   std::uint64_t revision{};
+  std::uint64_t transform_revision{};
+  std::uint64_t visibility_revision{};
+  std::uint64_t material_binding_revision{};
   InstanceDescriptor descriptor;
 };
 
@@ -68,6 +79,8 @@ class SceneExtractor::Impl {
       return;
     }
     auto& entry = meshes[change.handle];
+    entry.vertex_base_revision = entry.vertex_revision;
+    entry.index_base_revision = entry.index_revision;
     const auto& descriptor = world.Get(MeshHandle::FromValue(change.handle));
     if (descriptor.positions.size() >
             static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()) ||
@@ -75,9 +88,20 @@ class SceneExtractor::Impl {
             std::numeric_limits<std::uint32_t>::max()) {
       throw std::length_error("mesh exceeds 32-bit draw limits");
     }
-    if (change.change_kind == ChangeKind::Created ||
+    const bool created = change.change_kind == ChangeKind::Created;
+    const bool has_vertex_aspect =
         change.HasAspect(ChangeAspect::Points) ||
-        change.HasAspect(ChangeAspect::Primvars)) {
+        change.HasAspect(ChangeAspect::Primvars) ||
+        change.HasAspect(ChangeAspect::VertexLayout);
+    if (created || change.HasAspect(ChangeAspect::Points)) {
+      entry.points_revision = change.resource_revision;
+    }
+    if (created || change.HasAspect(ChangeAspect::Primvars)) {
+      entry.primvar_revision = change.resource_revision;
+    }
+    if (created ||
+        (has_vertex_aspect &&
+         (!change.vertex_ranges_known || !change.vertex_ranges.empty()))) {
       auto vertices = std::make_shared<std::vector<DrawVertex>>();
       vertices->reserve(descriptor.positions.size());
       for (std::size_t i = 0; i < descriptor.positions.size(); ++i) {
@@ -95,16 +119,26 @@ class SceneExtractor::Impl {
         vertices->push_back(vertex);
       }
       entry.vertices = std::move(vertices);
-      entry.points_revision = change.resource_revision;
+      entry.vertex_revision = change.resource_revision;
+      entry.vertex_ranges = change.vertex_ranges;
       entry.has_normals = !descriptor.normals.empty();
       entry.has_colors = !descriptor.colors.empty();
       entry.has_texcoords = !descriptor.texcoords.empty();
     }
-    if (change.change_kind == ChangeKind::Created ||
-        change.HasAspect(ChangeAspect::Topology)) {
+    if (created || change.HasAspect(ChangeAspect::Topology)) {
+      entry.topology_revision = change.resource_revision;
+    }
+    if (created ||
+        (change.HasAspect(ChangeAspect::Topology) &&
+         (!change.index_ranges_known || !change.index_ranges.empty()))) {
       entry.indices = std::make_shared<const std::vector<std::uint32_t>>(
           descriptor.indices);
-      entry.topology_revision = change.resource_revision;
+      entry.index_revision = change.resource_revision;
+      entry.index_ranges = change.index_ranges;
+    }
+    if (created ||
+        change.HasAspect(ChangeAspect::MaterialPartition)) {
+      entry.material_partition_revision = change.resource_revision;
     }
   }
 
@@ -117,10 +151,23 @@ class SceneExtractor::Impl {
     for (const auto& [handle, entry] : meshes) {
       geometry_indices.emplace(
           handle, static_cast<std::uint32_t>(next->geometries.size()));
-      next->geometries.push_back({handle, entry.points_revision,
-                                  entry.topology_revision, entry.vertices,
-                                  entry.indices, entry.has_normals,
-                                  entry.has_colors, entry.has_texcoords});
+      next->geometries.push_back(
+          {handle,
+           entry.points_revision,
+           entry.primvar_revision,
+           entry.topology_revision,
+           entry.material_partition_revision,
+           entry.vertex_revision,
+           entry.index_revision,
+           entry.vertex_base_revision,
+           entry.index_base_revision,
+           entry.vertex_ranges,
+           entry.index_ranges,
+           entry.vertices,
+           entry.indices,
+           entry.has_normals,
+           entry.has_colors,
+           entry.has_texcoords});
     }
 
     std::map<std::uint64_t, std::uint32_t> texture_indices;
@@ -199,10 +246,16 @@ class SceneExtractor::Impl {
       const auto instance_index =
           static_cast<std::uint32_t>(next->instances.size());
       const auto& instance = entry.descriptor;
-      next->instances.push_back({handle, entry.revision,
-                                 instance.mesh.value(),
-                                 instance.material.value(),
-                                 instance.transform, instance.visible});
+      next->instances.push_back(
+          {handle,
+           entry.revision,
+           entry.transform_revision,
+           entry.visibility_revision,
+           entry.material_binding_revision,
+           instance.mesh.value(),
+           instance.material.value(),
+           instance.transform,
+           instance.visible});
       if (!instance.visible) {
         continue;
       }
@@ -274,6 +327,14 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
     throw std::invalid_argument("ChangeSet revisions must be applied in order");
   }
 
+  for (auto& [handle, entry] : impl_->meshes) {
+    (void)handle;
+    entry.vertex_base_revision = entry.vertex_revision;
+    entry.index_base_revision = entry.index_revision;
+    entry.vertex_ranges.clear();
+    entry.index_ranges.clear();
+  }
+
   for (const auto& change : changes.changes) {
     const auto erase = change.change_kind == ChangeKind::Removed;
     switch (change.object_kind) {
@@ -331,10 +392,28 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
         if (erase) {
           impl_->instances.erase(change.handle);
         } else {
+          auto found = impl_->instances.find(change.handle);
+          InstanceEntry entry;
+          if (found != impl_->instances.end()) {
+            entry = found->second;
+          }
+          entry.revision = change.resource_revision;
+          if (change.change_kind == ChangeKind::Created ||
+              change.HasAspect(ChangeAspect::Transform)) {
+            entry.transform_revision = change.resource_revision;
+          }
+          if (change.change_kind == ChangeKind::Created ||
+              change.HasAspect(ChangeAspect::Visibility)) {
+            entry.visibility_revision = change.resource_revision;
+          }
+          if (change.change_kind == ChangeKind::Created ||
+              change.HasAspect(ChangeAspect::MaterialBinding)) {
+            entry.material_binding_revision = change.resource_revision;
+          }
+          entry.descriptor =
+              world.Get(InstanceHandle::FromValue(change.handle));
           impl_->instances.insert_or_assign(
-              change.handle,
-              InstanceEntry{change.resource_revision,
-                            world.Get(InstanceHandle::FromValue(change.handle))});
+              change.handle, std::move(entry));
         }
         break;
       case ObjectKind::Camera:

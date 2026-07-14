@@ -1,3 +1,4 @@
+#include <merlin/core/diagnostic.hpp>
 #include <merlin/core/render_product.hpp>
 #include <merlin/core/render_world.hpp>
 
@@ -6,7 +7,33 @@
 #include <stdexcept>
 #include <string_view>
 
+namespace {
+
+class CollectingDiagnosticSink final : public merlin::DiagnosticSink {
+ public:
+  void Report(const merlin::Diagnostic& diagnostic) override {
+    last = diagnostic;
+    ++count;
+  }
+
+  merlin::Diagnostic last;
+  std::size_t count{};
+};
+
+}  // namespace
+
 int main() {
+  CollectingDiagnosticSink diagnostic_sink;
+  diagnostic_sink.Report(
+      {merlin::kDiagnosticSchemaVersion, "test.unsupported",
+       merlin::DiagnosticSeverity::Warning,
+       merlin::DiagnosticDisposition::Fallback, "/test",
+       "unsupported test input", "constant-fallback"});
+  assert(diagnostic_sink.count == 1);
+  assert(diagnostic_sink.last.schema_version ==
+         merlin::kDiagnosticSchemaVersion);
+  assert(diagnostic_sink.last.recovery == "constant-fallback");
+
   merlin::RenderWorld world;
 
   merlin::MeshDescriptor mesh;
@@ -58,6 +85,8 @@ int main() {
   assert(mesh_created->HasAspect(merlin::ChangeAspect::Topology));
   assert(mesh_created->HasAspect(merlin::ChangeAspect::Points));
   assert(mesh_created->HasAspect(merlin::ChangeAspect::Primvars));
+  assert(mesh_created->HasAspect(merlin::ChangeAspect::MaterialPartition));
+  assert(mesh_created->HasAspect(merlin::ChangeAspect::VertexLayout));
   assert(world.resource_revision(mesh_handle) == 1);
   assert(world.resource_revision(instance_handle) == 1);
   assert(world.Get(mesh_handle).label == "triangle");
@@ -75,6 +104,16 @@ int main() {
   assert(changes.changes.front().resource_revision == 2);
   assert(world.resource_revision(instance_handle) == 2);
   assert(!world.Get(instance_handle).visible);
+
+  bool bad_range_rejected = false;
+  try {
+    world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points,
+                     std::vector<merlin::ElementRange>{{3, 1}});
+  } catch (const std::invalid_argument&) {
+    bad_range_rejected = true;
+  }
+  assert(bad_range_rejected);
+  assert(world.resource_revision(mesh_handle) == 1);
 
   instance.transform.values[12] = 0.25F;
   world.UpdateInstance(instance_handle, instance,
@@ -126,6 +165,34 @@ int main() {
   auto invalid_depth = depth;
   invalid_depth.origin = merlin::ImageOrigin::BottomLeft;
   assert(!merlin::IsCanonicalRenderProduct(invalid_depth));
+
+  merlin::RenderWorld range_world;
+  const auto range_mesh = range_world.CreateMesh(mesh);
+  (void)range_world.Commit();
+  mesh.positions[0].x = 0.25F;
+  range_world.UpdateMesh(range_mesh, mesh, merlin::ChangeAspect::Points,
+                         std::vector<merlin::ElementRange>{{0, 1}});
+  mesh.positions[2].y = 0.75F;
+  range_world.UpdateMesh(range_mesh, mesh, merlin::ChangeAspect::Points,
+                         std::vector<merlin::ElementRange>{{2, 1}});
+  const auto ranged_changes = range_world.Commit();
+  assert(ranged_changes.changes.size() == 1);
+  assert(ranged_changes.changes.front().vertex_ranges_known);
+  assert(ranged_changes.changes.front().vertex_ranges ==
+         std::vector<merlin::ElementRange>({{0, 1}, {2, 1}}));
+
+  auto resized_mesh = mesh;
+  resized_mesh.positions.push_back({1.0F, 1.0F, 0.0F});
+  resized_mesh.indices.insert(resized_mesh.indices.end(), {1, 3, 2});
+  range_world.UpdateMesh(
+      range_mesh, resized_mesh,
+      merlin::ChangeAspect::Points | merlin::ChangeAspect::Topology,
+      std::vector<merlin::ElementRange>{{3, 1}},
+      std::vector<merlin::ElementRange>{{3, 3}});
+  const auto resized_changes = range_world.Commit();
+  assert(resized_changes.changes.size() == 1);
+  assert(!resized_changes.changes.front().vertex_ranges_known);
+  assert(!resized_changes.changes.front().index_ranges_known);
 
   merlin::MeshDescriptor transient_mesh = mesh;
   const auto transient = world.CreateMesh(std::move(transient_mesh));
