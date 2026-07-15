@@ -53,6 +53,61 @@ std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
           .count());
 }
 
+template <typename T>
+class IndexedTableView {
+ public:
+  void Sync(const extraction::PersistentTable<T>& table) {
+    if (source_.table_identity() == table.table_identity()) {
+      return;
+    }
+    records_.clear();
+    source_ = table;
+    records_.reserve(source_.size());
+    for (const auto& record : source_) {
+      records_.push_back(&record);
+    }
+  }
+
+  [[nodiscard]] std::size_t size() const noexcept { return records_.size(); }
+  [[nodiscard]] bool empty() const noexcept { return records_.empty(); }
+  [[nodiscard]] const T& operator[](std::size_t index) const {
+    return *records_[index];
+  }
+
+ private:
+  // Retaining the table root keeps every cached record pointer alive and also
+  // prevents allocator address reuse from aliasing table_identity().
+  extraction::PersistentTable<T> source_;
+  std::vector<const T*> records_;
+};
+
+template <typename T>
+class DenseTableView {
+ public:
+  void Sync(const extraction::PersistentTable<T>& table) {
+    if (source_.table_identity() == table.table_identity()) {
+      return;
+    }
+    records_.clear();
+    source_ = table;
+    records_.reserve(source_.size());
+    for (const auto& record : source_) {
+      records_.push_back(record);
+    }
+  }
+
+  [[nodiscard]] std::size_t size() const noexcept { return records_.size(); }
+  [[nodiscard]] const T& operator[](std::size_t index) const {
+    return records_[index];
+  }
+
+ private:
+  // Keep the root alive so an allocator cannot recycle its identity while the
+  // dense view is current.
+  extraction::PersistentTable<T> source_;
+  std::vector<T> records_;
+};
+
 constexpr std::uint32_t kMinimumVulkanApiVersion = VK_MAKE_API_VERSION(
     0, MERLIN_VULKAN_MIN_VERSION_MAJOR, MERLIN_VULKAN_MIN_VERSION_MINOR, 0);
 
@@ -632,12 +687,6 @@ class Renderer::Impl {
     const auto backend_start = CpuClock::now();
     frame_counters_ = {};
     ResetAbandonedUploads();
-    for (const auto& draw : request.snapshot->draws) {
-      ++frame_counters_.draw_count;
-      ++frame_counters_.visible_primitive_count;
-      frame_counters_.triangle_count +=
-          request.snapshot->geometries[draw.geometry_index].indices->size() / 3U;
-    }
 
     auto rendered_aovs = RenderedAovs(request);
     auto cpu_readback_aovs = CpuReadbackAovs(request);
@@ -672,6 +721,19 @@ class Renderer::Impl {
                   frame.cpu_readback_aovs);
 
     const auto upload_start = CpuClock::now();
+    geometry_records_.Sync(request.snapshot->geometries);
+    texture_records_.Sync(request.snapshot->textures);
+    sampler_records_.Sync(request.snapshot->samplers);
+    material_records_.Sync(request.snapshot->materials);
+    instance_records_.Sync(request.snapshot->instances);
+    draw_records_.Sync(request.snapshot->draws);
+    for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+      const auto& draw = draw_records_[i];
+      ++frame_counters_.draw_count;
+      ++frame_counters_.visible_primitive_count;
+      frame_counters_.triangle_count +=
+          geometry_records_[draw.geometry_index].indices->size() / 3U;
+    }
     const auto resource_sync_mode =
         SelectResourceSyncMode(*request.snapshot);
     // Resource sync mutates residency before queue submission. Leave this set
@@ -1351,16 +1413,17 @@ class Renderer::Impl {
       }
       records.reserve(delta.upserts.size());
       for (const auto handle : delta.upserts) {
-        const auto record = std::lower_bound(
-            snapshot.textures.begin(), snapshot.textures.end(), handle,
+        const auto record = snapshot.textures.lower_bound_index(
+            handle,
             [](const extraction::TextureRecord& texture,
                std::uint64_t value) { return texture.texture < value; });
-        if (record == snapshot.textures.end() || record->texture != handle) {
+        if (record == snapshot.textures.size() ||
+            snapshot.textures[record].texture != handle) {
           throw RendererError(RendererErrorCode::InvalidRequest,
                               "synchronize textures",
                               "snapshot texture delta has no matching record");
         }
-        records.push_back(&*record);
+        records.push_back(&snapshot.textures[record]);
       }
       frame_counters_.texture_cache_hits +=
           snapshot.textures.size() - records.size();
@@ -1439,16 +1502,17 @@ class Renderer::Impl {
       }
       records.reserve(delta.upserts.size());
       for (const auto handle : delta.upserts) {
-        const auto record = std::lower_bound(
-            snapshot.samplers.begin(), snapshot.samplers.end(), handle,
+        const auto record = snapshot.samplers.lower_bound_index(
+            handle,
             [](const extraction::SamplerRecord& sampler,
                std::uint64_t value) { return sampler.sampler < value; });
-        if (record == snapshot.samplers.end() || record->sampler != handle) {
+        if (record == snapshot.samplers.size() ||
+            snapshot.samplers[record].sampler != handle) {
           throw RendererError(RendererErrorCode::InvalidRequest,
                               "synchronize samplers",
                               "snapshot sampler delta has no matching record");
         }
-        records.push_back(&*record);
+        records.push_back(&snapshot.samplers[record]);
       }
       frame_counters_.sampler_cache_hits +=
           snapshot.samplers.size() - records.size();
@@ -1548,12 +1612,12 @@ class Renderer::Impl {
   void PrepareMaterialDescriptors(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot) {
     frame.material_descriptor_sets.clear();
-    if (snapshot.materials.empty()) {
+    if (material_records_.empty()) {
       return;
     }
     EnsureFallbackTextureAndSampler();
     const auto material_count =
-        static_cast<std::uint32_t>(snapshot.materials.size());
+        static_cast<std::uint32_t>(material_records_.size());
     if (frame.descriptor_pool == VK_NULL_HANDLE ||
         frame.descriptor_capacity < material_count) {
       if (frame.descriptor_pool != VK_NULL_HANDLE) {
@@ -1597,7 +1661,7 @@ class Renderer::Impl {
           "map material uniform buffer");
     const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
-      const auto& material = snapshot.materials[i];
+      const auto& material = material_records_[i];
       const MaterialUniforms uniforms{
           material.parameters.base_color,
           lighting.direction_intensity,
@@ -1627,21 +1691,21 @@ class Renderer::Impl {
     for (std::uint32_t i = 0; i < material_count; ++i) {
       auto image_view = fallback_texture_.view;
       auto sampler = fallback_sampler_.sampler;
-      const auto& material = snapshot.materials[i];
+      const auto& material = material_records_[i];
       if (material.base_color_texture) {
         if (material.base_color_texture->texture_index >=
-                snapshot.textures.size() ||
+                texture_records_.size() ||
             material.base_color_texture->sampler_index >=
-                snapshot.samplers.size()) {
+                sampler_records_.size()) {
           throw RendererError(RendererErrorCode::InvalidRequest,
                               "prepare material descriptors",
                               "material texture binding index is invalid");
         }
         const auto texture_handle =
-            snapshot.textures[material.base_color_texture->texture_index]
+            texture_records_[material.base_color_texture->texture_index]
                 .texture;
         const auto sampler_handle =
-            snapshot.samplers[material.base_color_texture->sampler_index]
+            sampler_records_[material.base_color_texture->sampler_index]
                 .sampler;
         image_view = texture_slots_.at(texture_handle).view;
         sampler = sampler_slots_.at(sampler_handle).sampler;
@@ -1734,16 +1798,17 @@ class Renderer::Impl {
       }
       records.reserve(delta.upserts.size());
       for (const auto handle : delta.upserts) {
-        const auto record = std::lower_bound(
-            snapshot.geometries.begin(), snapshot.geometries.end(), handle,
+        const auto record = snapshot.geometries.lower_bound_index(
+            handle,
             [](const extraction::GeometryRecord& geometry,
                std::uint64_t value) { return geometry.mesh < value; });
-        if (record == snapshot.geometries.end() || record->mesh != handle) {
+        if (record == snapshot.geometries.size() ||
+            snapshot.geometries[record].mesh != handle) {
           throw RendererError(RendererErrorCode::InvalidRequest,
                               "synchronize geometry",
                               "snapshot geometry delta has no matching record");
         }
-        records.push_back(&*record);
+        records.push_back(&snapshot.geometries[record]);
       }
       frame_counters_.geometry_cache_hits +=
           snapshot.geometries.size() - records.size();
@@ -2604,16 +2669,17 @@ class Renderer::Impl {
     vkCmdSetViewport(command, 0, 1, &viewport);
     vkCmdSetScissor(command, 0, 1, &scissor);
     const auto view_projection = Multiply(snapshot.projection, snapshot.view);
-    for (const auto& draw : snapshot.draws) {
-      const auto& geometry = snapshot.geometries[draw.geometry_index];
+    for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+      const auto& draw = draw_records_[i];
+      const auto& geometry = geometry_records_[draw.geometry_index];
       const auto& slot = geometry_slots_.at(geometry.mesh);
       const auto vertex_buffer = vertex_arena_.buffer(slot.vertices.block);
       vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer,
                              &slot.vertices.offset);
       vkCmdBindIndexBuffer(command, index_arena_.buffer(slot.indices.block),
                            slot.indices.offset, VK_INDEX_TYPE_UINT32);
-      const auto& instance = snapshot.instances[draw.instance_index];
-      const auto& material = snapshot.materials[draw.material_index];
+      const auto& instance = instance_records_[draw.instance_index];
+      const auto& material = material_records_[draw.material_index];
       auto feature_mask = static_cast<std::uint32_t>(material.features);
       if (!geometry.has_colors) {
         feature_mask &=
@@ -2852,6 +2918,12 @@ class Renderer::Impl {
   RendererCapabilities capabilities_;
   RendererStatistics statistics_;
   FrameCounters frame_counters_;
+  IndexedTableView<extraction::GeometryRecord> geometry_records_;
+  IndexedTableView<extraction::TextureRecord> texture_records_;
+  IndexedTableView<extraction::SamplerRecord> sampler_records_;
+  IndexedTableView<extraction::MaterialRecord> material_records_;
+  IndexedTableView<extraction::InstanceRecord> instance_records_;
+  DenseTableView<extraction::DrawRecord> draw_records_;
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
   std::vector<RetiredTexture> retired_textures_;

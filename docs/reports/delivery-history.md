@@ -140,3 +140,15 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Documented the standard OpenUSD `ParticleField3DGaussianSplat` through
   Hydra `particleField` ingestion boundary for the later Gaussian milestone,
   without adding a custom schema or direct PLY/SPLAT parser.
+
+## Persistent snapshot upsert path ✅
+
+- ✅ Replaced vector-per-revision extraction tables with immutable balanced
+  storage that shares unchanged records and subtrees across snapshots.
+- ✅ Made geometry, material, instance, and light upserts visit and copy only
+  changed records; transform edits retain draws and visibility/material-binding
+  edits rebuild only their dependent transient draw.
+- ✅ Added snapshot visited/copied record, rebuilt-draw, and full-table fallback
+  counters to benchmark JSON and Hydra performance events.
+- ✅ Covered old-snapshot immutability and record identity sharing, including a
+  localized edit in the 10,000-mesh regression fixture.

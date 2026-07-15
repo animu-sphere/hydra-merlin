@@ -6,7 +6,9 @@
 #include <atomic>
 #include <limits>
 #include <map>
+#include <optional>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 
 namespace merlin::extraction {
@@ -112,6 +114,59 @@ void Normalize(SnapshotDelta& delta) {
   SortAndUnique(delta.lights);
 }
 
+template <typename Table, typename HandleOf>
+std::optional<std::size_t> FindRecordIndex(const Table& table,
+                                           std::uint64_t handle,
+                                           HandleOf handle_of) {
+  const auto found = table.lower_bound_index(
+      handle, [&](const auto& record, std::uint64_t candidate) {
+        return handle_of(record) < candidate;
+      });
+  if (found == table.size() || handle_of(table[found]) != handle) {
+    return std::nullopt;
+  }
+  return found;
+}
+
+template <typename Table, typename Entries, typename HandleOf,
+          typename BuildRecord>
+bool UpdateTable(Table& table, const Entries& entries,
+                 const ResourceDelta& delta, HandleOf handle_of,
+                 BuildRecord build_record, SnapshotBuildCounters& counters) {
+  bool full_rebuild = !delta.removals.empty() || table.size() != entries.size();
+  if (!full_rebuild) {
+    for (const auto handle : delta.upserts) {
+      if (!FindRecordIndex(table, handle, handle_of).has_value() ||
+          entries.find(handle) == entries.end()) {
+        full_rebuild = true;
+        break;
+      }
+    }
+  }
+
+  if (full_rebuild) {
+    std::vector<typename Table::value_type> records;
+    records.reserve(entries.size());
+    for (const auto& [handle, entry] : entries) {
+      ++counters.visited_records;
+      ++counters.copied_records;
+      records.push_back(build_record(handle, entry));
+    }
+    table.assign(std::move(records));
+    ++counters.fully_rebuilt_tables;
+    return true;
+  }
+
+  for (const auto handle : delta.upserts) {
+    const auto entry = entries.find(handle);
+    const auto index = FindRecordIndex(table, handle, handle_of);
+    ++counters.visited_records;
+    ++counters.copied_records;
+    table.replace(*index, build_record(handle, entry->second));
+  }
+  return false;
+}
+
 }  // namespace
 
 class SceneExtractor::Impl {
@@ -185,146 +240,306 @@ class SceneExtractor::Impl {
     }
   }
 
-  void RebuildSnapshot(SnapshotDelta delta) {
-    auto next = std::make_shared<FrameSnapshot>();
+  MaterialRecord BuildMaterial(
+      std::uint64_t handle, const MaterialEntry& entry,
+      const PersistentTable<TextureRecord>& texture_records,
+      const PersistentTable<SamplerRecord>& sampler_records,
+      std::vector<MaterialFallbackRecord>& fallbacks) const {
+    const auto& material = entry.descriptor;
+    MaterialRecord record;
+    record.material = handle;
+    record.revision = entry.revision;
+    record.parameter_revision = entry.parameter_revision;
+    record.feature_revision = entry.feature_revision;
+    record.parameters = material.parameters;
+    record.alpha_mode = material.alpha_mode;
+    record.double_sided = material.double_sided;
+    record.features = material.features;
+    if (record.alpha_mode == AlphaMode::Blended) {
+      record.alpha_mode = AlphaMode::Opaque;
+      fallbacks.push_back(
+          {handle, MaterialFallbackCode::UnsupportedAlphaBlend,
+           "alpha blend is unsupported; using opaque fallback"});
+    }
+    if (material.base_color_texture &&
+        HasMaterialFeature(record.features,
+                           MaterialFeature::BaseColorTexture)) {
+      const auto texture = FindRecordIndex(
+          texture_records, material.base_color_texture->texture.value(),
+          [](const TextureRecord& candidate) { return candidate.texture; });
+      const auto sampler = FindRecordIndex(
+          sampler_records, material.base_color_texture->sampler.value(),
+          [](const SamplerRecord& candidate) { return candidate.sampler; });
+      if (!texture) {
+        record.features = static_cast<MaterialFeature>(
+            static_cast<std::uint32_t>(record.features) &
+            ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
+        fallbacks.push_back(
+            {handle, MaterialFallbackCode::MissingTexture,
+             "base-color texture is unavailable; using constant color"});
+      } else if (!sampler) {
+        record.features = static_cast<MaterialFeature>(
+            static_cast<std::uint32_t>(record.features) &
+            ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
+        fallbacks.push_back(
+            {handle, MaterialFallbackCode::MissingSampler,
+             "base-color sampler is unavailable; using constant color"});
+      } else {
+        record.base_color_texture = TextureBindingRecord{
+            static_cast<std::uint32_t>(*texture),
+            static_cast<std::uint32_t>(*sampler),
+            material.base_color_texture->texcoord_set};
+      }
+    }
+    return record;
+  }
+
+  bool UpdateMaterials(FrameSnapshot& next, const SnapshotDelta& delta) const {
+    auto& counters = next.build_counters;
+    bool full_rebuild = !delta.materials.removals.empty() ||
+                        next.materials.size() != materials.size();
+    if (!full_rebuild) {
+      for (const auto handle : delta.materials.upserts) {
+        if (!FindRecordIndex(
+                 next.materials, handle,
+                 [](const MaterialRecord& record) { return record.material; }) ||
+            materials.find(handle) == materials.end()) {
+          full_rebuild = true;
+          break;
+        }
+      }
+    }
+
+    if (full_rebuild) {
+      std::vector<MaterialRecord> records;
+      std::vector<MaterialFallbackRecord> fallbacks;
+      records.reserve(materials.size());
+      for (const auto& [handle, entry] : materials) {
+        ++counters.visited_records;
+        ++counters.copied_records;
+        records.push_back(BuildMaterial(handle, entry, next.textures,
+                                        next.samplers, fallbacks));
+      }
+      std::stable_sort(
+          fallbacks.begin(), fallbacks.end(),
+          [](const MaterialFallbackRecord& lhs,
+             const MaterialFallbackRecord& rhs) {
+            return std::tie(lhs.material, lhs.code) <
+                   std::tie(rhs.material, rhs.code);
+          });
+      counters.copied_records += fallbacks.size();
+      next.materials.assign(std::move(records));
+      next.material_fallbacks.assign(std::move(fallbacks));
+      ++counters.fully_rebuilt_tables;
+      return true;
+    }
+
+    for (const auto handle : delta.materials.upserts) {
+      const auto found = materials.find(handle);
+      const auto index = FindRecordIndex(
+          next.materials, handle,
+          [](const MaterialRecord& record) { return record.material; });
+      std::vector<MaterialFallbackRecord> fallbacks;
+      auto record = BuildMaterial(handle, found->second, next.textures,
+                                  next.samplers, fallbacks);
+      ++counters.visited_records;
+      ++counters.copied_records;
+      next.materials.replace(*index, std::move(record));
+
+      const auto fallback_index = next.material_fallbacks.lower_bound_index(
+          handle,
+          [](const MaterialFallbackRecord& candidate, std::uint64_t value) {
+            return candidate.material < value;
+          });
+      auto fallback = next.material_fallbacks.begin() +
+                      static_cast<std::ptrdiff_t>(fallback_index);
+      while (fallback != next.material_fallbacks.end() &&
+             fallback->material == handle) {
+        fallback = next.material_fallbacks.erase(fallback);
+      }
+      for (auto& replacement : fallbacks) {
+        const auto key = std::tie(replacement.material, replacement.code);
+        const auto position_index = next.material_fallbacks.lower_bound_index(
+            key,
+            [](const MaterialFallbackRecord& candidate, const auto& key) {
+              return std::tie(candidate.material, candidate.code) < key;
+            });
+        const auto position = next.material_fallbacks.begin() +
+                              static_cast<std::ptrdiff_t>(position_index);
+        next.material_fallbacks.insert(position, std::move(replacement));
+        ++counters.copied_records;
+      }
+    }
+    return false;
+  }
+
+  std::optional<DrawRecord> BuildDraw(const FrameSnapshot& next,
+                                      const InstanceRecord& instance) const {
+    if (!instance.visible) {
+      return std::nullopt;
+    }
+    const auto geometry = FindRecordIndex(
+        next.geometries, instance.mesh,
+        [](const GeometryRecord& record) { return record.mesh; });
+    const auto material = FindRecordIndex(
+        next.materials, instance.material,
+        [](const MaterialRecord& record) { return record.material; });
+    if (!geometry || !material) {
+      return std::nullopt;
+    }
+    const auto instance_index = FindRecordIndex(
+        next.instances, instance.instance,
+        [](const InstanceRecord& record) { return record.instance; });
+    return DrawRecord{static_cast<std::uint32_t>(*geometry),
+                      static_cast<std::uint32_t>(*material),
+                      static_cast<std::uint32_t>(*instance_index),
+                      StableSortKey(instance.material, instance.mesh),
+                      instance.instance};
+  }
+
+  void UpdateDraws(FrameSnapshot& next, const FrameSnapshot& previous,
+                   bool resource_indices_changed,
+                   std::vector<std::uint64_t> dirty_instances) const {
+    auto& counters = next.build_counters;
+    std::sort(dirty_instances.begin(), dirty_instances.end());
+    dirty_instances.erase(
+        std::unique(dirty_instances.begin(), dirty_instances.end()),
+        dirty_instances.end());
+    if (resource_indices_changed || previous.source_id != source_id) {
+      std::vector<DrawRecord> draws;
+      draws.reserve(next.instances.size());
+      for (const auto& instance : next.instances) {
+        ++counters.visited_records;
+        if (auto draw = BuildDraw(next, instance)) {
+          draws.push_back(std::move(*draw));
+        }
+      }
+      std::stable_sort(draws.begin(), draws.end(),
+                       [](const DrawRecord& lhs, const DrawRecord& rhs) {
+                         return std::tie(lhs.sort_key, lhs.instance) <
+                                std::tie(rhs.sort_key, rhs.instance);
+                       });
+      counters.rebuilt_draws = draws.size();
+      next.draws.assign(std::move(draws));
+      ++counters.fully_rebuilt_tables;
+      return;
+    }
+
+    for (const auto handle : dirty_instances) {
+      const auto old_instance = FindRecordIndex(
+          previous.instances, handle,
+          [](const InstanceRecord& record) { return record.instance; });
+      if (old_instance) {
+        const auto& record = previous.instances[*old_instance];
+        const auto key =
+            std::tuple{StableSortKey(record.material, record.mesh), handle};
+        const auto draw_index = next.draws.lower_bound_index(
+            key,
+            [](const DrawRecord& candidate, const auto& value) {
+              return std::tie(candidate.sort_key, candidate.instance) < value;
+            });
+        if (draw_index != next.draws.size() &&
+            next.draws[draw_index].instance == handle) {
+          next.draws.erase(next.draws.begin() +
+                           static_cast<std::ptrdiff_t>(draw_index));
+        }
+      }
+
+      const auto instance = FindRecordIndex(
+          next.instances, handle,
+          [](const InstanceRecord& record) { return record.instance; });
+      if (instance) {
+        if (auto replacement = BuildDraw(next, next.instances[*instance])) {
+          const auto key =
+              std::tie(replacement->sort_key, replacement->instance);
+          const auto position_index = next.draws.lower_bound_index(
+              key,
+              [](const DrawRecord& candidate, const auto& value) {
+                return std::tie(candidate.sort_key, candidate.instance) < value;
+              });
+          const auto position = next.draws.begin() +
+                                static_cast<std::ptrdiff_t>(position_index);
+          next.draws.insert(position, std::move(*replacement));
+        }
+      }
+      ++counters.rebuilt_draws;
+    }
+  }
+
+  void RebuildSnapshot(SnapshotDelta delta,
+                       std::vector<std::uint64_t> dirty_instances = {}) {
+    const auto previous = snapshot;
+    auto next = std::make_shared<FrameSnapshot>(*previous);
     next->source_id = source_id;
     next->revision = revision;
     Normalize(delta);
     next->delta = std::move(delta);
+    next->build_counters = {};
+    const auto geometry_indices_changed = UpdateTable(
+        next->geometries, meshes, next->delta->geometries,
+        [](const GeometryRecord& record) { return record.mesh; },
+        [](std::uint64_t handle, const MeshEntry& entry) {
+          return GeometryRecord{
+              handle,
+              entry.points_revision,
+              entry.primvar_revision,
+              entry.topology_revision,
+              entry.material_partition_revision,
+              entry.vertex_revision,
+              entry.index_revision,
+              entry.vertex_base_revision,
+              entry.index_base_revision,
+              entry.vertex_ranges,
+              entry.index_ranges,
+              entry.vertices,
+              entry.indices,
+              entry.has_normals,
+              entry.has_colors,
+              entry.has_texcoords};
+        },
+        next->build_counters);
+    UpdateTable(
+        next->textures, textures, next->delta->textures,
+        [](const TextureRecord& record) { return record.texture; },
+        [](std::uint64_t handle, const TextureEntry& entry) {
+          return TextureRecord{handle, entry.revision, entry.width,
+                               entry.height, entry.format, entry.pixels};
+        },
+        next->build_counters);
+    UpdateTable(
+        next->samplers, samplers, next->delta->samplers,
+        [](const SamplerRecord& record) { return record.sampler; },
+        [](std::uint64_t handle, const SamplerEntry& entry) {
+          const auto& sampler = entry.descriptor;
+          return SamplerRecord{handle, entry.revision, sampler.min_filter,
+                               sampler.mag_filter, sampler.address_u,
+                               sampler.address_v};
+        },
+        next->build_counters);
+    const auto material_indices_changed = UpdateMaterials(*next, *next->delta);
+    const auto instance_indices_changed = UpdateTable(
+        next->instances, instances, next->delta->instances,
+        [](const InstanceRecord& record) { return record.instance; },
+        [](std::uint64_t handle, const InstanceEntry& entry) {
+          const auto& instance = entry.descriptor;
+          return InstanceRecord{handle,
+                                entry.revision,
+                                entry.transform_revision,
+                                entry.visibility_revision,
+                                entry.material_binding_revision,
+                                instance.mesh.value(),
+                                instance.material.value(),
+                                instance.transform,
+                                instance.visible};
+        },
+        next->build_counters);
+    UpdateDraws(*next, *previous,
+                geometry_indices_changed || material_indices_changed ||
+                    instance_indices_changed,
+                std::move(dirty_instances));
 
-    std::map<std::uint64_t, std::uint32_t> geometry_indices;
-    next->geometries.reserve(meshes.size());
-    for (const auto& [handle, entry] : meshes) {
-      geometry_indices.emplace(
-          handle, static_cast<std::uint32_t>(next->geometries.size()));
-      next->geometries.push_back(
-          {handle,
-           entry.points_revision,
-           entry.primvar_revision,
-           entry.topology_revision,
-           entry.material_partition_revision,
-           entry.vertex_revision,
-           entry.index_revision,
-           entry.vertex_base_revision,
-           entry.index_base_revision,
-           entry.vertex_ranges,
-           entry.index_ranges,
-           entry.vertices,
-           entry.indices,
-           entry.has_normals,
-           entry.has_colors,
-           entry.has_texcoords});
-    }
-
-    std::map<std::uint64_t, std::uint32_t> texture_indices;
-    next->textures.reserve(textures.size());
-    for (const auto& [handle, entry] : textures) {
-      texture_indices.emplace(
-          handle, static_cast<std::uint32_t>(next->textures.size()));
-      next->textures.push_back({handle, entry.revision, entry.width,
-                                entry.height, entry.format, entry.pixels});
-    }
-
-    std::map<std::uint64_t, std::uint32_t> sampler_indices;
-    next->samplers.reserve(samplers.size());
-    for (const auto& [handle, entry] : samplers) {
-      sampler_indices.emplace(
-          handle, static_cast<std::uint32_t>(next->samplers.size()));
-      const auto& sampler = entry.descriptor;
-      next->samplers.push_back({handle, entry.revision, sampler.min_filter,
-                                sampler.mag_filter, sampler.address_u,
-                                sampler.address_v});
-    }
-
-    std::map<std::uint64_t, std::uint32_t> material_indices;
-    next->materials.reserve(materials.size());
-    for (const auto& [handle, entry] : materials) {
-      material_indices.emplace(
-          handle, static_cast<std::uint32_t>(next->materials.size()));
-      const auto& material = entry.descriptor;
-      MaterialRecord record;
-      record.material = handle;
-      record.revision = entry.revision;
-      record.parameter_revision = entry.parameter_revision;
-      record.feature_revision = entry.feature_revision;
-      record.parameters = material.parameters;
-      record.alpha_mode = material.alpha_mode;
-      record.double_sided = material.double_sided;
-      record.features = material.features;
-      if (record.alpha_mode == AlphaMode::Blended) {
-        record.alpha_mode = AlphaMode::Opaque;
-        next->material_fallbacks.push_back(
-            {handle, MaterialFallbackCode::UnsupportedAlphaBlend,
-             "alpha blend is unsupported; using opaque fallback"});
-      }
-      if (material.base_color_texture &&
-          HasMaterialFeature(record.features,
-                             MaterialFeature::BaseColorTexture)) {
-        const auto texture =
-            texture_indices.find(material.base_color_texture->texture.value());
-        const auto sampler =
-            sampler_indices.find(material.base_color_texture->sampler.value());
-        if (texture == texture_indices.end()) {
-          record.features = static_cast<MaterialFeature>(
-              static_cast<std::uint32_t>(record.features) &
-              ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
-          next->material_fallbacks.push_back(
-              {handle, MaterialFallbackCode::MissingTexture,
-               "base-color texture is unavailable; using constant color"});
-        } else if (sampler == sampler_indices.end()) {
-          record.features = static_cast<MaterialFeature>(
-              static_cast<std::uint32_t>(record.features) &
-              ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
-          next->material_fallbacks.push_back(
-              {handle, MaterialFallbackCode::MissingSampler,
-               "base-color sampler is unavailable; using constant color"});
-        } else {
-          record.base_color_texture = TextureBindingRecord{
-              texture->second, sampler->second,
-              material.base_color_texture->texcoord_set};
-        }
-      }
-      next->materials.push_back(std::move(record));
-    }
-
-    next->instances.reserve(instances.size());
-    for (const auto& [handle, entry] : instances) {
-      const auto instance_index =
-          static_cast<std::uint32_t>(next->instances.size());
-      const auto& instance = entry.descriptor;
-      next->instances.push_back(
-          {handle,
-           entry.revision,
-           entry.transform_revision,
-           entry.visibility_revision,
-           entry.material_binding_revision,
-           instance.mesh.value(),
-           instance.material.value(),
-           instance.transform,
-           instance.visible});
-      if (!instance.visible) {
-        continue;
-      }
-      const auto geometry = geometry_indices.find(instance.mesh.value());
-      const auto material = material_indices.find(instance.material.value());
-      if (geometry == geometry_indices.end() ||
-          material == material_indices.end()) {
-        continue;
-      }
-      next->draws.push_back(
-          {geometry->second, material->second, instance_index,
-           StableSortKey(instance.material.value(), instance.mesh.value())});
-    }
-
-    std::stable_sort(next->draws.begin(), next->draws.end(),
-                     [&](const DrawRecord& lhs, const DrawRecord& rhs) {
-                       if (lhs.sort_key != rhs.sort_key) {
-                         return lhs.sort_key < rhs.sort_key;
-                       }
-                       return next->instances[lhs.instance_index].instance <
-                              next->instances[rhs.instance_index].instance;
-                     });
-
+    next->view = {};
+    next->projection = {};
     if (active_camera.valid()) {
       const auto camera = cameras.find(active_camera.value());
       if (camera != cameras.end()) {
@@ -332,12 +547,15 @@ class SceneExtractor::Impl {
         next->projection = camera->second.projection;
       }
     }
-    next->lights.reserve(lights.size());
-    for (const auto& [handle, entry] : lights) {
-      const auto& light = entry.descriptor;
-      next->lights.push_back({handle, entry.revision, light.type, light.color,
-                              light.intensity, light.transform});
-    }
+    UpdateTable(
+        next->lights, lights, next->delta->lights,
+        [](const LightRecord& record) { return record.light; },
+        [](std::uint64_t handle, const LightEntry& entry) {
+          const auto& light = entry.descriptor;
+          return LightRecord{handle, entry.revision, light.type, light.color,
+                             light.intensity, light.transform};
+        },
+        next->build_counters);
     snapshot = std::move(next);
   }
 
@@ -378,6 +596,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
   SnapshotDelta delta;
   delta.base_revision = impl_->revision;
   bool material_indices_changed{};
+  std::vector<std::uint64_t> dirty_draw_instances;
 
   for (const auto& change : changes.changes) {
     const auto erase = change.change_kind == ChangeKind::Removed;
@@ -398,6 +617,12 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
       // material itself did not change. Bindless stable slots remove this
       // conservative dependency in the next v0.7.0 slice.
       material_indices_changed = true;
+    }
+    if (change.object_kind == ObjectKind::Instance &&
+        (change.change_kind != ChangeKind::Updated ||
+         change.HasAspect(ChangeAspect::Visibility) ||
+         change.HasAspect(ChangeAspect::MaterialBinding))) {
+      dirty_draw_instances.push_back(change.handle);
     }
     switch (change.object_kind) {
       case ObjectKind::Mesh:
@@ -511,7 +736,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
   }
 
   impl_->revision = changes.revision;
-  impl_->RebuildSnapshot(std::move(delta));
+  impl_->RebuildSnapshot(std::move(delta), std::move(dirty_draw_instances));
 }
 
 void SceneExtractor::SetActiveCamera(CameraHandle camera) {

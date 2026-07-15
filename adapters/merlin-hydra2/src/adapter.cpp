@@ -1389,6 +1389,9 @@ class SceneBridge {
     const merlin::vulkan::ShaderPaths shaders{
         shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
     const auto snapshot = extractor_.snapshot();
+    const auto snapshot_build_counters =
+        changes.empty() ? merlin::extraction::SnapshotBuildCounters{}
+                        : snapshot->build_counters;
     merlin::vulkan::RenderRequest request;
     request.snapshot = snapshot;
     request.width = width;
@@ -1534,6 +1537,14 @@ class SceneBridge {
                << frame_telemetry.render_world_update_ns
                << " snapshot_extraction_ns="
                << frame_telemetry.snapshot_extraction_ns
+               << " snapshot_visited_records="
+               << snapshot_build_counters.visited_records
+               << " snapshot_copied_records="
+               << snapshot_build_counters.copied_records
+               << " snapshot_rebuilt_draws="
+               << snapshot_build_counters.rebuilt_draws
+               << " snapshot_fully_rebuilt_tables="
+               << snapshot_build_counters.fully_rebuilt_tables
                << " gpu_scene_update_ns=" << result.cpu_timings.upload_ns
                << " command_recording_ns="
                << result.cpu_timings.command_recording_ns

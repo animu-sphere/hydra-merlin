@@ -88,6 +88,34 @@ if(NOT report_result EQUAL 0 OR NOT EXISTS "${performance_report}")
     "Hydra performance report generation failed (${report_result}):\n"
     "${report_output}\n${report_error}")
 endif()
+
+# Version-4 logs produced before the snapshot counters were added remain valid.
+# The current report generator must treat those additive fields as zero rather
+# than rejecting historical evidence with a missing-key error.
+file(READ "${marker}" legacy_log)
+foreach(counter IN ITEMS
+    snapshot_visited_records snapshot_copied_records
+    snapshot_rebuilt_draws snapshot_fully_rebuilt_tables)
+  string(REGEX REPLACE " ${counter}=[0-9]+" "" legacy_log "${legacy_log}")
+endforeach()
+set(legacy_marker "${MERLIN_STAGE_DIR}/merlin-regression-v4-legacy.log")
+set(legacy_performance_report
+    "${MERLIN_STAGE_DIR}/merlin-hydra-performance-v4-legacy.json")
+file(WRITE "${legacy_marker}" "${legacy_log}")
+execute_process(
+  COMMAND "${MERLIN_PYTHON}" "${MERLIN_HYDRA_REPORT_SCRIPT}"
+          "${legacy_marker}" "${legacy_performance_report}"
+  RESULT_VARIABLE legacy_report_result
+  OUTPUT_VARIABLE legacy_report_output
+  ERROR_VARIABLE legacy_report_error
+)
+if(NOT legacy_report_result EQUAL 0 OR
+   NOT EXISTS "${legacy_performance_report}")
+  message(FATAL_ERROR
+    "Legacy Hydra performance report generation failed "
+    "(${legacy_report_result}):\n"
+    "${legacy_report_output}\n${legacy_report_error}")
+endif()
 file(READ "${performance_report}" performance_json)
 string(JSON performance_schema GET "${performance_json}" schema)
 if(NOT performance_schema STREQUAL "merlin-hydra-performance/v1")
