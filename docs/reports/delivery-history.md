@@ -167,3 +167,18 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Covered structural work counters, displaced record identity, immutable old
   snapshots, localized texture/sampler invalidation, and Vulkan resource and
   material regressions.
+
+## Million-prim persistent snapshot scaling ✅
+
+- ✅ Replaced linear free-slot scans and quadratic pending-change compaction in
+  `RenderWorld` with explicit free-slot reuse and object-kind/handle indexing,
+  keeping one-million-prim initial construction practical.
+- ✅ Used ordered insertion hints and known dense indices during initial scene
+  extraction so sorted resource, dependency, and draw construction avoids
+  redundant logarithmic lookups without changing persistent table identity.
+- ✅ Added a one-million-prim regression in which 100 transform edits visit and
+  copy exactly 100 instance records, rebuild no draws or tables, and retain all
+  unaffected record and draw identities.
+- ✅ Added 50 removals plus 50 additions at the same live prim count, covering
+  displaced dense indices, identity-preserving swap removal, immutable prior
+  snapshots, and bounded structural counters under the existing scale timeout.

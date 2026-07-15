@@ -1,12 +1,14 @@
 #include <merlin/core/render_world.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -118,13 +120,13 @@ template <typename Descriptor, typename HandleType>
 class Store {
  public:
   HandleType Create(Descriptor descriptor) {
-    for (std::uint32_t i = 0; i < slots_.size(); ++i) {
-      auto& slot = slots_[i];
-      if (!slot.value) {
-        slot.value = std::move(descriptor);
-        slot.revision = 1;
-        return MakeHandle<HandleType>(i, slot.generation);
-      }
+    if (!free_slots_.empty()) {
+      const auto index = free_slots_.back();
+      free_slots_.pop_back();
+      auto& slot = slots_[index];
+      slot.value = std::move(descriptor);
+      slot.revision = 1;
+      return MakeHandle<HandleType>(index, slot.generation);
     }
     Slot slot;
     slot.value = std::move(descriptor);
@@ -168,6 +170,7 @@ class Store {
     if (slot.generation == 0) {
       slot.generation = 1;
     }
+    free_slots_.push_back(index);
     return tombstone_revision;
   }
 
@@ -191,6 +194,7 @@ class Store {
   }
 
   std::vector<Slot> slots_;
+  std::vector<std::uint32_t> free_slots_;
 };
 
 void ValidateChangeAspects(ObjectKind kind, ChangeAspect aspects) {
@@ -494,59 +498,87 @@ ChangeSet RenderWorld::Commit() {
   if (impl_->pending.empty()) {
     return {impl_->revision, {}};
   }
+  constexpr auto kind_count =
+      static_cast<std::size_t>(ObjectKind::RenderSettings) + 1U;
+  std::array<std::size_t, kind_count> pending_counts{};
+  for (const auto& change : impl_->pending) {
+    ++pending_counts[static_cast<std::size_t>(change.object_kind)];
+  }
+  std::array<std::unordered_map<std::uint64_t, std::size_t>, kind_count>
+      compact_indices;
+  for (std::size_t kind = 0; kind < kind_count; ++kind) {
+    compact_indices[kind].reserve(pending_counts[kind]);
+  }
   std::vector<Change> compact;
   compact.reserve(impl_->pending.size());
+  std::vector<bool> keep;
+  keep.reserve(impl_->pending.size());
+  std::size_t kept_count{};
   for (const auto& change : impl_->pending) {
-    const auto existing = std::find_if(
-        compact.begin(), compact.end(), [&](const Change& candidate) {
-          return candidate.object_kind == change.object_kind &&
-                 candidate.handle == change.handle;
-        });
-    if (existing == compact.end()) {
+    auto& indices =
+        compact_indices[static_cast<std::size_t>(change.object_kind)];
+    const auto found = indices.find(change.handle);
+    if (found == indices.end()) {
+      indices.emplace(change.handle, compact.size());
       compact.push_back(change);
+      keep.push_back(true);
+      ++kept_count;
       continue;
     }
-    const auto old_aspects = existing->aspects;
+    auto& existing = compact[found->second];
+    const auto old_aspects = existing.aspects;
     const auto vertex_aspects = ChangeAspect::Points | ChangeAspect::Primvars |
                                 ChangeAspect::VertexLayout;
     if (HasAnyAspect(change.aspects, vertex_aspects)) {
       if (HasAnyAspect(old_aspects, vertex_aspects)) {
-        if (existing->vertex_ranges_known && change.vertex_ranges_known) {
-          MergeKnownRanges(existing->vertex_ranges, change.vertex_ranges);
+        if (existing.vertex_ranges_known && change.vertex_ranges_known) {
+          MergeKnownRanges(existing.vertex_ranges, change.vertex_ranges);
         } else {
-          existing->vertex_ranges_known = false;
-          existing->vertex_ranges.clear();
+          existing.vertex_ranges_known = false;
+          existing.vertex_ranges.clear();
         }
       } else {
-        existing->vertex_ranges_known = change.vertex_ranges_known;
-        existing->vertex_ranges = change.vertex_ranges;
+        existing.vertex_ranges_known = change.vertex_ranges_known;
+        existing.vertex_ranges = change.vertex_ranges;
       }
     }
     if (change.HasAspect(ChangeAspect::Topology)) {
       if (HasAnyAspect(old_aspects, ChangeAspect::Topology)) {
-        if (existing->index_ranges_known && change.index_ranges_known) {
-          MergeKnownRanges(existing->index_ranges, change.index_ranges);
+        if (existing.index_ranges_known && change.index_ranges_known) {
+          MergeKnownRanges(existing.index_ranges, change.index_ranges);
         } else {
-          existing->index_ranges_known = false;
-          existing->index_ranges.clear();
+          existing.index_ranges_known = false;
+          existing.index_ranges.clear();
         }
       } else {
-        existing->index_ranges_known = change.index_ranges_known;
-        existing->index_ranges = change.index_ranges;
+        existing.index_ranges_known = change.index_ranges_known;
+        existing.index_ranges = change.index_ranges;
       }
     }
-    existing->aspects |= change.aspects;
-    existing->resource_revision = change.resource_revision;
-    if (existing->change_kind == ChangeKind::Created &&
+    existing.aspects |= change.aspects;
+    existing.resource_revision = change.resource_revision;
+    if (existing.change_kind == ChangeKind::Created &&
         change.change_kind == ChangeKind::Removed) {
-      compact.erase(existing);
-    } else if (existing->change_kind != ChangeKind::Created) {
-      existing->change_kind = change.change_kind;
+      keep[found->second] = false;
+      indices.erase(found);
+      --kept_count;
+    } else if (existing.change_kind != ChangeKind::Created) {
+      existing.change_kind = change.change_kind;
     }
   }
   impl_->pending.clear();
-  if (compact.empty()) {
+  if (kept_count == 0U) {
     return {impl_->revision, {}};
+  }
+  if (kept_count != compact.size()) {
+    std::vector<Change> filtered;
+    filtered.reserve(kept_count);
+    for (std::size_t index = 0; index < compact.size(); ++index) {
+      if (keep[index]) {
+        filtered.push_back(std::move(compact[index]));
+      }
+    }
+    compact = std::move(filtered);
   }
   ++impl_->revision;
   return {impl_->revision, std::move(compact)};
