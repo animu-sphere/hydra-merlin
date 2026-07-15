@@ -104,6 +104,8 @@ int main(int argc, char** argv) {
   assert(first.counters.upload_bytes == geometry_bytes + texture.pixels.size());
   assert(first.counters.texture_cache_misses == 1);
   assert(first.counters.sampler_cache_misses == 1);
+  assert(first.counters.texture_reconcile_count == 1);
+  assert(first.counters.sampler_reconcile_count == 1);
   assert(first.counters.pipeline_creation_count == 1);
   const auto opaque_coverage = CoveredPixels(first);
   assert(opaque_coverage > 1000);
@@ -118,6 +120,8 @@ int main(int argc, char** argv) {
   assert(value_edit.counters.pipeline_creation_count == 0);
   assert(value_edit.counters.texture_cache_hits == 1);
   assert(value_edit.counters.sampler_cache_hits == 1);
+  assert(value_edit.counters.texture_reconcile_count == 0);
+  assert(value_edit.counters.sampler_reconcile_count == 0);
 
   // A feature edit selects a distinct cached variant without touching texture
   // or geometry residency.
@@ -134,13 +138,16 @@ int main(int argc, char** argv) {
   const auto cached_variant = render();
   assert(cached_variant.counters.pipeline_creation_count == 0);
 
-  // Same-handle texture and sampler revisions replace only their corresponding
-  // GPU resources. Material and geometry caches remain reusable.
+  // A submission rejected after resource reconciliation must not corrupt the
+  // last successfully submitted snapshot. Exercise both the staging ring and
+  // a pending texture upload before forcing descriptor validation to fail.
+  const auto resident_snapshot = extractor.snapshot();
+  mesh.normals.front().x = 0.1F;
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Primvars,
+                   std::vector<merlin::ElementRange>{{0, 1}});
   texture.pixels = {255, 255, 0, 255, 255, 0, 255, 255,
                     255, 255, 0, 255, 255, 0, 255, 255};
   world.UpdateTexture(texture_handle, texture);
-  // A failed submission must not leave the new texture revision marked as
-  // resident. Retrying the snapshot with valid shaders must upload it.
   extractor.Apply(world, world.Commit());
   merlin::vulkan::RenderRequest abandoned;
   auto invalid_snapshot =
@@ -163,10 +170,30 @@ int main(int argc, char** argv) {
         error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest;
   }
   assert(failed_submission_rejected);
+
+  const auto recovered =
+      renderer->Render(*resident_snapshot, 64, 64, shaders);
+  assert(recovered.scene_revision == resident_snapshot->revision);
+  assert(recovered.counters.geometry_reconcile_count == 2);
+  assert(recovered.counters.texture_reconcile_count == 2);
+  assert(recovered.counters.sampler_reconcile_count == 2);
+  assert(recovered.counters.geometry_cache_misses == 1);
+  assert(recovered.counters.texture_cache_misses == 1);
+  assert(recovered.counters.sampler_cache_misses == 1);
+  assert(recovered.counters.upload_bytes ==
+         geometry_bytes + texture.pixels.size());
+
+  // Retrying the rejected newer snapshot can resume incremental updates from
+  // the recovered resident revision.
   const auto texture_edit = render();
-  assert(texture_edit.counters.upload_bytes == texture.pixels.size());
+  assert(texture_edit.counters.upload_bytes ==
+         sizeof(merlin::extraction::DrawVertex) + texture.pixels.size());
+  assert(texture_edit.counters.geometry_cache_misses == 1);
+  assert(texture_edit.counters.geometry_reconcile_count == 1);
   assert(texture_edit.counters.texture_cache_misses == 1);
   assert(texture_edit.counters.sampler_cache_hits == 1);
+  assert(texture_edit.counters.texture_reconcile_count == 1);
+  assert(texture_edit.counters.sampler_reconcile_count == 0);
   assert(texture_edit.counters.pipeline_creation_count == 0);
 
   sampler.min_filter = merlin::FilterMode::Linear;
@@ -176,6 +203,8 @@ int main(int argc, char** argv) {
   assert(sampler_edit.counters.upload_bytes == 0);
   assert(sampler_edit.counters.texture_cache_hits == 1);
   assert(sampler_edit.counters.sampler_cache_misses == 1);
+  assert(sampler_edit.counters.texture_reconcile_count == 0);
+  assert(sampler_edit.counters.sampler_reconcile_count == 1);
 
   // Alpha mask is a state variant: transparent texels discard every AOV write.
   texture.pixels = {255, 255, 255, 255, 255, 255, 255, 0,

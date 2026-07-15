@@ -100,6 +100,7 @@ int main(int argc, char** argv) {
   assert(first.counters.draw_count == 3);
   assert(first.counters.geometry_cache_misses == 2);
   assert(first.counters.geometry_cache_hits == 0);
+  assert(first.counters.geometry_reconcile_count == 2);
   assert(first.counters.upload_bytes ==
          triangle_vertex_bytes + triangle_index_bytes + quad_vertex_bytes +
              quad_index_bytes);
@@ -130,6 +131,7 @@ int main(int argc, char** argv) {
   assert(steady.counters.scene_cache_hits == 1);
   assert(steady.counters.geometry_cache_hits == 2);
   assert(steady.counters.geometry_cache_misses == 0);
+  assert(steady.counters.geometry_reconcile_count == 0);
 
   const auto baseline_statistics = renderer->statistics();
   assert(baseline_statistics.scene_uploads == 1);
@@ -146,6 +148,7 @@ int main(int argc, char** argv) {
   assert(transformed.counters.upload_bytes == 0);
   assert(transformed.counters.allocation_count == 0);
   assert(transformed.counters.geometry_cache_misses == 0);
+  assert(transformed.counters.geometry_reconcile_count == 0);
   assert(transformed.counters.pipeline_creation_count == 0);
 
   // Visibility-only edit: the draw disappears without touching geometry.
@@ -157,6 +160,7 @@ int main(int argc, char** argv) {
   assert(hidden.counters.draw_count == 2);
   assert(hidden.counters.upload_bytes == 0);
   assert(hidden.counters.geometry_cache_misses == 0);
+  assert(hidden.counters.geometry_reconcile_count == 0);
   assert(renderer->statistics().geometry_range_retirements ==
          baseline_statistics.geometry_range_retirements);
 
@@ -167,6 +171,7 @@ int main(int argc, char** argv) {
   const auto recolored = render();
   assert(recolored.counters.upload_bytes == 0);
   assert(recolored.counters.geometry_cache_misses == 0);
+  assert(recolored.counters.geometry_reconcile_count == 0);
 
   // Points-only edit with the same vertex count: the vertex range is updated
   // in place and topology is untouched.
@@ -178,6 +183,7 @@ int main(int argc, char** argv) {
   assert(moved.counters.upload_bytes == kVertexBytes);
   assert(moved.counters.geometry_cache_misses == 1);
   assert(moved.counters.geometry_cache_hits == 1);
+  assert(moved.counters.geometry_reconcile_count == 1);
   assert(moved.counters.buffer_suballocation_count == 0);
   assert(moved.counters.buffer_range_release_count == 0);
   assert(moved.counters.allocation_count == 0);
@@ -192,6 +198,7 @@ int main(int argc, char** argv) {
   assert(rebuilt.counters.upload_bytes ==
          4U * kVertexBytes + 6U * kIndexBytes);
   assert(rebuilt.counters.geometry_cache_misses == 1);
+  assert(rebuilt.counters.geometry_reconcile_count == 1);
   assert(rebuilt.counters.buffer_suballocation_count == 2);
   assert(rebuilt.counters.buffer_range_release_count == 2);
   const auto after_rebuild = renderer->statistics();
@@ -209,6 +216,7 @@ int main(int argc, char** argv) {
   assert(removed.counters.upload_bytes == 0);
   assert(removed.counters.geometry_cache_hits == 1);
   assert(removed.counters.geometry_cache_misses == 0);
+  assert(removed.counters.geometry_reconcile_count == 1);
   assert(removed.counters.buffer_range_release_count == 2);
   assert(removed.counters.scene_cache_misses == 1);
   const auto after_removal = renderer->statistics();
@@ -226,6 +234,7 @@ int main(int argc, char** argv) {
   world.UpdateInstance(first_triangle, instance);
   const auto reused = render();
   assert(reused.counters.geometry_cache_misses == 1);
+  assert(reused.counters.geometry_reconcile_count == 1);
   assert(reused.counters.upload_bytes == quad_vertex_bytes + quad_index_bytes);
 
   // Emptying the world renders cleanly and releases every slot.
@@ -270,6 +279,62 @@ int main(int argc, char** argv) {
   const auto removed_empty_geometry =
       renderer->Render(empty_snapshot, 64, 64, shaders);
   assert(removed_empty_geometry.counters.buffer_range_release_count == 0);
+
+  // Skipping a snapshot revision invalidates its one-step delta. The renderer
+  // must fall back to full reconciliation and a full payload upload rather
+  // than applying a changed range against the wrong resident base revision.
+  merlin::RenderWorld gap_world;
+  merlin::extraction::SceneExtractor gap_extractor;
+  auto gap_mesh = Triangle();
+  const auto changed_mesh = gap_world.CreateMesh(gap_mesh);
+  gap_world.CreateMesh(Quad());
+  gap_extractor.Apply(gap_world, gap_world.Commit());
+  const auto gap_first = renderer->Render(
+      *gap_extractor.snapshot(), 64, 64, shaders);
+  assert(gap_first.counters.geometry_reconcile_count == 2);
+
+  gap_mesh.positions[0].x = 0.1F;
+  gap_world.UpdateMesh(changed_mesh, gap_mesh, merlin::ChangeAspect::Points,
+                       std::vector<merlin::ElementRange>{{0, 1}});
+  gap_extractor.Apply(gap_world, gap_world.Commit());
+  gap_mesh.positions[0].x = 0.2F;
+  gap_world.UpdateMesh(changed_mesh, gap_mesh, merlin::ChangeAspect::Points,
+                       std::vector<merlin::ElementRange>{{0, 1}});
+  gap_extractor.Apply(gap_world, gap_world.Commit());
+  const auto gap_fallback = renderer->Render(
+      *gap_extractor.snapshot(), 64, 64, shaders);
+  assert(gap_fallback.counters.geometry_reconcile_count == 2);
+  assert(gap_fallback.counters.geometry_cache_misses == 1);
+  assert(gap_fallback.counters.geometry_cache_hits == 1);
+  assert(gap_fallback.counters.upload_bytes == 3U * kVertexBytes);
+
+  // Independent SceneExtractors may issue identical handle and resource
+  // revision values. Source changes must replace residency instead of treating
+  // those coincident identifiers as cache hits.
+  merlin::RenderWorld source_world_a;
+  merlin::extraction::SceneExtractor source_extractor_a;
+  const auto source_mesh_a = source_world_a.CreateMesh(Triangle());
+  source_extractor_a.Apply(source_world_a, source_world_a.Commit());
+  const auto source_snapshot_a = source_extractor_a.snapshot();
+  const auto source_frame_a =
+      renderer->Render(*source_snapshot_a, 64, 64, shaders);
+  assert(source_frame_a.counters.geometry_cache_misses == 1);
+
+  merlin::RenderWorld source_world_b;
+  merlin::extraction::SceneExtractor source_extractor_b;
+  const auto source_mesh_b = source_world_b.CreateMesh(Quad());
+  source_extractor_b.Apply(source_world_b, source_world_b.Commit());
+  const auto source_snapshot_b = source_extractor_b.snapshot();
+  assert(source_mesh_a.value() == source_mesh_b.value());
+  assert(source_snapshot_a->revision == source_snapshot_b->revision);
+  assert(source_snapshot_a->source_id != source_snapshot_b->source_id);
+  const auto source_frame_b =
+      renderer->Render(*source_snapshot_b, 64, 64, shaders);
+  assert(source_frame_b.counters.geometry_cache_hits == 0);
+  assert(source_frame_b.counters.geometry_cache_misses == 1);
+  assert(source_frame_b.counters.geometry_reconcile_count == 2);
+  assert(source_frame_b.counters.upload_bytes ==
+         quad_vertex_bytes + quad_index_bytes);
 
   std::cout << "resource update contract verified: uploads="
             << final_statistics.scene_uploads << " retirements="

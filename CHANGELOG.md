@@ -8,6 +8,21 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- SceneExtractor snapshot provenance and resource deltas with explicit base
+  revisions, per-kind upsert/removal queues, and geometry/texture/sampler
+  reconciliation counters in benchmark and Hydra performance evidence.
+
+### Changed
+
+- Vulkan Mesh and image/sampler residency now skips table traversal for static
+  snapshots, reconciles only dirty resources for continuous revisions, and
+  falls back to full reconciliation for foreign, manually constructed, or
+  revision-skipping snapshots.
+- Pending texture upload commit/abandon handling now visits only textures
+  touched by the submission instead of every resident texture.
+
 ## [0.6.0] - 2026-07-15
 
 ### Added

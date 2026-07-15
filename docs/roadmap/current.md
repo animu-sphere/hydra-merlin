@@ -14,20 +14,66 @@ changed resources rather than total prim count while keeping resource identity
 stable across frames.
 
 v0.6.0 established locator-aware Hydra ingestion, resource-granular revisions,
-changed ranges, and safe partial upload. This milestone extends those contracts
-through persistent RenderWorld snapshots and bindless GPU residency.
+changed ranges, and safe partial upload. The remaining v0.7.0 work completes
+persistent snapshot construction, bindless resource identity, and measured GPU
+residency on top of those contracts.
 
-#### Scope
+#### 1. Persistent snapshot completion
 
-- Add persistent bindless resource tables with generation-safe stable handles
-  and descriptor slots, safe fallback texture slots, sampler deduplication, and
-  a conventional descriptor fallback when required capabilities are absent.
-- Add dirty queues, changed ranges, incremental snapshots, structural sharing,
-  and completion-safe delayed retirement.
-- Add persistent Mesh and Gaussian arenas, a mapped upload ring, asynchronous
-  transfer, and explicit VRAM-budget evidence.
-- Probe and report descriptor-indexing features, limits, and selected fallback
-  behavior in versioned capability artifacts.
+- Replace full `FrameSnapshot` table and draw-list reconstruction with
+  structurally shared storage that copies only changed records or chunks.
+- Keep material, texture/sampler binding, instance, visibility, removal, and
+  dependent-draw invalidation proportional to affected resources without
+  introducing the persistent draw identity reserved for v0.10.0.
+- Report visited/copied records and rebuilt draws, and retain immutable older
+  snapshots across localized edits and removals.
+
+#### 2. Descriptor-indexing negotiation
+
+- Probe every descriptor-indexing feature and sampled-image/sampler limit used
+  by the backend, enable only the selected feature chain, and report the
+  versioned capability result.
+- Select bindless or conventional Forward explicitly, with a machine-readable
+  fallback reason and coverage for feature, limit, and configuration failures.
+
+#### 3. Bindless texture and sampler tables
+
+- Add finite generation-checked texture and sampler slot allocators with stale
+  generation detection, capacity/exhaustion diagnostics, and current/peak use
+  telemetry.
+- Reserve white, black, flat-normal, and error texture slots; deduplicate
+  samplers by descriptor value; and keep indices stable for unchanged
+  resources.
+- Update only dirty descriptor slots and retire replaced textures, samplers,
+  and slot generations only after their last completion value.
+- Add a non-uniform-indexed bindless Forward shader path while retaining the
+  conventional descriptor implementation as the correctness fallback.
+
+#### 4. Residency, transfer, and memory budget
+
+- Complete persistent arena and mapped-upload-ring telemetry for stable ranges,
+  growth, fragmentation, retirement, and bytes staged by resource class.
+- Add asynchronous transfer-queue selection, ownership transitions, and
+  timeline synchronization without weakening in-flight replacement safety.
+- Probe heap budget/usage, define configurable VRAM limits and exhaustion
+  behavior, and retain current/peak/capacity evidence in capability and
+  benchmark artifacts.
+
+#### 5. Validation and release evidence
+
+- Cover slot allocation/retirement/reuse, generation mismatch, fallback slots,
+  sampler deduplication, exhaustion, non-uniform indexing, partially-bound
+  descriptors, and in-flight replacement.
+- Retain conventional/bindless image parity, one-million-prim localized-edit
+  scaling, steady-state zero-work, fallback selection, and VRAM evidence.
+
+#### Scope boundary
+
+v0.7.0 owns the common arena, upload, retirement, descriptor, and memory-budget
+infrastructure needed by Mesh and future Gaussian resources. Host-neutral
+`GaussianResource`, standard Hydra Gaussian ingestion, and native Gaussian
+rendering remain v0.9.0 work; this milestone does not introduce a renderer-
+specific Gaussian schema or file parser.
 
 #### Exit criteria
 
@@ -44,8 +90,9 @@ through persistent RenderWorld snapshots and bindless GPU residency.
 
 ## Active carry-over
 
-- Enroll or confirm a repository- or organization-scoped Windows x64 runner with the existing
-  `vulkan-1.4` label so the manual workflow becomes continuing GPU evidence.
+- Enroll or confirm a repository- or organization-scoped Windows x64 runner
+  with the existing `vulkan-1.4` label so the manual workflow becomes
+  continuing GPU evidence.
 - Retain dependency/runtime provenance, validation logs, expected/actual/diff
   images, benchmark output, Hydra discovery, RenderBuffer, and usdview results
   as comparable artifacts rather than reducing capability jobs to a binary

@@ -3,6 +3,7 @@
 #include <merlin/core/render_world.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -10,6 +11,8 @@
 
 namespace merlin::extraction {
 namespace {
+
+std::atomic<std::uint64_t> g_snapshot_source{1};
 
 std::uint64_t StableSortKey(std::uint64_t material_handle,
                             std::uint64_t mesh_handle) {
@@ -68,6 +71,46 @@ struct InstanceEntry {
   std::uint64_t material_binding_revision{};
   InstanceDescriptor descriptor;
 };
+
+ResourceDelta& DeltaFor(SnapshotDelta& delta, ObjectKind kind) {
+  switch (kind) {
+    case ObjectKind::Mesh: return delta.geometries;
+    case ObjectKind::Material: return delta.materials;
+    case ObjectKind::Texture: return delta.textures;
+    case ObjectKind::Sampler: return delta.samplers;
+    case ObjectKind::Instance: return delta.instances;
+    case ObjectKind::Light: return delta.lights;
+    case ObjectKind::Camera:
+    case ObjectKind::RenderSettings:
+      break;
+  }
+  throw std::logic_error("object kind has no resource delta");
+}
+
+void SortAndUnique(ResourceDelta& delta) {
+  const auto normalize = [](std::vector<std::uint64_t>& values) {
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+  };
+  normalize(delta.upserts);
+  normalize(delta.removals);
+  delta.upserts.erase(
+      std::remove_if(delta.upserts.begin(), delta.upserts.end(),
+                     [&](std::uint64_t handle) {
+                       return std::binary_search(delta.removals.begin(),
+                                                 delta.removals.end(), handle);
+                     }),
+      delta.upserts.end());
+}
+
+void Normalize(SnapshotDelta& delta) {
+  SortAndUnique(delta.geometries);
+  SortAndUnique(delta.textures);
+  SortAndUnique(delta.samplers);
+  SortAndUnique(delta.materials);
+  SortAndUnique(delta.instances);
+  SortAndUnique(delta.lights);
+}
 
 }  // namespace
 
@@ -142,9 +185,12 @@ class SceneExtractor::Impl {
     }
   }
 
-  void RebuildSnapshot() {
+  void RebuildSnapshot(SnapshotDelta delta) {
     auto next = std::make_shared<FrameSnapshot>();
+    next->source_id = source_id;
     next->revision = revision;
+    Normalize(delta);
+    next->delta = std::move(delta);
 
     std::map<std::uint64_t, std::uint32_t> geometry_indices;
     next->geometries.reserve(meshes.size());
@@ -303,6 +349,8 @@ class SceneExtractor::Impl {
   std::map<std::uint64_t, CameraDescriptor> cameras;
   std::map<std::uint64_t, LightEntry> lights;
   CameraHandle active_camera;
+  std::uint64_t source_id{g_snapshot_source.fetch_add(
+      1, std::memory_order_relaxed)};
   std::uint64_t revision{};
   std::shared_ptr<const FrameSnapshot> snapshot{
       std::make_shared<FrameSnapshot>()};
@@ -327,16 +375,30 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
     throw std::invalid_argument("ChangeSet revisions must be applied in order");
   }
 
-  for (auto& [handle, entry] : impl_->meshes) {
-    (void)handle;
-    entry.vertex_base_revision = entry.vertex_revision;
-    entry.index_base_revision = entry.index_revision;
-    entry.vertex_ranges.clear();
-    entry.index_ranges.clear();
-  }
+  SnapshotDelta delta;
+  delta.base_revision = impl_->revision;
+  bool material_indices_changed{};
 
   for (const auto& change : changes.changes) {
     const auto erase = change.change_kind == ChangeKind::Removed;
+    if (change.object_kind == ObjectKind::Camera) {
+      delta.camera_changed = true;
+    } else if (change.object_kind == ObjectKind::RenderSettings) {
+      delta.render_settings_changed = true;
+    } else {
+      auto& resources = DeltaFor(delta, change.object_kind);
+      (erase ? resources.removals : resources.upserts)
+          .push_back(change.handle);
+    }
+    if ((change.object_kind == ObjectKind::Texture ||
+         change.object_kind == ObjectKind::Sampler) &&
+        change.change_kind != ChangeKind::Updated) {
+      // Material bindings currently store dense texture/sampler indices. A
+      // structural table edit can shift those indices even when the authored
+      // material itself did not change. Bindless stable slots remove this
+      // conservative dependency in the next v0.7.0 slice.
+      material_indices_changed = true;
+    }
     switch (change.object_kind) {
       case ObjectKind::Mesh:
         impl_->ApplyMesh(world, change);
@@ -441,8 +503,15 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
     }
   }
 
+  if (material_indices_changed) {
+    for (const auto& [handle, entry] : impl_->materials) {
+      (void)entry;
+      delta.materials.upserts.push_back(handle);
+    }
+  }
+
   impl_->revision = changes.revision;
-  impl_->RebuildSnapshot();
+  impl_->RebuildSnapshot(std::move(delta));
 }
 
 void SceneExtractor::SetActiveCamera(CameraHandle camera) {
@@ -450,7 +519,10 @@ void SceneExtractor::SetActiveCamera(CameraHandle camera) {
     return;
   }
   impl_->active_camera = camera;
-  impl_->RebuildSnapshot();
+  SnapshotDelta delta;
+  delta.base_revision = impl_->revision;
+  delta.camera_changed = true;
+  impl_->RebuildSnapshot(std::move(delta));
 }
 
 std::shared_ptr<const FrameSnapshot> SceneExtractor::snapshot() const noexcept {

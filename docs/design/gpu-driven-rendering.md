@@ -113,6 +113,13 @@ RenderWorld mutation
     → completion-safe GPU Scene update
 ```
 
+Snapshots produced by `SceneExtractor` carry a non-zero source identity and an
+optional delta whose base revision names the exact prior snapshot. A persistent
+consumer may use the dirty queues only when both source and base revision match
+its resident state. A different source, a skipped revision, or a manually
+constructed snapshot triggers full reconciliation. This keeps the incremental
+path an optimization rather than a correctness precondition.
+
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,
 and texture changes do not rebuild unrelated geometry. Topology changes may
