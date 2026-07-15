@@ -158,7 +158,13 @@ void WriteMetadata(const std::filesystem::path& path,
   if (!stream) {
     throw std::runtime_error("could not create metadata: " + path.string());
   }
-  stream << "{\n  \"schema_version\": 1,\n  \"vulkan\": {\n"
+  const auto& descriptor_features = capabilities.descriptor_indexing_features;
+  const auto& descriptor_limits = capabilities.descriptor_indexing_limits;
+  const auto& descriptor_selection = capabilities.descriptor_indexing_selection;
+  const auto fallback_category =
+      merlin::vulkan::DescriptorFallbackReasonCategory(
+          descriptor_selection.fallback_reason);
+  stream << "{\n  \"schema_version\": 2,\n  \"vulkan\": {\n"
          << "    \"sdk_version\": ";
   WriteJsonString(stream, capabilities.sdk_version);
   stream << ",\n    \"header_version\": ";
@@ -180,7 +186,62 @@ void WriteMetadata(const std::filesystem::path& path,
          << (capabilities.timeline_semaphore ? "true" : "false")
          << ",\n    \"validation_enabled\": "
          << (capabilities.validation_enabled ? "true" : "false")
-         << "\n  }\n}\n";
+         << ",\n    \"descriptor_indexing\": {\n"
+         << "      \"schema_version\": " << descriptor_selection.schema_version
+         << ",\n      \"requested_backend\": ";
+  WriteJsonString(stream, merlin::vulkan::DescriptorBackendRequestName(
+                              descriptor_selection.requested_backend));
+  stream << ",\n      \"selected_backend\": ";
+  WriteJsonString(stream, merlin::vulkan::DescriptorBackendName(
+                              descriptor_selection.selected_backend));
+  stream << ",\n      \"fallback_category\": ";
+  WriteJsonString(
+      stream, merlin::vulkan::DescriptorFallbackCategoryName(fallback_category));
+  stream << ",\n      \"fallback_reason\": ";
+  WriteJsonString(stream, merlin::vulkan::DescriptorFallbackReasonName(
+                              descriptor_selection.fallback_reason));
+  stream << ",\n      \"requirements_satisfied\": "
+         << (descriptor_selection.requirements_satisfied ? "true" : "false")
+         << ",\n      \"texture_capacity\": "
+         << descriptor_selection.texture_capacity
+         << ",\n      \"sampler_capacity\": "
+         << descriptor_selection.sampler_capacity
+         << ",\n      \"features\": {\n"
+         << "        \"shader_sampled_image_array_non_uniform_indexing\": "
+         << (descriptor_features
+                     .shader_sampled_image_array_non_uniform_indexing
+                 ? "true"
+                 : "false")
+         << ",\n        \"descriptor_binding_sampled_image_update_after_bind\": "
+         << (descriptor_features
+                     .descriptor_binding_sampled_image_update_after_bind
+                 ? "true"
+                 : "false")
+         << ",\n        \"descriptor_binding_partially_bound\": "
+         << (descriptor_features.descriptor_binding_partially_bound ? "true"
+                                                                    : "false")
+         << ",\n        \"descriptor_binding_variable_descriptor_count\": "
+         << (descriptor_features.descriptor_binding_variable_descriptor_count
+                 ? "true"
+                 : "false")
+         << ",\n        \"runtime_descriptor_array\": "
+         << (descriptor_features.runtime_descriptor_array ? "true" : "false")
+         << "\n      },\n      \"limits\": {\n"
+         << "        \"max_update_after_bind_descriptors_in_all_pools\": "
+         << descriptor_limits.max_update_after_bind_descriptors_in_all_pools
+         << ",\n        \"max_per_stage_descriptor_update_after_bind_samplers\": "
+         << descriptor_limits
+                .max_per_stage_descriptor_update_after_bind_samplers
+         << ",\n        \"max_per_stage_descriptor_update_after_bind_sampled_images\": "
+         << descriptor_limits
+                .max_per_stage_descriptor_update_after_bind_sampled_images
+         << ",\n        \"max_per_stage_update_after_bind_resources\": "
+         << descriptor_limits.max_per_stage_update_after_bind_resources
+         << ",\n        \"max_descriptor_set_update_after_bind_samplers\": "
+         << descriptor_limits.max_descriptor_set_update_after_bind_samplers
+         << ",\n        \"max_descriptor_set_update_after_bind_sampled_images\": "
+         << descriptor_limits.max_descriptor_set_update_after_bind_sampled_images
+         << "\n      }\n    }\n  }\n}\n";
   if (!stream) {
     throw std::runtime_error("could not write metadata: " + path.string());
   }
@@ -434,6 +495,13 @@ int main(int argc, char** argv) {
               << VK_VERSION_PATCH(capabilities.api_version) << '\n'
               << "Timeline semaphore: "
               << (capabilities.timeline_semaphore ? "yes" : "no") << '\n'
+              << "Descriptor backend: "
+              << merlin::vulkan::DescriptorBackendName(
+                     capabilities.descriptor_indexing_selection.selected_backend)
+              << " ("
+              << merlin::vulkan::DescriptorFallbackReasonName(
+                     capabilities.descriptor_indexing_selection.fallback_reason)
+              << ")\n"
               << "Validation: " << (capabilities.validation_enabled ? "on" : "off") << '\n'
               << "RenderWorld revision: " << changes.revision << " ("
               << changes.changes.size() << " changes)\n";

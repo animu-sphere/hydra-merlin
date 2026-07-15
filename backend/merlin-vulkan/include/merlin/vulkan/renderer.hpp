@@ -11,6 +11,7 @@
 
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
+#include <merlin/vulkan/descriptor_indexing.hpp>
 
 namespace merlin::vulkan {
 
@@ -39,6 +40,9 @@ struct RendererCapabilities {
   // True when the selected graphics queue exposes timestamp bits. Per-frame
   // GPU execution durations are zero only when this capability is false.
   bool timestamp_queries{};
+  DescriptorIndexingFeatures descriptor_indexing_features;
+  DescriptorIndexingLimits descriptor_indexing_limits;
+  DescriptorIndexingSelection descriptor_indexing_selection;
 };
 
 struct RendererStatistics {
