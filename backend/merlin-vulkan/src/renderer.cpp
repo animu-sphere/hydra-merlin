@@ -399,7 +399,7 @@ class DeviceArena {
         if (span->size == 0) {
           spans.erase(span);
         }
-        RecordAllocation(false);
+        RecordAllocation(false, aligned);
         return {range, false, 0};
       }
     }
@@ -412,7 +412,7 @@ class DeviceArena {
       block.free_spans.push_back({aligned, block_bytes - aligned});
     }
     blocks_.push_back(std::move(block));
-    RecordAllocation(true);
+    RecordAllocation(true, aligned);
     return {{static_cast<std::uint32_t>(blocks_.size() - 1U), 0, aligned},
             true, block_bytes};
   }
@@ -440,6 +440,7 @@ class DeviceArena {
       }
     }
     ++telemetry_.release_count;
+    telemetry_.resident_bytes -= range.size;
     if (telemetry_.active_ranges != 0) {
       --telemetry_.active_ranges;
     }
@@ -466,7 +467,6 @@ class DeviceArena {
             std::max(result.largest_free_span_bytes, span.size);
       }
     }
-    result.resident_bytes = result.capacity_bytes - result.free_bytes;
     return result;
   }
 
@@ -481,9 +481,10 @@ class DeviceArena {
     std::vector<FreeSpan> free_spans;  // sorted by offset, adjacent-merged
   };
 
-  void RecordAllocation(bool grew) noexcept {
+  void RecordAllocation(bool grew, VkDeviceSize bytes) noexcept {
     ++telemetry_.allocation_count;
     ++telemetry_.active_ranges;
+    telemetry_.resident_bytes += bytes;
     telemetry_.peak_active_ranges =
         std::max(telemetry_.peak_active_ranges, telemetry_.active_ranges);
     if (grew) {
@@ -491,7 +492,7 @@ class DeviceArena {
     }
     telemetry_.peak_resident_bytes =
         std::max(telemetry_.peak_resident_bytes,
-                 telemetry().resident_bytes);
+                 telemetry_.resident_bytes);
   }
 
   VkDevice device_{};
@@ -520,6 +521,7 @@ class StagingRing {
     // RendererOptions caps frame contexts at eight, so this prevents metadata
     // allocation failure after a queue submission has already succeeded.
     regions_.reserve(8);
+    retired_regions_.reserve(8);
   }
 
   void Destroy() noexcept {
@@ -529,6 +531,7 @@ class StagingRing {
     DestroyBufferRaw(device_, buffer_);
     mapped_ = nullptr;
     regions_.clear();
+    retired_regions_.clear();
     pending_ = {};
   }
 
@@ -550,6 +553,8 @@ class StagingRing {
       }
       buffer_ = {};
       mapped_ = nullptr;
+      retired_regions_.insert(retired_regions_.end(), regions_.begin(),
+                              regions_.end());
       regions_.clear();
       head_ = 0;
       const auto capacity =
@@ -589,8 +594,7 @@ class StagingRing {
     regions_.push_back({pending_.begin, pending_.end, completion_value});
     pending_ = {};
     telemetry_.peak_active_regions = std::max(
-        telemetry_.peak_active_regions,
-        static_cast<std::uint32_t>(regions_.size()));
+        telemetry_.peak_active_regions, ActiveRegionCount());
   }
 
   void AbandonFrame() noexcept {
@@ -603,6 +607,10 @@ class StagingRing {
   }
 
   void Collect(std::uint64_t completed) {
+    while (!retired_regions_.empty() &&
+           retired_regions_.front().completion <= completed) {
+      retired_regions_.erase(retired_regions_.begin());
+    }
     while (!regions_.empty() && regions_.front().completion <= completed) {
       regions_.erase(regions_.begin());
     }
@@ -614,7 +622,10 @@ class StagingRing {
   [[nodiscard]] UploadRingTelemetry telemetry() const noexcept {
     auto result = telemetry_;
     result.capacity_bytes = buffer_.size;
-    result.active_regions = static_cast<std::uint32_t>(regions_.size());
+    result.active_regions = ActiveRegionCount();
+    for (const auto& region : retired_regions_) {
+      result.in_flight_bytes += region.end - region.begin;
+    }
     for (const auto& region : regions_) {
       result.in_flight_bytes += region.end - region.begin;
     }
@@ -636,6 +647,11 @@ class StagingRing {
     VkDeviceSize begin{};
     VkDeviceSize end{};
   };
+
+  [[nodiscard]] std::uint32_t ActiveRegionCount() const noexcept {
+    return static_cast<std::uint32_t>(retired_regions_.size() +
+                                      regions_.size());
+  }
 
   bool TryPlace(VkDeviceSize bytes, VkDeviceSize& offset) {
     if (buffer_.handle == VK_NULL_HANDLE || bytes > buffer_.size) {
@@ -676,6 +692,7 @@ class StagingRing {
   std::byte* mapped_{};
   VkDeviceSize head_{};
   std::vector<Region> regions_;
+  std::vector<Region> retired_regions_;
   PendingRegion pending_;
   UploadRingTelemetry telemetry_;
 };

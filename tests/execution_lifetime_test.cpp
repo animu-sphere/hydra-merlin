@@ -101,10 +101,16 @@ int main(int argc, char** argv) {
   const auto first_in_flight_statistics = renderer->statistics();
 
   // Record an edited scene while the first frame can still read the old
-  // geometry range. The backend must version the range instead of overwriting
-  // it in place.
+  // geometry range. The expanded payload also forces the upload ring to grow;
+  // telemetry must retain the old ring generation until its frame completes.
   auto edited_triangle = Triangle(-0.25F);
+  edited_triangle.positions.resize(8192);
   edited_triangle.positions[0].x += 0.5F;
+  const auto edited_vertex_bytes =
+      edited_triangle.positions.size() *
+      sizeof(merlin::extraction::DrawVertex);
+  assert(edited_vertex_bytes >
+         first_in_flight_statistics.upload_ring.capacity_bytes);
   world.UpdateMesh(mesh, std::move(edited_triangle),
                    merlin::ChangeAspect::Points,
                    std::vector<merlin::ElementRange>{{0, 1}});
@@ -128,7 +134,16 @@ int main(int argc, char** argv) {
   assert(in_flight_statistics.index_arena.retiring_ranges ==
          first_in_flight_statistics.index_arena.retiring_ranges);
   assert(in_flight_statistics.upload_ring.active_regions == 2);
-  assert(in_flight_statistics.upload_ring.in_flight_bytes != 0);
+  assert(in_flight_statistics.upload_ring.in_flight_bytes ==
+         first_in_flight_statistics.upload_ring.in_flight_bytes +
+             edited_vertex_bytes);
+  assert(in_flight_statistics.upload_ring.peak_in_flight_bytes >=
+         in_flight_statistics.upload_ring.in_flight_bytes);
+  assert(in_flight_statistics.upload_ring.peak_active_regions >= 2);
+  assert(in_flight_statistics.upload_ring.growth_count ==
+         first_in_flight_statistics.upload_ring.growth_count + 1);
+  assert(in_flight_statistics.upload_ring.retired_buffers ==
+         first_in_flight_statistics.upload_ring.retired_buffers + 1);
 
   bool busy{};
   try {
@@ -143,8 +158,7 @@ int main(int argc, char** argv) {
   assert(second_result.scene_revision == second.snapshot->revision);
   assert(second_result.cpu_readback_aovs.empty());
   assert(second_result.counters.readback_bytes == 0);
-  assert(second_result.counters.upload_bytes ==
-         3U * sizeof(merlin::extraction::DrawVertex));
+  assert(second_result.counters.upload_bytes == edited_vertex_bytes);
   assert(second_result.counters.vertex_upload_bytes ==
          second_result.counters.upload_bytes);
   assert(second_result.counters.index_upload_bytes == 0);
