@@ -462,6 +462,15 @@ class StagingRing {
     pending_ = {};
   }
 
+  void AbandonFrame() noexcept {
+    if (!pending_.active) {
+      return;
+    }
+    // No command buffer consumed this reservation, so the tail can be reused.
+    head_ = pending_.begin;
+    pending_ = {};
+  }
+
   void Collect(std::uint64_t completed) {
     while (!regions_.empty() && regions_.front().completion <= completed) {
       regions_.erase(regions_.begin());
@@ -665,6 +674,10 @@ class Renderer::Impl {
     const auto upload_start = CpuClock::now();
     const auto resource_sync_mode =
         SelectResourceSyncMode(*request.snapshot);
+    // Resource sync mutates residency before queue submission. Leave this set
+    // on every exceptional exit so the next valid request replaces the
+    // possibly mixed state instead of selecting the unchanged fast path.
+    resource_residency_dirty_ = true;
     SyncGeometry(*request.snapshot, resource_sync_mode);
     SyncTextures(*request.snapshot, resource_sync_mode);
     SyncSamplers(*request.snapshot, resource_sync_mode);
@@ -702,12 +715,15 @@ class Renderer::Impl {
     frame.cpu_timings.upload_ns = upload_ns;
     frame.cpu_timings.command_recording_ns = recording_ns;
     frame.counters = frame_counters_;
+    // Keep every operation after successful queue submission non-allocating.
+    deferred_.reserve(deferred_.size() + frame_upload_buffers_.size());
     const auto submission_start = CpuClock::now();
     const auto completion = SubmitFrame(frame);
     frame.cpu_timings.queue_submission_ns =
         ElapsedNanoseconds(submission_start);
     CommitTextureUploads();
     CommitResourceSnapshot(*request.snapshot);
+    resource_residency_dirty_ = false;
     for (auto& buffer : frame_upload_buffers_) {
       deferred_.push_back({buffer, completion});
       buffer = {};
@@ -897,14 +913,18 @@ class Renderer::Impl {
 
   enum class ResourceSyncMode {
     Full,
+    ReplaceAll,
     Incremental,
     Unchanged,
   };
 
   [[nodiscard]] ResourceSyncMode SelectResourceSyncMode(
       const extraction::FrameSnapshot& snapshot) const noexcept {
-    if (snapshot.source_id == 0 ||
+    if (resource_residency_dirty_ ||
         snapshot.source_id != resident_snapshot_source_) {
+      return ResourceSyncMode::ReplaceAll;
+    }
+    if (snapshot.source_id == 0) {
       return ResourceSyncMode::Full;
     }
     if (snapshot.revision == resident_snapshot_revision_) {
@@ -1165,7 +1185,9 @@ class Renderer::Impl {
   }
 
   void ResetAbandonedUploads() {
+    pending_copies_.clear();
     pending_image_copies_.clear();
+    staging_.AbandonFrame();
     for (const auto handle : pending_texture_handles_) {
       const auto texture = texture_slots_.find(handle);
       if (texture != texture_slots_.end() &&
@@ -1286,7 +1308,18 @@ class Renderer::Impl {
     }
 
     std::vector<const extraction::TextureRecord*> records;
-    if (mode == ResourceSyncMode::Full) {
+    if (mode == ResourceSyncMode::ReplaceAll) {
+      for (auto& [handle, slot] : texture_slots_) {
+        (void)handle;
+        RetireTexture(slot);
+        ++frame_counters_.texture_reconcile_count;
+      }
+      texture_slots_.clear();
+      records.reserve(snapshot.textures.size());
+      for (const auto& texture : snapshot.textures) {
+        records.push_back(&texture);
+      }
+    } else if (mode == ResourceSyncMode::Full) {
       auto record = snapshot.textures.begin();
       for (auto slot = texture_slots_.begin(); slot != texture_slots_.end();) {
         while (record != snapshot.textures.end() &&
@@ -1363,7 +1396,18 @@ class Renderer::Impl {
     }
 
     std::vector<const extraction::SamplerRecord*> records;
-    if (mode == ResourceSyncMode::Full) {
+    if (mode == ResourceSyncMode::ReplaceAll) {
+      for (auto& [handle, slot] : sampler_slots_) {
+        (void)handle;
+        RetireSampler(slot);
+        ++frame_counters_.sampler_reconcile_count;
+      }
+      sampler_slots_.clear();
+      records.reserve(snapshot.samplers.size());
+      for (const auto& sampler : snapshot.samplers) {
+        records.push_back(&sampler);
+      }
+    } else if (mode == ResourceSyncMode::Full) {
       auto record = snapshot.samplers.begin();
       for (auto slot = sampler_slots_.begin(); slot != sampler_slots_.end();) {
         while (record != snapshot.samplers.end() &&
@@ -1640,7 +1684,20 @@ class Renderer::Impl {
 
     bool structural_change = false;
     std::vector<const extraction::GeometryRecord*> records;
-    if (mode == ResourceSyncMode::Full) {
+    if (mode == ResourceSyncMode::ReplaceAll) {
+      for (auto& [handle, slot] : geometry_slots_) {
+        (void)handle;
+        ReleaseRange(vertex_arena_, slot.vertices);
+        ReleaseRange(index_arena_, slot.indices);
+        ++frame_counters_.geometry_reconcile_count;
+      }
+      structural_change = !geometry_slots_.empty();
+      geometry_slots_.clear();
+      records.reserve(snapshot.geometries.size());
+      for (const auto& geometry : snapshot.geometries) {
+        records.push_back(&geometry);
+      }
+    } else if (mode == ResourceSyncMode::Full) {
       auto record = snapshot.geometries.begin();
       for (auto slot = geometry_slots_.begin(); slot != geometry_slots_.end();) {
         while (record != snapshot.geometries.end() &&
@@ -2816,6 +2873,7 @@ class Renderer::Impl {
   std::map<std::filesystem::path, VkShaderModule> shader_modules_;
   std::uint64_t resident_snapshot_source_{};
   std::uint64_t resident_snapshot_revision_{};
+  bool resource_residency_dirty_{};
   RenderTarget* active_target_{};
   std::atomic<std::uint64_t> validation_messages_{};
 };

@@ -308,6 +308,34 @@ int main(int argc, char** argv) {
   assert(gap_fallback.counters.geometry_cache_hits == 1);
   assert(gap_fallback.counters.upload_bytes == 3U * kVertexBytes);
 
+  // Independent SceneExtractors may issue identical handle and resource
+  // revision values. Source changes must replace residency instead of treating
+  // those coincident identifiers as cache hits.
+  merlin::RenderWorld source_world_a;
+  merlin::extraction::SceneExtractor source_extractor_a;
+  const auto source_mesh_a = source_world_a.CreateMesh(Triangle());
+  source_extractor_a.Apply(source_world_a, source_world_a.Commit());
+  const auto source_snapshot_a = source_extractor_a.snapshot();
+  const auto source_frame_a =
+      renderer->Render(*source_snapshot_a, 64, 64, shaders);
+  assert(source_frame_a.counters.geometry_cache_misses == 1);
+
+  merlin::RenderWorld source_world_b;
+  merlin::extraction::SceneExtractor source_extractor_b;
+  const auto source_mesh_b = source_world_b.CreateMesh(Quad());
+  source_extractor_b.Apply(source_world_b, source_world_b.Commit());
+  const auto source_snapshot_b = source_extractor_b.snapshot();
+  assert(source_mesh_a.value() == source_mesh_b.value());
+  assert(source_snapshot_a->revision == source_snapshot_b->revision);
+  assert(source_snapshot_a->source_id != source_snapshot_b->source_id);
+  const auto source_frame_b =
+      renderer->Render(*source_snapshot_b, 64, 64, shaders);
+  assert(source_frame_b.counters.geometry_cache_hits == 0);
+  assert(source_frame_b.counters.geometry_cache_misses == 1);
+  assert(source_frame_b.counters.geometry_reconcile_count == 2);
+  assert(source_frame_b.counters.upload_bytes ==
+         quad_vertex_bytes + quad_index_bytes);
+
   std::cout << "resource update contract verified: uploads="
             << final_statistics.scene_uploads << " retirements="
             << final_statistics.geometry_range_retirements << '\n';
