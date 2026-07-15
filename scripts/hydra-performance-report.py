@@ -80,6 +80,12 @@ COUNTERS = (
     "shader_module_cache_misses",
     "geometry_cache_misses",
 )
+ADDITIVE_COUNTERS = {
+    "snapshot_visited_records",
+    "snapshot_copied_records",
+    "snapshot_rebuilt_draws",
+    "snapshot_fully_rebuilt_tables",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -286,7 +292,12 @@ def build_report(
                     "count": sum(value > threshold for value in total),
                 },
                 "last_counters": {
-                    counter: samples[-1][counter] for counter in COUNTERS
+                    counter: (
+                        samples[-1].get(counter, 0)
+                        if counter in ADDITIVE_COUNTERS
+                        else samples[-1][counter]
+                    )
+                    for counter in COUNTERS
                 },
             }
         )

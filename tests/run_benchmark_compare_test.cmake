@@ -26,6 +26,42 @@ endif()
 
 file(READ "${MERLIN_BENCHMARK_OUTPUT}" benchmark)
 
+# Additive v3 counters must not make a valid report from the previous release
+# look like a structural regression merely because that baseline predates the
+# fields.
+set(legacy_benchmark "${benchmark}")
+string(JSON baseline_count LENGTH "${legacy_benchmark}" baselines)
+math(EXPR last_baseline "${baseline_count} - 1")
+foreach(index RANGE 0 ${last_baseline})
+  foreach(counter IN ITEMS
+      snapshot_visited_records snapshot_copied_records
+      snapshot_rebuilt_draws snapshot_fully_rebuilt_tables)
+    string(JSON legacy_benchmark REMOVE "${legacy_benchmark}"
+           baselines ${index} counters "${counter}")
+  endforeach()
+endforeach()
+set(legacy_input "${MERLIN_COMPARISON_OUTPUT}.legacy-input.json")
+set(legacy_output "${MERLIN_COMPARISON_OUTPUT}.legacy.json")
+file(WRITE "${legacy_input}" "${legacy_benchmark}\n")
+execute_process(
+  COMMAND "${MERLIN_PYTHON}" "${MERLIN_COMPARE_SCRIPT}"
+          "${legacy_input}" "${MERLIN_BENCHMARK_OUTPUT}"
+          --output "${legacy_output}"
+  RESULT_VARIABLE legacy_result
+  OUTPUT_VARIABLE legacy_stdout
+  ERROR_VARIABLE legacy_error
+)
+if(NOT legacy_result EQUAL 0)
+  message(FATAL_ERROR
+    "legacy v3 baseline caused a false regression (${legacy_result}):\n"
+    "${legacy_stdout}\n${legacy_error}")
+endif()
+file(READ "${legacy_output}" legacy_comparison)
+string(JSON legacy_status GET "${legacy_comparison}" status)
+if(NOT legacy_status STREQUAL "pass")
+  message(FATAL_ERROR "legacy v3 comparison status is ${legacy_status}")
+endif()
+
 # Device image-memory requirements are implementation-dependent and must not
 # turn the default structural comparison into a cross-GPU false regression.
 string(JSON old_image_bytes GET "${benchmark}"

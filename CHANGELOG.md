@@ -22,6 +22,9 @@ after its public API and release process are established.
 - Localized geometry, material, instance, and light upserts now copy only the
   changed extraction records. Transform-only edits retain every draw record;
   visibility and material-binding edits rebuild only the dependent draw.
+- Vulkan command recording caches dense resource-index and draw views by
+  persistent-table identity, retaining constant-time hot-path lookup without
+  rebuilding the views on static frames.
 - Vulkan Mesh and image/sampler residency now skips table traversal for static
   snapshots, reconciles only dirty resources for continuous revisions, and
   falls back to full reconciliation for foreign, manually constructed, or

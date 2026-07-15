@@ -4,11 +4,13 @@
 #include <cassert>
 #include <algorithm>
 #include <stdexcept>
+#include <type_traits>
 
 namespace {
 
 void CheckPersistentTable() {
   merlin::extraction::PersistentTable<std::uint64_t> table;
+  static_assert(std::is_same_v<decltype(table[0]), const std::uint64_t&>);
   std::vector<std::uint64_t> expected;
   for (std::uint64_t value = 0; value < 512; ++value) {
     const auto index = expected.empty()
@@ -21,6 +23,25 @@ void CheckPersistentTable() {
   }
   assert(std::equal(table.begin(), table.end(), expected.begin(),
                     expected.end()));
+  auto reverse = table.end();
+  for (auto expected_value = expected.rbegin();
+       expected_value != expected.rend(); ++expected_value) {
+    --reverse;
+    assert(*reverse == *expected_value);
+  }
+  assert(reverse == table.begin());
+
+  merlin::extraction::PersistentTable<std::uint64_t> sorted;
+  for (std::uint64_t value = 0; value < 512; value += 2) {
+    sorted.push_back(value);
+  }
+  for (std::uint64_t value = 0; value <= 512; ++value) {
+    const auto index = sorted.lower_bound_index(
+        value, [](std::uint64_t record, std::uint64_t candidate) {
+          return record < candidate;
+        });
+    assert(index == std::min<std::size_t>((value + 1U) / 2U, sorted.size()));
+  }
 
   const auto previous = table;
   const auto shared_identity = table.record_identity(0);

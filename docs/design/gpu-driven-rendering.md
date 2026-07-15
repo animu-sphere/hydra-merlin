@@ -123,10 +123,14 @@ path an optimization rather than a correctness precondition.
 Snapshot resource and transient draw tables use immutable, balanced,
 structurally shared storage. A localized upsert allocates one replacement
 record and copies only its logarithmic tree path; unchanged record identities
-and subtrees remain shared by older snapshots. Transform-only edits do not
-touch draws, while visibility and material-binding edits replace only the
-dependent transient draw. Snapshot build evidence reports resource records
-visited/copied, draw decisions rebuilt, and any structural full-table fallback.
+and subtrees remain shared by older snapshots. Ordered iteration retains its
+tree path instead of searching again for every record. The backend caches dense
+resource index views and a contiguous draw view by table identity, preserving
+constant-time hot-path lookup without rebuilding those views on static frames.
+Transform-only edits do not touch draws, while visibility and material-binding
+edits replace only the dependent transient draw. Snapshot build evidence
+reports resource records visited/copied, draw decisions rebuilt, and any
+structural full-table fallback.
 Dense record indices still require that fallback for additions and removals;
 eliminating it remains part of v0.7.0 rather than prematurely assigning the
 persistent draw identity reserved for v0.10.0.

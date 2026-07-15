@@ -118,15 +118,14 @@ template <typename Table, typename HandleOf>
 std::optional<std::size_t> FindRecordIndex(const Table& table,
                                            std::uint64_t handle,
                                            HandleOf handle_of) {
-  const auto found = std::lower_bound(
-      table.begin(), table.end(), handle,
-      [&](const auto& record, std::uint64_t candidate) {
+  const auto found = table.lower_bound_index(
+      handle, [&](const auto& record, std::uint64_t candidate) {
         return handle_of(record) < candidate;
       });
-  if (found == table.end() || handle_of(*found) != handle) {
+  if (found == table.size() || handle_of(table[found]) != handle) {
     return std::nullopt;
   }
-  return static_cast<std::size_t>(found - table.begin());
+  return found;
 }
 
 template <typename Table, typename Entries, typename HandleOf,
@@ -347,22 +346,26 @@ class SceneExtractor::Impl {
       ++counters.copied_records;
       next.materials.replace(*index, std::move(record));
 
-      auto fallback = std::lower_bound(
-          next.material_fallbacks.begin(), next.material_fallbacks.end(), handle,
+      const auto fallback_index = next.material_fallbacks.lower_bound_index(
+          handle,
           [](const MaterialFallbackRecord& candidate, std::uint64_t value) {
             return candidate.material < value;
           });
+      auto fallback = next.material_fallbacks.begin() +
+                      static_cast<std::ptrdiff_t>(fallback_index);
       while (fallback != next.material_fallbacks.end() &&
              fallback->material == handle) {
         fallback = next.material_fallbacks.erase(fallback);
       }
       for (auto& replacement : fallbacks) {
-        const auto position = std::lower_bound(
-            next.material_fallbacks.begin(), next.material_fallbacks.end(),
-            std::tie(replacement.material, replacement.code),
+        const auto key = std::tie(replacement.material, replacement.code);
+        const auto position_index = next.material_fallbacks.lower_bound_index(
+            key,
             [](const MaterialFallbackRecord& candidate, const auto& key) {
               return std::tie(candidate.material, candidate.code) < key;
             });
+        const auto position = next.material_fallbacks.begin() +
+                              static_cast<std::ptrdiff_t>(position_index);
         next.material_fallbacks.insert(position, std::move(replacement));
         ++counters.copied_records;
       }
@@ -430,13 +433,15 @@ class SceneExtractor::Impl {
         const auto& record = previous.instances[*old_instance];
         const auto key =
             std::tuple{StableSortKey(record.material, record.mesh), handle};
-        const auto draw = std::lower_bound(
-            next.draws.begin(), next.draws.end(), key,
+        const auto draw_index = next.draws.lower_bound_index(
+            key,
             [](const DrawRecord& candidate, const auto& value) {
               return std::tie(candidate.sort_key, candidate.instance) < value;
             });
-        if (draw != next.draws.end() && draw->instance == handle) {
-          next.draws.erase(draw);
+        if (draw_index != next.draws.size() &&
+            next.draws[draw_index].instance == handle) {
+          next.draws.erase(next.draws.begin() +
+                           static_cast<std::ptrdiff_t>(draw_index));
         }
       }
 
@@ -444,17 +449,16 @@ class SceneExtractor::Impl {
           next.instances, handle,
           [](const InstanceRecord& record) { return record.instance; });
       if (instance) {
-        const auto& immutable_instances =
-            static_cast<const PersistentTable<InstanceRecord>&>(next.instances);
-        if (auto replacement =
-                BuildDraw(next, immutable_instances[*instance])) {
+        if (auto replacement = BuildDraw(next, next.instances[*instance])) {
           const auto key =
               std::tie(replacement->sort_key, replacement->instance);
-          const auto position = std::lower_bound(
-              next.draws.begin(), next.draws.end(), key,
+          const auto position_index = next.draws.lower_bound_index(
+              key,
               [](const DrawRecord& candidate, const auto& value) {
                 return std::tie(candidate.sort_key, candidate.instance) < value;
               });
+          const auto position = next.draws.begin() +
+                                static_cast<std::ptrdiff_t>(position_index);
           next.draws.insert(position, std::move(*replacement));
         }
       }

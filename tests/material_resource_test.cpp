@@ -153,8 +153,10 @@ int main(int argc, char** argv) {
   auto invalid_snapshot =
       std::make_shared<merlin::extraction::FrameSnapshot>(
           *extractor.snapshot());
-  invalid_snapshot->materials.front().base_color_texture->texture_index =
+  auto invalid_material = invalid_snapshot->materials.front();
+  invalid_material.base_color_texture->texture_index =
       static_cast<std::uint32_t>(invalid_snapshot->textures.size());
+  invalid_snapshot->materials.replace(0, std::move(invalid_material));
   abandoned.snapshot = std::move(invalid_snapshot);
   abandoned.width = 64;
   abandoned.height = 64;

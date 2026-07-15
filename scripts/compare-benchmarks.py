@@ -14,6 +14,12 @@ from pathlib import Path
 
 
 SCHEMA = "merlin-benchmark/v3"
+ADDITIVE_COUNTERS = {
+    "snapshot_visited_records",
+    "snapshot_copied_records",
+    "snapshot_rebuilt_draws",
+    "snapshot_fully_rebuilt_tables",
+}
 STABLE_COUNTERS = (
     "snapshot_visited_records",
     "snapshot_copied_records",
@@ -97,6 +103,7 @@ def indexed(report: dict) -> dict[str, dict]:
 def compare(baseline: dict, current: dict, timing_percent: float | None) -> dict:
     regressions: list[dict] = []
     notes: list[str] = []
+    unavailable_baseline_counters: set[str] = set()
     if baseline.get("fixture") != current.get("fixture"):
         regressions.append(
             {
@@ -148,6 +155,9 @@ def compare(baseline: dict, current: dict, timing_percent: float | None) -> dict
         for counter in STABLE_COUNTERS:
             old_value = old["counters"].get(counter)
             new_value = new["counters"].get(counter)
+            if old_value is None and counter in ADDITIVE_COUNTERS:
+                unavailable_baseline_counters.add(counter)
+                continue
             if old_value != new_value:
                 regressions.append(
                     {
@@ -187,6 +197,11 @@ def compare(baseline: dict, current: dict, timing_percent: float | None) -> dict
                     )
     if timing_percent is None:
         notes.append("timing thresholds disabled; structural checks only")
+    if unavailable_baseline_counters:
+        notes.append(
+            "baseline predates additive counters: "
+            + ", ".join(sorted(unavailable_baseline_counters))
+        )
     return {
         "schema": "merlin-benchmark-comparison/v1",
         "status": "regression" if regressions else "pass",

@@ -11,14 +11,15 @@
 
 namespace merlin::extraction {
 
-// Immutable, structurally shared random-access sequence. Updating one record
+// Immutable, structurally shared indexed sequence. Updating one record
 // allocates a new value and copies only the balanced-tree path to it; all other
 // records and subtrees remain shared with older table revisions.
 //
 // The vector-like surface is intentional: FrameSnapshot was originally
 // exposed with std::vector tables, so consumers can continue to use size(),
-// iteration, indexing, front(), and back(). Mutating operations use copy-on-
-// write and therefore never modify a table held by an older snapshot.
+// iteration, indexing, front(), and back(). Mutating operations replace whole
+// records and therefore never expose a reference that can modify a table held
+// by an older snapshot.
 template <typename T>
 class PersistentTable {
  private:
@@ -171,12 +172,12 @@ class PersistentTable {
   using size_type = std::size_t;
   using difference_type = std::ptrdiff_t;
   using const_reference = const T&;
-  using reference = T&;
+  using reference = const T&;
 
   class const_iterator {
    public:
-    using iterator_category = std::random_access_iterator_tag;
-    using iterator_concept = std::random_access_iterator_tag;
+    using iterator_category = std::bidirectional_iterator_tag;
+    using iterator_concept = std::bidirectional_iterator_tag;
     using value_type = T;
     using difference_type = std::ptrdiff_t;
     using pointer = const T*;
@@ -184,15 +185,36 @@ class PersistentTable {
 
     const_iterator() = default;
 
-    reference operator*() const { return At(root_, index_); }
-    pointer operator->() const { return &At(root_, index_); }
+    reference operator*() const { return Value(); }
+    pointer operator->() const { return &Value(); }
     reference operator[](difference_type offset) const {
       return At(root_, static_cast<size_type>(
                            static_cast<difference_type>(index_) + offset));
     }
 
     const_iterator& operator++() {
+      Locate();
       ++index_;
+      if (!current_) {
+        return *this;
+      }
+      if (current_->right) {
+        auto* next = current_->right.get();
+        path_.push_back(next);
+        while (next->left) {
+          next = next->left.get();
+          path_.push_back(next);
+        }
+        current_ = next;
+        return *this;
+      }
+      auto* child = current_;
+      path_.pop_back();
+      while (!path_.empty() && path_.back()->right.get() == child) {
+        child = path_.back();
+        path_.pop_back();
+      }
+      current_ = path_.empty() ? nullptr : path_.back();
       return *this;
     }
     const_iterator operator++(int) {
@@ -201,7 +223,37 @@ class PersistentTable {
       return copy;
     }
     const_iterator& operator--() {
+      if (index_ == SizeOf(root_)) {
+        --index_;
+        path_.clear();
+        auto* previous = root_.get();
+        while (previous) {
+          path_.push_back(previous);
+          previous = previous->right.get();
+        }
+        current_ = path_.back();
+        located_ = true;
+        return *this;
+      }
+      Locate();
       --index_;
+      if (current_->left) {
+        auto* previous = current_->left.get();
+        path_.push_back(previous);
+        while (previous->right) {
+          previous = previous->right.get();
+          path_.push_back(previous);
+        }
+        current_ = previous;
+        return *this;
+      }
+      auto* child = current_;
+      path_.pop_back();
+      while (!path_.empty() && path_.back()->left.get() == child) {
+        child = path_.back();
+        path_.pop_back();
+      }
+      current_ = path_.empty() ? nullptr : path_.back();
       return *this;
     }
     const_iterator operator--(int) {
@@ -210,8 +262,17 @@ class PersistentTable {
       return copy;
     }
     const_iterator& operator+=(difference_type offset) {
+      if (offset == 1) {
+        return ++*this;
+      }
+      if (offset == -1) {
+        return --*this;
+      }
       index_ = static_cast<size_type>(static_cast<difference_type>(index_) +
                                       offset);
+      path_.clear();
+      current_ = nullptr;
+      located_ = index_ >= SizeOf(root_);
       return *this;
     }
     const_iterator& operator-=(difference_type offset) {
@@ -262,10 +323,47 @@ class PersistentTable {
    private:
     friend class PersistentTable;
     const_iterator(NodePtr root, size_type index)
-        : root_(std::move(root)), index_(index) {}
+        : root_(std::move(root)),
+          index_(index),
+          located_(index >= SizeOf(root_)) {}
+
+    void Locate() const {
+      if (located_) {
+        return;
+      }
+      path_.clear();
+      auto remaining = index_;
+      current_ = root_.get();
+      while (current_) {
+        path_.push_back(current_);
+        const auto left_size = SizeOf(current_->left);
+        if (remaining < left_size) {
+          current_ = current_->left.get();
+        } else if (remaining > left_size) {
+          remaining -= left_size + 1U;
+          current_ = current_->right.get();
+        } else {
+          located_ = true;
+          return;
+        }
+      }
+      path_.clear();
+      located_ = true;
+    }
+
+    reference Value() const {
+      Locate();
+      if (!current_) {
+        throw std::out_of_range("PersistentTable iterator is out of range");
+      }
+      return *current_->value;
+    }
 
     NodePtr root_;
     size_type index_{};
+    mutable std::vector<const Node*> path_;
+    mutable const Node* current_{};
+    mutable bool located_{};
   };
 
   using iterator = const_iterator;
@@ -282,25 +380,30 @@ class PersistentTable {
 
   [[nodiscard]] bool empty() const noexcept { return !root_; }
   [[nodiscard]] size_type size() const noexcept { return SizeOf(root_); }
+  // A table copy keeps this identity; every structural mutation creates a new
+  // root. Consumers may therefore retain a dense view until identity changes.
+  [[nodiscard]] const void* table_identity() const noexcept {
+    return root_.get();
+  }
 
   const_reference operator[](size_type index) const { return At(root_, index); }
-  reference operator[](size_type index) { return Edit(index); }
+  const_reference operator[](size_type index) { return At(root_, index); }
   const_reference at(size_type index) const {
     if (index >= size()) {
       throw std::out_of_range("PersistentTable index is out of range");
     }
     return At(root_, index);
   }
-  reference at(size_type index) {
+  const_reference at(size_type index) {
     if (index >= size()) {
       throw std::out_of_range("PersistentTable index is out of range");
     }
-    return Edit(index);
+    return At(root_, index);
   }
   const_reference front() const { return At(root_, 0U); }
-  reference front() { return Edit(0U); }
+  const_reference front() { return At(root_, 0U); }
   const_reference back() const { return At(root_, size() - 1U); }
-  reference back() { return Edit(size() - 1U); }
+  const_reference back() { return At(root_, size() - 1U); }
 
   const_iterator begin() const noexcept { return {root_, 0U}; }
   const_iterator end() const noexcept { return {root_, size()}; }
@@ -325,9 +428,29 @@ class PersistentTable {
   void push_back(T&& value) { insert(end(), std::move(value)); }
 
   template <typename... Args>
-  reference emplace_back(Args&&... args) {
+  const_reference emplace_back(Args&&... args) {
     push_back(T(std::forward<Args>(args)...));
     return back();
+  }
+
+  template <typename Key, typename Compare>
+  [[nodiscard]] size_type lower_bound_index(const Key& key,
+                                             Compare compare) const {
+    auto current = root_;
+    size_type offset{};
+    auto result = size();
+    while (current) {
+      const auto left_size = SizeOf(current->left);
+      const auto current_index = offset + left_size;
+      if (compare(*current->value, key)) {
+        offset = current_index + 1U;
+        current = current->right;
+      } else {
+        result = current_index;
+        current = current->left;
+      }
+    }
+    return result;
   }
 
   iterator insert(const_iterator position, const T& value) {
@@ -361,16 +484,6 @@ class PersistentTable {
   }
 
  private:
-  reference Edit(size_type index) {
-    if (index >= size()) {
-      throw std::out_of_range("PersistentTable index is out of range");
-    }
-    auto value = std::make_shared<T>(At(root_, index));
-    auto* edited = value.get();
-    root_ = Replace(root_, index, std::move(value));
-    return *edited;
-  }
-
   iterator InsertValue(const_iterator position, ValuePtr value) {
     const auto index = std::min(position.index_, size());
     root_ = Insert(root_, index, std::move(value));
