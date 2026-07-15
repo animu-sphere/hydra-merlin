@@ -206,6 +206,10 @@ void WriteMetadata(const std::filesystem::path& path,
          << descriptor_selection.texture_capacity
          << ",\n      \"sampler_capacity\": "
          << descriptor_selection.sampler_capacity
+         << ",\n      \"additional_sampler_allocation_count\": "
+         << descriptor_selection.additional_sampler_allocation_count
+         << ",\n      \"additional_per_stage_resource_count\": "
+         << descriptor_selection.additional_per_stage_resource_count
          << ",\n      \"features\": {\n"
          << "        \"shader_sampled_image_array_non_uniform_indexing\": "
          << (descriptor_features
@@ -241,6 +245,8 @@ void WriteMetadata(const std::filesystem::path& path,
          << descriptor_limits.max_descriptor_set_update_after_bind_samplers
          << ",\n        \"max_descriptor_set_update_after_bind_sampled_images\": "
          << descriptor_limits.max_descriptor_set_update_after_bind_sampled_images
+         << ",\n        \"max_sampler_allocation_count\": "
+         << descriptor_limits.max_sampler_allocation_count
          << "\n      }\n    }\n  }\n}\n";
   if (!stream) {
     throw std::runtime_error("could not write metadata: " + path.string());

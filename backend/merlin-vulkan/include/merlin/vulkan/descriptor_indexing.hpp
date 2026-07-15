@@ -36,6 +36,7 @@ enum class DescriptorFallbackReason {
   FeatureVariableDescriptorCountMissing,
   FeatureRuntimeDescriptorArrayMissing,
   LimitAllPoolsInsufficient,
+  LimitSamplerAllocationCountInsufficient,
   LimitPerStageSamplersInsufficient,
   LimitPerStageSampledImagesInsufficient,
   LimitPerStageResourcesInsufficient,
@@ -69,12 +70,19 @@ struct DescriptorIndexingLimits {
   std::uint32_t max_per_stage_update_after_bind_resources{};
   std::uint32_t max_descriptor_set_update_after_bind_samplers{};
   std::uint32_t max_descriptor_set_update_after_bind_sampled_images{};
+  std::uint32_t max_sampler_allocation_count{};
 };
 
 struct DescriptorIndexingConfiguration {
   DescriptorBackendRequest request{DescriptorBackendRequest::Automatic};
   std::uint32_t texture_capacity{4096};
   std::uint32_t sampler_capacity{256};
+  // Sampler objects that can coexist outside the live table, including
+  // completion-delayed versions retained for in-flight frames.
+  std::uint64_t additional_sampler_allocation_count{};
+  // Resources in addition to the bindless sampled-image table, excluding
+  // standalone samplers and including fragment color attachments.
+  std::uint32_t additional_per_stage_resource_count{};
 };
 
 struct DescriptorIndexingSelection {
@@ -85,6 +93,8 @@ struct DescriptorIndexingSelection {
   DescriptorFallbackReason fallback_reason{DescriptorFallbackReason::None};
   std::uint32_t texture_capacity{};
   std::uint32_t sampler_capacity{};
+  std::uint64_t additional_sampler_allocation_count{};
+  std::uint32_t additional_per_stage_resource_count{};
   // True when the configured table sizes satisfy every required feature and
   // limit, independent of a configuration-forced conventional selection.
   bool requirements_satisfied{};

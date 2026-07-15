@@ -20,7 +20,7 @@ DescriptorIndexingFeatures FullFeatures() {
 }
 
 DescriptorIndexingLimits FullLimits() {
-  return {8192, 1024, 8192, 9216, 1024, 8192};
+  return {8192, 1024, 8192, 8192, 1024, 8192, 1024};
 }
 
 void ExpectFallback(const DescriptorIndexingConfiguration& configuration,
@@ -106,8 +106,52 @@ int main() {
                  DescriptorFallbackReason::ConfigurationSamplerCapacityInvalid,
                  DescriptorFallbackCategory::Configuration);
 
+  // Standalone sampler descriptors have their own per-stage limit and do not
+  // consume maxPerStageResources.
+  auto sampler_excluded = limits;
+  sampler_excluded.max_per_stage_update_after_bind_resources =
+      configuration.texture_capacity;
+  const auto sampler_excluded_selection =
+      merlin::vulkan::SelectDescriptorBackend(configuration, features,
+                                               sampler_excluded);
+  assert(sampler_excluded_selection.selected_backend ==
+         DescriptorBackend::Bindless);
+
+  auto resource_overhead = configuration;
+  resource_overhead.additional_per_stage_resource_count = 4;
+  auto overhead_limit = limits;
+  overhead_limit.max_per_stage_update_after_bind_resources =
+      resource_overhead.texture_capacity +
+      resource_overhead.additional_per_stage_resource_count - 1;
+  ExpectFallback(resource_overhead, features, overhead_limit,
+                 DescriptorFallbackReason::LimitPerStageResourcesInsufficient,
+                 DescriptorFallbackCategory::Limit);
+  ++overhead_limit.max_per_stage_update_after_bind_resources;
+  const auto exact_resource_limit = merlin::vulkan::SelectDescriptorBackend(
+      resource_overhead, features, overhead_limit);
+  assert(exact_resource_limit.selected_backend == DescriptorBackend::Bindless);
+
+  auto retained_samplers = configuration;
+  retained_samplers.additional_sampler_allocation_count = 768;
+  auto sampler_allocation_limit = limits;
+  sampler_allocation_limit.max_sampler_allocation_count =
+      static_cast<std::uint32_t>(
+          retained_samplers.sampler_capacity +
+          retained_samplers.additional_sampler_allocation_count - 1);
+  ExpectFallback(
+      retained_samplers, features, sampler_allocation_limit,
+      DescriptorFallbackReason::LimitSamplerAllocationCountInsufficient,
+      DescriptorFallbackCategory::Limit);
+  ++sampler_allocation_limit.max_sampler_allocation_count;
+  const auto exact_sampler_allocation_limit =
+      merlin::vulkan::SelectDescriptorBackend(
+          retained_samplers, features, sampler_allocation_limit);
+  assert(exact_sampler_allocation_limit.selected_backend ==
+         DescriptorBackend::Bindless);
+
   const std::array limit_failures{
       DescriptorFallbackReason::LimitAllPoolsInsufficient,
+      DescriptorFallbackReason::LimitSamplerAllocationCountInsufficient,
       DescriptorFallbackReason::LimitPerStageSamplersInsufficient,
       DescriptorFallbackReason::LimitPerStageSampledImagesInsufficient,
       DescriptorFallbackReason::LimitPerStageResourcesInsufficient,
@@ -116,6 +160,7 @@ int main() {
   };
   const std::array limit_members{
       &DescriptorIndexingLimits::max_update_after_bind_descriptors_in_all_pools,
+      &DescriptorIndexingLimits::max_sampler_allocation_count,
       &DescriptorIndexingLimits::
           max_per_stage_descriptor_update_after_bind_samplers,
       &DescriptorIndexingLimits::

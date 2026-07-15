@@ -39,6 +39,12 @@ DescriptorFallbackReason FindRequirementFailure(
       total_descriptors) {
     return DescriptorFallbackReason::LimitAllPoolsInsufficient;
   }
+  const auto required_sampler_allocations =
+      static_cast<std::uint64_t>(configuration.sampler_capacity) +
+      configuration.additional_sampler_allocation_count;
+  if (limits.max_sampler_allocation_count < required_sampler_allocations) {
+    return DescriptorFallbackReason::LimitSamplerAllocationCountInsufficient;
+  }
   if (limits.max_per_stage_descriptor_update_after_bind_samplers <
       configuration.sampler_capacity) {
     return DescriptorFallbackReason::LimitPerStageSamplersInsufficient;
@@ -47,7 +53,13 @@ DescriptorFallbackReason FindRequirementFailure(
       configuration.texture_capacity) {
     return DescriptorFallbackReason::LimitPerStageSampledImagesInsufficient;
   }
-  if (limits.max_per_stage_update_after_bind_resources < total_descriptors) {
+  // Standalone VK_DESCRIPTOR_TYPE_SAMPLER descriptors do not count against
+  // maxPerStageResources. Sampled images, other resource descriptors, and
+  // fragment color attachments do.
+  const auto per_stage_resources =
+      static_cast<std::uint64_t>(configuration.texture_capacity) +
+      configuration.additional_per_stage_resource_count;
+  if (limits.max_per_stage_update_after_bind_resources < per_stage_resources) {
     return DescriptorFallbackReason::LimitPerStageResourcesInsufficient;
   }
   if (limits.max_descriptor_set_update_after_bind_samplers <
@@ -116,6 +128,8 @@ std::string_view DescriptorFallbackReasonName(
       return "feature-runtime-descriptor-array-missing";
     case DescriptorFallbackReason::LimitAllPoolsInsufficient:
       return "limit-all-pools-insufficient";
+    case DescriptorFallbackReason::LimitSamplerAllocationCountInsufficient:
+      return "limit-sampler-allocation-count-insufficient";
     case DescriptorFallbackReason::LimitPerStageSamplersInsufficient:
       return "limit-per-stage-samplers-insufficient";
     case DescriptorFallbackReason::LimitPerStageSampledImagesInsufficient:
@@ -148,6 +162,7 @@ DescriptorFallbackCategory DescriptorFallbackReasonCategory(
     case DescriptorFallbackReason::FeatureRuntimeDescriptorArrayMissing:
       return DescriptorFallbackCategory::Feature;
     case DescriptorFallbackReason::LimitAllPoolsInsufficient:
+    case DescriptorFallbackReason::LimitSamplerAllocationCountInsufficient:
     case DescriptorFallbackReason::LimitPerStageSamplersInsufficient:
     case DescriptorFallbackReason::LimitPerStageSampledImagesInsufficient:
     case DescriptorFallbackReason::LimitPerStageResourcesInsufficient:
@@ -167,6 +182,10 @@ DescriptorIndexingSelection SelectDescriptorBackend(
   selection.requested_backend = configuration.request;
   selection.texture_capacity = configuration.texture_capacity;
   selection.sampler_capacity = configuration.sampler_capacity;
+  selection.additional_sampler_allocation_count =
+      configuration.additional_sampler_allocation_count;
+  selection.additional_per_stage_resource_count =
+      configuration.additional_per_stage_resource_count;
 
   const auto failure = FindRequirementFailure(configuration, features, limits);
   selection.requirements_satisfied = failure == DescriptorFallbackReason::None;

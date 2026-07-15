@@ -1203,6 +1203,7 @@ class Renderer::Impl {
         descriptor_properties.maxPerStageUpdateAfterBindResources,
         descriptor_properties.maxDescriptorSetUpdateAfterBindSamplers,
         descriptor_properties.maxDescriptorSetUpdateAfterBindSampledImages,
+        properties.properties.limits.maxSamplerAllocationCount,
     };
 
     // The bindless Forward implementation is introduced after this negotiation
@@ -1210,6 +1211,13 @@ class Renderer::Impl {
     // while still reporting whether the configured future table sizes fit.
     DescriptorIndexingConfiguration descriptor_configuration;
     descriptor_configuration.request = DescriptorBackendRequest::Conventional;
+    descriptor_configuration.additional_sampler_allocation_count =
+        static_cast<std::uint64_t>(descriptor_configuration.sampler_capacity) *
+        options.frames_in_flight;
+    // The current Forward fragment stage exposes three color attachments and
+    // one non-table uniform-buffer descriptor. Standalone sampler descriptors
+    // are excluded from maxPerStageResources by Vulkan.
+    descriptor_configuration.additional_per_stage_resource_count = 4;
     capabilities_.descriptor_indexing_selection = SelectDescriptorBackend(
         descriptor_configuration, capabilities_.descriptor_indexing_features,
         capabilities_.descriptor_indexing_limits);
