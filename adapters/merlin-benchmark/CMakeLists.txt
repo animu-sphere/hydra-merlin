@@ -61,6 +61,12 @@ add_custom_command(TARGET merlin-benchmark POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${MERLIN_FRAGMENT_SPV}"
           "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/triangle.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MERLIN_BINDLESS_VERTEX_SPV}"
+          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/triangle.bindless.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/triangle.bindless.frag.spv"
   VERBATIM
 )
 

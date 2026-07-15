@@ -66,6 +66,8 @@ STABLE_COUNTERS = (
     "descriptor_pool_creation_count",
     "descriptor_allocation_count",
     "descriptor_update_count",
+    "bindless_sampled_image_descriptor_update_count",
+    "bindless_sampler_descriptor_update_count",
 )
 
 

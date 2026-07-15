@@ -475,14 +475,23 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
   WriteCounter(stream, counter_indent, "descriptor_allocation_count",
                count.descriptor_allocation_count);
   WriteCounter(stream, counter_indent, "descriptor_update_count",
-               count.descriptor_update_count, true);
+               count.descriptor_update_count);
+  WriteCounter(stream, counter_indent,
+               "bindless_sampled_image_descriptor_update_count",
+               count.bindless_sampled_image_descriptor_update_count);
+  WriteCounter(stream, counter_indent,
+               "bindless_sampler_descriptor_update_count",
+               count.bindless_sampler_descriptor_update_count, true);
   stream << indent << "  }\n" << indent << '}';
 }
 
 void WriteJson(std::ostream& stream, const Arguments& arguments,
                const FixtureSummary& fixture,
                const merlin::vulkan::RendererCapabilities& capabilities,
+               const merlin::vulkan::RendererStatistics& statistics,
                const std::vector<Baseline>& baselines) {
+  const auto& textures = statistics.bindless_texture_slots;
+  const auto& samplers = statistics.bindless_samplers;
   stream << "{\n  \"schema\": \"merlin-benchmark/v3\",\n"
          << "  \"environment\": {\n    \"commit\": ";
   JsonString(stream, MERLIN_BENCHMARK_COMMIT);
@@ -512,6 +521,60 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
          << ",\n    \"triangle_count\": " << fixture.triangle_count
          << ",\n    \"resolution\": {\n      \"width\": " << arguments.width
          << ",\n      \"height\": " << arguments.height
+         << "\n    }\n  },\n  \"residency\": {\n"
+         << "    \"descriptor_backend\": ";
+  JsonString(stream, merlin::vulkan::DescriptorBackendName(
+                         capabilities.descriptor_indexing_selection
+                             .selected_backend));
+  stream << ",\n    \"descriptor_fallback_reason\": ";
+  JsonString(stream, merlin::vulkan::DescriptorFallbackReasonName(
+                         capabilities.descriptor_indexing_selection
+                             .fallback_reason));
+  stream << ",\n    \"bindless_resource_tables\": "
+         << (statistics.bindless_resource_tables ? "true" : "false")
+         << ",\n    \"textures\": {\n"
+         << "      \"capacity\": " << textures.capacity
+         << ",\n      \"reserved\": " << textures.reserved_slots
+         << ",\n      \"current\": " << textures.current_use
+         << ",\n      \"peak\": " << textures.peak_use
+         << ",\n      \"retiring\": " << textures.retiring_slots
+         << ",\n      \"available\": " << textures.available_slots
+         << ",\n      \"allocations\": " << textures.allocation_count
+         << ",\n      \"reuses\": " << textures.reuse_count
+         << ",\n      \"retirements\": " << textures.retirement_count
+         << ",\n      \"retirement_collections\": "
+         << textures.retirement_collection_count
+         << ",\n      \"descriptor_updates\": "
+         << textures.descriptor_update_count
+         << ",\n      \"exhaustions\": " << textures.exhaustion_count
+         << ",\n      \"generation_mismatches\": "
+         << textures.generation_mismatch_count
+         << "\n    },\n    \"samplers\": {\n"
+         << "      \"capacity\": " << samplers.slots.capacity
+         << ",\n      \"current\": " << samplers.slots.current_use
+         << ",\n      \"peak\": " << samplers.slots.peak_use
+         << ",\n      \"retiring\": " << samplers.slots.retiring_slots
+         << ",\n      \"available\": " << samplers.slots.available_slots
+         << ",\n      \"allocations\": "
+         << samplers.slots.allocation_count
+         << ",\n      \"reuses\": " << samplers.slots.reuse_count
+         << ",\n      \"retirements\": "
+         << samplers.slots.retirement_count
+         << ",\n      \"retirement_collections\": "
+         << samplers.slots.retirement_collection_count
+         << ",\n      \"descriptor_updates\": "
+         << samplers.slots.descriptor_update_count
+         << ",\n      \"exhaustions\": "
+         << samplers.slots.exhaustion_count
+         << ",\n      \"generation_mismatches\": "
+         << samplers.slots.generation_mismatch_count
+         << ",\n      \"unique\": " << samplers.unique_sampler_count
+         << ",\n      \"current_references\": "
+         << samplers.current_reference_count
+         << ",\n      \"peak_references\": "
+         << samplers.peak_reference_count
+         << ",\n      \"deduplication_hits\": "
+         << samplers.deduplication_hit_count
          << "\n    }\n  },\n  \"baselines\": [\n";
   for (std::size_t index = 0; index < baselines.size(); ++index) {
     WriteBaseline(stream, baselines[index], "    ");
@@ -548,9 +611,15 @@ void AssertStatic(const merlin::vulkan::FrameCounters& counters) {
   if (counters.upload_bytes != 0 || counters.allocation_count != 0 ||
       counters.pipeline_creation_count != 0 ||
       counters.shader_module_cache_misses != 0 ||
-      counters.geometry_cache_misses != 0) {
+      counters.geometry_cache_misses != 0 ||
+      counters.descriptor_pool_creation_count != 0 ||
+      counters.descriptor_allocation_count != 0 ||
+      counters.descriptor_update_count != 0 ||
+      counters.bindless_sampled_image_descriptor_update_count != 0 ||
+      counters.bindless_sampler_descriptor_update_count != 0) {
     throw std::runtime_error(
-        "static frame performed upload/allocation/shader/pipeline/geometry work");
+        "static frame performed upload/allocation/shader/pipeline/geometry/"
+        "descriptor work");
   }
 }
 
@@ -562,7 +631,9 @@ int main(int argc, char** argv) {
     const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
     const merlin::vulkan::ShaderPaths shaders{
         executable_dir / "shaders" / "triangle.vert.spv",
-        executable_dir / "shaders" / "triangle.frag.spv"};
+        executable_dir / "shaders" / "triangle.frag.spv",
+        executable_dir / "shaders" / "triangle.bindless.vert.spv",
+        executable_dir / "shaders" / "triangle.bindless.frag.spv"};
     merlin::vulkan::Renderer renderer;
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;
@@ -723,7 +794,7 @@ int main(int argc, char** argv) {
 
     if (arguments.output.empty()) {
       WriteJson(std::cout, arguments, fixture_summary, renderer.capabilities(),
-                baselines);
+                renderer.statistics(), baselines);
     } else {
       if (arguments.output.has_parent_path()) {
         std::filesystem::create_directories(arguments.output.parent_path());
@@ -734,7 +805,7 @@ int main(int argc, char** argv) {
                                  arguments.output.string());
       }
       WriteJson(stream, arguments, fixture_summary, renderer.capabilities(),
-                baselines);
+                renderer.statistics(), baselines);
       if (!stream) {
         throw std::runtime_error("could not write output: " +
                                  arguments.output.string());

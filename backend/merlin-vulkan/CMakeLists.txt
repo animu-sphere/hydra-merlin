@@ -45,6 +45,10 @@ target_compile_definitions(merlin-vulkan PRIVATE
 set(MERLIN_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 set(MERLIN_VERTEX_SPV "${MERLIN_SHADER_OUTPUT_DIR}/triangle.vert.spv")
 set(MERLIN_FRAGMENT_SPV "${MERLIN_SHADER_OUTPUT_DIR}/triangle.frag.spv")
+set(MERLIN_BINDLESS_VERTEX_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/triangle.bindless.vert.spv")
+set(MERLIN_BINDLESS_FRAGMENT_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/triangle.bindless.frag.spv")
 
 add_custom_command(
   OUTPUT "${MERLIN_VERTEX_SPV}"
@@ -66,9 +70,36 @@ add_custom_command(
   VERBATIM
 )
 
+add_custom_command(
+  OUTPUT "${MERLIN_BINDLESS_VERTEX_SPV}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${MERLIN_SHADER_OUTPUT_DIR}"
+  COMMAND Vulkan::glslc -fshader-stage=vert
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/triangle.bindless.vert"
+          -o "${MERLIN_BINDLESS_VERTEX_SPV}"
+  DEPENDS shaders/triangle.bindless.vert
+  VERBATIM
+)
+
+add_custom_command(
+  OUTPUT "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${MERLIN_SHADER_OUTPUT_DIR}"
+  COMMAND Vulkan::glslc -fshader-stage=frag
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/triangle.bindless.frag"
+          -o "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+  DEPENDS shaders/triangle.bindless.frag
+  VERBATIM
+)
+
 add_custom_target(merlin-vulkan-shaders
-  DEPENDS "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
+  DEPENDS
+    "${MERLIN_VERTEX_SPV}"
+    "${MERLIN_FRAGMENT_SPV}"
+    "${MERLIN_BINDLESS_VERTEX_SPV}"
+    "${MERLIN_BINDLESS_FRAGMENT_SPV}"
 )
 
 set(MERLIN_VERTEX_SPV "${MERLIN_VERTEX_SPV}" PARENT_SCOPE)
 set(MERLIN_FRAGMENT_SPV "${MERLIN_FRAGMENT_SPV}" PARENT_SCOPE)
+set(MERLIN_BINDLESS_VERTEX_SPV "${MERLIN_BINDLESS_VERTEX_SPV}" PARENT_SCOPE)
+set(MERLIN_BINDLESS_FRAGMENT_SPV
+    "${MERLIN_BINDLESS_FRAGMENT_SPV}" PARENT_SCOPE)

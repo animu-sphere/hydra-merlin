@@ -40,7 +40,9 @@ int main(int argc, char** argv) {
   }
   const std::filesystem::path shader_dir = argv[1];
   const merlin::vulkan::ShaderPaths shaders{
-      shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
+      shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
+      shader_dir / "triangle.bindless.vert.spv",
+      shader_dir / "triangle.bindless.frag.spv"};
 
   std::optional<merlin::vulkan::Renderer> renderer;
   try {
@@ -82,6 +84,8 @@ int main(int argc, char** argv) {
   auto missing_shader = first;
   missing_shader.shaders.vertex =
       shader_dir / "missing-for-error-classification.vert.spv";
+  missing_shader.shaders.bindless_vertex =
+      shader_dir / "missing-for-error-classification.bindless.vert.spv";
   bool classified_missing_shader{};
   try {
     (void)renderer->Submit(missing_shader);

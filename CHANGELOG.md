@@ -16,6 +16,13 @@ after its public API and release process are established.
 - Structurally shared `FrameSnapshot` resource and draw tables with copy-on-
   write record replacement, immutable older revisions, and machine-readable
   visited/copied record, rebuilt-draw, and full-rebuild fallback counters.
+- Vulkan-facing bindless sampled-image and deduplicated-sampler residency with
+  finite generation-checked slots, materialized white/black/flat-normal/error
+  images, dirty-only descriptor writes, completion-safe replacement, and
+  current/peak/capacity/retirement telemetry in benchmark evidence.
+- A non-uniform-indexed bindless Forward shader path with one global resource
+  set and one persistent dynamic-material set per frame context, plus exact
+  color/depth/primId/instanceId parity coverage against conventional Forward.
 
 ### Changed
 
@@ -31,6 +38,9 @@ after its public API and release process are established.
   revision-skipping snapshots.
 - Pending texture upload commit/abandon handling now visits only textures
   touched by the submission instead of every resident texture.
+- Descriptor-indexing-capable devices automatically select bindless Forward;
+  configuration, feature, or limit failures retain conventional Forward with a
+  machine-readable fallback reason.
 
 ## [0.6.0] - 2026-07-15
 

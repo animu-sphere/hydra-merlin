@@ -15,20 +15,21 @@ stable across frames.
 
 v0.6.0 established locator-aware Hydra ingestion, resource-granular revisions,
 changed ranges, and safe partial upload. v0.7.0 work has since completed
-persistent snapshot construction and descriptor-indexing negotiation. The
-remaining work connects bindless resource identity and measured GPU residency
-on top of those contracts.
+persistent snapshot construction, descriptor-indexing negotiation, and the
+Vulkan-facing texture/sampler residency foundation: finite generation-checked
+slots, reserved fallback images, dirty-only global descriptor writes,
+deduplicated samplers, completion-safe replacement, and benchmark telemetry.
+Negotiated devices now activate those tables through a non-uniform-indexed
+Forward path with exact conventional-path image parity; warmed static frames do
+zero descriptor allocation or update. The remaining work completes measured
+arena, transfer, memory-budget, and scale evidence.
 
-#### 1. Bindless texture and sampler tables
+#### 1. Bindless release evidence
 
-- Connect texture/sampler residency to the finite logical tables so unchanged
-  resources retain their descriptor indices and changed resources receive
-  completion-safe replacement slots.
-- Materialize the reserved white, black, flat-normal, and error images; write
-  only dirty sampled-image/sampler descriptors; and destroy replaced Vulkan
-  resources only after their table retirement becomes collectable.
-- Add a non-uniform-indexed bindless Forward shader path while retaining the
-  conventional descriptor implementation as the correctness fallback.
+- Retain conventional/bindless parity across the release image corpus and add
+  localized texture/sampler edit scaling to the million-prim evidence.
+- Record explicit automatic and forced-conventional selection artifacts on the
+  supported GPU profiles, including actionable capacity exhaustion behavior.
 
 #### 2. Residency, transfer, and memory budget
 
@@ -42,11 +43,10 @@ on top of those contracts.
 
 #### 3. Validation and release evidence
 
-- Cover reserved-image materialization, dirty Vulkan descriptor writes,
-  non-uniform indexing, partially-bound descriptors, and in-flight
-  replacement.
-- Retain conventional/bindless image parity, one-million-prim localized-edit
-  scaling, steady-state zero-work, fallback selection, and VRAM evidence.
+- Retain reserved-image, dirty-write, partially-bound, non-uniform indexing,
+  in-flight replacement, conventional/bindless image parity, one-million-prim
+  localized-edit scaling, steady-state zero-work, fallback selection, and VRAM
+  evidence.
 
 #### Scope boundary
 

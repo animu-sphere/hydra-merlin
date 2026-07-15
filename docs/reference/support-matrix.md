@@ -48,7 +48,7 @@ responsibility.
 | Explicit submit/completion/timeout-aware resolve | Available |
 | Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Available for color, depth, and primId |
-| Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
+| Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, bindless residency telemetry, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
 | Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes |
 | Core/Vulkan installed CMake targets | Available |
 | Versioned dependency and package metadata | Available as installed JSON |
@@ -56,7 +56,8 @@ responsibility.
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Hydra native and nested instancing | Available |
-| Bindless resource tables and common GPU Scene ABI | Planned for v0.7.0/v0.10.0; the current Forward path uses conventional per-frame descriptors and remains the fallback |
+| Bindless texture/sampler residency | Finite generation-checked tables, reserved fallback images, dirty Vulkan descriptor writes, deduplicated samplers, completion-safe replacement, and telemetry are available on negotiated devices |
+| Bindless Forward and common GPU Scene ABI | Non-uniform-indexed Forward is automatically selected after feature/limit negotiation and has exact conventional-path image parity coverage; complete geometry/material/instance/draw tables remain planned for v0.10.0, and conventional Forward remains the fallback |
 | GPU-driven indexed Mesh submission | Planned for v0.11.0; current Mesh submission is not claimed to have draw-count-independent CPU cost |
 | Opaque Visibility Buffer | Planned experimental path for v0.12.0; current shading is Forward |
 | Static meshlet indexed-indirect rendering | Planned for v0.15.0 from standard Hydra mesh data; no custom USD schema is planned |

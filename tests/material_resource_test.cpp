@@ -44,7 +44,9 @@ int main(int argc, char** argv) {
   }
   const std::filesystem::path shader_dir = argv[1];
   const merlin::vulkan::ShaderPaths shaders{
-      shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
+      shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
+      shader_dir / "triangle.bindless.vert.spv",
+      shader_dir / "triangle.bindless.frag.spv"};
 
   std::optional<merlin::vulkan::Renderer> renderer;
   try {
@@ -98,6 +100,23 @@ int main(int argc, char** argv) {
   world.CreateInstance(instance);
 
   const auto first = render();
+  if (renderer->capabilities().descriptor_indexing_selection.selected_backend ==
+      merlin::vulkan::DescriptorBackend::Bindless) {
+    merlin::vulkan::RendererOptions reference_options{true};
+    reference_options.descriptor_backend =
+        merlin::vulkan::DescriptorBackendRequest::Conventional;
+    merlin::vulkan::Renderer reference_renderer(reference_options);
+    assert(reference_renderer.capabilities()
+               .descriptor_indexing_selection.selected_backend ==
+           merlin::vulkan::DescriptorBackend::Conventional);
+    const auto reference = reference_renderer.Render(
+        *extractor.snapshot(), 64, 64, shaders);
+    assert(first.color.pixels == reference.color.pixels);
+    assert(first.depth.pixels == reference.depth.pixels);
+    assert(first.prim_id.pixels == reference.prim_id.pixels);
+    assert(first.instance_id.pixels == reference.instance_id.pixels);
+    assert(reference_renderer.statistics().validation_messages == 0);
+  }
   const auto geometry_bytes =
       mesh.positions.size() * sizeof(merlin::extraction::DrawVertex) +
       mesh.indices.size() * sizeof(std::uint32_t);

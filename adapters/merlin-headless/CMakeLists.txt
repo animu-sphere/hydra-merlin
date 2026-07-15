@@ -19,6 +19,12 @@ add_custom_command(TARGET merlin-headless POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${MERLIN_FRAGMENT_SPV}"
           "$<TARGET_FILE_DIR:merlin-headless>/shaders/triangle.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MERLIN_BINDLESS_VERTEX_SPV}"
+          "$<TARGET_FILE_DIR:merlin-headless>/shaders/triangle.bindless.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+          "$<TARGET_FILE_DIR:merlin-headless>/shaders/triangle.bindless.frag.spv"
   VERBATIM
 )
 
@@ -35,6 +41,10 @@ endif()
 install(TARGETS merlin-headless
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
-install(FILES "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
+install(FILES
+  "${MERLIN_VERTEX_SPV}"
+  "${MERLIN_FRAGMENT_SPV}"
+  "${MERLIN_BINDLESS_VERTEX_SPV}"
+  "${MERLIN_BINDLESS_FRAGMENT_SPV}"
   DESTINATION "${CMAKE_INSTALL_BINDIR}/shaders"
 )

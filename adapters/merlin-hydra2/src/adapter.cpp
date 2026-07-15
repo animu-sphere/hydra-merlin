@@ -1387,7 +1387,9 @@ class SceneBridge {
     }
     const auto shader_dir = PluginDirectory() / "shaders";
     const merlin::vulkan::ShaderPaths shaders{
-        shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv"};
+        shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
+        shader_dir / "triangle.bindless.vert.spv",
+        shader_dir / "triangle.bindless.frag.spv"};
     const auto snapshot = extractor_.snapshot();
     const auto snapshot_build_counters =
         changes.empty() ? merlin::extraction::SnapshotBuildCounters{}
@@ -1615,6 +1617,11 @@ class SceneBridge {
                << result.counters.descriptor_allocation_count
                << " descriptor_update_count="
                << result.counters.descriptor_update_count
+               << " bindless_sampled_image_descriptor_update_count="
+               << result.counters
+                      .bindless_sampled_image_descriptor_update_count
+               << " bindless_sampler_descriptor_update_count="
+               << result.counters.bindless_sampler_descriptor_update_count
                << " geometry_reconcile_count="
                << result.counters.geometry_reconcile_count
                << " texture_reconcile_count="

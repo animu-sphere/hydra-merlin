@@ -526,7 +526,9 @@ int main(int argc, char** argv) {
       const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
       const merlin::vulkan::ShaderPaths shaders{
           executable_dir / "shaders" / "triangle.vert.spv",
-          executable_dir / "shaders" / "triangle.frag.spv"};
+          executable_dir / "shaders" / "triangle.frag.spv",
+          executable_dir / "shaders" / "triangle.bindless.vert.spv",
+          executable_dir / "shaders" / "triangle.bindless.frag.spv"};
       merlin::vulkan::RenderRequest request;
       request.snapshot = extractor.snapshot();
       request.width = arguments.width;
