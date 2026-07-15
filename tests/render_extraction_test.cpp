@@ -31,6 +31,12 @@ int main() {
   extractor.Apply(world, world.Commit());
   const auto first = extractor.snapshot();
   assert(first->revision == 1);
+  assert(first->source_id != 0);
+  assert(first->delta.has_value());
+  assert(first->delta->base_revision == 0);
+  assert(first->delta->geometries.upserts ==
+         std::vector<std::uint64_t>{mesh_handle.value()});
+  assert(first->delta->instances.upserts.size() == 2);
 
   // Two instances share one mesh: geometry is recorded once and referenced by
   // both draw records.
@@ -72,6 +78,12 @@ int main() {
   extractor.Apply(world, world.Commit());
   const auto transformed = extractor.snapshot();
   assert(transformed->revision == 2);
+  assert(transformed->source_id == first->source_id);
+  assert(transformed->delta->base_revision == first->revision);
+  assert(transformed->delta->geometries.upserts.empty());
+  assert(transformed->delta->geometries.removals.empty());
+  assert(transformed->delta->instances.upserts ==
+         std::vector<std::uint64_t>{second_instance_handle.value()});
   assert(transformed->geometries.front().vertices ==
          first->geometries.front().vertices);
   assert(transformed->geometries.front().indices ==
@@ -94,6 +106,10 @@ int main() {
                    std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   const auto moved = extractor.snapshot();
+  assert(moved->delta->base_revision == transformed->revision);
+  assert(moved->delta->geometries.upserts ==
+         std::vector<std::uint64_t>{mesh_handle.value()});
+  assert(moved->delta->instances.upserts.empty());
   assert(moved->geometries.front().vertices !=
          transformed->geometries.front().vertices);
   assert(moved->geometries.front().indices ==
@@ -172,6 +188,8 @@ int main() {
   world.Remove(mesh_handle);
   extractor.Apply(world, world.Commit());
   const auto removed = extractor.snapshot();
+  assert(removed->delta->geometries.removals ==
+         std::vector<std::uint64_t>{mesh_handle.value()});
   assert(removed->geometries.empty());
   assert(removed->draws.empty());
   assert(removed->instances.size() == 2);
@@ -216,6 +234,11 @@ int main() {
   merlin::extraction::SceneExtractor material_extractor;
   material_extractor.Apply(material_world, material_world.Commit());
   const auto material_snapshot = material_extractor.snapshot();
+  assert(material_snapshot->source_id != first->source_id);
+  assert(material_snapshot->delta->textures.upserts ==
+         std::vector<std::uint64_t>{texture_handle.value()});
+  assert(material_snapshot->delta->samplers.upserts ==
+         std::vector<std::uint64_t>{sampler_handle.value()});
   assert(material_snapshot->textures.size() == 1);
   assert(material_snapshot->samplers.size() == 1);
   assert(material_snapshot->materials.size() == 1);
@@ -232,12 +255,19 @@ int main() {
                                 merlin::ChangeAspect::MaterialParameters);
   material_extractor.Apply(material_world, material_world.Commit());
   const auto parameter_snapshot = material_extractor.snapshot();
+  assert(parameter_snapshot->delta->materials.upserts ==
+         std::vector<std::uint64_t>{blended_handle.value()});
+  assert(parameter_snapshot->delta->textures.upserts.empty());
   assert(parameter_snapshot->materials.front().parameter_revision == 2);
   assert(parameter_snapshot->materials.front().feature_revision == 1);
 
   material_world.Remove(texture_handle);
   material_extractor.Apply(material_world, material_world.Commit());
   const auto missing_texture = material_extractor.snapshot();
+  assert(missing_texture->delta->textures.removals ==
+         std::vector<std::uint64_t>{texture_handle.value()});
+  assert(missing_texture->delta->materials.upserts ==
+         std::vector<std::uint64_t>{blended_handle.value()});
   assert(!missing_texture->materials.front().base_color_texture.has_value());
   assert(std::any_of(
       missing_texture->material_fallbacks.begin(),

@@ -104,6 +104,13 @@ struct FrameCounters {
   std::uint64_t texture_cache_misses{};
   std::uint64_t sampler_cache_hits{};
   std::uint64_t sampler_cache_misses{};
+  // Number of resource entries selected for residency reconciliation. A
+  // SceneExtractor delta keeps these at zero for a static frame and bounded by
+  // changed resources for a continuous revision stream. Full-fallback
+  // reconciliation reports every selected record and removal.
+  std::uint64_t geometry_reconcile_count{};
+  std::uint64_t texture_reconcile_count{};
+  std::uint64_t sampler_reconcile_count{};
   std::uint64_t buffer_suballocation_count{};
   std::uint64_t buffer_range_release_count{};
   std::uint64_t pipeline_cache_hits{};

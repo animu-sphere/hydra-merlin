@@ -660,12 +660,14 @@ class Renderer::Impl {
       ~ResetActiveTarget() { target = nullptr; }
     } reset_active_target{active_target_};
     EnsureTarget(frame.target, request.width, request.height, request.shaders,
-                 frame.cpu_readback_aovs);
+                  frame.cpu_readback_aovs);
 
     const auto upload_start = CpuClock::now();
-    SyncGeometry(*request.snapshot);
-    SyncTextures(*request.snapshot);
-    SyncSamplers(*request.snapshot);
+    const auto resource_sync_mode =
+        SelectResourceSyncMode(*request.snapshot);
+    SyncGeometry(*request.snapshot, resource_sync_mode);
+    SyncTextures(*request.snapshot, resource_sync_mode);
+    SyncSamplers(*request.snapshot, resource_sync_mode);
     PrepareMaterialDescriptors(frame, *request.snapshot);
     if (frame_counters_.upload_bytes != 0) {
       ++statistics_.scene_uploads;
@@ -705,6 +707,7 @@ class Renderer::Impl {
     frame.cpu_timings.queue_submission_ns =
         ElapsedNanoseconds(submission_start);
     CommitTextureUploads();
+    CommitResourceSnapshot(*request.snapshot);
     for (auto& buffer : frame_upload_buffers_) {
       deferred_.push_back({buffer, completion});
       buffer = {};
@@ -891,6 +894,35 @@ class Renderer::Impl {
     std::vector<VkDescriptorSet> material_descriptor_sets;
     Buffer material_uniforms;
   };
+
+  enum class ResourceSyncMode {
+    Full,
+    Incremental,
+    Unchanged,
+  };
+
+  [[nodiscard]] ResourceSyncMode SelectResourceSyncMode(
+      const extraction::FrameSnapshot& snapshot) const noexcept {
+    if (snapshot.source_id == 0 ||
+        snapshot.source_id != resident_snapshot_source_) {
+      return ResourceSyncMode::Full;
+    }
+    if (snapshot.revision == resident_snapshot_revision_) {
+      return ResourceSyncMode::Unchanged;
+    }
+    if (snapshot.delta &&
+        snapshot.delta->base_revision == resident_snapshot_revision_) {
+      return ResourceSyncMode::Incremental;
+    }
+    return ResourceSyncMode::Full;
+  }
+
+  void CommitResourceSnapshot(
+      const extraction::FrameSnapshot& snapshot) noexcept {
+    resident_snapshot_source_ = snapshot.source_id;
+    resident_snapshot_revision_ =
+        snapshot.source_id == 0 ? 0 : snapshot.revision;
+  }
 
   void CreateDevice(const RendererOptions& options) {
     constexpr const char* validation_layer = "VK_LAYER_KHRONOS_validation";
@@ -1134,12 +1166,14 @@ class Renderer::Impl {
 
   void ResetAbandonedUploads() {
     pending_image_copies_.clear();
-    for (auto& [handle, texture] : texture_slots_) {
-      (void)handle;
-      if (texture.pending_upload) {
-        DestroyTexture(texture);
+    for (const auto handle : pending_texture_handles_) {
+      const auto texture = texture_slots_.find(handle);
+      if (texture != texture_slots_.end() &&
+          texture->second.pending_upload) {
+        DestroyTexture(texture->second);
       }
     }
+    pending_texture_handles_.clear();
     if (fallback_texture_.pending_upload) {
       DestroyTexture(fallback_texture_);
     }
@@ -1189,10 +1223,13 @@ class Renderer::Impl {
   }
 
   void CommitTextureUploads() noexcept {
-    for (auto& [handle, texture] : texture_slots_) {
-      (void)handle;
-      texture.pending_upload = false;
+    for (const auto handle : pending_texture_handles_) {
+      const auto texture = texture_slots_.find(handle);
+      if (texture != texture_slots_.end()) {
+        texture->second.pending_upload = false;
+      }
     }
+    pending_texture_handles_.clear();
     fallback_texture_.pending_upload = false;
   }
 
@@ -1241,22 +1278,64 @@ class Renderer::Impl {
     }
   }
 
-  void SyncTextures(const extraction::FrameSnapshot& snapshot) {
-    auto record = snapshot.textures.begin();
-    for (auto slot = texture_slots_.begin(); slot != texture_slots_.end();) {
-      while (record != snapshot.textures.end() &&
-             record->texture < slot->first) {
-        ++record;
-      }
-      if (record == snapshot.textures.end() || record->texture != slot->first) {
-        RetireTexture(slot->second);
-        slot = texture_slots_.erase(slot);
-      } else {
-        ++slot;
-      }
+  void SyncTextures(const extraction::FrameSnapshot& snapshot,
+                    ResourceSyncMode mode) {
+    if (mode == ResourceSyncMode::Unchanged) {
+      frame_counters_.texture_cache_hits += snapshot.textures.size();
+      return;
     }
 
-    for (const auto& texture : snapshot.textures) {
+    std::vector<const extraction::TextureRecord*> records;
+    if (mode == ResourceSyncMode::Full) {
+      auto record = snapshot.textures.begin();
+      for (auto slot = texture_slots_.begin(); slot != texture_slots_.end();) {
+        while (record != snapshot.textures.end() &&
+               record->texture < slot->first) {
+          ++record;
+        }
+        if (record == snapshot.textures.end() ||
+            record->texture != slot->first) {
+          RetireTexture(slot->second);
+          slot = texture_slots_.erase(slot);
+          ++frame_counters_.texture_reconcile_count;
+        } else {
+          ++slot;
+        }
+      }
+      records.reserve(snapshot.textures.size());
+      for (const auto& texture : snapshot.textures) {
+        records.push_back(&texture);
+      }
+    } else {
+      const auto& delta = snapshot.delta->textures;
+      for (const auto handle : delta.removals) {
+        ++frame_counters_.texture_reconcile_count;
+        const auto slot = texture_slots_.find(handle);
+        if (slot != texture_slots_.end()) {
+          RetireTexture(slot->second);
+          texture_slots_.erase(slot);
+        }
+      }
+      records.reserve(delta.upserts.size());
+      for (const auto handle : delta.upserts) {
+        const auto record = std::lower_bound(
+            snapshot.textures.begin(), snapshot.textures.end(), handle,
+            [](const extraction::TextureRecord& texture,
+               std::uint64_t value) { return texture.texture < value; });
+        if (record == snapshot.textures.end() || record->texture != handle) {
+          throw RendererError(RendererErrorCode::InvalidRequest,
+                              "synchronize textures",
+                              "snapshot texture delta has no matching record");
+        }
+        records.push_back(&*record);
+      }
+      frame_counters_.texture_cache_hits +=
+          snapshot.textures.size() - records.size();
+    }
+
+    frame_counters_.texture_reconcile_count += records.size();
+    for (const auto* texture_record : records) {
+      const auto& texture = *texture_record;
       if (!texture.pixels) {
         throw RendererError(RendererErrorCode::InvalidRequest,
                             "synchronize textures",
@@ -1272,24 +1351,68 @@ class Renderer::Impl {
       RetireTexture(entry->second);
       entry->second = CreateTextureResource(
           texture.width, texture.height, texture.revision, *texture.pixels);
+      pending_texture_handles_.push_back(texture.texture);
     }
   }
 
-  void SyncSamplers(const extraction::FrameSnapshot& snapshot) {
-    auto record = snapshot.samplers.begin();
-    for (auto slot = sampler_slots_.begin(); slot != sampler_slots_.end();) {
-      while (record != snapshot.samplers.end() &&
-             record->sampler < slot->first) {
-        ++record;
-      }
-      if (record == snapshot.samplers.end() || record->sampler != slot->first) {
-        RetireSampler(slot->second);
-        slot = sampler_slots_.erase(slot);
-      } else {
-        ++slot;
-      }
+  void SyncSamplers(const extraction::FrameSnapshot& snapshot,
+                    ResourceSyncMode mode) {
+    if (mode == ResourceSyncMode::Unchanged) {
+      frame_counters_.sampler_cache_hits += snapshot.samplers.size();
+      return;
     }
-    for (const auto& sampler : snapshot.samplers) {
+
+    std::vector<const extraction::SamplerRecord*> records;
+    if (mode == ResourceSyncMode::Full) {
+      auto record = snapshot.samplers.begin();
+      for (auto slot = sampler_slots_.begin(); slot != sampler_slots_.end();) {
+        while (record != snapshot.samplers.end() &&
+               record->sampler < slot->first) {
+          ++record;
+        }
+        if (record == snapshot.samplers.end() ||
+            record->sampler != slot->first) {
+          RetireSampler(slot->second);
+          slot = sampler_slots_.erase(slot);
+          ++frame_counters_.sampler_reconcile_count;
+        } else {
+          ++slot;
+        }
+      }
+      records.reserve(snapshot.samplers.size());
+      for (const auto& sampler : snapshot.samplers) {
+        records.push_back(&sampler);
+      }
+    } else {
+      const auto& delta = snapshot.delta->samplers;
+      for (const auto handle : delta.removals) {
+        ++frame_counters_.sampler_reconcile_count;
+        const auto slot = sampler_slots_.find(handle);
+        if (slot != sampler_slots_.end()) {
+          RetireSampler(slot->second);
+          sampler_slots_.erase(slot);
+        }
+      }
+      records.reserve(delta.upserts.size());
+      for (const auto handle : delta.upserts) {
+        const auto record = std::lower_bound(
+            snapshot.samplers.begin(), snapshot.samplers.end(), handle,
+            [](const extraction::SamplerRecord& sampler,
+               std::uint64_t value) { return sampler.sampler < value; });
+        if (record == snapshot.samplers.end() || record->sampler != handle) {
+          throw RendererError(RendererErrorCode::InvalidRequest,
+                              "synchronize samplers",
+                              "snapshot sampler delta has no matching record");
+        }
+        records.push_back(&*record);
+      }
+      frame_counters_.sampler_cache_hits +=
+          snapshot.samplers.size() - records.size();
+    }
+
+    frame_counters_.sampler_reconcile_count += records.size();
+    for (const auto* sampler_record : records) {
+      const auto& sampler = *sampler_record;
       const auto [entry, inserted] = sampler_slots_.try_emplace(sampler.sampler);
       if (!inserted && entry->second.revision == sampler.revision) {
         ++frame_counters_.sampler_cache_hits;
@@ -1503,27 +1626,72 @@ class Renderer::Impl {
     frame_counters_.descriptor_update_count += writes.size();
   }
 
-  // Reconciles GPU geometry residency with one immutable snapshot: retires
-  // slots whose mesh left the snapshot, then stages only the sub-resources
-  // whose revision changed. Transform-, visibility-, and material-only edits
-  // reach this function with every record clean and stage zero bytes.
-  void SyncGeometry(const extraction::FrameSnapshot& snapshot) {
+  // Reconciles GPU geometry residency with one immutable snapshot. Continuous
+  // SceneExtractor revisions select only delta records; unrelated scene edits
+  // and static frames do not walk the full geometry table. Revision gaps,
+  // foreign sources, and manually constructed snapshots use the full path.
+  void SyncGeometry(const extraction::FrameSnapshot& snapshot,
+                    ResourceSyncMode mode) {
+    if (mode == ResourceSyncMode::Unchanged) {
+      frame_counters_.geometry_cache_hits += snapshot.geometries.size();
+      ++frame_counters_.scene_cache_hits;
+      return;
+    }
+
     bool structural_change = false;
-    auto record = snapshot.geometries.begin();
-    for (auto slot = geometry_slots_.begin(); slot != geometry_slots_.end();) {
-      while (record != snapshot.geometries.end() &&
-             record->mesh < slot->first) {
-        ++record;
+    std::vector<const extraction::GeometryRecord*> records;
+    if (mode == ResourceSyncMode::Full) {
+      auto record = snapshot.geometries.begin();
+      for (auto slot = geometry_slots_.begin(); slot != geometry_slots_.end();) {
+        while (record != snapshot.geometries.end() &&
+               record->mesh < slot->first) {
+          ++record;
+        }
+        if (record == snapshot.geometries.end() ||
+            record->mesh != slot->first) {
+          ReleaseRange(vertex_arena_, slot->second.vertices);
+          ReleaseRange(index_arena_, slot->second.indices);
+          slot = geometry_slots_.erase(slot);
+          structural_change = true;
+          ++frame_counters_.geometry_reconcile_count;
+        } else {
+          ++slot;
+        }
       }
-      if (record == snapshot.geometries.end() || record->mesh != slot->first) {
+      records.reserve(snapshot.geometries.size());
+      for (const auto& geometry : snapshot.geometries) {
+        records.push_back(&geometry);
+      }
+    } else {
+      const auto& delta = snapshot.delta->geometries;
+      for (const auto handle : delta.removals) {
+        ++frame_counters_.geometry_reconcile_count;
+        const auto slot = geometry_slots_.find(handle);
+        if (slot == geometry_slots_.end()) {
+          continue;
+        }
         ReleaseRange(vertex_arena_, slot->second.vertices);
         ReleaseRange(index_arena_, slot->second.indices);
-        slot = geometry_slots_.erase(slot);
+        geometry_slots_.erase(slot);
         structural_change = true;
-      } else {
-        ++slot;
       }
+      records.reserve(delta.upserts.size());
+      for (const auto handle : delta.upserts) {
+        const auto record = std::lower_bound(
+            snapshot.geometries.begin(), snapshot.geometries.end(), handle,
+            [](const extraction::GeometryRecord& geometry,
+               std::uint64_t value) { return geometry.mesh < value; });
+        if (record == snapshot.geometries.end() || record->mesh != handle) {
+          throw RendererError(RendererErrorCode::InvalidRequest,
+                              "synchronize geometry",
+                              "snapshot geometry delta has no matching record");
+        }
+        records.push_back(&*record);
+      }
+      frame_counters_.geometry_cache_hits +=
+          snapshot.geometries.size() - records.size();
     }
+    frame_counters_.geometry_reconcile_count += records.size();
 
     struct Upload {
       const extraction::GeometryRecord* record{};
@@ -1541,7 +1709,8 @@ class Renderer::Impl {
     // every submission that could reference that generation has completed.
     const bool resident_ranges_reusable =
         latest_completed_value_ >= timeline_value_;
-    for (const auto& geometry : snapshot.geometries) {
+    for (const auto* geometry_record : records) {
+      const auto& geometry = *geometry_record;
       const auto [entry, inserted] = geometry_slots_.try_emplace(geometry.mesh);
       auto& slot = entry->second;
       Upload upload{&geometry, &slot};
@@ -2639,11 +2808,14 @@ class Renderer::Impl {
   std::vector<RetiredRange> retired_ranges_;
   std::vector<PendingCopy> pending_copies_;
   std::vector<PendingImageCopy> pending_image_copies_;
+  std::vector<std::uint64_t> pending_texture_handles_;
   std::vector<Buffer> frame_upload_buffers_;
   TextureSlot fallback_texture_;
   SamplerSlot fallback_sampler_;
   VkDescriptorSetLayout descriptor_set_layout_{};
   std::map<std::filesystem::path, VkShaderModule> shader_modules_;
+  std::uint64_t resident_snapshot_source_{};
+  std::uint64_t resident_snapshot_revision_{};
   RenderTarget* active_target_{};
   std::atomic<std::uint64_t> validation_messages_{};
 };

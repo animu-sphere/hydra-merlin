@@ -438,6 +438,12 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.sampler_cache_hits);
   WriteCounter(stream, counter_indent, "sampler_cache_misses",
                count.sampler_cache_misses);
+  WriteCounter(stream, counter_indent, "geometry_reconcile_count",
+               count.geometry_reconcile_count);
+  WriteCounter(stream, counter_indent, "texture_reconcile_count",
+               count.texture_reconcile_count);
+  WriteCounter(stream, counter_indent, "sampler_reconcile_count",
+               count.sampler_reconcile_count);
   WriteCounter(stream, counter_indent, "buffer_suballocation_count",
                count.buffer_suballocation_count);
   WriteCounter(stream, counter_indent, "buffer_range_release_count",

@@ -1604,6 +1604,12 @@ class SceneBridge {
                << result.counters.descriptor_allocation_count
                << " descriptor_update_count="
                << result.counters.descriptor_update_count
+               << " geometry_reconcile_count="
+               << result.counters.geometry_reconcile_count
+               << " texture_reconcile_count="
+               << result.counters.texture_reconcile_count
+               << " sampler_reconcile_count="
+               << result.counters.sampler_reconcile_count
                << " pipeline_creation_count="
                << result.counters.pipeline_creation_count
                << " shader_module_cache_misses="

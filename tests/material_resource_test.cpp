@@ -104,6 +104,8 @@ int main(int argc, char** argv) {
   assert(first.counters.upload_bytes == geometry_bytes + texture.pixels.size());
   assert(first.counters.texture_cache_misses == 1);
   assert(first.counters.sampler_cache_misses == 1);
+  assert(first.counters.texture_reconcile_count == 1);
+  assert(first.counters.sampler_reconcile_count == 1);
   assert(first.counters.pipeline_creation_count == 1);
   const auto opaque_coverage = CoveredPixels(first);
   assert(opaque_coverage > 1000);
@@ -118,6 +120,8 @@ int main(int argc, char** argv) {
   assert(value_edit.counters.pipeline_creation_count == 0);
   assert(value_edit.counters.texture_cache_hits == 1);
   assert(value_edit.counters.sampler_cache_hits == 1);
+  assert(value_edit.counters.texture_reconcile_count == 0);
+  assert(value_edit.counters.sampler_reconcile_count == 0);
 
   // A feature edit selects a distinct cached variant without touching texture
   // or geometry residency.
@@ -167,6 +171,8 @@ int main(int argc, char** argv) {
   assert(texture_edit.counters.upload_bytes == texture.pixels.size());
   assert(texture_edit.counters.texture_cache_misses == 1);
   assert(texture_edit.counters.sampler_cache_hits == 1);
+  assert(texture_edit.counters.texture_reconcile_count == 1);
+  assert(texture_edit.counters.sampler_reconcile_count == 0);
   assert(texture_edit.counters.pipeline_creation_count == 0);
 
   sampler.min_filter = merlin::FilterMode::Linear;
@@ -176,6 +182,8 @@ int main(int argc, char** argv) {
   assert(sampler_edit.counters.upload_bytes == 0);
   assert(sampler_edit.counters.texture_cache_hits == 1);
   assert(sampler_edit.counters.sampler_cache_misses == 1);
+  assert(sampler_edit.counters.texture_reconcile_count == 0);
+  assert(sampler_edit.counters.sampler_reconcile_count == 1);
 
   // Alpha mask is a state variant: transparent texels discard every AOV write.
   texture.pixels = {255, 255, 255, 255, 255, 255, 255, 0,

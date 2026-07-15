@@ -123,11 +123,39 @@ struct LightRecord {
   Mat4 transform;
 };
 
+// Incremental resource changes between two snapshots from the same
+// SceneExtractor. Upserts name records present in the new snapshot; removals
+// name handles that are no longer present. Consumers must use the delta only
+// when both source_id and base_revision match their resident snapshot. A
+// missing delta, a different source, or a revision gap requires full
+// reconciliation.
+struct ResourceDelta {
+  std::vector<std::uint64_t> upserts;
+  std::vector<std::uint64_t> removals;
+};
+
+struct SnapshotDelta {
+  std::uint64_t base_revision{};
+  ResourceDelta geometries;
+  ResourceDelta textures;
+  ResourceDelta samplers;
+  ResourceDelta materials;
+  ResourceDelta instances;
+  ResourceDelta lights;
+  bool camera_changed{};
+  bool render_settings_changed{};
+};
+
 // Immutable result of one committed RenderWorld revision. Geometry payloads
 // are shared between consecutive snapshots when the mesh did not change, so
 // holding a snapshot across frame latency does not copy vertex data.
 struct FrameSnapshot {
+  // Non-zero only for snapshots produced by SceneExtractor. Together with
+  // revision it prevents two independent RenderWorld timelines from being
+  // mistaken for the same persistent resource stream.
+  std::uint64_t source_id{};
   std::uint64_t revision{};
+  std::optional<SnapshotDelta> delta;
   std::vector<GeometryRecord> geometries;
   std::vector<TextureRecord> textures;
   std::vector<SamplerRecord> samplers;
