@@ -234,3 +234,15 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Added configurable automatic/conventional/bindless renderer selection,
   packaged both shader ABIs, and validated exact color, depth, primId, and
   instanceId parity on a textured scene.
+
+## Persistent arena and upload telemetry ✅
+
+- ✅ Exposed separate vertex/index arena capacity, resident/peak/free/retiring
+  bytes, active/retiring ranges, block growth, completed release counts, free-
+  span counts, and largest-free-span fragmentation evidence.
+- ✅ Exposed persistently mapped geometry-upload-ring capacity, reservation,
+  in-flight/peak bytes and regions, growth, wrap, and retired-buffer evidence.
+- ✅ Split per-frame staged payload into vertex, index, and texture bytes,
+  recorded aligned ring reservations and stable range reuse, and covered
+  initial growth, localized edits, fragmentation recovery, and in-flight
+  replacement through Vulkan and benchmark regressions.

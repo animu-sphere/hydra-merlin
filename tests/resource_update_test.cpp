@@ -106,7 +106,19 @@ int main(int argc, char** argv) {
   assert(first.counters.upload_bytes ==
          triangle_vertex_bytes + triangle_index_bytes + quad_vertex_bytes +
              quad_index_bytes);
+  assert(first.counters.vertex_upload_bytes ==
+         triangle_vertex_bytes + quad_vertex_bytes);
+  assert(first.counters.index_upload_bytes ==
+         triangle_index_bytes + quad_index_bytes);
+  assert(first.counters.texture_upload_bytes == 0);
+  assert(first.counters.upload_ring_reserved_bytes ==
+         triangle_vertex_bytes + 16U + quad_vertex_bytes + 32U);
   assert(first.counters.buffer_suballocation_count == 4);
+  assert(first.counters.geometry_range_reuse_count == 0);
+  assert(first.counters.geometry_arena_growth_count == 2);
+  assert(first.counters.geometry_arena_growth_bytes == 512U * 1024U);
+  assert(first.counters.upload_ring_growth_count == 1);
+  assert(first.counters.upload_ring_growth_bytes == 256U * 1024U);
   assert(first.counters.pipeline_creation_count == 1);
   std::unordered_set<std::uint32_t> visible_prim_ids;
   std::unordered_set<std::uint32_t> visible_instance_ids;
@@ -127,6 +139,10 @@ int main(int argc, char** argv) {
   // creation.
   const auto steady = render();
   assert(steady.counters.upload_bytes == 0);
+  assert(steady.counters.vertex_upload_bytes == 0);
+  assert(steady.counters.index_upload_bytes == 0);
+  assert(steady.counters.texture_upload_bytes == 0);
+  assert(steady.counters.upload_ring_reserved_bytes == 0);
   assert(steady.counters.allocation_count == 0);
   assert(steady.counters.buffer_suballocation_count == 0);
   assert(steady.counters.pipeline_creation_count == 0);
@@ -139,6 +155,28 @@ int main(int argc, char** argv) {
   assert(baseline_statistics.scene_uploads == 1);
   assert(baseline_statistics.pending_geometry_retirements == 0);
   assert(baseline_statistics.geometry_arena_blocks == 2);
+  assert(baseline_statistics.vertex_arena.capacity_bytes == 256U * 1024U);
+  assert(baseline_statistics.vertex_arena.resident_bytes ==
+         triangle_vertex_bytes + quad_vertex_bytes);
+  assert(baseline_statistics.vertex_arena.free_bytes +
+             baseline_statistics.vertex_arena.resident_bytes ==
+         baseline_statistics.vertex_arena.capacity_bytes);
+  assert(baseline_statistics.vertex_arena.active_ranges == 2);
+  assert(baseline_statistics.vertex_arena.blocks == 1);
+  assert(baseline_statistics.vertex_arena.growth_count == 1);
+  assert(baseline_statistics.index_arena.capacity_bytes == 256U * 1024U);
+  assert(baseline_statistics.index_arena.resident_bytes == 48);
+  assert(baseline_statistics.index_arena.free_bytes +
+             baseline_statistics.index_arena.resident_bytes ==
+         baseline_statistics.index_arena.capacity_bytes);
+  assert(baseline_statistics.index_arena.active_ranges == 2);
+  assert(baseline_statistics.index_arena.blocks == 1);
+  assert(baseline_statistics.index_arena.growth_count == 1);
+  assert(baseline_statistics.upload_ring.capacity_bytes == 256U * 1024U);
+  assert(baseline_statistics.upload_ring.in_flight_bytes == 0);
+  assert(baseline_statistics.upload_ring.active_regions == 0);
+  assert(baseline_statistics.upload_ring.reservation_count == 1);
+  assert(baseline_statistics.upload_ring.growth_count == 1);
 
   // Transform-only edit: no geometry work at all.
   instance = world.Get(second_triangle);
@@ -183,11 +221,15 @@ int main(int argc, char** argv) {
                    std::vector<merlin::ElementRange>{{0, 1}});
   const auto moved = render();
   assert(moved.counters.upload_bytes == kVertexBytes);
+  assert(moved.counters.vertex_upload_bytes == kVertexBytes);
+  assert(moved.counters.index_upload_bytes == 0);
+  assert(moved.counters.upload_ring_reserved_bytes == kVertexBytes);
   assert(moved.counters.geometry_cache_misses == 1);
   assert(moved.counters.geometry_cache_hits == 1);
   assert(moved.counters.geometry_reconcile_count == 1);
   assert(moved.counters.buffer_suballocation_count == 0);
   assert(moved.counters.buffer_range_release_count == 0);
+  assert(moved.counters.geometry_range_reuse_count == 1);
   assert(moved.counters.allocation_count == 0);
 
   // Topology edit with a different vertex and index count reallocates both
@@ -199,10 +241,17 @@ int main(int argc, char** argv) {
   const auto rebuilt = render();
   assert(rebuilt.counters.upload_bytes ==
          4U * kVertexBytes + 6U * kIndexBytes);
+  assert(rebuilt.counters.vertex_upload_bytes == 4U * kVertexBytes);
+  assert(rebuilt.counters.index_upload_bytes == 6U * kIndexBytes);
+  assert(rebuilt.counters.upload_ring_reserved_bytes ==
+         4U * kVertexBytes + 32U);
   assert(rebuilt.counters.geometry_cache_misses == 1);
   assert(rebuilt.counters.geometry_reconcile_count == 1);
   assert(rebuilt.counters.buffer_suballocation_count == 2);
   assert(rebuilt.counters.buffer_range_release_count == 2);
+  assert(rebuilt.counters.geometry_range_reuse_count == 0);
+  assert(rebuilt.counters.geometry_arena_growth_count == 0);
+  assert(rebuilt.counters.upload_ring_growth_count == 0);
   const auto after_rebuild = renderer->statistics();
   assert(after_rebuild.geometry_range_retirements ==
          baseline_statistics.geometry_range_retirements + 2);
@@ -250,6 +299,22 @@ int main(int argc, char** argv) {
   const auto final_statistics = renderer->statistics();
   assert(final_statistics.pending_geometry_retirements == 0);
   assert(final_statistics.geometry_arena_blocks == 2);
+  assert(final_statistics.vertex_arena.resident_bytes == 0);
+  assert(final_statistics.vertex_arena.free_bytes ==
+         final_statistics.vertex_arena.capacity_bytes);
+  assert(final_statistics.vertex_arena.largest_free_span_bytes ==
+         final_statistics.vertex_arena.capacity_bytes);
+  assert(final_statistics.vertex_arena.active_ranges == 0);
+  assert(final_statistics.vertex_arena.retiring_ranges == 0);
+  assert(final_statistics.index_arena.resident_bytes == 0);
+  assert(final_statistics.index_arena.free_bytes ==
+         final_statistics.index_arena.capacity_bytes);
+  assert(final_statistics.index_arena.largest_free_span_bytes ==
+         final_statistics.index_arena.capacity_bytes);
+  assert(final_statistics.index_arena.active_ranges == 0);
+  assert(final_statistics.index_arena.retiring_ranges == 0);
+  assert(final_statistics.upload_ring.in_flight_bytes == 0);
+  assert(final_statistics.upload_ring.active_regions == 0);
 
   // FrameSnapshot is a public backend boundary. A directly constructed empty
   // geometry record must not produce a zero-sized Vulkan allocation or copy.

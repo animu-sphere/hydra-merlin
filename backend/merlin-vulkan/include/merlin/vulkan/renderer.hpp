@@ -50,6 +50,45 @@ struct RendererCapabilities {
   DescriptorIndexingSelection descriptor_indexing_selection;
 };
 
+// Persistent device-local arena state. `resident_bytes` includes ranges that
+// have been retired by the scene but must remain alive for an in-flight frame;
+// `retiring_bytes` identifies that completion-protected subset explicitly.
+// Free-span fields expose fragmentation without relying on a floating-point
+// ratio whose formatting would weaken deterministic benchmark evidence.
+struct ArenaTelemetry {
+  std::uint64_t capacity_bytes{};
+  std::uint64_t resident_bytes{};
+  std::uint64_t peak_resident_bytes{};
+  std::uint64_t free_bytes{};
+  std::uint64_t largest_free_span_bytes{};
+  std::uint64_t retiring_bytes{};
+  std::uint64_t allocation_count{};
+  std::uint64_t release_count{};
+  std::uint32_t active_ranges{};
+  std::uint32_t peak_active_ranges{};
+  std::uint32_t retiring_ranges{};
+  std::uint32_t free_spans{};
+  std::uint32_t blocks{};
+  std::uint32_t growth_count{};
+};
+
+// Persistently mapped geometry-upload ring state. Reservation bytes include
+// alignment padding; resource-class payload bytes remain per-frame counters.
+struct UploadRingTelemetry {
+  std::uint64_t capacity_bytes{};
+  std::uint64_t peak_capacity_bytes{};
+  std::uint64_t in_flight_bytes{};
+  std::uint64_t peak_in_flight_bytes{};
+  std::uint64_t reserved_bytes{};
+  std::uint64_t reservation_count{};
+  std::uint64_t retired_bytes{};
+  std::uint32_t active_regions{};
+  std::uint32_t peak_active_regions{};
+  std::uint32_t wrap_count{};
+  std::uint32_t growth_count{};
+  std::uint32_t retired_buffers{};
+};
+
 struct RendererStatistics {
   std::uint64_t frames_submitted{};
   std::uint64_t scene_uploads{};
@@ -62,6 +101,9 @@ struct RendererStatistics {
   std::uint64_t geometry_range_retirements{};
   std::uint32_t pending_geometry_retirements{};
   std::uint32_t geometry_arena_blocks{};
+  ArenaTelemetry vertex_arena;
+  ArenaTelemetry index_arena;
+  UploadRingTelemetry upload_ring;
   // Logical bindless-table evidence is populated when the selected device and
   // configuration activate bindless Forward. Conventional Forward leaves
   // these fields zeroed and remains the correctness fallback.
@@ -95,6 +137,15 @@ struct FrameCounters {
   std::uint64_t visible_primitive_count{};
   std::uint64_t triangle_count{};
   std::uint64_t upload_bytes{};
+  // Upload payload split by resource class. The sum equals upload_bytes for
+  // the current Mesh/material implementation.
+  std::uint64_t vertex_upload_bytes{};
+  std::uint64_t index_upload_bytes{};
+  std::uint64_t texture_upload_bytes{};
+  // Aligned space reserved from the persistent mapped geometry-upload ring.
+  // Texture uploads currently use completion-retired staging buffers and are
+  // therefore excluded.
+  std::uint64_t upload_ring_reserved_bytes{};
   std::uint64_t readback_bytes{};
   std::uint64_t requested_aov_mask{};
   std::uint64_t rendered_aov_mask{};
@@ -128,6 +179,12 @@ struct FrameCounters {
   std::uint64_t sampler_reconcile_count{};
   std::uint64_t buffer_suballocation_count{};
   std::uint64_t buffer_range_release_count{};
+  // Resident ranges kept at the same block/offset for a changed payload.
+  std::uint64_t geometry_range_reuse_count{};
+  std::uint64_t geometry_arena_growth_count{};
+  std::uint64_t geometry_arena_growth_bytes{};
+  std::uint64_t upload_ring_growth_count{};
+  std::uint64_t upload_ring_growth_bytes{};
   std::uint64_t pipeline_cache_hits{};
   std::uint64_t pipeline_cache_misses{};
   std::uint64_t shader_module_cache_hits{};

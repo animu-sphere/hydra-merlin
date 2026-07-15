@@ -399,6 +399,7 @@ class DeviceArena {
         if (span->size == 0) {
           spans.erase(span);
         }
+        RecordAllocation(false, aligned);
         return {range, false, 0};
       }
     }
@@ -411,6 +412,7 @@ class DeviceArena {
       block.free_spans.push_back({aligned, block_bytes - aligned});
     }
     blocks_.push_back(std::move(block));
+    RecordAllocation(true, aligned);
     return {{static_cast<std::uint32_t>(blocks_.size() - 1U), 0, aligned},
             true, block_bytes};
   }
@@ -437,6 +439,11 @@ class DeviceArena {
         spans.erase(inserted);
       }
     }
+    ++telemetry_.release_count;
+    telemetry_.resident_bytes -= range.size;
+    if (telemetry_.active_ranges != 0) {
+      --telemetry_.active_ranges;
+    }
   }
 
   [[nodiscard]] VkBuffer buffer(std::uint32_t block) const noexcept {
@@ -445,6 +452,22 @@ class DeviceArena {
 
   [[nodiscard]] std::uint32_t block_count() const noexcept {
     return static_cast<std::uint32_t>(blocks_.size());
+  }
+
+  [[nodiscard]] ArenaTelemetry telemetry() const noexcept {
+    auto result = telemetry_;
+    result.blocks = static_cast<std::uint32_t>(blocks_.size());
+    for (const auto& block : blocks_) {
+      result.capacity_bytes += block.buffer.size;
+      result.free_spans +=
+          static_cast<std::uint32_t>(block.free_spans.size());
+      for (const auto& span : block.free_spans) {
+        result.free_bytes += span.size;
+        result.largest_free_span_bytes =
+            std::max(result.largest_free_span_bytes, span.size);
+      }
+    }
+    return result;
   }
 
  private:
@@ -458,10 +481,25 @@ class DeviceArena {
     std::vector<FreeSpan> free_spans;  // sorted by offset, adjacent-merged
   };
 
+  void RecordAllocation(bool grew, VkDeviceSize bytes) noexcept {
+    ++telemetry_.allocation_count;
+    ++telemetry_.active_ranges;
+    telemetry_.resident_bytes += bytes;
+    telemetry_.peak_active_ranges =
+        std::max(telemetry_.peak_active_ranges, telemetry_.active_ranges);
+    if (grew) {
+      ++telemetry_.growth_count;
+    }
+    telemetry_.peak_resident_bytes =
+        std::max(telemetry_.peak_resident_bytes,
+                 telemetry_.resident_bytes);
+  }
+
   VkDevice device_{};
   VkPhysicalDevice physical_device_{};
   VkBufferUsageFlags usage_{};
   std::vector<Block> blocks_;
+  ArenaTelemetry telemetry_;
 };
 
 // Persistently mapped host-visible ring that feeds device-local copies. Each
@@ -483,6 +521,7 @@ class StagingRing {
     // RendererOptions caps frame contexts at eight, so this prevents metadata
     // allocation failure after a queue submission has already succeeded.
     regions_.reserve(8);
+    retired_regions_.reserve(8);
   }
 
   void Destroy() noexcept {
@@ -492,26 +531,30 @@ class StagingRing {
     DestroyBufferRaw(device_, buffer_);
     mapped_ = nullptr;
     regions_.clear();
+    retired_regions_.clear();
     pending_ = {};
   }
 
   // Reserves one region for the current frame. `retired` receives the previous
   // buffer when the ring grew; the caller must defer its destruction until
   // in-flight frames complete.
-  Reservation Reserve(VkDeviceSize bytes, Buffer& retired, bool& grew) {
+  Reservation Reserve(VkDeviceSize bytes, Buffer& retired,
+                      VkDeviceSize& growth_bytes) {
     if (pending_.active) {
       throw std::logic_error("staging region is already reserved this frame");
     }
     const auto aligned = AlignUp(bytes, kArenaAlignment);
+    const auto previous_head = head_;
     VkDeviceSize offset{};
     if (!TryPlace(aligned, offset)) {
       retired = buffer_;
       if (retired.memory != VK_NULL_HANDLE) {
         vkUnmapMemory(device_, retired.memory);
       }
-      grew = true;
       buffer_ = {};
       mapped_ = nullptr;
+      retired_regions_.insert(retired_regions_.end(), regions_.begin(),
+                              regions_.end());
       regions_.clear();
       head_ = 0;
       const auto capacity =
@@ -525,9 +568,22 @@ class StagingRing {
             "map staging ring");
       mapped_ = static_cast<std::byte*>(mapped);
       offset = 0;
+      growth_bytes = capacity;
+      ++telemetry_.growth_count;
+      telemetry_.peak_capacity_bytes =
+          std::max(telemetry_.peak_capacity_bytes, capacity);
+      if (retired.handle != VK_NULL_HANDLE) {
+        ++telemetry_.retired_buffers;
+        telemetry_.retired_bytes += retired.size;
+      }
+    } else if (offset < previous_head) {
+      ++telemetry_.wrap_count;
     }
     pending_ = {true, offset, offset + aligned};
     head_ = offset + aligned;
+    ++telemetry_.reservation_count;
+    telemetry_.reserved_bytes += aligned;
+    RefreshPeakInFlight();
     return {mapped_ + offset, buffer_.handle, offset};
   }
 
@@ -537,6 +593,8 @@ class StagingRing {
     }
     regions_.push_back({pending_.begin, pending_.end, completion_value});
     pending_ = {};
+    telemetry_.peak_active_regions = std::max(
+        telemetry_.peak_active_regions, ActiveRegionCount());
   }
 
   void AbandonFrame() noexcept {
@@ -549,12 +607,32 @@ class StagingRing {
   }
 
   void Collect(std::uint64_t completed) {
+    while (!retired_regions_.empty() &&
+           retired_regions_.front().completion <= completed) {
+      retired_regions_.erase(retired_regions_.begin());
+    }
     while (!regions_.empty() && regions_.front().completion <= completed) {
       regions_.erase(regions_.begin());
     }
     if (regions_.empty() && !pending_.active) {
       head_ = 0;
     }
+  }
+
+  [[nodiscard]] UploadRingTelemetry telemetry() const noexcept {
+    auto result = telemetry_;
+    result.capacity_bytes = buffer_.size;
+    result.active_regions = ActiveRegionCount();
+    for (const auto& region : retired_regions_) {
+      result.in_flight_bytes += region.end - region.begin;
+    }
+    for (const auto& region : regions_) {
+      result.in_flight_bytes += region.end - region.begin;
+    }
+    if (pending_.active) {
+      result.in_flight_bytes += pending_.end - pending_.begin;
+    }
+    return result;
   }
 
  private:
@@ -569,6 +647,11 @@ class StagingRing {
     VkDeviceSize begin{};
     VkDeviceSize end{};
   };
+
+  [[nodiscard]] std::uint32_t ActiveRegionCount() const noexcept {
+    return static_cast<std::uint32_t>(retired_regions_.size() +
+                                      regions_.size());
+  }
 
   bool TryPlace(VkDeviceSize bytes, VkDeviceSize& offset) {
     if (buffer_.handle == VK_NULL_HANDLE || bytes > buffer_.size) {
@@ -597,13 +680,21 @@ class StagingRing {
     return false;
   }
 
+  void RefreshPeakInFlight() noexcept {
+    telemetry_.peak_in_flight_bytes =
+        std::max(telemetry_.peak_in_flight_bytes,
+                 telemetry().in_flight_bytes);
+  }
+
   VkDevice device_{};
   VkPhysicalDevice physical_device_{};
   Buffer buffer_;
   std::byte* mapped_{};
   VkDeviceSize head_{};
   std::vector<Region> regions_;
+  std::vector<Region> retired_regions_;
   PendingRegion pending_;
+  UploadRingTelemetry telemetry_;
 };
 
 }  // namespace
@@ -1454,6 +1545,7 @@ class Renderer::Impl {
       staging = {};
       if (count_upload) {
         frame_counters_.upload_bytes += pixels.size();
+        frame_counters_.texture_upload_bytes += pixels.size();
       }
     } catch (...) {
       DestroyBuffer(staging);
@@ -2379,6 +2471,7 @@ class Renderer::Impl {
             slot.vertices.size ==
                 AlignUp(upload.vertex_bytes, kArenaAlignment);
         if (upload.partial_vertices) {
+          ++frame_counters_.geometry_range_reuse_count;
           for (const auto& range : geometry.vertex_ranges) {
             staging_bytes += AlignUp(
                 static_cast<VkDeviceSize>(range.count) *
@@ -2396,6 +2489,7 @@ class Renderer::Impl {
             !geometry.index_ranges.empty() && slot.indices.valid() &&
             slot.indices.size == AlignUp(upload.index_bytes, kArenaAlignment);
         if (upload.partial_indices) {
+          ++frame_counters_.geometry_range_reuse_count;
           for (const auto& range : geometry.index_ranges) {
             staging_bytes += AlignUp(
                 static_cast<VkDeviceSize>(range.count) *
@@ -2421,13 +2515,19 @@ class Renderer::Impl {
     StagingRing::Reservation reservation;
     if (staging_bytes != 0) {
       Buffer retired_staging;
-      bool staging_grew{};
+      VkDeviceSize staging_growth_bytes{};
       reservation =
-          staging_.Reserve(staging_bytes, retired_staging, staging_grew);
-      if (staging_grew) {
+          staging_.Reserve(staging_bytes, retired_staging,
+                           staging_growth_bytes);
+      frame_counters_.upload_ring_reserved_bytes += staging_bytes;
+      if (staging_growth_bytes != 0) {
         ++frame_counters_.allocation_count;
         ++frame_counters_.buffer_allocation_count;
+        // Preserve the v3 allocation counter's requested-payload convention;
+        // upload_ring_growth_bytes reports the physical ring capacity added.
         frame_counters_.buffer_allocation_bytes += staging_bytes;
+        ++frame_counters_.upload_ring_growth_count;
+        frame_counters_.upload_ring_growth_bytes += staging_growth_bytes;
         Retire(retired_staging);
       }
     }
@@ -2435,6 +2535,7 @@ class Renderer::Impl {
     VkDeviceSize cursor{};
     auto stage = [&](const void* payload, VkDeviceSize bytes,
                      DeviceArena& arena, const BufferRange& range,
+                     std::uint64_t& resource_upload_bytes,
                      VkDeviceSize destination_offset = 0) {
       if (bytes == 0) {
         return;
@@ -2448,6 +2549,7 @@ class Renderer::Impl {
       pending_copies_.back().destination_offset += destination_offset;
       cursor += AlignUp(bytes, kArenaAlignment);
       frame_counters_.upload_bytes += bytes;
+      resource_upload_bytes += bytes;
     };
     for (auto& upload : uploads) {
       auto& slot = *upload.slot;
@@ -2459,12 +2561,14 @@ class Renderer::Impl {
             const auto bytes = static_cast<VkDeviceSize>(range.count) *
                                sizeof(extraction::DrawVertex);
             stage(upload.record->vertices->data() + range.first, bytes,
-                  vertex_arena_, slot.vertices, byte_offset);
+                  vertex_arena_, slot.vertices,
+                  frame_counters_.vertex_upload_bytes, byte_offset);
           }
         } else {
           EnsureRange(vertex_arena_, slot.vertices, upload.vertex_bytes);
           stage(upload.record->vertices->data(), upload.vertex_bytes,
-                vertex_arena_, slot.vertices);
+                vertex_arena_, slot.vertices,
+                frame_counters_.vertex_upload_bytes);
         }
         slot.vertex_revision = upload.record->vertex_revision;
       }
@@ -2476,12 +2580,14 @@ class Renderer::Impl {
             const auto bytes = static_cast<VkDeviceSize>(range.count) *
                                sizeof(std::uint32_t);
             stage(upload.record->indices->data() + range.first, bytes,
-                  index_arena_, slot.indices, byte_offset);
+                  index_arena_, slot.indices,
+                  frame_counters_.index_upload_bytes, byte_offset);
           }
         } else {
           EnsureRange(index_arena_, slot.indices, upload.index_bytes);
           stage(upload.record->indices->data(), upload.index_bytes,
-                index_arena_, slot.indices);
+                index_arena_, slot.indices,
+                frame_counters_.index_upload_bytes);
         }
         slot.index_count =
             static_cast<std::uint32_t>(upload.record->indices->size());
@@ -2502,6 +2608,7 @@ class Renderer::Impl {
       // Reuse in place only when every prior submission has completed. If an
       // older command buffer can still read this range, allocate a new range
       // and retire the old generation at its last possible completion value.
+      ++frame_counters_.geometry_range_reuse_count;
       return;
     }
     ReleaseRange(arena, range);
@@ -2510,6 +2617,8 @@ class Renderer::Impl {
       ++frame_counters_.allocation_count;
       ++frame_counters_.buffer_allocation_count;
       frame_counters_.buffer_allocation_bytes += allocation.block_bytes;
+      ++frame_counters_.geometry_arena_growth_count;
+      frame_counters_.geometry_arena_growth_bytes += allocation.block_bytes;
     }
     ++frame_counters_.buffer_suballocation_count;
     range = allocation.range;
@@ -3559,6 +3668,16 @@ RendererStatistics Renderer::statistics() const noexcept {
       static_cast<std::uint32_t>(impl_->retired_ranges_.size());
   result.geometry_arena_blocks =
       impl_->vertex_arena_.block_count() + impl_->index_arena_.block_count();
+  result.vertex_arena = impl_->vertex_arena_.telemetry();
+  result.index_arena = impl_->index_arena_.telemetry();
+  result.upload_ring = impl_->staging_.telemetry();
+  for (const auto& retired : impl_->retired_ranges_) {
+    auto* arena = retired.arena == &impl_->vertex_arena_
+                      ? &result.vertex_arena
+                      : &result.index_arena;
+    ++arena->retiring_ranges;
+    arena->retiring_bytes += retired.range.size;
+  }
   if (impl_->bindless_texture_table_) {
     result.bindless_texture_slots =
         impl_->bindless_texture_table_->telemetry();

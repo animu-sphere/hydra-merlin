@@ -21,8 +21,10 @@ slots, reserved fallback images, dirty-only global descriptor writes,
 deduplicated samplers, completion-safe replacement, and benchmark telemetry.
 Negotiated devices now activate those tables through a non-uniform-indexed
 Forward path with exact conventional-path image parity; warmed static frames do
-zero descriptor allocation or update. The remaining work completes measured
-arena, transfer, memory-budget, and scale evidence.
+zero descriptor allocation or update. Persistent vertex/index arenas and the
+mapped geometry-upload ring now expose capacity, stable range reuse, growth,
+fragmentation, retirement, and resource-class staged-byte evidence. The
+remaining work completes transfer-queue, memory-budget, and scale evidence.
 
 #### 1. Bindless release evidence
 
@@ -33,8 +35,6 @@ arena, transfer, memory-budget, and scale evidence.
 
 #### 2. Residency, transfer, and memory budget
 
-- Complete persistent arena and mapped-upload-ring telemetry for stable ranges,
-  growth, fragmentation, retirement, and bytes staged by resource class.
 - Add asynchronous transfer-queue selection, ownership transitions, and
   timeline synchronization without weakening in-flight replacement safety.
 - Probe heap budget/usage, define configurable VRAM limits and exhaustion

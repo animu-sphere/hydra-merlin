@@ -356,6 +356,62 @@ void WriteCounter(std::ostream& stream, std::string_view indent,
          << (last ? "\n" : ",\n");
 }
 
+void WriteArenaTelemetry(
+    std::ostream& stream, const merlin::vulkan::ArenaTelemetry& arena,
+    std::string_view indent) {
+  stream << "{\n"
+         << indent << "  \"capacity_bytes\": " << arena.capacity_bytes
+         << ",\n" << indent << "  \"resident_bytes\": "
+         << arena.resident_bytes
+         << ",\n" << indent << "  \"peak_resident_bytes\": "
+         << arena.peak_resident_bytes
+         << ",\n" << indent << "  \"free_bytes\": " << arena.free_bytes
+         << ",\n" << indent << "  \"largest_free_span_bytes\": "
+         << arena.largest_free_span_bytes
+         << ",\n" << indent << "  \"retiring_bytes\": "
+         << arena.retiring_bytes
+         << ",\n" << indent << "  \"allocations\": "
+         << arena.allocation_count
+         << ",\n" << indent << "  \"releases\": " << arena.release_count
+         << ",\n" << indent << "  \"active_ranges\": "
+         << arena.active_ranges
+         << ",\n" << indent << "  \"peak_active_ranges\": "
+         << arena.peak_active_ranges
+         << ",\n" << indent << "  \"retiring_ranges\": "
+         << arena.retiring_ranges
+         << ",\n" << indent << "  \"free_spans\": " << arena.free_spans
+         << ",\n" << indent << "  \"blocks\": " << arena.blocks
+         << ",\n" << indent << "  \"growths\": " << arena.growth_count
+         << '\n' << indent << '}';
+}
+
+void WriteUploadRingTelemetry(
+    std::ostream& stream, const merlin::vulkan::UploadRingTelemetry& ring,
+    std::string_view indent) {
+  stream << "{\n"
+         << indent << "  \"capacity_bytes\": " << ring.capacity_bytes
+         << ",\n" << indent << "  \"peak_capacity_bytes\": "
+         << ring.peak_capacity_bytes
+         << ",\n" << indent << "  \"in_flight_bytes\": "
+         << ring.in_flight_bytes
+         << ",\n" << indent << "  \"peak_in_flight_bytes\": "
+         << ring.peak_in_flight_bytes
+         << ",\n" << indent << "  \"reserved_bytes\": "
+         << ring.reserved_bytes
+         << ",\n" << indent << "  \"reservations\": "
+         << ring.reservation_count
+         << ",\n" << indent << "  \"retired_bytes\": "
+         << ring.retired_bytes
+         << ",\n" << indent << "  \"active_regions\": "
+         << ring.active_regions
+         << ",\n" << indent << "  \"peak_active_regions\": "
+         << ring.peak_active_regions
+         << ",\n" << indent << "  \"wraps\": " << ring.wrap_count
+         << ",\n" << indent << "  \"growths\": " << ring.growth_count
+         << ",\n" << indent << "  \"retired_buffers\": "
+         << ring.retired_buffers << '\n' << indent << '}';
+}
+
 void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                    std::string_view indent) {
   stream << indent << "{\n" << indent << "  \"name\": ";
@@ -404,6 +460,14 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.visible_primitive_count);
   WriteCounter(stream, counter_indent, "triangle_count", count.triangle_count);
   WriteCounter(stream, counter_indent, "upload_bytes", count.upload_bytes);
+  WriteCounter(stream, counter_indent, "vertex_upload_bytes",
+               count.vertex_upload_bytes);
+  WriteCounter(stream, counter_indent, "index_upload_bytes",
+               count.index_upload_bytes);
+  WriteCounter(stream, counter_indent, "texture_upload_bytes",
+               count.texture_upload_bytes);
+  WriteCounter(stream, counter_indent, "upload_ring_reserved_bytes",
+               count.upload_ring_reserved_bytes);
   WriteCounter(stream, counter_indent, "readback_bytes", count.readback_bytes);
   WriteCounter(stream, counter_indent, "requested_aov_mask",
                count.requested_aov_mask);
@@ -458,6 +522,16 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.buffer_suballocation_count);
   WriteCounter(stream, counter_indent, "buffer_range_release_count",
                count.buffer_range_release_count);
+  WriteCounter(stream, counter_indent, "geometry_range_reuse_count",
+               count.geometry_range_reuse_count);
+  WriteCounter(stream, counter_indent, "geometry_arena_growth_count",
+               count.geometry_arena_growth_count);
+  WriteCounter(stream, counter_indent, "geometry_arena_growth_bytes",
+               count.geometry_arena_growth_bytes);
+  WriteCounter(stream, counter_indent, "upload_ring_growth_count",
+               count.upload_ring_growth_count);
+  WriteCounter(stream, counter_indent, "upload_ring_growth_bytes",
+               count.upload_ring_growth_bytes);
   WriteCounter(stream, counter_indent, "pipeline_cache_hits",
                count.pipeline_cache_hits);
   WriteCounter(stream, counter_indent, "pipeline_cache_misses",
@@ -532,7 +606,18 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
                              .fallback_reason));
   stream << ",\n    \"bindless_resource_tables\": "
          << (statistics.bindless_resource_tables ? "true" : "false")
-         << ",\n    \"textures\": {\n"
+         << ",\n    \"geometry\": {\n"
+         << "      \"pending_range_retirements\": "
+         << statistics.pending_geometry_retirements
+         << ",\n      \"range_retirement_collections\": "
+         << statistics.geometry_range_retirements
+         << ",\n      \"vertex_arena\": ";
+  WriteArenaTelemetry(stream, statistics.vertex_arena, "      ");
+  stream << ",\n      \"index_arena\": ";
+  WriteArenaTelemetry(stream, statistics.index_arena, "      ");
+  stream << "\n    },\n    \"upload_ring\": ";
+  WriteUploadRingTelemetry(stream, statistics.upload_ring, "    ");
+  stream << ",\n    \"textures\": {\n"
          << "      \"capacity\": " << textures.capacity
          << ",\n      \"reserved\": " << textures.reserved_slots
          << ",\n      \"current\": " << textures.current_use
