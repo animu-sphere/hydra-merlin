@@ -36,6 +36,14 @@ set_tests_properties(merlin-mesh-scale-regression PROPERTIES
   TIMEOUT 60)
 
 if(TARGET Merlin::Vulkan)
+  add_executable(merlin-descriptor-indexing-tests
+    descriptor_indexing_test.cpp
+  )
+  target_link_libraries(merlin-descriptor-indexing-tests
+    PRIVATE Merlin::Vulkan)
+  add_test(NAME merlin-descriptor-indexing
+           COMMAND merlin-descriptor-indexing-tests)
+
   add_executable(merlin-render-product-contract-tests
     render_product_contract_test.cpp
   )

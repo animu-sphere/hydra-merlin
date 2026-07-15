@@ -11,6 +11,7 @@ set(MERLIN_VULKAN_SDK_DETECTED_VERSION
     "${_merlin_vulkan_sdk_version}" PARENT_SCOPE)
 
 add_library(merlin-vulkan STATIC
+  src/descriptor_indexing.cpp
   src/render_artifacts.cpp
   src/renderer.cpp
 )

@@ -1136,8 +1136,11 @@ class Renderer::Impl {
               " physical device with a graphics queue is available");
     }
 
+    VkPhysicalDeviceDescriptorIndexingProperties descriptor_properties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES};
     VkPhysicalDeviceDriverProperties driver_properties{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+    driver_properties.pNext = &descriptor_properties;
     VkPhysicalDeviceProperties2 properties{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     properties.pNext = &driver_properties;
@@ -1174,12 +1177,50 @@ class Renderer::Impl {
                           "D32 depth attachment readback is unsupported");
     }
 
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+    timeline.pNext = &descriptor_features;
     VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features.pNext = &timeline;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
     capabilities_.timeline_semaphore = timeline.timelineSemaphore == VK_TRUE;
+    capabilities_.descriptor_indexing_features = {
+        descriptor_features.shaderSampledImageArrayNonUniformIndexing ==
+            VK_TRUE,
+        descriptor_features.descriptorBindingSampledImageUpdateAfterBind ==
+            VK_TRUE,
+        descriptor_features.descriptorBindingPartiallyBound == VK_TRUE,
+        descriptor_features.descriptorBindingVariableDescriptorCount ==
+            VK_TRUE,
+        descriptor_features.runtimeDescriptorArray == VK_TRUE,
+    };
+    capabilities_.descriptor_indexing_limits = {
+        descriptor_properties.maxUpdateAfterBindDescriptorsInAllPools,
+        descriptor_properties.maxPerStageDescriptorUpdateAfterBindSamplers,
+        descriptor_properties.maxPerStageDescriptorUpdateAfterBindSampledImages,
+        descriptor_properties.maxPerStageUpdateAfterBindResources,
+        descriptor_properties.maxDescriptorSetUpdateAfterBindSamplers,
+        descriptor_properties.maxDescriptorSetUpdateAfterBindSampledImages,
+        properties.properties.limits.maxSamplerAllocationCount,
+    };
+
+    // The bindless Forward implementation is introduced after this negotiation
+    // gate. Until then the renderer makes its existing backend choice explicit
+    // while still reporting whether the configured future table sizes fit.
+    DescriptorIndexingConfiguration descriptor_configuration;
+    descriptor_configuration.request = DescriptorBackendRequest::Conventional;
+    descriptor_configuration.additional_sampler_allocation_count =
+        static_cast<std::uint64_t>(descriptor_configuration.sampler_capacity) *
+        options.frames_in_flight;
+    // The current Forward fragment stage exposes three color attachments and
+    // one non-table uniform-buffer descriptor. Standalone sampler descriptors
+    // are excluded from maxPerStageResources by Vulkan.
+    descriptor_configuration.additional_per_stage_resource_count = 4;
+    capabilities_.descriptor_indexing_selection = SelectDescriptorBackend(
+        descriptor_configuration, capabilities_.descriptor_indexing_features,
+        capabilities_.descriptor_indexing_limits);
 
     const float priority = 1.0F;
     VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -1187,7 +1228,30 @@ class Renderer::Impl {
     queue_info.queueCount = 1;
     queue_info.pQueuePriorities = &priority;
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-    device_info.pNext = capabilities_.timeline_semaphore ? &timeline : nullptr;
+    VkPhysicalDeviceTimelineSemaphoreFeatures enabled_timeline{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+    enabled_timeline.timelineSemaphore = VK_TRUE;
+    VkPhysicalDeviceDescriptorIndexingFeatures enabled_descriptor_indexing{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
+    enabled_descriptor_indexing.shaderSampledImageArrayNonUniformIndexing =
+        VK_TRUE;
+    enabled_descriptor_indexing.descriptorBindingSampledImageUpdateAfterBind =
+        VK_TRUE;
+    enabled_descriptor_indexing.descriptorBindingPartiallyBound = VK_TRUE;
+    enabled_descriptor_indexing.descriptorBindingVariableDescriptorCount =
+        VK_TRUE;
+    enabled_descriptor_indexing.runtimeDescriptorArray = VK_TRUE;
+    void* enabled_features = nullptr;
+    if (capabilities_.timeline_semaphore) {
+      enabled_timeline.pNext = enabled_features;
+      enabled_features = &enabled_timeline;
+    }
+    if (capabilities_.descriptor_indexing_selection.selected_backend ==
+        DescriptorBackend::Bindless) {
+      enabled_descriptor_indexing.pNext = enabled_features;
+      enabled_features = &enabled_descriptor_indexing;
+    }
+    device_info.pNext = enabled_features;
     device_info.queueCreateInfoCount = 1;
     device_info.pQueueCreateInfos = &queue_info;
     Check(vkCreateDevice(physical_device_, &device_info, nullptr, &device_),
