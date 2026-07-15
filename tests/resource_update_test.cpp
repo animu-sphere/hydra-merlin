@@ -336,6 +336,44 @@ int main(int argc, char** argv) {
   assert(source_frame_b.counters.upload_bytes ==
          quad_vertex_bytes + quad_index_bytes);
 
+  // A middle removal swap-moves the final dense geometry record. Its delta
+  // index must let the backend reconcile that unchanged record and then apply
+  // a later localized edit without assuming handle-sorted snapshot tables.
+  merlin::RenderWorld dense_world;
+  merlin::extraction::SceneExtractor dense_extractor;
+  const auto dense_a = dense_world.CreateMesh(Triangle());
+  const auto dense_b = dense_world.CreateMesh(Quad());
+  auto dense_c_descriptor = Triangle();
+  const auto dense_c = dense_world.CreateMesh(dense_c_descriptor);
+  dense_extractor.Apply(dense_world, dense_world.Commit());
+  (void)renderer->Render(*dense_extractor.snapshot(), 64, 64, shaders);
+
+  dense_world.Remove(dense_b);
+  dense_extractor.Apply(dense_world, dense_world.Commit());
+  const auto dense_removed_snapshot = dense_extractor.snapshot();
+  assert(dense_removed_snapshot->geometries[1].mesh == dense_c.value());
+  assert(dense_removed_snapshot->delta->geometries.upserts ==
+         std::vector<std::uint64_t>{dense_c.value()});
+  assert(dense_removed_snapshot->delta->geometries.upsert_indices ==
+         std::vector<std::uint32_t>{1});
+  const auto dense_removed = renderer->Render(
+      *dense_removed_snapshot, 64, 64, shaders);
+  assert(dense_removed.counters.geometry_reconcile_count == 2);
+  assert(dense_removed.counters.geometry_cache_misses == 0);
+  assert(dense_removed.counters.upload_bytes == 0);
+
+  dense_c_descriptor.positions[0].x = 0.25F;
+  dense_world.UpdateMesh(dense_c, dense_c_descriptor,
+                         merlin::ChangeAspect::Points,
+                         std::vector<merlin::ElementRange>{{0, 1}});
+  dense_extractor.Apply(dense_world, dense_world.Commit());
+  const auto dense_edited = renderer->Render(
+      *dense_extractor.snapshot(), 64, 64, shaders);
+  assert(dense_edited.counters.geometry_reconcile_count == 1);
+  assert(dense_edited.counters.geometry_cache_misses == 1);
+  assert(dense_edited.counters.upload_bytes == kVertexBytes);
+  (void)dense_a;
+
   std::cout << "resource update contract verified: uploads="
             << final_statistics.scene_uploads << " retirements="
             << final_statistics.geometry_range_retirements << '\n';

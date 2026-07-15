@@ -136,6 +136,12 @@ struct LightRecord {
 struct ResourceDelta {
   std::vector<std::uint64_t> upserts;
   std::vector<std::uint64_t> removals;
+  // Dense table index for each matching upsert. Indices are snapshot-local and
+  // may change when a removal displaces the final record. Consumers should
+  // validate the handle at the supplied index and fall back to reconciliation
+  // when reading snapshots produced by an older implementation that omitted
+  // this additive field.
+  std::vector<std::uint32_t> upsert_indices;
 };
 
 struct SnapshotDelta {

@@ -20,11 +20,6 @@ residency on top of those contracts.
 
 #### 1. Persistent snapshot completion
 
-- Eliminate the structurally reported full-table/draw fallback for resource
-  additions and removals while retaining dense transient draw indices and
-  immutable older snapshots.
-- Keep texture/sampler structural binding invalidation proportional to
-  dependent materials instead of conservatively copying every material.
 - Extend localized-edit evidence from the current 10,000-record fixture to 100
   edits in a one-million-prim scene, including additions and removals.
 

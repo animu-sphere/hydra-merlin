@@ -152,3 +152,18 @@ repository-scoped GPU runner for continuous execution remains in the
   counters to benchmark JSON and Hydra performance events.
 - ✅ Covered old-snapshot immutability and record identity sharing, including a
   localized edit in the 10,000-mesh regression fixture.
+
+## Persistent snapshot structural edits ✅
+
+- ✅ Replaced addition/removal full-table fallback with dense append and
+  identity-preserving swap removal, updating only draws that reference removed
+  or displaced geometry, material, and instance records.
+- ✅ Added texture-to-material, sampler-to-material, mesh-to-instance, and
+  material-to-instance reverse dependencies so structural binding invalidation
+  scales with dependent records instead of the complete scene.
+- ✅ Added validated snapshot-local dense indices to resource upsert deltas and
+  retained handle-reconciliation compatibility for older snapshots in the
+  Vulkan backend.
+- ✅ Covered structural work counters, displaced record identity, immutable old
+  snapshots, localized texture/sampler invalidation, and Vulkan resource and
+  material regressions.
