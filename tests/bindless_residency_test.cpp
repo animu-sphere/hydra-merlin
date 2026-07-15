@@ -128,15 +128,55 @@ int main(int argc, char** argv) {
   assert(collected.bindless_samplers.slots.retiring_slots == 0);
   assert(collected.bindless_samplers.slots.retirement_collection_count == 1);
 
-  // A later replacement can now reuse the generation-advanced free slot.
+  // A later replacement reuses a completion-safe slot immediately, coalescing
+  // retirement and replacement into one descriptor write.
   texture.pixels = {0U, 0U, 255U, 255U};
   world.UpdateTexture(texture_handle, texture);
   const auto fourth = renderer->Render(*apply().snapshot, 32, 32, shaders);
-  assert(fourth.counters.bindless_sampled_image_descriptor_update_count == 2);
+  assert(fourth.counters.bindless_sampled_image_descriptor_update_count == 1);
   const auto reused = renderer->statistics();
   assert(reused.bindless_texture_slots.reuse_count == 1);
   assert(reused.bindless_texture_slots.generation_mismatch_count == 0);
   assert(renderer->statistics().validation_messages == 0);
+
+  // A table sized exactly for the live scene must still support replacement
+  // after the last referencing frame has completed. Completion-safe retirement
+  // is collected before allocating the replacement, so no spare version slot
+  // is required while the renderer is idle.
+  merlin::vulkan::RendererOptions exact_capacity_options{true, 2};
+  exact_capacity_options.descriptor_backend =
+      merlin::vulkan::DescriptorBackendRequest::Bindless;
+  exact_capacity_options.bindless_texture_capacity =
+      merlin::vulkan::kReservedBindlessTextureSlots + 1U;
+  exact_capacity_options.bindless_sampler_capacity = 1;
+  merlin::vulkan::Renderer exact_capacity_renderer(exact_capacity_options);
+  assert(exact_capacity_renderer.capabilities()
+             .descriptor_indexing_selection.selected_backend ==
+         merlin::vulkan::DescriptorBackend::Bindless);
+
+  const auto exact_first = exact_capacity_renderer.Render(
+      *extractor.snapshot(), 32, 32, shaders);
+  assert(exact_first.counters.bindless_sampled_image_descriptor_update_count ==
+         merlin::vulkan::kReservedBindlessTextureSlots + 1U);
+  assert(exact_first.counters.bindless_sampler_descriptor_update_count == 1);
+
+  texture.pixels = {255U, 255U, 0U, 255U};
+  world.UpdateTexture(texture_handle, texture);
+  sampler.min_filter = merlin::FilterMode::Nearest;
+  sampler.mag_filter = merlin::FilterMode::Nearest;
+  world.UpdateSampler(sampler_handle, sampler);
+  const auto exact_second_request = apply();
+  const auto exact_second = exact_capacity_renderer.Render(
+      *exact_second_request.snapshot, 32, 32, shaders);
+  assert(exact_second.counters.bindless_sampled_image_descriptor_update_count ==
+         1);
+  assert(exact_second.counters.bindless_sampler_descriptor_update_count == 1);
+  const auto exact_stats = exact_capacity_renderer.statistics();
+  assert(exact_stats.bindless_texture_slots.reuse_count == 1);
+  assert(exact_stats.bindless_texture_slots.retiring_slots == 0);
+  assert(exact_stats.bindless_samplers.slots.reuse_count == 1);
+  assert(exact_stats.bindless_samplers.slots.retiring_slots == 0);
+  assert(exact_stats.validation_messages == 0);
 
   std::cout << "Bindless Vulkan residency and retirement verified\n";
   return 0;

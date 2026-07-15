@@ -1508,6 +1508,18 @@ class Renderer::Impl {
     return sampler;
   }
 
+  void CollectCompletedBindlessSlots(std::uint64_t completed) {
+    if (!bindless_texture_table_) {
+      return;
+    }
+    for (const auto slot : bindless_texture_table_->Collect(completed)) {
+      bindless_texture_views_[slot.index] = VK_NULL_HANDLE;
+    }
+    for (const auto slot : bindless_sampler_table_->Collect(completed)) {
+      bindless_samplers_[slot.index] = VK_NULL_HANDLE;
+    }
+  }
+
   void RetireTexture(TextureSlot& texture) {
     if (texture.image != VK_NULL_HANDLE) {
       if (texture.bindless_slot) {
@@ -1516,23 +1528,29 @@ class Renderer::Impl {
       }
       retired_textures_.push_back({texture, timeline_value_});
       texture = {};
+      CollectCompletedBindlessSlots(latest_completed_value_);
     }
   }
 
   void RetireSampler(SamplerSlot& sampler) {
     if (sampler.sampler != VK_NULL_HANDLE) {
+      bool bindless_slot_retired{};
       if (sampler.bindless_slot) {
         const auto slot = sampler.bindless_slot;
         bindless_sampler_table_->Release(slot, timeline_value_);
         if (!bindless_sampler_table_->IsActive(slot)) {
           retired_samplers_.push_back(
               {sampler.sampler, timeline_value_, slot});
+          bindless_slot_retired = true;
         }
       } else {
         retired_samplers_.push_back(
             {sampler.sampler, timeline_value_, {}});
       }
       sampler = {};
+      if (bindless_slot_retired) {
+        CollectCompletedBindlessSlots(latest_completed_value_);
+      }
     }
   }
 
@@ -2607,12 +2625,7 @@ class Renderer::Impl {
       }
     }
     if (bindless_texture_table_) {
-      for (const auto slot : bindless_texture_table_->Collect(completed)) {
-        bindless_texture_views_[slot.index] = VK_NULL_HANDLE;
-      }
-      for (const auto slot : bindless_sampler_table_->Collect(completed)) {
-        bindless_samplers_[slot.index] = VK_NULL_HANDLE;
-      }
+      CollectCompletedBindlessSlots(completed);
       WriteBindlessDescriptors(
           bindless_texture_table_->ConsumeDirtySlots(),
           bindless_sampler_table_->ConsumeDirtySlots());
