@@ -48,7 +48,7 @@ supported GPU profiles.
 v0.7.0 owns the common arena, upload, retirement, descriptor, and memory-budget
 infrastructure needed by Mesh and future Gaussian resources. Host-neutral
 `GaussianResource`, standard Hydra Gaussian ingestion, and native Gaussian
-rendering remain v0.9.0 work; this milestone does not introduce a renderer-
+rendering remain v0.14.0 work; this milestone does not introduce a renderer-
 specific Gaussian schema or file parser.
 
 #### Exit criteria

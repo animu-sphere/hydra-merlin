@@ -1,11 +1,16 @@
 # Renderer architecture
 
-**Status:** v0.6.0 · **Last reviewed:** 2026-07-15
+**Status:** v0.6.0 implementation + accepted multi-backend direction
 
-hdMerlin is a lightweight, host-neutral Vulkan raster renderer. It is not a DCC
-plugin by itself: the product is the composition of a renderer core, an
-offscreen-first Vulkan backend, a renderer-owned extraction layer, an independent
-material compiler, and thin Hydra/DCC adapters.
+**Last reviewed:** 2026-07-16
+
+hdMerlin is a lightweight, host-neutral raster renderer with Vulkan as its
+current and first backend and Metal as its planned second backend. It is not a
+DCC plugin by itself: the product is the composition of a renderer core,
+independently optimized GPU backends, a renderer-owned extraction layer, an
+independent material compiler, and thin Hydra/DCC adapters. The accepted
+Vulkan/Metal, Slang, MaterialX, native viewport, and HgiMetal boundaries are in
+the [multi-backend strategy](multibackend-slang-materialx.md).
 
 ## Dependency boundary
 
@@ -22,7 +27,7 @@ Scene model: RenderWorld
 Draw model: GPU Scene + DrawItem / DrawPacket
             │  frame plan
             ▼
-Execution model: Vulkan backend
+Execution model: selected backend
             │
             ▼
 Offscreen RenderProduct
@@ -30,15 +35,17 @@ Offscreen RenderProduct
 
 Required rules:
 
-- Core public APIs do not expose `pxr::`, Vulkan, Qt, Houdini, Maya, or other DCC
-  SDK types.
+- Core public APIs do not expose `pxr::`, Vulkan, Metal, Qt, Houdini, Maya, or
+  other DCC SDK types.
 - Hydra dirty bits, topology, and primvar interpolation are normalized in the
   adapter before entering the scene model.
 - The adapter owns the persistent Hydra path-to-Merlin handle map, scene-index
   locator state, source descriptors, and host-value caches.
 - DCC discovery, UI, environment, and package metadata belong to integration
   packages rather than Core.
-- The Vulkan backend owns no native window or swapchain.
+- Core and backend-neutral execution own no native window or presentation
+  object; backend presentation adapters own Vulkan surfaces/swapchains or Metal
+  layers/drawables.
 - Tier 0 CPU readback remains the correctness reference when lower-copy host
   presentation is added.
 - Dependencies point from adapters/integrations toward Core and backend, never
@@ -62,7 +69,7 @@ immutable FrameSnapshot
     ↓ revision comparison / compilation
 persistent GPU Scene + DrawPackets
     ↓ execution
-Vulkan commands
+backend-owned commands
 ```
 
 ## Incremental change contract
@@ -120,7 +127,7 @@ OpenUSD 26.05 already supplies the concrete
 `particleField` Rprim token. The accepted attribute, fallback, invalidation,
 and compatibility boundary is recorded in the
 [Gaussian ingestion through Hydra](gaussian-hydra-ingestion.md).
-`GaussianResource` and native rendering remain v0.9.0 work.
+`GaussianResource` and native rendering remain v0.14.0 work.
 
 The Mesh pipeline evolves behind this boundary in measured stages: bindless
 resource tables, a persistent GPU Scene, GPU-driven indexed Forward, an opaque
@@ -167,12 +174,15 @@ their frame context until the single-use token resolves. See the
 
 ## Material and shader variants
 
-The implemented host-neutral material boundary is:
+The implemented host-neutral material boundary and accepted shader direction
+are:
 
 ```text
 MaterialX document ─────┐
-Hydra material network ┼─> MaterialIR ─> shader variant ─> SPIR-V
+Hydra material network ┼─> MaterialIR ─> Slang material/pass modules
 Future material source ┘
+                                      ├─> SPIR-V / Vulkan
+                                      └─> Metal-target artifact / Metal
 ```
 
 - `MaterialIR` contains host-neutral parameters, texture/sampler bindings,
@@ -189,8 +199,9 @@ Future material source ┘
 - The Hydra adapter translates a deliberate `UsdPreviewSurface`/`UsdUVTexture`
   subset into `MaterialIR`; headless scenes author the same Core resources
   directly.
-- MaterialX compilation happens before draw time and produces version-aware
-  SPIR-V, reflection, and cache metadata; raw source graphs do not enter Core.
+- MaterialX compilation happens before draw time, produces a generated Slang
+  material-evaluation module, and emits version-aware backend artifacts,
+  reflection, and cache metadata; raw source graphs do not enter Core.
 - Missing/stale texture or sampler bindings and unsupported alpha blending
   produce structured extraction fallbacks rather than silent corruption.
 
@@ -234,7 +245,8 @@ reference path after any faster presentation adapter is added.
 
 ## Non-goals for the foundation releases
 
-- CPU renderer fallback or OpenGL/Metal backends.
+- A CPU renderer fallback, OpenGL backend, or simultaneous support for every GPU
+  API. Metal follows the contract, shader, and validation gates in the roadmap.
 - Full USD Imaging parity.
 - Arbitrary OSL/custom MaterialX code nodes.
 - Complete volume, hair, subdivision, motion-blur, or advanced-transparency
