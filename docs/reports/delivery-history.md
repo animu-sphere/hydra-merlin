@@ -182,3 +182,28 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Added 50 removals plus 50 additions at the same live prim count, covering
   displaced dense indices, identity-preserving swap removal, immutable prior
   snapshots, and bounded structural counters under the existing scale timeout.
+
+## Descriptor-indexing negotiation ✅
+
+- ✅ Probed every descriptor-indexing feature and sampled-image/sampler limit
+  required by the planned bindless Forward path and enabled the feature chain
+  only when selected.
+- ✅ Added explicit conventional/bindless selection with versioned capability
+  output and machine-readable configuration, feature, and limit fallback
+  reasons.
+- ✅ Covered exact limits, per-stage resource overhead, retained sampler
+  allocation overhead, forced conventional configuration, and missing-feature
+  fallback without requiring a GPU.
+
+## Bindless resource-table foundation ✅
+
+- ✅ Added finite texture and sampler slot tables with table identity,
+  generation-checked handles, deterministic free-list reuse, actionable
+  exhaustion errors, and current/peak/retiring/available telemetry.
+- ✅ Reserved stable white, black, flat-normal, and error texture indices and
+  deduplicated sampler slots by Vulkan-affecting descriptor values while
+  excluding debug labels.
+- ✅ Delayed slot reuse and generation advancement until the last completion
+  value, coalesced dirty descriptor indices, and recorded allocation, reuse,
+  update, retirement, collection, exhaustion, stale-generation, reference, and
+  deduplication evidence.

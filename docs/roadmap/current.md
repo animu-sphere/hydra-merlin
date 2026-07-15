@@ -14,32 +14,23 @@ changed resources rather than total prim count while keeping resource identity
 stable across frames.
 
 v0.6.0 established locator-aware Hydra ingestion, resource-granular revisions,
-changed ranges, and safe partial upload. The remaining v0.7.0 work completes
-persistent snapshot construction, bindless resource identity, and measured GPU
-residency on top of those contracts.
+changed ranges, and safe partial upload. v0.7.0 work has since completed
+persistent snapshot construction and descriptor-indexing negotiation. The
+remaining work connects bindless resource identity and measured GPU residency
+on top of those contracts.
 
-#### 1. Descriptor-indexing negotiation
+#### 1. Bindless texture and sampler tables
 
-- Probe every descriptor-indexing feature and sampled-image/sampler limit used
-  by the backend, enable only the selected feature chain, and report the
-  versioned capability result.
-- Select bindless or conventional Forward explicitly, with a machine-readable
-  fallback reason and coverage for feature, limit, and configuration failures.
-
-#### 2. Bindless texture and sampler tables
-
-- Add finite generation-checked texture and sampler slot allocators with stale
-  generation detection, capacity/exhaustion diagnostics, and current/peak use
-  telemetry.
-- Reserve white, black, flat-normal, and error texture slots; deduplicate
-  samplers by descriptor value; and keep indices stable for unchanged
-  resources.
-- Update only dirty descriptor slots and retire replaced textures, samplers,
-  and slot generations only after their last completion value.
+- Connect texture/sampler residency to the finite logical tables so unchanged
+  resources retain their descriptor indices and changed resources receive
+  completion-safe replacement slots.
+- Materialize the reserved white, black, flat-normal, and error images; write
+  only dirty sampled-image/sampler descriptors; and destroy replaced Vulkan
+  resources only after their table retirement becomes collectable.
 - Add a non-uniform-indexed bindless Forward shader path while retaining the
   conventional descriptor implementation as the correctness fallback.
 
-#### 3. Residency, transfer, and memory budget
+#### 2. Residency, transfer, and memory budget
 
 - Complete persistent arena and mapped-upload-ring telemetry for stable ranges,
   growth, fragmentation, retirement, and bytes staged by resource class.
@@ -49,11 +40,11 @@ residency on top of those contracts.
   behavior, and retain current/peak/capacity evidence in capability and
   benchmark artifacts.
 
-#### 4. Validation and release evidence
+#### 3. Validation and release evidence
 
-- Cover slot allocation/retirement/reuse, generation mismatch, fallback slots,
-  sampler deduplication, exhaustion, non-uniform indexing, partially-bound
-  descriptors, and in-flight replacement.
+- Cover reserved-image materialization, dirty Vulkan descriptor writes,
+  non-uniform indexing, partially-bound descriptors, and in-flight
+  replacement.
 - Retain conventional/bindless image parity, one-million-prim localized-edit
   scaling, steady-state zero-work, fallback selection, and VRAM evidence.
 
