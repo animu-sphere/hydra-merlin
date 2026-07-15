@@ -18,12 +18,7 @@ changed ranges, and safe partial upload. The remaining v0.7.0 work completes
 persistent snapshot construction, bindless resource identity, and measured GPU
 residency on top of those contracts.
 
-#### 1. Persistent snapshot completion
-
-- Extend localized-edit evidence from the current 10,000-record fixture to 100
-  edits in a one-million-prim scene, including additions and removals.
-
-#### 2. Descriptor-indexing negotiation
+#### 1. Descriptor-indexing negotiation
 
 - Probe every descriptor-indexing feature and sampled-image/sampler limit used
   by the backend, enable only the selected feature chain, and report the
@@ -31,7 +26,7 @@ residency on top of those contracts.
 - Select bindless or conventional Forward explicitly, with a machine-readable
   fallback reason and coverage for feature, limit, and configuration failures.
 
-#### 3. Bindless texture and sampler tables
+#### 2. Bindless texture and sampler tables
 
 - Add finite generation-checked texture and sampler slot allocators with stale
   generation detection, capacity/exhaustion diagnostics, and current/peak use
@@ -44,7 +39,7 @@ residency on top of those contracts.
 - Add a non-uniform-indexed bindless Forward shader path while retaining the
   conventional descriptor implementation as the correctness fallback.
 
-#### 4. Residency, transfer, and memory budget
+#### 3. Residency, transfer, and memory budget
 
 - Complete persistent arena and mapped-upload-ring telemetry for stable ranges,
   growth, fragmentation, retirement, and bytes staged by resource class.
@@ -54,7 +49,7 @@ residency on top of those contracts.
   behavior, and retain current/peak/capacity evidence in capability and
   benchmark artifacts.
 
-#### 5. Validation and release evidence
+#### 4. Validation and release evidence
 
 - Cover slot allocation/retirement/reuse, generation mismatch, fallback slots,
   sampler deduplication, exhaustion, non-uniform indexing, partially-bound

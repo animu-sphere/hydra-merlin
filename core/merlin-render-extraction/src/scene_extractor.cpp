@@ -157,7 +157,7 @@ DenseTableUpdate UpdateTable(
     for (const auto& [handle, entry] : entries) {
       ++counters.visited_records;
       ++counters.copied_records;
-      indices.emplace(handle, records.size());
+      indices.emplace_hint(indices.end(), handle, records.size());
       records.push_back(build_record(handle, entry));
     }
     table.assign(std::move(records));
@@ -369,7 +369,8 @@ class SceneExtractor::Impl {
       for (const auto& [handle, entry] : materials) {
         ++counters.visited_records;
         ++counters.copied_records;
-        material_indices.emplace(handle, records.size());
+        material_indices.emplace_hint(material_indices.end(), handle,
+                                      records.size());
         records.push_back(BuildMaterial(handle, entry, fallbacks));
       }
       std::stable_sort(
@@ -427,7 +428,9 @@ class SceneExtractor::Impl {
     return update;
   }
 
-  std::optional<DrawRecord> BuildDraw(const InstanceRecord& instance) const {
+  std::optional<DrawRecord> BuildDraw(
+      const InstanceRecord& instance,
+      std::optional<std::size_t> known_instance_index = std::nullopt) const {
     if (!instance.visible) {
       return std::nullopt;
     }
@@ -437,13 +440,19 @@ class SceneExtractor::Impl {
         material == material_indices.end()) {
       return std::nullopt;
     }
-    const auto instance_index = instance_indices.find(instance.instance);
-    if (instance_index == instance_indices.end()) {
-      throw std::logic_error("draw references an unknown instance");
+    std::size_t instance_index{};
+    if (known_instance_index) {
+      instance_index = *known_instance_index;
+    } else {
+      const auto found = instance_indices.find(instance.instance);
+      if (found == instance_indices.end()) {
+        throw std::logic_error("draw references an unknown instance");
+      }
+      instance_index = found->second;
     }
     return DrawRecord{static_cast<std::uint32_t>(geometry->second),
                       static_cast<std::uint32_t>(material->second),
-                      static_cast<std::uint32_t>(instance_index->second),
+                      static_cast<std::uint32_t>(instance_index),
                       StableSortKey(instance.material, instance.mesh),
                       instance.instance};
   }
@@ -465,11 +474,13 @@ class SceneExtractor::Impl {
     if (initialize) {
       std::vector<DrawRecord> draws;
       draws.reserve(next.instances.size());
+      std::size_t instance_index{};
       for (const auto& instance : next.instances) {
         ++counters.visited_records;
-        if (auto draw = BuildDraw(instance)) {
+        if (auto draw = BuildDraw(instance, instance_index)) {
           draws.push_back(std::move(*draw));
         }
+        ++instance_index;
       }
       std::stable_sort(draws.begin(), draws.end(),
                        [](const DrawRecord& lhs, const DrawRecord& rhs) {
@@ -522,7 +533,8 @@ class SceneExtractor::Impl {
   static void AddDependency(DependencyIndex& dependencies,
                             std::uint64_t resource,
                             std::uint64_t dependent) {
-    dependencies[resource].insert(dependent);
+    auto& dependents = dependencies[resource];
+    dependents.insert(dependents.end(), dependent);
   }
 
   static void RemoveDependency(DependencyIndex& dependencies,
@@ -871,7 +883,8 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           entry.descriptor =
               world.Get(MaterialHandle::FromValue(change.handle));
           impl_->AddMaterialDependencies(change.handle, entry.descriptor);
-          impl_->materials.insert_or_assign(change.handle, std::move(entry));
+          impl_->materials.insert_or_assign(impl_->materials.end(),
+                                            change.handle, std::move(entry));
         }
         break;
       case ObjectKind::Texture:
@@ -881,7 +894,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           const auto& texture =
               world.Get(TextureHandle::FromValue(change.handle));
           impl_->textures.insert_or_assign(
-              change.handle,
+              impl_->textures.end(), change.handle,
               TextureEntry{change.resource_revision, texture.width,
                            texture.height, texture.format,
                            std::make_shared<const std::vector<std::uint8_t>>(
@@ -893,7 +906,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           impl_->samplers.erase(change.handle);
         } else {
           impl_->samplers.insert_or_assign(
-              change.handle,
+              impl_->samplers.end(), change.handle,
               SamplerEntry{change.resource_revision,
                            world.Get(SamplerHandle::FromValue(change.handle))});
         }
@@ -931,7 +944,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
               world.Get(InstanceHandle::FromValue(change.handle));
           impl_->AddInstanceDependencies(change.handle, entry.descriptor);
           impl_->instances.insert_or_assign(
-              change.handle, std::move(entry));
+              impl_->instances.end(), change.handle, std::move(entry));
         }
         break;
       case ObjectKind::Camera:
@@ -939,7 +952,8 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           impl_->cameras.erase(change.handle);
         } else {
           impl_->cameras.insert_or_assign(
-              change.handle, world.Get(CameraHandle::FromValue(change.handle)));
+              impl_->cameras.end(), change.handle,
+              world.Get(CameraHandle::FromValue(change.handle)));
         }
         break;
       case ObjectKind::Light:
@@ -947,7 +961,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           impl_->lights.erase(change.handle);
         } else {
           impl_->lights.insert_or_assign(
-              change.handle,
+              impl_->lights.end(), change.handle,
               LightEntry{change.resource_revision,
                          world.Get(LightHandle::FromValue(change.handle))});
         }
