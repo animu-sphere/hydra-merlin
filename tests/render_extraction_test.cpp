@@ -58,12 +58,278 @@ void CheckPersistentTable() {
   }
   assert(std::equal(table.begin(), table.end(), expected.begin(),
                     expected.end()));
+
+  const auto before_unordered_erase = table;
+  const auto displaced_identity = table.record_identity(table.size() - 1U);
+  const auto removed_value = table[3];
+  const auto displaced_value = table.back();
+  table.erase_unordered(3);
+  assert(table.size() + 1U == before_unordered_erase.size());
+  assert(table[3] == displaced_value);
+  assert(table.record_identity(3) == displaced_identity);
+  assert(before_unordered_erase[3] == removed_value);
+  assert(before_unordered_erase.back() == displaced_value);
+}
+
+template <typename Table, typename HandleOf>
+std::size_t FindRecord(const Table& table, std::uint64_t handle,
+                       HandleOf handle_of) {
+  for (std::size_t index = 0; index < table.size(); ++index) {
+    if (handle_of(table[index]) == handle) {
+      return index;
+    }
+  }
+  return table.size();
+}
+
+std::size_t FindDraw(
+    const merlin::extraction::FrameSnapshot& snapshot,
+    merlin::InstanceHandle instance) {
+  return FindRecord(snapshot.draws, instance.value(),
+                    [](const merlin::extraction::DrawRecord& draw) {
+                      return draw.instance;
+                    });
+}
+
+merlin::MeshDescriptor Triangle() {
+  merlin::MeshDescriptor mesh;
+  mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},
+                    {0.0F, 0.5F, 0.0F}};
+  mesh.indices = {0, 1, 2};
+  return mesh;
+}
+
+void CheckIncrementalStructuralEdits() {
+  merlin::RenderWorld world;
+  const auto material_a = world.CreateMaterial({});
+  const auto material_b = world.CreateMaterial({});
+  const auto material_c = world.CreateMaterial({});
+  const auto mesh_a = world.CreateMesh(Triangle());
+  const auto mesh_b = world.CreateMesh(Triangle());
+  const auto mesh_c = world.CreateMesh(Triangle());
+  merlin::InstanceDescriptor descriptor;
+  descriptor.mesh = mesh_a;
+  descriptor.material = material_a;
+  const auto instance_a = world.CreateInstance(descriptor);
+  descriptor.mesh = mesh_b;
+  descriptor.material = material_b;
+  const auto instance_b = world.CreateInstance(descriptor);
+  descriptor.mesh = mesh_c;
+  descriptor.material = material_c;
+  const auto instance_c = world.CreateInstance(descriptor);
+
+  merlin::extraction::SceneExtractor extractor;
+  extractor.Apply(world, world.Commit());
+  const auto initial = extractor.snapshot();
+  const auto draw_a = FindDraw(*initial, instance_a);
+  assert(draw_a != initial->draws.size());
+  const auto draw_a_identity = initial->draws.record_identity(draw_a);
+  const auto mesh_c_identity = initial->geometries.record_identity(2);
+
+  // Dense tables use swap removal. Removing the middle mesh moves only the
+  // final geometry record and rebuilds draws that reference those two meshes.
+  world.Remove(mesh_b);
+  extractor.Apply(world, world.Commit());
+  const auto mesh_removed = extractor.snapshot();
+  assert(mesh_removed->build_counters.visited_records == 1);
+  assert(mesh_removed->build_counters.copied_records == 0);
+  assert(mesh_removed->build_counters.rebuilt_draws == 2);
+  assert(mesh_removed->build_counters.fully_rebuilt_tables == 0);
+  assert(mesh_removed->delta->geometries.upserts ==
+         std::vector<std::uint64_t>{mesh_c.value()});
+  assert(mesh_removed->delta->geometries.upsert_indices ==
+         std::vector<std::uint32_t>{1});
+  assert(mesh_removed->geometries.size() == 2);
+  assert(mesh_removed->geometries[1].mesh == mesh_c.value());
+  assert(mesh_removed->geometries.record_identity(1) == mesh_c_identity);
+  assert(initial->geometries[1].mesh == mesh_b.value());
+  assert(initial->geometries[2].mesh == mesh_c.value());
+  assert(FindDraw(*mesh_removed, instance_b) == mesh_removed->draws.size());
+  const auto moved_mesh_draw = FindDraw(*mesh_removed, instance_c);
+  assert(moved_mesh_draw != mesh_removed->draws.size());
+  assert(mesh_removed->draws[moved_mesh_draw].geometry_index == 1);
+  assert(mesh_removed->draws.record_identity(
+             FindDraw(*mesh_removed, instance_a)) == draw_a_identity);
+
+  // The same bounded update applies to material indices and their draws.
+  const auto material_c_identity = initial->materials.record_identity(2);
+  world.Remove(material_b);
+  extractor.Apply(world, world.Commit());
+  const auto material_removed = extractor.snapshot();
+  assert(material_removed->build_counters.visited_records == 1);
+  assert(material_removed->build_counters.copied_records == 0);
+  assert(material_removed->build_counters.rebuilt_draws == 2);
+  assert(material_removed->build_counters.fully_rebuilt_tables == 0);
+  assert(material_removed->delta->materials.upserts ==
+         std::vector<std::uint64_t>{material_c.value()});
+  assert(material_removed->delta->materials.upsert_indices ==
+         std::vector<std::uint32_t>{1});
+  assert(material_removed->materials.size() == 2);
+  assert(material_removed->materials[1].material == material_c.value());
+  assert(material_removed->materials.record_identity(1) ==
+         material_c_identity);
+  const auto moved_material_draw = FindDraw(*material_removed, instance_c);
+  assert(moved_material_draw != material_removed->draws.size());
+  assert(material_removed->draws[moved_material_draw].material_index == 1);
+
+  // New resources append to the dense tables and rebuild only the new draw.
+  const auto material_d = world.CreateMaterial({});
+  const auto mesh_d = world.CreateMesh(Triangle());
+  descriptor.mesh = mesh_d;
+  descriptor.material = material_d;
+  const auto instance_d = world.CreateInstance(descriptor);
+  extractor.Apply(world, world.Commit());
+  const auto added = extractor.snapshot();
+  assert(added->build_counters.visited_records == 3);
+  assert(added->build_counters.copied_records == 3);
+  assert(added->build_counters.rebuilt_draws == 1);
+  assert(added->build_counters.fully_rebuilt_tables == 0);
+  assert(added->delta->geometries.upsert_indices ==
+         std::vector<std::uint32_t>{2});
+  assert(added->delta->materials.upsert_indices ==
+         std::vector<std::uint32_t>{2});
+  assert(added->delta->instances.upsert_indices ==
+         std::vector<std::uint32_t>{3});
+  const auto added_draw = FindDraw(*added, instance_d);
+  assert(added_draw != added->draws.size());
+  assert(added->draws[added_draw].geometry_index == 2);
+  assert(added->draws[added_draw].material_index == 2);
+  assert(added->draws[added_draw].instance_index == 3);
+
+  // Instance swap removal changes only the removed and displaced draws.
+  const auto instance_d_identity = added->instances.record_identity(3);
+  world.Remove(instance_a);
+  extractor.Apply(world, world.Commit());
+  const auto instance_removed = extractor.snapshot();
+  assert(instance_removed->build_counters.visited_records == 1);
+  assert(instance_removed->build_counters.copied_records == 0);
+  assert(instance_removed->build_counters.rebuilt_draws == 2);
+  assert(instance_removed->build_counters.fully_rebuilt_tables == 0);
+  assert(instance_removed->delta->instances.upserts ==
+         std::vector<std::uint64_t>{instance_d.value()});
+  assert(instance_removed->delta->instances.upsert_indices ==
+         std::vector<std::uint32_t>{0});
+  assert(FindDraw(*instance_removed, instance_a) ==
+         instance_removed->draws.size());
+  assert(instance_removed->instances[0].instance == instance_d.value());
+  assert(instance_removed->instances.record_identity(0) ==
+         instance_d_identity);
+  const auto displaced_draw = FindDraw(*instance_removed, instance_d);
+  assert(displaced_draw != instance_removed->draws.size());
+  assert(instance_removed->draws[displaced_draw].instance_index == 0);
+  assert(added->instances[0].instance == instance_a.value());
+  assert(added->instances[3].instance == instance_d.value());
+}
+
+void CheckLocalizedBindingInvalidation() {
+  merlin::RenderWorld world;
+  merlin::TextureDescriptor texture;
+  texture.width = 1;
+  texture.height = 1;
+  texture.pixels = {255, 255, 255, 255};
+  const auto texture_a = world.CreateTexture(texture);
+  const auto texture_b = world.CreateTexture(texture);
+  const auto texture_c = world.CreateTexture(texture);
+  const auto sampler_a = world.CreateSampler({});
+  const auto sampler_b = world.CreateSampler({});
+  const auto sampler_c = world.CreateSampler({});
+
+  const auto make_material = [&](merlin::TextureHandle texture_handle,
+                                 merlin::SamplerHandle sampler_handle) {
+    merlin::MaterialDescriptor material;
+    material.features |= merlin::MaterialFeature::BaseColorTexture;
+    material.base_color_texture =
+        merlin::TextureBinding{texture_handle, sampler_handle, 0};
+    return world.CreateMaterial(material);
+  };
+  const auto material_a = make_material(texture_a, sampler_a);
+  const auto material_b = make_material(texture_b, sampler_b);
+  const auto material_c = make_material(texture_c, sampler_c);
+  const auto unrelated_material = world.CreateMaterial({});
+
+  merlin::extraction::SceneExtractor extractor;
+  extractor.Apply(world, world.Commit());
+  const auto initial = extractor.snapshot();
+  const auto material_a_index = FindRecord(
+      initial->materials, material_a.value(),
+      [](const merlin::extraction::MaterialRecord& material) {
+        return material.material;
+      });
+  const auto unrelated_index = FindRecord(
+      initial->materials, unrelated_material.value(),
+      [](const merlin::extraction::MaterialRecord& material) {
+        return material.material;
+      });
+  const auto material_a_identity =
+      initial->materials.record_identity(material_a_index);
+  const auto unrelated_identity =
+      initial->materials.record_identity(unrelated_index);
+
+  world.Remove(texture_b);
+  extractor.Apply(world, world.Commit());
+  const auto texture_removed = extractor.snapshot();
+  assert(texture_removed->delta->materials.upserts ==
+         std::vector<std::uint64_t>({material_b.value(),
+                                     material_c.value()}));
+  assert(texture_removed->delta->materials.upsert_indices ==
+         std::vector<std::uint32_t>({1, 2}));
+  assert(texture_removed->delta->textures.upserts ==
+         std::vector<std::uint64_t>{texture_c.value()});
+  assert(texture_removed->delta->textures.upsert_indices ==
+         std::vector<std::uint32_t>{1});
+  assert(texture_removed->build_counters.visited_records == 3);
+  assert(texture_removed->build_counters.copied_records == 3);
+  assert(texture_removed->build_counters.fully_rebuilt_tables == 0);
+  assert(texture_removed->materials.record_identity(material_a_index) ==
+         material_a_identity);
+  assert(texture_removed->materials.record_identity(unrelated_index) ==
+         unrelated_identity);
+  const auto material_b_index = FindRecord(
+      texture_removed->materials, material_b.value(),
+      [](const merlin::extraction::MaterialRecord& material) {
+        return material.material;
+      });
+  const auto material_c_index = FindRecord(
+      texture_removed->materials, material_c.value(),
+      [](const merlin::extraction::MaterialRecord& material) {
+        return material.material;
+      });
+  assert(!texture_removed->materials[material_b_index]
+              .base_color_texture.has_value());
+  assert(texture_removed->materials[material_c_index]
+             .base_color_texture->texture_index == 1);
+  assert(initial->materials[material_c_index]
+             .base_color_texture->texture_index == 2);
+
+  world.Remove(sampler_b);
+  extractor.Apply(world, world.Commit());
+  const auto sampler_removed = extractor.snapshot();
+  assert(sampler_removed->delta->materials.upserts ==
+         std::vector<std::uint64_t>({material_b.value(),
+                                     material_c.value()}));
+  assert(sampler_removed->delta->samplers.upserts ==
+         std::vector<std::uint64_t>{sampler_c.value()});
+  assert(sampler_removed->delta->samplers.upsert_indices ==
+         std::vector<std::uint32_t>{1});
+  assert(sampler_removed->build_counters.visited_records == 3);
+  assert(sampler_removed->build_counters.copied_records == 3);
+  assert(sampler_removed->build_counters.fully_rebuilt_tables == 0);
+  assert(sampler_removed->materials.record_identity(material_a_index) ==
+         material_a_identity);
+  assert(sampler_removed->materials.record_identity(unrelated_index) ==
+         unrelated_identity);
+  assert(sampler_removed->materials[material_c_index]
+             .base_color_texture->sampler_index == 1);
+  assert(texture_removed->materials[material_c_index]
+             .base_color_texture->sampler_index == 2);
 }
 
 }  // namespace
 
 int main() {
   CheckPersistentTable();
+  CheckIncrementalStructuralEdits();
+  CheckLocalizedBindingInvalidation();
   merlin::RenderWorld world;
   merlin::MeshDescriptor mesh;
   mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},

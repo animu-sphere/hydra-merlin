@@ -157,6 +157,22 @@ class PersistentTable {
     throw std::out_of_range("PersistentTable index is out of range");
   }
 
+  static ValuePtr ValueAt(const NodePtr& node, std::size_t index) {
+    auto current = node;
+    while (current) {
+      const auto left_size = SizeOf(current->left);
+      if (index < left_size) {
+        current = current->left;
+      } else if (index > left_size) {
+        index -= left_size + 1U;
+        current = current->right;
+      } else {
+        return current->value;
+      }
+    }
+    throw std::out_of_range("PersistentTable index is out of range");
+  }
+
   static NodePtr Build(const std::vector<ValuePtr>& values, std::size_t first,
                        std::size_t last) {
     if (first == last) {
@@ -468,6 +484,22 @@ class PersistentTable {
     const auto index = position.index_;
     root_ = Erase(root_, index);
     return {root_, index};
+  }
+
+  // Remove an element without shifting the dense indices that precede the
+  // final element. When `index` is not the last element, the final value is
+  // moved into the hole while retaining its shared record identity. This is
+  // useful for dense transient tables whose external references can update
+  // the one displaced index instead of every index after an ordered erase.
+  void erase_unordered(size_type index) {
+    if (index >= size()) {
+      throw std::out_of_range("PersistentTable index is out of range");
+    }
+    const auto last = size() - 1U;
+    if (index != last) {
+      root_ = Replace(root_, index, ValueAt(root_, last));
+    }
+    root_ = Erase(root_, last);
   }
 
   void replace(size_type index, const T& value) {

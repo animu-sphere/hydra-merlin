@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -107,6 +108,25 @@ class DenseTableView {
   extraction::PersistentTable<T> source_;
   std::vector<T> records_;
 };
+
+template <typename T, typename HandleOf>
+const T* FindDeltaRecord(const extraction::PersistentTable<T>& table,
+                         const extraction::ResourceDelta& delta,
+                         std::size_t delta_index, HandleOf handle_of) {
+  const auto handle = delta.upserts[delta_index];
+  if (delta.upsert_indices.size() == delta.upserts.size()) {
+    const auto index = delta.upsert_indices[delta_index];
+    if (index < table.size() && handle_of(table[index]) == handle) {
+      return &table[index];
+    }
+  }
+  // Compatibility with snapshots created before dense upsert indices were
+  // added. A missing or stale hint falls back to handle reconciliation.
+  const auto found = std::find_if(
+      table.begin(), table.end(),
+      [&](const T& record) { return handle_of(record) == handle; });
+  return found == table.end() ? nullptr : &*found;
+}
 
 constexpr std::uint32_t kMinimumVulkanApiVersion = VK_MAKE_API_VERSION(
     0, MERLIN_VULKAN_MIN_VERSION_MAJOR, MERLIN_VULKAN_MIN_VERSION_MINOR, 0);
@@ -1382,14 +1402,12 @@ class Renderer::Impl {
         records.push_back(&texture);
       }
     } else if (mode == ResourceSyncMode::Full) {
-      auto record = snapshot.textures.begin();
+      std::set<std::uint64_t> snapshot_handles;
+      for (const auto& texture : snapshot.textures) {
+        snapshot_handles.insert(texture.texture);
+      }
       for (auto slot = texture_slots_.begin(); slot != texture_slots_.end();) {
-        while (record != snapshot.textures.end() &&
-               record->texture < slot->first) {
-          ++record;
-        }
-        if (record == snapshot.textures.end() ||
-            record->texture != slot->first) {
+        if (!snapshot_handles.contains(slot->first)) {
           RetireTexture(slot->second);
           slot = texture_slots_.erase(slot);
           ++frame_counters_.texture_reconcile_count;
@@ -1412,18 +1430,18 @@ class Renderer::Impl {
         }
       }
       records.reserve(delta.upserts.size());
-      for (const auto handle : delta.upserts) {
-        const auto record = snapshot.textures.lower_bound_index(
-            handle,
-            [](const extraction::TextureRecord& texture,
-               std::uint64_t value) { return texture.texture < value; });
-        if (record == snapshot.textures.size() ||
-            snapshot.textures[record].texture != handle) {
+      for (std::size_t i = 0; i < delta.upserts.size(); ++i) {
+        const auto* record = FindDeltaRecord(
+            snapshot.textures, delta, i,
+            [](const extraction::TextureRecord& texture) {
+              return texture.texture;
+            });
+        if (!record) {
           throw RendererError(RendererErrorCode::InvalidRequest,
                               "synchronize textures",
                               "snapshot texture delta has no matching record");
         }
-        records.push_back(&snapshot.textures[record]);
+        records.push_back(record);
       }
       frame_counters_.texture_cache_hits +=
           snapshot.textures.size() - records.size();
@@ -1471,14 +1489,12 @@ class Renderer::Impl {
         records.push_back(&sampler);
       }
     } else if (mode == ResourceSyncMode::Full) {
-      auto record = snapshot.samplers.begin();
+      std::set<std::uint64_t> snapshot_handles;
+      for (const auto& sampler : snapshot.samplers) {
+        snapshot_handles.insert(sampler.sampler);
+      }
       for (auto slot = sampler_slots_.begin(); slot != sampler_slots_.end();) {
-        while (record != snapshot.samplers.end() &&
-               record->sampler < slot->first) {
-          ++record;
-        }
-        if (record == snapshot.samplers.end() ||
-            record->sampler != slot->first) {
+        if (!snapshot_handles.contains(slot->first)) {
           RetireSampler(slot->second);
           slot = sampler_slots_.erase(slot);
           ++frame_counters_.sampler_reconcile_count;
@@ -1501,18 +1517,18 @@ class Renderer::Impl {
         }
       }
       records.reserve(delta.upserts.size());
-      for (const auto handle : delta.upserts) {
-        const auto record = snapshot.samplers.lower_bound_index(
-            handle,
-            [](const extraction::SamplerRecord& sampler,
-               std::uint64_t value) { return sampler.sampler < value; });
-        if (record == snapshot.samplers.size() ||
-            snapshot.samplers[record].sampler != handle) {
+      for (std::size_t i = 0; i < delta.upserts.size(); ++i) {
+        const auto* record = FindDeltaRecord(
+            snapshot.samplers, delta, i,
+            [](const extraction::SamplerRecord& sampler) {
+              return sampler.sampler;
+            });
+        if (!record) {
           throw RendererError(RendererErrorCode::InvalidRequest,
                               "synchronize samplers",
                               "snapshot sampler delta has no matching record");
         }
-        records.push_back(&snapshot.samplers[record]);
+        records.push_back(record);
       }
       frame_counters_.sampler_cache_hits +=
           snapshot.samplers.size() - records.size();
@@ -1762,14 +1778,12 @@ class Renderer::Impl {
         records.push_back(&geometry);
       }
     } else if (mode == ResourceSyncMode::Full) {
-      auto record = snapshot.geometries.begin();
+      std::set<std::uint64_t> snapshot_handles;
+      for (const auto& geometry : snapshot.geometries) {
+        snapshot_handles.insert(geometry.mesh);
+      }
       for (auto slot = geometry_slots_.begin(); slot != geometry_slots_.end();) {
-        while (record != snapshot.geometries.end() &&
-               record->mesh < slot->first) {
-          ++record;
-        }
-        if (record == snapshot.geometries.end() ||
-            record->mesh != slot->first) {
+        if (!snapshot_handles.contains(slot->first)) {
           ReleaseRange(vertex_arena_, slot->second.vertices);
           ReleaseRange(index_arena_, slot->second.indices);
           slot = geometry_slots_.erase(slot);
@@ -1797,18 +1811,18 @@ class Renderer::Impl {
         structural_change = true;
       }
       records.reserve(delta.upserts.size());
-      for (const auto handle : delta.upserts) {
-        const auto record = snapshot.geometries.lower_bound_index(
-            handle,
-            [](const extraction::GeometryRecord& geometry,
-               std::uint64_t value) { return geometry.mesh < value; });
-        if (record == snapshot.geometries.size() ||
-            snapshot.geometries[record].mesh != handle) {
+      for (std::size_t i = 0; i < delta.upserts.size(); ++i) {
+        const auto* record = FindDeltaRecord(
+            snapshot.geometries, delta, i,
+            [](const extraction::GeometryRecord& geometry) {
+              return geometry.mesh;
+            });
+        if (!record) {
           throw RendererError(RendererErrorCode::InvalidRequest,
                               "synchronize geometry",
                               "snapshot geometry delta has no matching record");
         }
-        records.push_back(&snapshot.geometries[record]);
+        records.push_back(record);
       }
       frame_counters_.geometry_cache_hits +=
           snapshot.geometries.size() - records.size();
