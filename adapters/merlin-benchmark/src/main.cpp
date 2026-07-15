@@ -555,7 +555,11 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.bindless_sampled_image_descriptor_update_count);
   WriteCounter(stream, counter_indent,
                "bindless_sampler_descriptor_update_count",
-               count.bindless_sampler_descriptor_update_count, true);
+               count.bindless_sampler_descriptor_update_count);
+  WriteCounter(stream, counter_indent, "transfer_submission_count",
+               count.transfer_submission_count);
+  WriteCounter(stream, counter_indent, "queue_ownership_transfer_count",
+               count.queue_ownership_transfer_count, true);
   stream << indent << "  }\n" << indent << '}';
 }
 
@@ -566,6 +570,8 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
                const std::vector<Baseline>& baselines) {
   const auto& textures = statistics.bindless_texture_slots;
   const auto& samplers = statistics.bindless_samplers;
+  const auto& memory = statistics.memory_budget;
+  const auto& transfer = statistics.transfer_queue;
   stream << "{\n  \"schema\": \"merlin-benchmark/v3\",\n"
          << "  \"environment\": {\n    \"commit\": ";
   JsonString(stream, MERLIN_BENCHMARK_COMMIT);
@@ -588,6 +594,10 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   JsonString(stream, VersionString(capabilities.api_version));
   stream << ",\n    \"timestamp_queries\": "
          << (capabilities.timestamp_queries ? "true" : "false")
+         << ",\n    \"async_transfer_queue\": "
+         << (capabilities.async_transfer_queue ? "true" : "false")
+         << ",\n    \"memory_budget_extension\": "
+         << (capabilities.memory_budget_extension ? "true" : "false")
          << "\n  },\n  \"fixture\": {\n    \"name\": ";
   JsonString(stream, fixture.name);
   stream << ",\n    \"mesh_count\": " << fixture.mesh_count
@@ -617,7 +627,39 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   WriteArenaTelemetry(stream, statistics.index_arena, "      ");
   stream << "\n    },\n    \"upload_ring\": ";
   WriteUploadRingTelemetry(stream, statistics.upload_ring, "    ");
-  stream << ",\n    \"textures\": {\n"
+  stream << ",\n    \"transfer_queue\": {\n"
+         << "      \"asynchronous\": "
+         << (transfer.asynchronous ? "true" : "false")
+         << ",\n      \"graphics_family\": " << transfer.graphics_family
+         << ",\n      \"transfer_family\": " << transfer.transfer_family
+         << ",\n      \"submissions\": " << transfer.submission_count
+         << ",\n      \"uploaded_bytes\": " << transfer.uploaded_bytes
+         << ",\n      \"ownership_transfers\": "
+         << transfer.ownership_transfer_count
+         << ",\n      \"latest_timeline_value\": "
+         << transfer.latest_timeline_value
+         << "\n    },\n    \"memory_budget\": {\n"
+         << "      \"extension_available\": "
+         << (memory.extension_available ? "true" : "false")
+         << ",\n      \"heap_capacity_bytes\": "
+         << memory.heap_capacity_bytes
+         << ",\n      \"heap_budget_bytes\": " << memory.heap_budget_bytes
+         << ",\n      \"heap_usage_bytes\": " << memory.heap_usage_bytes
+         << ",\n      \"heap_available_bytes\": "
+         << memory.heap_available_bytes
+         << ",\n      \"configured_limit_bytes\": "
+         << memory.configured_limit_bytes
+         << ",\n      \"effective_limit_bytes\": "
+         << memory.effective_limit_bytes
+         << ",\n      \"renderer_allocated_bytes\": "
+         << memory.renderer_allocated_bytes
+         << ",\n      \"renderer_peak_allocated_bytes\": "
+         << memory.renderer_peak_allocated_bytes
+         << ",\n      \"allocations\": " << memory.allocation_count
+         << ",\n      \"releases\": " << memory.release_count
+         << ",\n      \"exhaustions\": " << memory.exhaustion_count
+         << ",\n      \"queries\": " << memory.query_count
+         << "\n    },\n    \"textures\": {\n"
          << "      \"capacity\": " << textures.capacity
          << ",\n      \"reserved\": " << textures.reserved_slots
          << ",\n      \"current\": " << textures.current_use

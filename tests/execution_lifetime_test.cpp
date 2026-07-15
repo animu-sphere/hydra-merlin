@@ -99,6 +99,29 @@ int main(int argc, char** argv) {
   const auto first_token = renderer->Submit(first);
   assert(first_token);
   const auto first_in_flight_statistics = renderer->statistics();
+  const auto& capabilities = renderer->capabilities();
+  assert(capabilities.device_local_heap_capacity_bytes > 0);
+  assert(capabilities.device_local_heap_budget_bytes > 0);
+  assert(first_in_flight_statistics.memory_budget.heap_capacity_bytes ==
+         capabilities.device_local_heap_capacity_bytes);
+  assert(first_in_flight_statistics.memory_budget.renderer_allocated_bytes > 0);
+  assert(first_in_flight_statistics.memory_budget
+             .renderer_peak_allocated_bytes >=
+         first_in_flight_statistics.memory_budget.renderer_allocated_bytes);
+  assert(first_in_flight_statistics.transfer_queue.graphics_family ==
+         capabilities.graphics_queue_family);
+  assert(first_in_flight_statistics.transfer_queue.transfer_family ==
+         capabilities.transfer_queue_family);
+  if (capabilities.async_transfer_queue) {
+    assert(first_in_flight_statistics.transfer_queue.asynchronous);
+    assert(first_in_flight_statistics.transfer_queue.submission_count == 1);
+    assert(first_in_flight_statistics.transfer_queue.uploaded_bytes > 0);
+    assert(first_in_flight_statistics.transfer_queue.ownership_transfer_count >
+           0);
+  } else {
+    assert(!first_in_flight_statistics.transfer_queue.asynchronous);
+    assert(first_in_flight_statistics.transfer_queue.submission_count == 0);
+  }
 
   // Record an edited scene while the first frame can still read the old
   // geometry range. The expanded payload also forces the upload ring to grow;
@@ -164,6 +187,8 @@ int main(int argc, char** argv) {
   assert(second_result.counters.index_upload_bytes == 0);
   assert(second_result.counters.geometry_range_reuse_count == 0);
   assert(second_result.counters.buffer_suballocation_count == 1);
+  assert(second_result.counters.transfer_submission_count ==
+         (capabilities.async_transfer_queue ? 1U : 0U));
   assert(second_result.color.pixels.empty());
   const auto collected_statistics = renderer->statistics();
   assert(collected_statistics.pending_geometry_retirements == 0);
@@ -188,6 +213,43 @@ int main(int argc, char** argv) {
     consumed = IsCode(error, merlin::vulkan::RendererErrorCode::InvalidToken);
   }
   assert(consumed);
+
+  merlin::vulkan::RendererOptions single_queue_options;
+  single_queue_options.frames_in_flight = 2;
+  single_queue_options.enable_async_transfer = false;
+  merlin::vulkan::Renderer single_queue_renderer(single_queue_options);
+  const auto single_queue_result = single_queue_renderer.Render(
+      *first.snapshot, 64, 64, shaders);
+  assert(!single_queue_renderer.capabilities().async_transfer_queue);
+  assert(single_queue_renderer.capabilities().graphics_queue_family ==
+         single_queue_renderer.capabilities().transfer_queue_family);
+  assert(single_queue_result.counters.transfer_submission_count == 0);
+  assert(single_queue_renderer.statistics().transfer_queue.submission_count ==
+         0);
+  assert(single_queue_result.color.pixels == first_result.color.pixels);
+
+  // A configured limit is deterministic and fails before Vulkan is asked to
+  // overcommit the device-local heap. The error includes the requested and
+  // available byte evidence and the denial remains visible in telemetry.
+  merlin::vulkan::RendererOptions limited_options;
+  limited_options.frames_in_flight = 2;
+  limited_options.vram_limit_bytes = 1;
+  merlin::vulkan::Renderer limited_renderer(limited_options);
+  bool exhausted{};
+  try {
+    (void)limited_renderer.Render(*first.snapshot, 64, 64, shaders);
+  } catch (const merlin::vulkan::RendererError& error) {
+    exhausted =
+        IsCode(error,
+               merlin::vulkan::RendererErrorCode::ResourceExhausted) &&
+        error.operation() == "allocate image memory";
+  }
+  assert(exhausted);
+  const auto limited_statistics = limited_renderer.statistics();
+  assert(limited_statistics.memory_budget.configured_limit_bytes == 1);
+  assert(limited_statistics.memory_budget.effective_limit_bytes == 1);
+  assert(limited_statistics.memory_budget.exhaustion_count == 1);
+  assert(limited_statistics.memory_budget.renderer_allocated_bytes == 0);
 
   std::cout << "execution lifetime contract verified: first="
             << first_token.value() << " second=" << second_token.value()

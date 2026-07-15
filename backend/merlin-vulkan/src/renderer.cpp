@@ -28,6 +28,7 @@ std::string_view RendererErrorCodeName(RendererErrorCode code) noexcept {
     case RendererErrorCode::ResourceBusy: return "resource-busy";
     case RendererErrorCode::Timeout: return "timeout";
     case RendererErrorCode::DeviceLost: return "device-lost";
+    case RendererErrorCode::ResourceExhausted: return "resource-exhausted";
     case RendererErrorCode::Unsupported: return "unsupported";
     case RendererErrorCode::BackendFailure: return "backend-failure";
   }
@@ -144,6 +145,9 @@ void Check(VkResult result, const char* operation) {
     code = RendererErrorCode::Timeout;
   } else if (result == VK_ERROR_DEVICE_LOST) {
     code = RendererErrorCode::DeviceLost;
+  } else if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY ||
+             result == VK_ERROR_OUT_OF_HOST_MEMORY) {
+    code = RendererErrorCode::ResourceExhausted;
   } else if (result == VK_ERROR_FEATURE_NOT_PRESENT ||
              result == VK_ERROR_FORMAT_NOT_SUPPORTED ||
              result == VK_ERROR_EXTENSION_NOT_PRESENT ||
@@ -202,6 +206,20 @@ bool HasInstanceExtension(const char* name) {
   Check(vkEnumerateInstanceExtensionProperties(nullptr, &count,
                                                extensions.data()),
         "enumerate instance extensions");
+  return std::any_of(extensions.begin(), extensions.end(),
+                     [name](const auto& extension) {
+                       return std::strcmp(extension.extensionName, name) == 0;
+                     });
+}
+
+bool HasDeviceExtension(VkPhysicalDevice device, const char* name) {
+  std::uint32_t count{};
+  Check(vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr),
+        "enumerate device extensions");
+  std::vector<VkExtensionProperties> extensions(count);
+  Check(vkEnumerateDeviceExtensionProperties(device, nullptr, &count,
+                                             extensions.data()),
+        "enumerate device extensions");
   return std::any_of(extensions.begin(), extensions.end(),
                      [name](const auto& extension) {
                        return std::strcmp(extension.extensionName, name) == 0;
@@ -296,6 +314,152 @@ struct Buffer {
   VkDeviceSize size{};
 };
 
+class DeviceMemoryBudget {
+ public:
+  void Initialize(VkPhysicalDevice physical_device, VkDevice device,
+                  bool extension_available,
+                  std::uint64_t configured_limit_bytes) {
+    physical_device_ = physical_device;
+    device_ = device;
+    extension_available_ = extension_available;
+    configured_limit_bytes_ = configured_limit_bytes;
+    vkGetPhysicalDeviceMemoryProperties(physical_device_, &properties_);
+    Refresh();
+  }
+
+  [[nodiscard]] VkDeviceMemory Allocate(VkDeviceSize bytes,
+                                        std::uint32_t memory_type,
+                                        const char* operation) {
+    const auto heap = properties_.memoryTypes[memory_type].heapIndex;
+    const bool device_local =
+        (properties_.memoryHeaps[heap].flags &
+         VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0U;
+    if (device_local) {
+      Refresh();
+      const auto global_limit = configured_limit_bytes_ == 0
+                                    ? telemetry_.heap_budget_bytes
+                                    : std::min(configured_limit_bytes_,
+                                               telemetry_.heap_budget_bytes);
+      const auto heap_available =
+          heap_budget_[heap] > heap_usage_[heap]
+              ? heap_budget_[heap] - heap_usage_[heap]
+              : 0;
+      if (bytes > heap_available ||
+          telemetry_.renderer_allocated_bytes > global_limit ||
+          bytes > global_limit - telemetry_.renderer_allocated_bytes) {
+        ++telemetry_.exhaustion_count;
+        throw RendererError(
+            RendererErrorCode::ResourceExhausted, operation,
+            "device-local allocation of " + std::to_string(bytes) +
+                " bytes exceeds available VRAM (renderer=" +
+                std::to_string(telemetry_.renderer_allocated_bytes) +
+                ", limit=" + std::to_string(global_limit) +
+                ", heap-available=" + std::to_string(heap_available) + ")");
+      }
+    }
+
+    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocation.allocationSize = bytes;
+    allocation.memoryTypeIndex = memory_type;
+    VkDeviceMemory memory{};
+    Check(vkAllocateMemory(device_, &allocation, nullptr, &memory), operation);
+    try {
+      allocations_.emplace(memory, Allocation{bytes, heap, device_local});
+    } catch (...) {
+      vkFreeMemory(device_, memory, nullptr);
+      throw;
+    }
+    ++telemetry_.allocation_count;
+    if (device_local) {
+      telemetry_.renderer_allocated_bytes += bytes;
+      telemetry_.renderer_peak_allocated_bytes =
+          std::max(telemetry_.renderer_peak_allocated_bytes,
+                   telemetry_.renderer_allocated_bytes);
+    }
+    return memory;
+  }
+
+  void Free(VkDeviceMemory memory) noexcept {
+    if (memory == VK_NULL_HANDLE) {
+      return;
+    }
+    const auto found = allocations_.find(memory);
+    if (found != allocations_.end()) {
+      if (found->second.device_local) {
+        telemetry_.renderer_allocated_bytes -= found->second.bytes;
+      }
+      allocations_.erase(found);
+      ++telemetry_.release_count;
+    }
+    vkFreeMemory(device_, memory, nullptr);
+  }
+
+  void Refresh() noexcept {
+    if (physical_device_ == VK_NULL_HANDLE) {
+      return;
+    }
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT};
+    VkPhysicalDeviceMemoryProperties2 properties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2};
+    properties.pNext = extension_available_ ? &budget : nullptr;
+    vkGetPhysicalDeviceMemoryProperties2(physical_device_, &properties);
+    properties_ = properties.memoryProperties;
+    telemetry_.extension_available = extension_available_;
+    telemetry_.heap_capacity_bytes = 0;
+    telemetry_.heap_budget_bytes = 0;
+    telemetry_.heap_usage_bytes = 0;
+    telemetry_.heap_available_bytes = 0;
+    heap_budget_.fill(0);
+    heap_usage_.fill(0);
+    for (std::uint32_t heap = 0; heap < properties_.memoryHeapCount; ++heap) {
+      if ((properties_.memoryHeaps[heap].flags &
+           VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0U) {
+        continue;
+      }
+      const auto capacity = properties_.memoryHeaps[heap].size;
+      const auto heap_budget = extension_available_ ? budget.heapBudget[heap]
+                                                    : capacity;
+      const auto heap_usage = extension_available_ ? budget.heapUsage[heap]
+                                                   : 0;
+      heap_budget_[heap] = heap_budget;
+      heap_usage_[heap] = heap_usage;
+      telemetry_.heap_capacity_bytes += capacity;
+      telemetry_.heap_budget_bytes += heap_budget;
+      telemetry_.heap_usage_bytes += heap_usage;
+      telemetry_.heap_available_bytes +=
+          heap_budget > heap_usage ? heap_budget - heap_usage : 0;
+    }
+    telemetry_.configured_limit_bytes = configured_limit_bytes_;
+    telemetry_.effective_limit_bytes =
+        configured_limit_bytes_ == 0
+            ? telemetry_.heap_budget_bytes
+            : std::min(configured_limit_bytes_, telemetry_.heap_budget_bytes);
+    ++telemetry_.query_count;
+  }
+
+  [[nodiscard]] const MemoryBudgetTelemetry& telemetry() const noexcept {
+    return telemetry_;
+  }
+
+ private:
+  struct Allocation {
+    VkDeviceSize bytes{};
+    std::uint32_t heap{};
+    bool device_local{};
+  };
+
+  VkPhysicalDevice physical_device_{};
+  VkDevice device_{};
+  bool extension_available_{};
+  std::uint64_t configured_limit_bytes_{};
+  VkPhysicalDeviceMemoryProperties properties_{};
+  std::array<VkDeviceSize, VK_MAX_MEMORY_HEAPS> heap_budget_{};
+  std::array<VkDeviceSize, VK_MAX_MEMORY_HEAPS> heap_usage_{};
+  std::map<VkDeviceMemory, Allocation> allocations_;
+  MemoryBudgetTelemetry telemetry_;
+};
+
 std::uint32_t FindMemoryTypeRaw(VkPhysicalDevice physical_device,
                                 std::uint32_t bits,
                                 VkMemoryPropertyFlags properties) {
@@ -310,40 +474,64 @@ std::uint32_t FindMemoryTypeRaw(VkPhysicalDevice physical_device,
   throw std::runtime_error("no compatible Vulkan memory type");
 }
 
-void DestroyBufferRaw(VkDevice device, Buffer& buffer) noexcept {
+void DestroyBufferRaw(VkDevice device, Buffer& buffer,
+                      DeviceMemoryBudget* memory_budget = nullptr) noexcept {
   if (buffer.handle != VK_NULL_HANDLE) {
     vkDestroyBuffer(device, buffer.handle, nullptr);
   }
   if (buffer.memory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, buffer.memory, nullptr);
+    if (memory_budget != nullptr) {
+      memory_budget->Free(buffer.memory);
+    } else {
+      vkFreeMemory(device, buffer.memory, nullptr);
+    }
   }
   buffer = {};
 }
 
 Buffer CreateBufferRaw(VkDevice device, VkPhysicalDevice physical_device,
                        VkDeviceSize size, VkBufferUsageFlags usage,
-                       VkMemoryPropertyFlags properties) {
+                       VkMemoryPropertyFlags properties,
+                       DeviceMemoryBudget* memory_budget = nullptr,
+                       std::uint32_t first_queue_family = VK_QUEUE_FAMILY_IGNORED,
+                       std::uint32_t second_queue_family = VK_QUEUE_FAMILY_IGNORED) {
   Buffer result;
   result.size = size;
   VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   buffer_info.size = size;
   buffer_info.usage = usage;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  const std::array queue_families{first_queue_family, second_queue_family};
+  if (first_queue_family != VK_QUEUE_FAMILY_IGNORED &&
+      second_queue_family != VK_QUEUE_FAMILY_IGNORED &&
+      first_queue_family != second_queue_family) {
+    buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+    buffer_info.queueFamilyIndexCount =
+        static_cast<std::uint32_t>(queue_families.size());
+    buffer_info.pQueueFamilyIndices = queue_families.data();
+  } else {
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  }
   Check(vkCreateBuffer(device, &buffer_info, nullptr, &result.handle),
         "create buffer");
   VkMemoryRequirements requirements{};
   vkGetBufferMemoryRequirements(device, result.handle, &requirements);
-  VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-  allocation.allocationSize = requirements.size;
-  allocation.memoryTypeIndex =
+  const auto memory_type =
       FindMemoryTypeRaw(physical_device, requirements.memoryTypeBits, properties);
   try {
-    Check(vkAllocateMemory(device, &allocation, nullptr, &result.memory),
-          "allocate buffer memory");
+    if (memory_budget != nullptr) {
+      result.memory = memory_budget->Allocate(requirements.size, memory_type,
+                                              "allocate buffer memory");
+    } else {
+      VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+      allocation.allocationSize = requirements.size;
+      allocation.memoryTypeIndex = memory_type;
+      Check(vkAllocateMemory(device, &allocation, nullptr, &result.memory),
+            "allocate buffer memory");
+    }
     Check(vkBindBufferMemory(device, result.handle, result.memory, 0),
           "bind buffer memory");
   } catch (...) {
-    DestroyBufferRaw(device, result);
+    DestroyBufferRaw(device, result, memory_budget);
     throw;
   }
   return result;
@@ -372,15 +560,21 @@ class DeviceArena {
   };
 
   void Initialize(VkDevice device, VkPhysicalDevice physical_device,
-                  VkBufferUsageFlags usage) {
+                  VkBufferUsageFlags usage,
+                  DeviceMemoryBudget* memory_budget,
+                  std::uint32_t graphics_queue_family,
+                  std::uint32_t transfer_queue_family) {
     device_ = device;
     physical_device_ = physical_device;
     usage_ = usage;
+    memory_budget_ = memory_budget;
+    graphics_queue_family_ = graphics_queue_family;
+    transfer_queue_family_ = transfer_queue_family;
   }
 
   void Destroy() noexcept {
     for (auto& block : blocks_) {
-      DestroyBufferRaw(device_, block.buffer);
+      DestroyBufferRaw(device_, block.buffer, memory_budget_);
     }
     blocks_.clear();
   }
@@ -407,7 +601,9 @@ class DeviceArena {
     Block block;
     block.buffer = CreateBufferRaw(device_, physical_device_, block_bytes,
                                    usage_ | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                   memory_budget_, graphics_queue_family_,
+                                   transfer_queue_family_);
     if (block_bytes > aligned) {
       block.free_spans.push_back({aligned, block_bytes - aligned});
     }
@@ -498,6 +694,9 @@ class DeviceArena {
   VkDevice device_{};
   VkPhysicalDevice physical_device_{};
   VkBufferUsageFlags usage_{};
+  DeviceMemoryBudget* memory_budget_{};
+  std::uint32_t graphics_queue_family_{VK_QUEUE_FAMILY_IGNORED};
+  std::uint32_t transfer_queue_family_{VK_QUEUE_FAMILY_IGNORED};
   std::vector<Block> blocks_;
   ArenaTelemetry telemetry_;
 };
@@ -515,9 +714,11 @@ class StagingRing {
     VkDeviceSize offset{};
   };
 
-  void Initialize(VkDevice device, VkPhysicalDevice physical_device) {
+  void Initialize(VkDevice device, VkPhysicalDevice physical_device,
+                  DeviceMemoryBudget* memory_budget) {
     device_ = device;
     physical_device_ = physical_device;
+    memory_budget_ = memory_budget;
     // RendererOptions caps frame contexts at eight, so this prevents metadata
     // allocation failure after a queue submission has already succeeded.
     regions_.reserve(8);
@@ -528,7 +729,7 @@ class StagingRing {
     if (buffer_.memory != VK_NULL_HANDLE) {
       vkUnmapMemory(device_, buffer_.memory);
     }
-    DestroyBufferRaw(device_, buffer_);
+    DestroyBufferRaw(device_, buffer_, memory_budget_);
     mapped_ = nullptr;
     regions_.clear();
     retired_regions_.clear();
@@ -562,7 +763,8 @@ class StagingRing {
       buffer_ = CreateBufferRaw(device_, physical_device_, capacity,
                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                memory_budget_);
       void* mapped{};
       Check(vkMapMemory(device_, buffer_.memory, 0, buffer_.size, 0, &mapped),
             "map staging ring");
@@ -688,6 +890,7 @@ class StagingRing {
 
   VkDevice device_{};
   VkPhysicalDevice physical_device_{};
+  DeviceMemoryBudget* memory_budget_{};
   Buffer buffer_;
   std::byte* mapped_{};
   VkDeviceSize head_{};
@@ -715,6 +918,16 @@ class Renderer::Impl {
                           "bindless_sampler_capacity must not exceed 65536");
     }
     CreateDevice(options);
+    memory_budget_.Initialize(physical_device_, device_,
+                              capabilities_.memory_budget_extension,
+                              options.vram_limit_bytes);
+    const auto& initial_memory = memory_budget_.telemetry();
+    capabilities_.device_local_heap_capacity_bytes =
+        initial_memory.heap_capacity_bytes;
+    capabilities_.device_local_heap_budget_bytes =
+        initial_memory.heap_budget_bytes;
+    capabilities_.device_local_heap_usage_bytes = initial_memory.heap_usage_bytes;
+    capabilities_.configured_vram_limit_bytes = options.vram_limit_bytes;
     if (capabilities_.descriptor_indexing_selection.selected_backend ==
         DescriptorBackend::Bindless) {
       const auto& selection = capabilities_.descriptor_indexing_selection;
@@ -730,10 +943,12 @@ class Renderer::Impl {
     CreateFrameContexts(options.frames_in_flight);
     statistics_.frame_context_count = options.frames_in_flight;
     vertex_arena_.Initialize(device_, physical_device_,
-                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, &memory_budget_,
+                             queue_family_, transfer_queue_family_);
     index_arena_.Initialize(device_, physical_device_,
-                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-    staging_.Initialize(device_, physical_device_);
+                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, &memory_budget_,
+                            queue_family_, transfer_queue_family_);
+    staging_.Initialize(device_, physical_device_, &memory_budget_);
   }
 
   ~Impl() {
@@ -808,6 +1023,9 @@ class Renderer::Impl {
         if (frame.command_pool != VK_NULL_HANDLE) {
           vkDestroyCommandPool(device_, frame.command_pool, nullptr);
         }
+        if (frame.transfer_command_pool != VK_NULL_HANDLE) {
+          vkDestroyCommandPool(device_, frame.transfer_command_pool, nullptr);
+        }
       }
       if (bindless_descriptor_pool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device_, bindless_descriptor_pool_, nullptr);
@@ -830,6 +1048,9 @@ class Renderer::Impl {
       }
       if (timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
+      }
+      if (transfer_timeline_semaphore_ != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device_, transfer_timeline_semaphore_, nullptr);
       }
       vkDestroyDevice(device_, nullptr);
     }
@@ -921,6 +1142,22 @@ class Renderer::Impl {
     const auto recording_start = CpuClock::now();
     Check(vkResetCommandPool(device_, frame.command_pool, 0),
           "reset frame command pool");
+    const bool asynchronous_upload =
+        capabilities_.async_transfer_queue &&
+        (!pending_copies_.empty() || !pending_image_copies_.empty());
+    if (asynchronous_upload) {
+      Check(vkResetCommandPool(device_, frame.transfer_command_pool, 0),
+            "reset transfer command pool");
+      VkCommandBufferBeginInfo transfer_begin{
+          VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+      transfer_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      Check(vkBeginCommandBuffer(frame.transfer_command_buffer,
+                                 &transfer_begin),
+            "begin transfer command buffer");
+      RecordUploads(frame.transfer_command_buffer, true);
+      Check(vkEndCommandBuffer(frame.transfer_command_buffer),
+            "end transfer command buffer");
+    }
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
@@ -931,7 +1168,11 @@ class Renderer::Impl {
                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                           frame.timestamp_pool, 0);
     }
-    RecordUploads(frame.command_buffer);
+    if (asynchronous_upload) {
+      RecordUploadAcquires(frame.command_buffer);
+    } else {
+      RecordUploads(frame.command_buffer, false);
+    }
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
                  frame.cpu_readback_aovs);
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
@@ -945,13 +1186,28 @@ class Renderer::Impl {
     frame.cpu_timings = {};
     frame.cpu_timings.upload_ns = upload_ns;
     frame.cpu_timings.command_recording_ns = recording_ns;
-    frame.counters = frame_counters_;
     // Keep every operation after successful queue submission non-allocating.
     deferred_.reserve(deferred_.size() + frame_upload_buffers_.size());
     const auto submission_start = CpuClock::now();
-    const auto completion = SubmitFrame(frame);
+    const auto transfer_completion =
+        asynchronous_upload ? SubmitTransfers(frame) : 0;
+    std::uint64_t completion{};
+    try {
+      completion = SubmitFrame(frame, transfer_completion);
+    } catch (...) {
+      if (transfer_completion != 0) {
+        VkSemaphoreWaitInfo wait_info{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores = &transfer_timeline_semaphore_;
+        wait_info.pValues = &transfer_completion;
+        (void)vkWaitSemaphores(device_, &wait_info,
+                               std::numeric_limits<std::uint64_t>::max());
+      }
+      throw;
+    }
     frame.cpu_timings.queue_submission_ns =
         ElapsedNanoseconds(submission_start);
+    frame.counters = frame_counters_;
     CommitTextureUploads();
     CommitResourceSnapshot(*request.snapshot);
     resource_residency_dirty_ = false;
@@ -1128,6 +1384,8 @@ class Renderer::Impl {
   struct FrameContext {
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
+    VkCommandPool transfer_command_pool{};
+    VkCommandBuffer transfer_command_buffer{};
     VkFence fence{};
     VkQueryPool timestamp_pool{};
     std::uint64_t completion_value{};
@@ -1269,14 +1527,29 @@ class Renderer::Impl {
       vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queue_count, nullptr);
       std::vector<VkQueueFamilyProperties> queues(queue_count);
       vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queue_count, queues.data());
+      std::uint32_t graphics_family = VK_QUEUE_FAMILY_IGNORED;
+      std::uint32_t transfer_family = VK_QUEUE_FAMILY_IGNORED;
       for (std::uint32_t index = 0; index < queue_count; ++index) {
-        if ((queues[index].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0U) {
-          physical_device_ = candidate;
-          queue_family_ = index;
-          selected_queue_flags = queues[index].queueFlags;
-          selected_timestamp_valid_bits_ = queues[index].timestampValidBits;
-          break;
+        const auto flags = queues[index].queueFlags;
+        if (graphics_family == VK_QUEUE_FAMILY_IGNORED &&
+            (flags & VK_QUEUE_GRAPHICS_BIT) != 0U) {
+          graphics_family = index;
         }
+        if (transfer_family == VK_QUEUE_FAMILY_IGNORED &&
+            (flags & VK_QUEUE_TRANSFER_BIT) != 0U &&
+            (flags & VK_QUEUE_GRAPHICS_BIT) == 0U) {
+          transfer_family = index;
+        }
+      }
+      if (graphics_family != VK_QUEUE_FAMILY_IGNORED) {
+        physical_device_ = candidate;
+        queue_family_ = graphics_family;
+        transfer_queue_family_ =
+            transfer_family == VK_QUEUE_FAMILY_IGNORED ? graphics_family
+                                                        : transfer_family;
+        selected_queue_flags = queues[graphics_family].queueFlags;
+        selected_timestamp_valid_bits_ =
+            queues[graphics_family].timestampValidBits;
       }
       if (physical_device_ != VK_NULL_HANDLE) {
         break;
@@ -1313,8 +1586,8 @@ class Renderer::Impl {
     capabilities_.graphics_queue = true;
     capabilities_.compute_queue =
         (selected_queue_flags & VK_QUEUE_COMPUTE_BIT) != 0U;
-    capabilities_.transfer_queue =
-        (selected_queue_flags & VK_QUEUE_TRANSFER_BIT) != 0U;
+    capabilities_.transfer_queue = transfer_queue_family_ != VK_QUEUE_FAMILY_IGNORED;
+    capabilities_.graphics_queue_family = queue_family_;
     capabilities_.timestamp_queries =
         properties.properties.limits.timestampPeriod > 0.0F &&
         selected_timestamp_valid_bits_ != 0U;
@@ -1339,6 +1612,17 @@ class Renderer::Impl {
     features.pNext = &timeline;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
     capabilities_.timeline_semaphore = timeline.timelineSemaphore == VK_TRUE;
+    capabilities_.async_transfer_queue =
+        options.enable_async_transfer && capabilities_.timeline_semaphore &&
+        transfer_queue_family_ != queue_family_;
+    if (!capabilities_.async_transfer_queue) {
+      transfer_queue_family_ = queue_family_;
+    }
+    capabilities_.transfer_queue_family = transfer_queue_family_;
+    capabilities_.queue_ownership_transfers =
+        capabilities_.async_transfer_queue;
+    capabilities_.memory_budget_extension = HasDeviceExtension(
+        physical_device_, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
     capabilities_.descriptor_indexing_features = {
         descriptor_features.shaderSampledImageArrayNonUniformIndexing ==
             VK_TRUE,
@@ -1377,10 +1661,22 @@ class Renderer::Impl {
         capabilities_.descriptor_indexing_limits);
 
     const float priority = 1.0F;
-    VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    queue_info.queueFamilyIndex = queue_family_;
-    queue_info.queueCount = 1;
-    queue_info.pQueuePriorities = &priority;
+    std::vector<VkDeviceQueueCreateInfo> queue_infos;
+    VkDeviceQueueCreateInfo graphics_queue_info{
+        VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+    graphics_queue_info.queueFamilyIndex = queue_family_;
+    graphics_queue_info.queueCount = 1;
+    graphics_queue_info.pQueuePriorities = &priority;
+    queue_infos.push_back(graphics_queue_info);
+    if (capabilities_.async_transfer_queue) {
+      auto transfer_queue_info = graphics_queue_info;
+      transfer_queue_info.queueFamilyIndex = transfer_queue_family_;
+      queue_infos.push_back(transfer_queue_info);
+    }
+    const std::vector<const char*> device_extensions =
+        capabilities_.memory_budget_extension
+            ? std::vector<const char*>{VK_EXT_MEMORY_BUDGET_EXTENSION_NAME}
+            : std::vector<const char*>{};
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     VkPhysicalDeviceTimelineSemaphoreFeatures enabled_timeline{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
@@ -1406,11 +1702,16 @@ class Renderer::Impl {
       enabled_features = &enabled_descriptor_indexing;
     }
     device_info.pNext = enabled_features;
-    device_info.queueCreateInfoCount = 1;
-    device_info.pQueueCreateInfos = &queue_info;
+    device_info.queueCreateInfoCount =
+        static_cast<std::uint32_t>(queue_infos.size());
+    device_info.pQueueCreateInfos = queue_infos.data();
+    device_info.enabledExtensionCount =
+        static_cast<std::uint32_t>(device_extensions.size());
+    device_info.ppEnabledExtensionNames = device_extensions.data();
     Check(vkCreateDevice(physical_device_, &device_info, nullptr, &device_),
           "create Vulkan device");
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
+    vkGetDeviceQueue(device_, transfer_queue_family_, 0, &transfer_queue_);
 
     if (capabilities_.timeline_semaphore) {
       VkSemaphoreTypeCreateInfo type_info{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
@@ -1421,6 +1722,11 @@ class Renderer::Impl {
       Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
                               &timeline_semaphore_),
             "create frame timeline semaphore");
+      if (capabilities_.async_transfer_queue) {
+        Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
+                                &transfer_timeline_semaphore_),
+              "create transfer timeline semaphore");
+      }
     }
   }
 
@@ -1442,6 +1748,16 @@ class Renderer::Impl {
       Check(vkAllocateCommandBuffers(device_, &command_info,
                                      &frame.command_buffer),
             "allocate frame command buffer");
+      if (capabilities_.async_transfer_queue) {
+        pool_info.queueFamilyIndex = transfer_queue_family_;
+        Check(vkCreateCommandPool(device_, &pool_info, nullptr,
+                                  &frame.transfer_command_pool),
+              "create transfer command pool");
+        command_info.commandPool = frame.transfer_command_pool;
+        Check(vkAllocateCommandBuffers(device_, &command_info,
+                                       &frame.transfer_command_buffer),
+              "allocate transfer command buffer");
+      }
       if (timeline_semaphore_ == VK_NULL_HANDLE) {
         VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         Check(vkCreateFence(device_, &fence_info, nullptr, &frame.fence),
@@ -1464,11 +1780,12 @@ class Renderer::Impl {
     ++frame_counters_.allocation_count;
     ++frame_counters_.buffer_allocation_count;
     frame_counters_.buffer_allocation_bytes += size;
-    return CreateBufferRaw(device_, physical_device_, size, usage, properties);
+    return CreateBufferRaw(device_, physical_device_, size, usage, properties,
+                           &memory_budget_);
   }
 
   void DestroyBuffer(Buffer& buffer) noexcept {
-    DestroyBufferRaw(device_, buffer);
+    DestroyBufferRaw(device_, buffer, &memory_budget_);
   }
 
   void DestroyTexture(TextureSlot& texture) noexcept {
@@ -1479,7 +1796,7 @@ class Renderer::Impl {
       vkDestroyImage(device_, texture.image, nullptr);
     }
     if (texture.memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, texture.memory, nullptr);
+      memory_budget_.Free(texture.memory);
     }
     texture = {};
   }
@@ -1487,6 +1804,7 @@ class Renderer::Impl {
   void ResetAbandonedUploads() {
     pending_copies_.clear();
     pending_image_copies_.clear();
+    pending_graphics_acquire_images_.clear();
     staging_.AbandonFrame();
     for (const auto handle : pending_texture_handles_) {
       const auto texture = texture_slots_.find(handle);
@@ -2633,7 +2951,7 @@ class Renderer::Impl {
     range = {};
   }
 
-  void RecordUploads(VkCommandBuffer command) {
+  void RecordUploads(VkCommandBuffer command, bool release_to_graphics) {
     if (pending_copies_.empty() && pending_image_copies_.empty()) {
       return;
     }
@@ -2642,7 +2960,7 @@ class Renderer::Impl {
                                 copy.size};
       vkCmdCopyBuffer(command, copy.source, copy.destination, 1, &region);
     }
-    if (!pending_copies_.empty()) {
+    if (!pending_copies_.empty() && !release_to_graphics) {
       VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
       barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
       barrier.dstAccessMask =
@@ -2688,22 +3006,59 @@ class Renderer::Impl {
         VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
         barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.srcQueueFamilyIndex = release_to_graphics
+                                          ? transfer_queue_family_
+                                          : VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = release_to_graphics
+                                          ? queue_family_
+                                          : VK_QUEUE_FAMILY_IGNORED;
         barrier.image = copy.destination;
         barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.layerCount = 1;
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask =
+            release_to_graphics ? 0 : VK_ACCESS_SHADER_READ_BIT;
         to_shader.push_back(barrier);
+        if (release_to_graphics) {
+          pending_graphics_acquire_images_.push_back(copy.destination);
+          ++frame_counters_.queue_ownership_transfer_count;
+        }
       }
       vkCmdPipelineBarrier(
           command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
+          release_to_graphics ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT
+                              : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+          0, 0, nullptr, 0, nullptr,
           static_cast<std::uint32_t>(to_shader.size()), to_shader.data());
       pending_image_copies_.clear();
     }
+  }
+
+  void RecordUploadAcquires(VkCommandBuffer command) {
+    if (pending_graphics_acquire_images_.empty()) {
+      return;
+    }
+    std::vector<VkImageMemoryBarrier> barriers;
+    barriers.reserve(pending_graphics_acquire_images_.size());
+    for (const auto image : pending_graphics_acquire_images_) {
+      VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+      barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      barrier.srcQueueFamilyIndex = transfer_queue_family_;
+      barrier.dstQueueFamilyIndex = queue_family_;
+      barrier.image = image;
+      barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier.subresourceRange.levelCount = 1;
+      barrier.subresourceRange.layerCount = 1;
+      barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      barriers.push_back(barrier);
+    }
+    vkCmdPipelineBarrier(
+        command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
+        static_cast<std::uint32_t>(barriers.size()), barriers.data());
+    pending_graphics_acquire_images_.clear();
   }
 
   void Retire(Buffer& buffer) {
@@ -2907,19 +3262,17 @@ class Renderer::Impl {
     Check(vkCreateImage(device_, &image_info, nullptr, &image), "create image");
     VkMemoryRequirements requirements{};
     vkGetImageMemoryRequirements(device_, image, &requirements);
-    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    allocation.allocationSize = requirements.size;
     frame_counters_.image_allocation_bytes += requirements.size;
-    allocation.memoryTypeIndex = FindMemoryTypeRaw(
+    const auto memory_type = FindMemoryTypeRaw(
         physical_device_, requirements.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     try {
-      Check(vkAllocateMemory(device_, &allocation, nullptr, &memory),
-            "allocate image memory");
+      memory = memory_budget_.Allocate(requirements.size, memory_type,
+                                       "allocate image memory");
       Check(vkBindImageMemory(device_, image, memory, 0), "bind image memory");
     } catch (...) {
       if (memory != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, memory, nullptr);
+        memory_budget_.Free(memory);
         memory = VK_NULL_HANDLE;
       }
       vkDestroyImage(device_, image, nullptr);
@@ -3268,7 +3621,7 @@ class Renderer::Impl {
       vkDestroyImage(device_, target.instance_id, nullptr);
     }
     if (target.instance_id_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target.instance_id_memory, nullptr);
+      memory_budget_.Free(target.instance_id_memory);
     }
     if (target.prim_id_view != VK_NULL_HANDLE) {
       vkDestroyImageView(device_, target.prim_id_view, nullptr);
@@ -3277,7 +3630,7 @@ class Renderer::Impl {
       vkDestroyImage(device_, target.prim_id, nullptr);
     }
     if (target.prim_id_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target.prim_id_memory, nullptr);
+      memory_budget_.Free(target.prim_id_memory);
     }
     if (target.depth_view != VK_NULL_HANDLE) {
       vkDestroyImageView(device_, target.depth_view, nullptr);
@@ -3286,7 +3639,7 @@ class Renderer::Impl {
       vkDestroyImage(device_, target.depth, nullptr);
     }
     if (target.depth_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target.depth_memory, nullptr);
+      memory_budget_.Free(target.depth_memory);
     }
     if (target.color_view != VK_NULL_HANDLE) {
       vkDestroyImageView(device_, target.color_view, nullptr);
@@ -3295,7 +3648,7 @@ class Renderer::Impl {
       vkDestroyImage(device_, target.color, nullptr);
     }
     if (target.color_memory != VK_NULL_HANDLE) {
-      vkFreeMemory(device_, target.color_memory, nullptr);
+      memory_budget_.Free(target.color_memory);
     }
     target = {};
   }
@@ -3450,15 +3803,50 @@ class Renderer::Impl {
     }
   }
 
-  std::uint64_t SubmitFrame(FrameContext& frame) {
+  std::uint64_t SubmitTransfers(FrameContext& frame) {
+    const auto completion = ++transfer_timeline_value_;
+    VkTimelineSemaphoreSubmitInfo timeline{
+        VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    timeline.signalSemaphoreValueCount = 1;
+    timeline.pSignalSemaphoreValues = &completion;
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.pNext = &timeline;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &frame.transfer_command_buffer;
+    submit.signalSemaphoreCount = 1;
+    submit.pSignalSemaphores = &transfer_timeline_semaphore_;
+    Check(vkQueueSubmit(transfer_queue_, 1, &submit, VK_NULL_HANDLE),
+          "submit asynchronous resource uploads");
+    ++frame_counters_.transfer_submission_count;
+    ++transfer_submission_count_;
+    transfer_uploaded_bytes_ += frame_counters_.upload_bytes;
+    transfer_ownership_count_ +=
+        frame_counters_.queue_ownership_transfer_count;
+    return completion;
+  }
+
+  std::uint64_t SubmitFrame(FrameContext& frame,
+                            std::uint64_t transfer_completion) {
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &frame.command_buffer;
+    const VkPipelineStageFlags transfer_wait_stage =
+        VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    if (transfer_completion != 0) {
+      submit.waitSemaphoreCount = 1;
+      submit.pWaitSemaphores = &transfer_timeline_semaphore_;
+      submit.pWaitDstStageMask = &transfer_wait_stage;
+    }
     std::uint64_t completion{};
     if (timeline_semaphore_ != VK_NULL_HANDLE) {
       completion = ++timeline_value_;
       VkTimelineSemaphoreSubmitInfo timeline{
           VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+      if (transfer_completion != 0) {
+        timeline.waitSemaphoreValueCount = 1;
+        timeline.pWaitSemaphoreValues = &transfer_completion;
+      }
       timeline.signalSemaphoreValueCount = 1;
       timeline.pSignalSemaphoreValues = &completion;
       submit.pNext = &timeline;
@@ -3595,12 +3983,19 @@ class Renderer::Impl {
   VkPhysicalDevice physical_device_{};
   VkDevice device_{};
   VkQueue queue_{};
+  VkQueue transfer_queue_{};
   VkDebugUtilsMessengerEXT debug_messenger_{};
   VkSemaphore timeline_semaphore_{};
+  VkSemaphore transfer_timeline_semaphore_{};
   std::uint32_t queue_family_{};
+  std::uint32_t transfer_queue_family_{VK_QUEUE_FAMILY_IGNORED};
   std::uint32_t selected_timestamp_valid_bits_{};
   float timestamp_period_ns_{};
   std::uint64_t timeline_value_{};
+  std::uint64_t transfer_timeline_value_{};
+  std::uint64_t transfer_submission_count_{};
+  std::uint64_t transfer_uploaded_bytes_{};
+  std::uint64_t transfer_ownership_count_{};
   std::uint64_t latest_completed_value_{};
   VkDeviceSize uniform_buffer_alignment_{16U};
   const std::uint64_t owner_id_{
@@ -3608,6 +4003,7 @@ class Renderer::Impl {
   RendererCapabilities capabilities_;
   RendererStatistics statistics_;
   FrameCounters frame_counters_;
+  DeviceMemoryBudget memory_budget_;
   IndexedTableView<extraction::GeometryRecord> geometry_records_;
   IndexedTableView<extraction::TextureRecord> texture_records_;
   IndexedTableView<extraction::SamplerRecord> sampler_records_;
@@ -3627,6 +4023,7 @@ class Renderer::Impl {
   std::vector<RetiredRange> retired_ranges_;
   std::vector<PendingCopy> pending_copies_;
   std::vector<PendingImageCopy> pending_image_copies_;
+  std::vector<VkImage> pending_graphics_acquire_images_;
   std::vector<std::uint64_t> pending_texture_handles_;
   std::vector<Buffer> frame_upload_buffers_;
   std::unique_ptr<BindlessTextureTable> bindless_texture_table_;
@@ -3661,6 +4058,7 @@ const RendererCapabilities& Renderer::capabilities() const noexcept {
 }
 
 RendererStatistics Renderer::statistics() const noexcept {
+  impl_->memory_budget_.Refresh();
   auto result = impl_->statistics_;
   result.validation_messages =
       impl_->validation_messages_.load(std::memory_order_relaxed);
@@ -3671,6 +4069,16 @@ RendererStatistics Renderer::statistics() const noexcept {
   result.vertex_arena = impl_->vertex_arena_.telemetry();
   result.index_arena = impl_->index_arena_.telemetry();
   result.upload_ring = impl_->staging_.telemetry();
+  result.memory_budget = impl_->memory_budget_.telemetry();
+  result.transfer_queue = {
+      impl_->capabilities_.async_transfer_queue,
+      impl_->queue_family_,
+      impl_->transfer_queue_family_,
+      impl_->transfer_submission_count_,
+      impl_->transfer_uploaded_bytes_,
+      impl_->transfer_ownership_count_,
+      impl_->transfer_timeline_value_,
+  };
   for (const auto& retired : impl_->retired_ranges_) {
     auto* arena = retired.arena == &impl_->vertex_arena_
                       ? &result.vertex_arena

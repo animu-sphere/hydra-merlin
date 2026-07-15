@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.6.0 · **Last reviewed:** 2026-07-15
+**Status:** v0.6.0 · **Last reviewed:** 2026-07-16
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -48,7 +48,7 @@ responsibility.
 | Explicit submit/completion/timeout-aware resolve | Available |
 | Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Available for color, depth, and primId |
-| Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, bindless residency telemetry, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
+| Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, bindless/geometry/transfer/VRAM residency telemetry, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
 | Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes |
 | Core/Vulkan installed CMake targets | Available |
 | Versioned dependency and package metadata | Available as installed JSON |
@@ -58,12 +58,14 @@ responsibility.
 | Hydra native and nested instancing | Available |
 | Bindless texture/sampler residency | Finite generation-checked tables, reserved fallback images, dirty Vulkan descriptor writes, deduplicated samplers, completion-safe replacement, and telemetry are available on negotiated devices |
 | Bindless Forward and common GPU Scene ABI | Non-uniform-indexed Forward is automatically selected after feature/limit negotiation and has exact conventional-path image parity coverage; complete geometry/material/instance/draw tables remain planned for v0.10.0, and conventional Forward remains the fallback |
+| Asynchronous resource upload | A dedicated transfer family is selected when timeline semaphores are available; geometry uses cross-family concurrent buffers, sampled images use explicit ownership/layout transitions, and a single-queue path remains the fallback |
+| VRAM budget and exhaustion | `VK_EXT_memory_budget` capacity/budget/usage is probed when available; all renderer device-local allocations have current/peak telemetry, an optional hard byte limit, and actionable `resource-exhausted` failure |
 | GPU-driven indexed Mesh submission | Planned for v0.11.0; current Mesh submission is not claimed to have draw-count-independent CPU cost |
 | Opaque Visibility Buffer | Planned experimental path for v0.12.0; current shading is Forward |
 | Static meshlet indexed-indirect rendering | Planned for v0.15.0 from standard Hydra mesh data; no custom USD schema is planned |
 | Mesh Shader, Hi-Z, and discrete meshlet LOD | Planned as optional, capability- and benchmark-selected v0.16.0 paths with indexed fallback |
 | Hierarchical meshlets and virtualized geometry | Post-v1 research direction; unavailable and not implied by static meshlet support |
-| Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy, timeout, device-lost, unsupported, and backend-failure classes |
+| Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy/exhausted, timeout, device-lost, unsupported, and backend-failure classes |
 | Host-neutral diagnostic sink | `merlin-diagnostic/v1` is available with stable codes, dispositions, source paths, and named recovery; Hydra forwards records to OpenUSD diagnostics and telemetry |
 | Standard OpenUSD Gaussian ingestion and rendering | The OpenUSD 26.05 `ParticleField3DGaussianSplat` → `usdVolImaging` → Hydra `particleField` boundary is accepted and documented; host-neutral Gaussian resources and rendering remain v0.9.0 work |
 | Subdivision refinement | Unavailable |

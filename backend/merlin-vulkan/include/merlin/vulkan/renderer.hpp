@@ -23,6 +23,11 @@ struct RendererOptions {
       DescriptorBackendRequest::Automatic};
   std::uint32_t bindless_texture_capacity{4096};
   std::uint32_t bindless_sampler_capacity{256};
+  // A zero limit uses the current device-local heap budget. A non-zero limit
+  // is a hard cap on device-local memory allocated by this Renderer and is
+  // clamped to the driver-reported budget when VK_EXT_memory_budget exists.
+  std::uint64_t vram_limit_bytes{};
+  bool enable_async_transfer{true};
 };
 
 struct RendererCapabilities {
@@ -42,6 +47,15 @@ struct RendererCapabilities {
   bool graphics_queue{};
   bool compute_queue{};
   bool transfer_queue{};
+  bool async_transfer_queue{};
+  bool queue_ownership_transfers{};
+  std::uint32_t graphics_queue_family{};
+  std::uint32_t transfer_queue_family{};
+  bool memory_budget_extension{};
+  std::uint64_t device_local_heap_capacity_bytes{};
+  std::uint64_t device_local_heap_budget_bytes{};
+  std::uint64_t device_local_heap_usage_bytes{};
+  std::uint64_t configured_vram_limit_bytes{};
   // True when the selected graphics queue exposes timestamp bits. Per-frame
   // GPU execution durations are zero only when this capability is false.
   bool timestamp_queries{};
@@ -89,6 +103,36 @@ struct UploadRingTelemetry {
   std::uint32_t retired_buffers{};
 };
 
+// Device-local heap evidence combines the driver's current heap view with the
+// renderer-owned allocations that can be enforced deterministically. Driver
+// usage includes other processes and allocations outside this Renderer; the
+// renderer fields are therefore retained separately.
+struct MemoryBudgetTelemetry {
+  bool extension_available{};
+  std::uint64_t heap_capacity_bytes{};
+  std::uint64_t heap_budget_bytes{};
+  std::uint64_t heap_usage_bytes{};
+  std::uint64_t heap_available_bytes{};
+  std::uint64_t configured_limit_bytes{};
+  std::uint64_t effective_limit_bytes{};
+  std::uint64_t renderer_allocated_bytes{};
+  std::uint64_t renderer_peak_allocated_bytes{};
+  std::uint64_t allocation_count{};
+  std::uint64_t release_count{};
+  std::uint64_t exhaustion_count{};
+  std::uint64_t query_count{};
+};
+
+struct TransferQueueTelemetry {
+  bool asynchronous{};
+  std::uint32_t graphics_family{};
+  std::uint32_t transfer_family{};
+  std::uint64_t submission_count{};
+  std::uint64_t uploaded_bytes{};
+  std::uint64_t ownership_transfer_count{};
+  std::uint64_t latest_timeline_value{};
+};
+
 struct RendererStatistics {
   std::uint64_t frames_submitted{};
   std::uint64_t scene_uploads{};
@@ -104,6 +148,8 @@ struct RendererStatistics {
   ArenaTelemetry vertex_arena;
   ArenaTelemetry index_arena;
   UploadRingTelemetry upload_ring;
+  MemoryBudgetTelemetry memory_budget;
+  TransferQueueTelemetry transfer_queue;
   // Logical bindless-table evidence is populated when the selected device and
   // configuration activate bindless Forward. Conventional Forward leaves
   // these fields zeroed and remains the correctness fallback.
@@ -123,8 +169,9 @@ struct FrameCpuTimings {
   std::uint64_t queue_submission_ns{};
   std::uint64_t completion_wait_ns{};
   std::uint64_t readback_ns{};
-  // Device timestamps spanning uploads, draws, and selected AOV copies. This
-  // is a GPU duration despite living beside the correlated CPU timeline.
+  // Device timestamps span the graphics submission: single-queue uploads,
+  // draws, and selected AOV copies. Dedicated transfer-queue execution is
+  // synchronized but not folded into this graphics-queue duration.
   std::uint64_t gpu_execution_ns{};
   std::uint64_t backend_total_ns{};
 };
@@ -199,6 +246,8 @@ struct FrameCounters {
   // the bindless residency contract directly.
   std::uint64_t bindless_sampled_image_descriptor_update_count{};
   std::uint64_t bindless_sampler_descriptor_update_count{};
+  std::uint64_t transfer_submission_count{};
+  std::uint64_t queue_ownership_transfer_count{};
 
   // Member-wise equality keeps steady-state drift detection in lockstep with
   // this field list; adding a counter cannot silently escape the comparison.
@@ -243,6 +292,7 @@ enum class RendererErrorCode {
   DeviceLost,
   Unsupported,
   BackendFailure,
+  ResourceExhausted,
 };
 
 [[nodiscard]] std::string_view RendererErrorCodeName(

@@ -50,8 +50,34 @@ jobs:
       - name: Run reproducibility, headless smoke, and validation tests
         run: >-
           ctest --test-dir build-native -C ${{ matrix.build_type }}
-          -R "^merlin-(render-world|render-extraction|render-product-contract|render-artifacts|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|offscreen|validation))$"
+          -R "^merlin-(render-world|render-extraction|render-product-contract|render-artifacts|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|resource-update|material-resources|bindless-residency|offscreen|validation))$"
           --output-on-failure --verbose
+
+      - name: Record descriptor selection and exhaustion evidence
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build-native/evidence | Out-Null
+          $headless = "build-native/adapters/merlin-headless/${{ matrix.build_type }}/merlin-headless.exe"
+          & $headless --probe --descriptor-backend automatic `
+            --metadata build-native/evidence/descriptor-automatic.json
+          if ($LASTEXITCODE -ne 0) { throw "automatic descriptor probe failed" }
+          & $headless --probe --descriptor-backend conventional `
+            --metadata build-native/evidence/descriptor-forced-conventional.json
+          if ($LASTEXITCODE -ne 0) { throw "forced conventional descriptor probe failed" }
+          $capacityOutput = & $headless --frames 1 --width 64 --height 64 `
+            --descriptor-backend bindless --bindless-texture-capacity 4 `
+            --metadata build-native/evidence/descriptor-capacity.json `
+            --output build-native/evidence/capacity-unexpected.ppm 2>&1 |
+            Out-String
+          $capacityExit = $LASTEXITCODE
+          $capacityOutput | Out-File -Encoding utf8 `
+            build-native/evidence/descriptor-capacity-exhaustion.log
+          if ($capacityExit -eq 0) {
+            throw "undersized bindless texture table unexpectedly rendered"
+          }
+          if ($capacityOutput -notmatch "bindless texture table: exhausted \(capacity=4") {
+            throw "bindless exhaustion output was not actionable: $capacityOutput"
+          }
 
       - name: Validate the OpenStrata renderer lifecycle
         if: matrix.build_type == 'Release'
@@ -79,6 +105,7 @@ jobs:
             build-native/renderer-report.json
             build-native/tests/merlin-vulkan-capabilities.json
             build-native/tests/merlin-benchmark*.json
+            build-native/evidence
             build-native/tests/merlin-validation.ppm
             build-native/tests/offscreen-artifacts
             build-native/tests/validation-artifacts

@@ -27,6 +27,18 @@ after its public API and release process are established.
   capacity, resident/free/retiring bytes, free-span fragmentation, range reuse,
   growth, wrap, and completion collection, with per-frame vertex/index/texture
   staged-byte evidence.
+- Dedicated transfer-queue uploads with timeline synchronization and sampled-
+  image ownership transitions, plus a validated single-queue fallback.
+- `VK_EXT_memory_budget` heap evidence and renderer-owned device-local
+  current/peak tracking, configurable hard VRAM limits, and structured
+  `resource-exhausted` failure before overcommit.
+- One-million-prim localized texture/sampler scaling evidence that visits one
+  changed resource without copying dependent instances or rebuilding draws.
+- Headless capability controls and workflow artifacts for automatic versus
+  forced-conventional descriptor selection and actionable bindless-table
+  capacity exhaustion.
+- Validation image artifacts now compare forced-conventional output with the
+  automatically selected bindless path for color, depth, and primId.
 
 ### Changed
 

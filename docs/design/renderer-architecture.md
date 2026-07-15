@@ -145,6 +145,16 @@ their frame context until the single-use token resolves. See the
 - Shader compilation uses `glslc` from a compatible Vulkan SDK.
 - The backend uses persistent frame contexts and completion-based resource
   retirement.
+- When a distinct transfer family and timeline semaphores are available,
+  geometry and texture uploads run on that queue. Geometry arena buffers are
+  concurrent across the two families; sampled images use matched release and
+  acquire ownership/layout barriers. Graphics waits on the upload timeline,
+  while the existing frame timeline remains the resource-retirement boundary.
+- `VK_EXT_memory_budget` is enabled when exposed. Every renderer allocation is
+  tracked by heap, device-local current/peak bytes are reported separately from
+  driver-wide usage, and `RendererOptions::vram_limit_bytes` can impose a hard
+  cap. A zero cap follows the driver budget; proactive denial and Vulkan OOM are
+  reported as `resource-exhausted`.
 - Descriptor indexing, fragment-shader barycentrics, and Mesh Shader features
   are separately probed optional capabilities. A Vulkan 1.4 device is not
   assumed to support every future fast path with the required limits or driver
