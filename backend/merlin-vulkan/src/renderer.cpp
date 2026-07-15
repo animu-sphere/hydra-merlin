@@ -748,27 +748,49 @@ class StagingRing {
     const auto previous_head = head_;
     VkDeviceSize offset{};
     if (!TryPlace(aligned, offset)) {
+      const auto capacity =
+          std::max({kMinStagingBytes, aligned, buffer_.size * 2U});
+      // Once all regions have completed, the old ring has no payload that must
+      // survive allocation of its replacement. Releasing it first avoids
+      // requiring transient headroom beyond a configured VRAM limit.
+      if (regions_.empty() && buffer_.memory != VK_NULL_HANDLE) {
+        vkUnmapMemory(device_, buffer_.memory);
+        DestroyBufferRaw(device_, buffer_, memory_budget_);
+        mapped_ = nullptr;
+        head_ = 0;
+      }
+
+      // Preserve an in-flight ring until the replacement is fully allocated
+      // and mapped. A budget rejection therefore leaves the current ring
+      // usable instead of losing its raw Vulkan handles on the exceptional
+      // path.
+      retired_regions_.reserve(retired_regions_.size() + regions_.size());
+      auto replacement = CreateBufferRaw(
+          device_, physical_device_, capacity,
+          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+          memory_budget_);
+      void* replacement_mapped{};
+      try {
+        Check(vkMapMemory(device_, replacement.memory, 0, replacement.size, 0,
+                          &replacement_mapped),
+              "map staging ring");
+      } catch (...) {
+        DestroyBufferRaw(device_, replacement, memory_budget_);
+        throw;
+      }
       retired = buffer_;
       if (retired.memory != VK_NULL_HANDLE) {
         vkUnmapMemory(device_, retired.memory);
       }
-      buffer_ = {};
-      mapped_ = nullptr;
+      buffer_ = replacement;
+      replacement = {};
+      mapped_ = static_cast<std::byte*>(replacement_mapped);
       retired_regions_.insert(retired_regions_.end(), regions_.begin(),
                               regions_.end());
       regions_.clear();
       head_ = 0;
-      const auto capacity =
-          std::max({kMinStagingBytes, aligned, retired.size * 2U});
-      buffer_ = CreateBufferRaw(device_, physical_device_, capacity,
-                                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                memory_budget_);
-      void* mapped{};
-      Check(vkMapMemory(device_, buffer_.memory, 0, buffer_.size, 0, &mapped),
-            "map staging ring");
-      mapped_ = static_cast<std::byte*>(mapped);
       offset = 0;
       growth_bytes = capacity;
       ++telemetry_.growth_count;
@@ -1831,6 +1853,14 @@ class Renderer::Impl {
       DestroyBuffer(buffer);
     }
     frame_upload_buffers_.clear();
+    if (resource_residency_dirty_) {
+      // A failed submission produces no completion token, so Resolve cannot
+      // collect resources retired while preparing that submission. Reclaim
+      // only generations already known to be complete before retrying.
+      // Bindless dirty slots remain queued until PrepareBindlessDescriptors has
+      // recreated all required fallback images.
+      CollectDeferred(latest_completed_value_, false);
+    }
   }
 
   TextureSlot CreateTextureResource(
@@ -3068,7 +3098,8 @@ class Renderer::Impl {
     }
   }
 
-  void CollectDeferred(std::uint64_t completed) {
+  void CollectDeferred(std::uint64_t completed,
+                       bool write_bindless_descriptors = true) {
     auto iterator = deferred_.begin();
     while (iterator != deferred_.end()) {
       if (iterator->retire_value <= completed) {
@@ -3090,9 +3121,11 @@ class Renderer::Impl {
     }
     if (bindless_texture_table_) {
       CollectCompletedBindlessSlots(completed);
-      WriteBindlessDescriptors(
-          bindless_texture_table_->ConsumeDirtySlots(),
-          bindless_sampler_table_->ConsumeDirtySlots());
+      if (write_bindless_descriptors) {
+        WriteBindlessDescriptors(
+            bindless_texture_table_->ConsumeDirtySlots(),
+            bindless_sampler_table_->ConsumeDirtySlots());
+      }
     }
     auto texture = retired_textures_.begin();
     while (texture != retired_textures_.end()) {

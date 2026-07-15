@@ -149,6 +149,7 @@ def compare(baseline: dict, current: dict, timing_percent: float | None) -> dict
             "driver",
             "vulkan_api",
             "timestamp_queries",
+            "async_transfer_queue",
         )
         for field in comparable_fields:
             old_value = baseline.get("environment", {}).get(field)
