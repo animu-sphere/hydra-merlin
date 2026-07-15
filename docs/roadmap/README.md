@@ -18,14 +18,18 @@ v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
 slice. v0.6.0 shipped the performance-observability foundation and incremental
 Hydra synchronization work, with completed detail retained in the changelog and
 delivery history. The active v0.7.0 milestone extends the persistent resource
-model to Mesh and Gaussian data. The ordered ladder then establishes a native
-Vulkan performance reference and lands Gaussian rendering before GPU-driven
-optimization. The Mesh path then advances through persistent
-draw identity, GPU-driven indexed Forward, an experimental opaque Visibility
-Buffer, MaterialX quality work, and static meshlets. Low-copy presentation can
-proceed once evidence justifies it; Mesh Shader, Hi-Z/LOD, and large-scene
-streaming follow only after their indexed fallbacks and measurements are
-available.
+model for Mesh and future Gaussian data. The ordered ladder then moves the
+shader source of truth from GLSL to Slang while preserving Vulkan output and
+establishing a Metal compile gate. It extracts the minimum backend contract and
+delivers the dedicated backend-neutral `merlin-viewport` with Vulkan
+presentation, proves a MaterialXGenSlang material-function slice, and brings up
+Metal residency, native presentation, and an
+HgiMetal host bridge before Gaussian shader work expands. The later Mesh and
+Gaussian path advances through persistent draw identity, GPU-driven execution,
+an experimental opaque Visibility Buffer, production MaterialX quality, and
+static meshlets. Optional Mesh Shader, Hi-Z/LOD, and large-scene streaming
+remain measurement-gated. The architecture behind this order is recorded in
+the [multi-backend shader and presentation strategy](../design/multibackend-slang-materialx.md).
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
@@ -34,8 +38,10 @@ removed from the roadmap. The roadmap is not a second changelog.
 
 Every release must preserve these properties:
 
-- Core public APIs remain independent of OpenUSD, Hydra, Vulkan, Qt, and DCC SDKs.
-- Core-only, Vulkan, and enabled host configurations build without warnings.
+- Core public APIs remain independent of OpenUSD, Hydra, Vulkan, Metal, Qt, and
+  DCC SDKs.
+- Core-only, Vulkan, Metal, and enabled host configurations build without
+  warnings when their corresponding backend is enabled.
 - CTest distinguishes a product failure from a missing optional capability.
 - Deterministic scene input produces deterministic extraction and image metadata.
 - Vulkan validation reports renderer-owned warnings and errors as failures while
@@ -48,9 +54,19 @@ Every release must preserve these properties:
 
 ## Sequencing principles
 
+- **Share renderer semantics, not GPU commands.** RenderWorld, FrameSnapshot,
+  MaterialIR, AOV meanings, logical resource identity, completion lifetime, and
+  common telemetry stay backend-neutral. Allocation, command encoding,
+  synchronization, descriptors/argument buffers, and native presentation stay
+  backend-owned; hdMerlin does not pre-design a Vulkan-shaped general RHI.
+- **Move the shader source of truth before shader families expand.** Existing
+  Vulkan Forward output migrates to Slang and passes a Metal compile/reflection
+  gate before Gaussian, GPU-driven, Visibility, MaterialX production, or
+  meshlet shader work grows.
 - **MaterialIR before MaterialX.** Hydra networks, MaterialX documents, and
   future sources normalize into one host-neutral material boundary before
-  shader generation.
+  shader generation. MaterialXGenSlang produces a material-evaluation function;
+  hdMerlin still owns geometry, lighting, render passes, resources, and AOVs.
 - **Consume standard USD data.** Gaussian support consumes the existing
   OpenUSD representation exposed through Hydra. hdMerlin defines no custom USD
   schema, prim type, or file-format convention and does not parse PLY/SPLAT
@@ -60,8 +76,9 @@ Every release must preserve these properties:
   render targets, and profiling, while their rasterization, culling, sorting,
   compositing, and LOD pipelines remain distinct.
 - **Keep presentation separable.** Native Vulkan viewport, headless rendering,
-  and Hgi/DCC presentation use the same renderer core while keeping their
-  presentation costs independently measurable.
+  native Metal viewport, headless rendering, and Hgi/DCC presentation use the
+  same renderer core while keeping their presentation costs independently
+  measurable. HgiMetal is a host AOV bridge, not the Metal rendering RHI.
 - **Measure before optimizing.** Hydra Sync, scene normalization, command
   recording, GPU work, readback, host upload, and presentation must be separated
   before selecting an optimization.
@@ -86,7 +103,7 @@ Every release must preserve these properties:
 | Priority | Direction |
 | --- | --- |
 | P0 | v0.7.0 persistent bindless Mesh/Gaussian resources, comparable performance evidence, and GPU capability CI |
-| P1 | GPU residency completion and native viewport |
-| P2 | Gaussian MVP, persistent Mesh draw identity, and GPU-driven indexed rendering |
-| P3 | Opaque Visibility, GPU presentation interop, MaterialX quality, and static meshlets |
-| P4 | Optional Mesh Shader/Hi-Z/LOD, large-scene streaming, DCC integration, and v1.0 contracts |
+| P1 | Slang migration, Vulkan parity, shader ABI validation, and the Metal compile gate |
+| P2 | Backend contract, dedicated cross-backend `merlin-viewport`, MaterialXGenSlang prototype, Metal execution/residency, and Metal/Hydra presentation |
+| P3 | Gaussian MVP, persistent draw identity, GPU-driven Mesh/Gaussian execution, opaque Visibility, and MaterialX quality |
+| P4 | Static meshlets, optional Mesh Shader/Hi-Z/LOD, large-scene streaming, DCC integration, and v1.0 contracts |

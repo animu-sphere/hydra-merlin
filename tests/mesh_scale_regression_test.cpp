@@ -121,7 +121,18 @@ int main() {
     constexpr std::size_t replacement_count = 50;
     merlin::RenderWorld world;
     const auto mesh = world.CreateMesh(Triangle());
-    const auto material = world.CreateMaterial({});
+    merlin::TextureDescriptor texture_descriptor;
+    texture_descriptor.width = 1;
+    texture_descriptor.height = 1;
+    texture_descriptor.pixels = {255, 255, 255, 255};
+    const auto texture = world.CreateTexture(texture_descriptor);
+    merlin::SamplerDescriptor sampler_descriptor;
+    const auto sampler = world.CreateSampler(sampler_descriptor);
+    merlin::MaterialDescriptor material_descriptor;
+    material_descriptor.features = merlin::MaterialFeature::BaseColorTexture;
+    material_descriptor.base_color_texture =
+        merlin::TextureBinding{texture, sampler, 0};
+    const auto material = world.CreateMaterial(material_descriptor);
     merlin::InstanceDescriptor descriptor;
     descriptor.mesh = mesh;
     descriptor.material = material;
@@ -137,6 +148,51 @@ int main() {
     assert(initial->geometries.size() == 1U);
     assert(initial->instances.size() == prim_count);
     assert(initial->draws.size() == prim_count);
+
+    // Texture and sampler values are resource-granular: changing either one
+    // must not visit the million dependent instances or rebuild their draws.
+    texture_descriptor.pixels = {64, 128, 255, 255};
+    world.UpdateTexture(texture, texture_descriptor);
+    extractor.Apply(world, world.Commit());
+    const auto texture_edit = extractor.snapshot();
+    assert(texture_edit->build_counters.visited_records == 1U);
+    assert(texture_edit->build_counters.copied_records == 1U);
+    assert(texture_edit->build_counters.rebuilt_draws == 0U);
+    assert(texture_edit->build_counters.fully_rebuilt_tables == 0U);
+    assert(texture_edit->delta->textures.upserts ==
+           std::vector<std::uint64_t>{texture.value()});
+    assert(texture_edit->delta->materials.upserts.empty());
+    assert(texture_edit->delta->instances.upserts.empty());
+    assert(texture_edit->instances.record_identity(0) ==
+           initial->instances.record_identity(0));
+    assert(texture_edit->instances.record_identity(prim_count - 1U) ==
+           initial->instances.record_identity(prim_count - 1U));
+    assert(texture_edit->draws.record_identity(0) ==
+           initial->draws.record_identity(0));
+    assert(texture_edit->draws.record_identity(prim_count - 1U) ==
+           initial->draws.record_identity(prim_count - 1U));
+
+    sampler_descriptor.min_filter = merlin::FilterMode::Nearest;
+    sampler_descriptor.mag_filter = merlin::FilterMode::Nearest;
+    world.UpdateSampler(sampler, sampler_descriptor);
+    extractor.Apply(world, world.Commit());
+    const auto sampler_edit = extractor.snapshot();
+    assert(sampler_edit->build_counters.visited_records == 1U);
+    assert(sampler_edit->build_counters.copied_records == 1U);
+    assert(sampler_edit->build_counters.rebuilt_draws == 0U);
+    assert(sampler_edit->build_counters.fully_rebuilt_tables == 0U);
+    assert(sampler_edit->delta->samplers.upserts ==
+           std::vector<std::uint64_t>{sampler.value()});
+    assert(sampler_edit->delta->materials.upserts.empty());
+    assert(sampler_edit->delta->instances.upserts.empty());
+    assert(sampler_edit->instances.record_identity(0) ==
+           texture_edit->instances.record_identity(0));
+    assert(sampler_edit->instances.record_identity(prim_count - 1U) ==
+           texture_edit->instances.record_identity(prim_count - 1U));
+    assert(sampler_edit->draws.record_identity(0) ==
+           texture_edit->draws.record_identity(0));
+    assert(sampler_edit->draws.record_identity(prim_count - 1U) ==
+           texture_edit->draws.record_identity(prim_count - 1U));
 
     std::vector<std::size_t> edited_indices;
     edited_indices.reserve(localized_edit_count);

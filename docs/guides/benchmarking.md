@@ -79,9 +79,12 @@ readback are not hidden inside a color request.
 - `total_frame`
 
 GPU execution uses two timestamps on the selected graphics queue and is zero
-only when timestamp queries are unavailable. Completion waiting and CPU mapping
-are no longer folded into readback, so CPU and GPU timelines can be correlated
-without interpreting one aggregate duration as both.
+only when timestamp queries are unavailable. It includes uploads on the
+single-queue fallback; dedicated-transfer execution is represented by
+structural upload/submission evidence and synchronized before graphics rather
+than being folded into the graphics timestamp interval. Completion waiting and
+CPU mapping are no longer folded into readback, so CPU and GPU timelines can be
+correlated without interpreting one aggregate duration as both.
 
 ### Structural counters
 
@@ -94,13 +97,19 @@ pipeline creation. Upload evidence splits vertex, index, and texture payload
 bytes, aligned mapped-ring reservations, stable geometry-range reuse, and arena
 or ring growth. Bindless-capable runs additionally split sampled-image and
 sampler descriptor writes so steady-state and localized-edit scaling can be
-checked independently of the conventional reference descriptors. The top-level
+checked independently of the conventional reference descriptors. Transfer
+submission and image ownership-transfer counters distinguish dedicated-queue
+upload work from the single-queue fallback. The top-level
 `residency` object retains vertex/index arena capacity, resident/peak/free/
 retiring bytes, free-span fragmentation, range and block counts, mapped-ring
 capacity/reservations/in-flight regions/growth/wrap/retired buffers, and the
 texture/sampler capacity, current/peak/retiring use, allocation/reuse/
 retirement, descriptor updates, exhaustion, generation mismatches, references,
-and sampler deduplication evidence.
+and sampler deduplication evidence. Its `transfer_queue` object records selected
+families, submissions, bytes, ownership transitions, and upload timeline value;
+`memory_budget` records heap capacity/budget/usage/available bytes plus the
+configured/effective limit and renderer current/peak allocations, releases,
+queries, and exhaustion count.
 
 Field names, units, fixture order, and integer formatting are deterministic.
 Timing values are not.
@@ -199,5 +208,8 @@ ranges. Static baseline still asserts zero upload, allocation, shader-module
 miss, geometry-cache miss, and pipeline creation. Diagnostic/recovery verifies
 the versioned unsupported-topology path, while remove/readd verifies that path
 caches and generations do not survive Rprim lifetime. The capability workflow
-retains benchmark JSON/comparisons, Hydra JSON/log/trace, images, validation
-logs, and dependency/runtime provenance.
+retains benchmark JSON/comparisons, explicit automatic and forced-conventional
+descriptor-selection capability JSON, an expected undersized-bindless-table
+failure log, Hydra JSON/log/trace, images, validation logs, and dependency/
+runtime provenance. `merlin-headless --descriptor-backend` and the bindless
+capacity options reproduce those selection cases locally.

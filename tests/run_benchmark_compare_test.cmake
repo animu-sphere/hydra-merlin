@@ -41,7 +41,8 @@ foreach(index RANGE 0 ${last_baseline})
       geometry_arena_growth_count geometry_arena_growth_bytes
       upload_ring_growth_count upload_ring_growth_bytes
       bindless_sampled_image_descriptor_update_count
-      bindless_sampler_descriptor_update_count)
+      bindless_sampler_descriptor_update_count transfer_submission_count
+      queue_ownership_transfer_count)
     string(JSON legacy_benchmark REMOVE "${legacy_benchmark}"
            baselines ${index} counters "${counter}")
   endforeach()
@@ -143,4 +144,44 @@ file(READ "${timing_output}" timing_comparison)
 string(JSON timing_kind GET "${timing_comparison}" regressions 0 kind)
 if(NOT timing_kind STREQUAL "timing")
   message(FATAL_ERROR "expected timing regression, got ${timing_kind}")
+endif()
+
+# Dedicated-transfer execution is excluded from the graphics timestamp range,
+# so reports using different transfer modes are not timing-compatible.
+string(JSON async_transfer GET "${benchmark}" environment
+       async_transfer_queue)
+if(async_transfer)
+  set(changed_async_transfer false)
+else()
+  set(changed_async_transfer true)
+endif()
+string(JSON environment_mutation SET "${benchmark}" environment
+       async_transfer_queue ${changed_async_transfer})
+set(environment_input
+    "${MERLIN_COMPARISON_OUTPUT}.environment-input.json")
+set(environment_output "${MERLIN_COMPARISON_OUTPUT}.environment.json")
+file(WRITE "${environment_input}" "${environment_mutation}\n")
+execute_process(
+  COMMAND "${MERLIN_PYTHON}" "${MERLIN_COMPARE_SCRIPT}"
+          "${MERLIN_BENCHMARK_OUTPUT}" "${environment_input}"
+          --timing-threshold-percent 10 --output "${environment_output}"
+  RESULT_VARIABLE environment_result
+  OUTPUT_VARIABLE environment_stdout
+  ERROR_VARIABLE environment_error
+)
+if(NOT environment_result EQUAL 2)
+  message(FATAL_ERROR
+    "transfer-mode mismatch returned ${environment_result}, expected 2:\n"
+    "${environment_stdout}\n${environment_error}")
+endif()
+file(READ "${environment_output}" environment_comparison)
+string(JSON environment_kind GET "${environment_comparison}"
+       regressions 0 kind)
+string(JSON environment_metric GET "${environment_comparison}"
+       regressions 0 metric)
+if(NOT environment_kind STREQUAL "environment" OR
+   NOT environment_metric STREQUAL "async_transfer_queue")
+  message(FATAL_ERROR
+    "expected async-transfer environment regression, got "
+    "${environment_kind}/${environment_metric}")
 endif()

@@ -27,7 +27,13 @@ struct Arguments {
   std::uint32_t width{512};
   std::uint32_t height{512};
   std::uint32_t frames{3};
+  merlin::vulkan::DescriptorBackendRequest descriptor_backend{
+      merlin::vulkan::DescriptorBackendRequest::Automatic};
+  std::uint32_t bindless_texture_capacity{4096};
+  std::uint32_t bindless_sampler_capacity{256};
+  std::uint64_t vram_limit_bytes{};
   bool validation{};
+  bool async_transfer{true};
   bool probe_only{};
   bool install_tree{};
 };
@@ -53,6 +59,33 @@ std::uint32_t ParseUnsigned(std::string_view text, std::string_view option) {
     throw std::invalid_argument(std::string(option) + " requires a positive integer");
   }
   return value;
+}
+
+std::uint64_t ParseUnsigned64(std::string_view text, std::string_view option) {
+  std::uint64_t value{};
+  const auto result =
+      std::from_chars(text.data(), text.data() + text.size(), value);
+  if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+      value == 0) {
+    throw std::invalid_argument(std::string(option) +
+                                " requires a positive integer");
+  }
+  return value;
+}
+
+merlin::vulkan::DescriptorBackendRequest ParseDescriptorBackend(
+    std::string_view text) {
+  if (text == "automatic") {
+    return merlin::vulkan::DescriptorBackendRequest::Automatic;
+  }
+  if (text == "conventional") {
+    return merlin::vulkan::DescriptorBackendRequest::Conventional;
+  }
+  if (text == "bindless") {
+    return merlin::vulkan::DescriptorBackendRequest::Bindless;
+  }
+  throw std::invalid_argument(
+      "--descriptor-backend requires automatic, conventional, or bindless");
 }
 
 Arguments ParseArguments(int argc, char** argv) {
@@ -85,8 +118,22 @@ Arguments ParseArguments(int argc, char** argv) {
     } else if (argument == "--frames") {
       result.frames = ParseUnsigned(require_value(argument), argument);
       frames_explicit = true;
+    } else if (argument == "--descriptor-backend") {
+      result.descriptor_backend =
+          ParseDescriptorBackend(require_value(argument));
+    } else if (argument == "--bindless-texture-capacity") {
+      result.bindless_texture_capacity =
+          ParseUnsigned(require_value(argument), argument);
+    } else if (argument == "--bindless-sampler-capacity") {
+      result.bindless_sampler_capacity =
+          ParseUnsigned(require_value(argument), argument);
+    } else if (argument == "--vram-limit-bytes") {
+      result.vram_limit_bytes =
+          ParseUnsigned64(require_value(argument), argument);
     } else if (argument == "--validate") {
       result.validation = true;
+    } else if (argument == "--disable-async-transfer") {
+      result.async_transfer = false;
     } else if (argument == "--probe") {
       result.probe_only = true;
     } else if (argument == "--install-tree") {
@@ -94,8 +141,11 @@ Arguments ParseArguments(int argc, char** argv) {
     } else if (argument == "--help") {
       std::cout
           << "Usage: merlin-headless [--output FILE] [--metadata FILE] "
-             "[--report FILE] [--artifact-dir DIR] [--width N] [--height N] [--frames N] "
-             "[--validate] [--probe] [--install-tree]\n";
+             "[--report FILE] [--artifact-dir DIR] [--width N] [--height N] "
+             "[--frames N] [--descriptor-backend automatic|conventional|bindless] "
+             "[--bindless-texture-capacity N] [--bindless-sampler-capacity N] "
+             "[--vram-limit-bytes N] [--disable-async-transfer] [--validate] "
+             "[--probe] [--install-tree]\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(argument));
@@ -164,7 +214,7 @@ void WriteMetadata(const std::filesystem::path& path,
   const auto fallback_category =
       merlin::vulkan::DescriptorFallbackReasonCategory(
           descriptor_selection.fallback_reason);
-  stream << "{\n  \"schema_version\": 2,\n  \"vulkan\": {\n"
+  stream << "{\n  \"schema_version\": 3,\n  \"vulkan\": {\n"
          << "    \"sdk_version\": ";
   WriteJsonString(stream, capabilities.sdk_version);
   stream << ",\n    \"header_version\": ";
@@ -184,6 +234,27 @@ void WriteMetadata(const std::filesystem::path& path,
   WriteJsonString(stream, capabilities.driver_info);
   stream << ",\n    \"timeline_semaphore\": "
          << (capabilities.timeline_semaphore ? "true" : "false")
+         << ",\n    \"queues\": {\n"
+         << "      \"graphics_family\": "
+         << capabilities.graphics_queue_family
+         << ",\n      \"transfer_family\": "
+         << capabilities.transfer_queue_family
+         << ",\n      \"asynchronous_transfer\": "
+         << (capabilities.async_transfer_queue ? "true" : "false")
+         << ",\n      \"ownership_transfers\": "
+         << (capabilities.queue_ownership_transfers ? "true" : "false")
+         << "\n    },\n    \"memory_budget\": {\n"
+         << "      \"extension_available\": "
+         << (capabilities.memory_budget_extension ? "true" : "false")
+         << ",\n      \"heap_capacity_bytes\": "
+         << capabilities.device_local_heap_capacity_bytes
+         << ",\n      \"heap_budget_bytes\": "
+         << capabilities.device_local_heap_budget_bytes
+         << ",\n      \"heap_usage_bytes\": "
+         << capabilities.device_local_heap_usage_bytes
+         << ",\n      \"configured_limit_bytes\": "
+         << capabilities.configured_vram_limit_bytes
+         << "\n    }"
          << ",\n    \"validation_enabled\": "
          << (capabilities.validation_enabled ? "true" : "false")
          << ",\n    \"descriptor_indexing\": {\n"
@@ -490,7 +561,16 @@ int main(int argc, char** argv) {
     extractor.Apply(world, changes);
 
     report_phase = ReportPhase::Backend;
-    merlin::vulkan::Renderer renderer({arguments.validation});
+    merlin::vulkan::RendererOptions renderer_options;
+    renderer_options.enable_validation = arguments.validation;
+    renderer_options.descriptor_backend = arguments.descriptor_backend;
+    renderer_options.bindless_texture_capacity =
+        arguments.bindless_texture_capacity;
+    renderer_options.bindless_sampler_capacity =
+        arguments.bindless_sampler_capacity;
+    renderer_options.vram_limit_bytes = arguments.vram_limit_bytes;
+    renderer_options.enable_async_transfer = arguments.async_transfer;
+    merlin::vulkan::Renderer renderer(renderer_options);
     const auto& capabilities = renderer.capabilities();
     report_capabilities = capabilities;
     std::cout << "Merlin Vulkan device: " << capabilities.device_name << '\n'
@@ -501,6 +581,10 @@ int main(int argc, char** argv) {
               << VK_VERSION_PATCH(capabilities.api_version) << '\n'
               << "Timeline semaphore: "
               << (capabilities.timeline_semaphore ? "yes" : "no") << '\n'
+              << "Async transfer queue: "
+              << (capabilities.async_transfer_queue ? "yes" : "no") << '\n'
+              << "Device-local budget: "
+              << capabilities.device_local_heap_budget_bytes << " bytes\n"
               << "Descriptor backend: "
               << merlin::vulkan::DescriptorBackendName(
                      capabilities.descriptor_indexing_selection.selected_backend)
@@ -549,11 +633,24 @@ int main(int argc, char** argv) {
       ValidateSmokeResult(result);
       WritePpm(arguments.output, result.color);
       if (!arguments.artifact_dir.empty()) {
+        if (capabilities.descriptor_indexing_selection.selected_backend ==
+            merlin::vulkan::DescriptorBackend::Bindless) {
+          auto reference_options = renderer_options;
+          reference_options.descriptor_backend =
+              merlin::vulkan::DescriptorBackendRequest::Conventional;
+          merlin::vulkan::Renderer reference_renderer(reference_options);
+          expected_result = reference_renderer.Resolve(
+              reference_renderer.Submit(request));
+          if (reference_renderer.statistics().validation_messages != 0) {
+            throw std::runtime_error(
+                "conventional reference reported Vulkan validation messages");
+          }
+        }
         const auto artifacts = merlin::vulkan::SaveComparisonArtifacts(
             *expected_result, result, arguments.artifact_dir);
         if (!artifacts.matches) {
           throw std::runtime_error(
-              "unchanged-frame comparison artifacts do not match");
+              "reference/selected comparison artifacts do not match");
         }
       }
       const auto statistics = renderer.statistics();

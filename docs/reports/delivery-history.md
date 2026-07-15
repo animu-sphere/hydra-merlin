@@ -179,6 +179,9 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Added a one-million-prim regression in which 100 transform edits visit and
   copy exactly 100 instance records, rebuild no draws or tables, and retain all
   unaffected record and draw identities.
+- ✅ Added shared texture and sampler edits at the same one-million-prim scale;
+  each visits and copies exactly its one resource record, rebuilds no draw or
+  table, and retains the million instance/draw identities.
 - ✅ Added 50 removals plus 50 additions at the same live prim count, covering
   displaced dense indices, identity-preserving swap removal, immutable prior
   snapshots, and bounded structural counters under the existing scale timeout.
@@ -246,3 +249,27 @@ repository-scoped GPU runner for continuous execution remains in the
   recorded aligned ring reservations and stable range reuse, and covered
   initial growth, localized edits, fragmentation recovery, and in-flight
   replacement through Vulkan and benchmark regressions.
+
+## Asynchronous transfer and VRAM budgets ✅
+
+- ✅ Selects a dedicated transfer family when timeline semaphores are available,
+  submits geometry and texture uploads independently, and makes graphics wait
+  on a separate upload timeline without changing frame completion tokens.
+- ✅ Uses concurrent geometry-buffer sharing across queue families and explicit
+  transfer-to-graphics ownership/layout transitions for sampled images, with a
+  validated single-queue fallback.
+- ✅ Probes `VK_EXT_memory_budget` heap capacity/budget/usage, applies a
+  configurable renderer device-local limit before allocation, classifies both
+  proactive denials and Vulkan OOM as `resource-exhausted`, and retains
+  current/peak/allocation/release/exhaustion evidence.
+- ✅ Extends capability and benchmark JSON with queue selection, upload timeline,
+  ownership-transfer, and VRAM current/peak/capacity evidence; lifetime tests
+  cover deterministic configured-limit exhaustion.
+- ✅ Exposes descriptor backend/table capacity, VRAM limit, and transfer
+  selection through the headless probe; the GPU capability workflow retains
+  automatic/forced-conventional metadata plus an expected actionable
+  bindless-capacity exhaustion log for every configured profile.
+- ✅ Makes headless validation artifacts compare a forced-conventional render
+  against the automatically selected bindless render when available, retaining
+  exact color, depth, and primId expected/actual/diff images; capability CI now
+  runs the resource-update, material, and bindless lifetime regressions too.

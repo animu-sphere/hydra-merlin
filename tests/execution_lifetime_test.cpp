@@ -99,6 +99,29 @@ int main(int argc, char** argv) {
   const auto first_token = renderer->Submit(first);
   assert(first_token);
   const auto first_in_flight_statistics = renderer->statistics();
+  const auto& capabilities = renderer->capabilities();
+  assert(capabilities.device_local_heap_capacity_bytes > 0);
+  assert(capabilities.device_local_heap_budget_bytes > 0);
+  assert(first_in_flight_statistics.memory_budget.heap_capacity_bytes ==
+         capabilities.device_local_heap_capacity_bytes);
+  assert(first_in_flight_statistics.memory_budget.renderer_allocated_bytes > 0);
+  assert(first_in_flight_statistics.memory_budget
+             .renderer_peak_allocated_bytes >=
+         first_in_flight_statistics.memory_budget.renderer_allocated_bytes);
+  assert(first_in_flight_statistics.transfer_queue.graphics_family ==
+         capabilities.graphics_queue_family);
+  assert(first_in_flight_statistics.transfer_queue.transfer_family ==
+         capabilities.transfer_queue_family);
+  if (capabilities.async_transfer_queue) {
+    assert(first_in_flight_statistics.transfer_queue.asynchronous);
+    assert(first_in_flight_statistics.transfer_queue.submission_count == 1);
+    assert(first_in_flight_statistics.transfer_queue.uploaded_bytes > 0);
+    assert(first_in_flight_statistics.transfer_queue.ownership_transfer_count >
+           0);
+  } else {
+    assert(!first_in_flight_statistics.transfer_queue.asynchronous);
+    assert(first_in_flight_statistics.transfer_queue.submission_count == 0);
+  }
 
   // Record an edited scene while the first frame can still read the old
   // geometry range. The expanded payload also forces the upload ring to grow;
@@ -164,6 +187,8 @@ int main(int argc, char** argv) {
   assert(second_result.counters.index_upload_bytes == 0);
   assert(second_result.counters.geometry_range_reuse_count == 0);
   assert(second_result.counters.buffer_suballocation_count == 1);
+  assert(second_result.counters.transfer_submission_count ==
+         (capabilities.async_transfer_queue ? 1U : 0U));
   assert(second_result.color.pixels.empty());
   const auto collected_statistics = renderer->statistics();
   assert(collected_statistics.pending_geometry_retirements == 0);
@@ -188,6 +213,126 @@ int main(int argc, char** argv) {
     consumed = IsCode(error, merlin::vulkan::RendererErrorCode::InvalidToken);
   }
   assert(consumed);
+
+  merlin::vulkan::RendererOptions single_queue_options;
+  single_queue_options.frames_in_flight = 2;
+  single_queue_options.enable_async_transfer = false;
+  merlin::vulkan::Renderer single_queue_renderer(single_queue_options);
+  const auto single_queue_result = single_queue_renderer.Render(
+      *first.snapshot, 64, 64, shaders);
+  assert(!single_queue_renderer.capabilities().async_transfer_queue);
+  assert(single_queue_renderer.capabilities().graphics_queue_family ==
+         single_queue_renderer.capabilities().transfer_queue_family);
+  assert(single_queue_result.counters.transfer_submission_count == 0);
+  assert(single_queue_renderer.statistics().transfer_queue.submission_count ==
+         0);
+  assert(single_queue_result.color.pixels == first_result.color.pixels);
+
+  // A configured limit is deterministic and fails before Vulkan is asked to
+  // overcommit the device-local heap. The error includes the requested and
+  // available byte evidence and the denial remains visible in telemetry.
+  merlin::vulkan::RendererOptions limited_options;
+  limited_options.frames_in_flight = 2;
+  limited_options.vram_limit_bytes = 1;
+  merlin::vulkan::Renderer limited_renderer(limited_options);
+  bool exhausted{};
+  try {
+    (void)limited_renderer.Render(*first.snapshot, 64, 64, shaders);
+  } catch (const merlin::vulkan::RendererError& error) {
+    exhausted =
+        IsCode(error,
+               merlin::vulkan::RendererErrorCode::ResourceExhausted) &&
+        error.operation() == "allocate image memory";
+  }
+  assert(exhausted);
+  const auto limited_statistics = limited_renderer.statistics();
+  assert(limited_statistics.memory_budget.configured_limit_bytes == 1);
+  assert(limited_statistics.memory_budget.effective_limit_bytes == 1);
+  assert(limited_statistics.memory_budget.exhaustion_count == 1);
+  assert(limited_statistics.memory_budget.renderer_allocated_bytes == 0);
+
+  // A failed replacement must not strand the old resource in a retirement
+  // list that only a nonexistent completion token could collect. Size the
+  // limit from an identical uncapped run so the original scene fits exactly,
+  // reject a much larger texture, and then prove the renderer can restore the
+  // last valid snapshot on the next submission.
+  merlin::RenderWorld recovery_world;
+  merlin::extraction::SceneExtractor recovery_extractor;
+  constexpr std::uint32_t recovery_texture_extent = 256;
+  merlin::TextureDescriptor recovery_texture_descriptor;
+  recovery_texture_descriptor.width = recovery_texture_extent;
+  recovery_texture_descriptor.height = recovery_texture_extent;
+  recovery_texture_descriptor.pixels.resize(
+      recovery_texture_extent * recovery_texture_extent * 4U, 255U);
+  const auto recovery_texture =
+      recovery_world.CreateTexture(recovery_texture_descriptor);
+  const auto recovery_sampler = recovery_world.CreateSampler({});
+  merlin::MaterialDescriptor recovery_material_descriptor;
+  recovery_material_descriptor.features =
+      merlin::MaterialFeature::BaseColorTexture;
+  recovery_material_descriptor.base_color_texture = merlin::TextureBinding{
+      recovery_texture, recovery_sampler, 0};
+  const auto recovery_material =
+      recovery_world.CreateMaterial(recovery_material_descriptor);
+  const auto recovery_mesh =
+      recovery_world.CreateMesh(Triangle(-0.25F));
+  merlin::InstanceDescriptor recovery_instance;
+  recovery_instance.mesh = recovery_mesh;
+  recovery_instance.material = recovery_material;
+  recovery_world.CreateInstance(recovery_instance);
+  recovery_extractor.Apply(recovery_world, recovery_world.Commit());
+  const auto recovery_snapshot = recovery_extractor.snapshot();
+
+  merlin::vulkan::RendererOptions recovery_options;
+  recovery_options.frames_in_flight = 2;
+  recovery_options.descriptor_backend =
+      merlin::vulkan::DescriptorBackendRequest::Conventional;
+  recovery_options.enable_async_transfer = false;
+  std::uint64_t recovery_limit{};
+  {
+    merlin::vulkan::Renderer probe_renderer(recovery_options);
+    (void)probe_renderer.Render(*recovery_snapshot, 64, 64, shaders);
+    recovery_limit = probe_renderer.statistics()
+                         .memory_budget.renderer_peak_allocated_bytes;
+  }
+  assert(recovery_limit > 0);
+
+  recovery_options.vram_limit_bytes = recovery_limit;
+  merlin::vulkan::Renderer recovery_renderer(recovery_options);
+  const auto recovery_reference =
+      recovery_renderer.Render(*recovery_snapshot, 64, 64, shaders);
+  assert(recovery_renderer.statistics()
+             .memory_budget.renderer_peak_allocated_bytes <= recovery_limit);
+
+  constexpr std::uint32_t oversized_texture_extent = 2048;
+  auto oversized_texture_descriptor = recovery_texture_descriptor;
+  oversized_texture_descriptor.width = oversized_texture_extent;
+  oversized_texture_descriptor.height = oversized_texture_extent;
+  oversized_texture_descriptor.pixels.assign(
+      oversized_texture_extent * oversized_texture_extent * 4U, 128U);
+  recovery_world.UpdateTexture(recovery_texture,
+                               oversized_texture_descriptor);
+  recovery_extractor.Apply(recovery_world, recovery_world.Commit());
+  const auto oversized_snapshot = recovery_extractor.snapshot();
+  bool replacement_exhausted{};
+  try {
+    (void)recovery_renderer.Render(*oversized_snapshot, 64, 64, shaders);
+  } catch (const merlin::vulkan::RendererError& error) {
+    replacement_exhausted =
+        IsCode(error,
+               merlin::vulkan::RendererErrorCode::ResourceExhausted) &&
+        error.operation() == "allocate image memory";
+  }
+  assert(replacement_exhausted);
+
+  const auto recovered_result =
+      recovery_renderer.Render(*recovery_snapshot, 64, 64, shaders);
+  assert(recovered_result.color.pixels == recovery_reference.color.pixels);
+  const auto recovered_statistics = recovery_renderer.statistics();
+  assert(recovered_statistics.memory_budget.exhaustion_count == 1);
+  assert(recovered_statistics.memory_budget.renderer_allocated_bytes <=
+         recovery_limit);
+  assert(recovered_statistics.pending_geometry_retirements == 0);
 
   std::cout << "execution lifetime contract verified: first="
             << first_token.value() << " second=" << second_token.value()

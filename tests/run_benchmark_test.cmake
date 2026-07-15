@@ -221,6 +221,43 @@ if(ring_peak GREATER ring_capacity OR NOT ring_growths EQUAL 1 OR
   message(FATAL_ERROR "upload-ring residency telemetry is inconsistent")
 endif()
 
+string(JSON heap_capacity GET "${json}" residency memory_budget
+       heap_capacity_bytes)
+string(JSON heap_budget GET "${json}" residency memory_budget
+       heap_budget_bytes)
+string(JSON renderer_current GET "${json}" residency memory_budget
+       renderer_allocated_bytes)
+string(JSON renderer_peak GET "${json}" residency memory_budget
+       renderer_peak_allocated_bytes)
+string(JSON memory_queries GET "${json}" residency memory_budget queries)
+if(NOT heap_capacity GREATER 0 OR NOT heap_budget GREATER 0 OR
+   NOT renderer_current GREATER 0 OR renderer_current GREATER renderer_peak OR
+   NOT memory_queries GREATER 0)
+  message(FATAL_ERROR "VRAM budget telemetry is inconsistent")
+endif()
+
+string(JSON async_transfer GET "${json}" residency transfer_queue asynchronous)
+string(JSON graphics_family GET "${json}" residency transfer_queue
+       graphics_family)
+string(JSON transfer_family GET "${json}" residency transfer_queue
+       transfer_family)
+string(JSON transfer_submissions GET "${json}" residency transfer_queue
+       submissions)
+string(JSON transfer_bytes GET "${json}" residency transfer_queue
+       uploaded_bytes)
+string(JSON transfer_timeline GET "${json}" residency transfer_queue
+       latest_timeline_value)
+if(async_transfer)
+  if(graphics_family EQUAL transfer_family OR
+     NOT transfer_submissions GREATER 0 OR NOT transfer_bytes GREATER 0 OR
+     NOT transfer_timeline EQUAL transfer_submissions)
+    message(FATAL_ERROR "asynchronous transfer evidence is inconsistent")
+  endif()
+elseif(NOT graphics_family EQUAL transfer_family OR
+       NOT transfer_submissions EQUAL 0 OR NOT transfer_timeline EQUAL 0)
+  message(FATAL_ERROR "single-queue transfer fallback is inconsistent")
+endif()
+
 string(JSON timestamp_queries GET "${json}" environment timestamp_queries)
 if(timestamp_queries)
   string(JSON gpu_ns GET "${json}" baselines 1

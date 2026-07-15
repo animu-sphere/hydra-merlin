@@ -23,37 +23,32 @@ Negotiated devices now activate those tables through a non-uniform-indexed
 Forward path with exact conventional-path image parity; warmed static frames do
 zero descriptor allocation or update. Persistent vertex/index arenas and the
 mapped geometry-upload ring now expose capacity, stable range reuse, growth,
-fragmentation, retirement, and resource-class staged-byte evidence. The
-remaining work completes transfer-queue, memory-budget, and scale evidence.
+fragmentation, retirement, and resource-class staged-byte evidence. Dedicated
+transfer families now run uploads asynchronously with timeline synchronization
+and explicit image ownership transitions, while device-local allocations obey
+the configured/driver VRAM budget and retain current/peak/exhaustion evidence.
+The remaining work completes bindless release and scale evidence on the
+supported GPU profiles.
 
 #### 1. Bindless release evidence
 
-- Retain conventional/bindless parity across the release image corpus and add
-  localized texture/sampler edit scaling to the million-prim evidence.
+- Retain conventional/bindless parity across the release image corpus.
 - Record explicit automatic and forced-conventional selection artifacts on the
   supported GPU profiles, including actionable capacity exhaustion behavior.
 
-#### 2. Residency, transfer, and memory budget
-
-- Add asynchronous transfer-queue selection, ownership transitions, and
-  timeline synchronization without weakening in-flight replacement safety.
-- Probe heap budget/usage, define configurable VRAM limits and exhaustion
-  behavior, and retain current/peak/capacity evidence in capability and
-  benchmark artifacts.
-
-#### 3. Validation and release evidence
+#### 2. Validation and release evidence
 
 - Retain reserved-image, dirty-write, partially-bound, non-uniform indexing,
   in-flight replacement, conventional/bindless image parity, one-million-prim
-  localized-edit scaling, steady-state zero-work, fallback selection, and VRAM
-  evidence.
+  localized-edit scaling, steady-state zero-work, fallback selection,
+  asynchronous/single-queue transfer selection, and VRAM evidence.
 
 #### Scope boundary
 
 v0.7.0 owns the common arena, upload, retirement, descriptor, and memory-budget
 infrastructure needed by Mesh and future Gaussian resources. Host-neutral
 `GaussianResource`, standard Hydra Gaussian ingestion, and native Gaussian
-rendering remain v0.9.0 work; this milestone does not introduce a renderer-
+rendering remain v0.14.0 work; this milestone does not introduce a renderer-
 specific Gaussian schema or file parser.
 
 #### Exit criteria
@@ -71,9 +66,11 @@ specific Gaussian schema or file parser.
 
 ## Active carry-over
 
-- Enroll or confirm a repository- or organization-scoped Windows x64 runner
-  with the existing `vulkan-1.4` label so the manual workflow becomes
-  continuing GPU evidence.
+- Enroll or confirm an organization-scoped Windows x64 runner with the existing
+  `vulkan-1.4` label so the manual workflow becomes continuing GPU evidence.
+  The repository-scoped runner API reports zero enrolled runners and the
+  capability workflow has no prior runs as of 2026-07-16; organization runner
+  visibility still requires an administrator confirmation.
 - Retain dependency/runtime provenance, validation logs, expected/actual/diff
   images, benchmark output, Hydra discovery, RenderBuffer, and usdview results
   as comparable artifacts rather than reducing capability jobs to a binary

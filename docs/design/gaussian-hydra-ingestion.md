@@ -2,7 +2,7 @@
 
 **Status:** accepted integration boundary  
 **Validated baseline:** OpenUSD 26.05  
-**Implementation milestone:** v0.9.0 Gaussian MVP
+**Implementation milestone:** v0.14.0 Gaussian MVP
 
 ## Decision
 
@@ -28,7 +28,7 @@ UsdVolParticleField3DGaussianSplat
     ↓ OpenUSD usdVolImaging adapter
 Hydra particleField Rprim / scene-index data sources
     ↓ hdMerlin adapter validation and normalization
-host-neutral GaussianResource (introduced in v0.9.0)
+host-neutral GaussianResource (introduced in v0.14.0)
     ↓ revisions and changed ranges
 Gaussian GPU resources and render pipeline
 ```
@@ -89,7 +89,7 @@ revision or uploading. This is the v0.6.0 Mesh primvar contract as well.
 
 ## Compatibility and fallback policy
 
-- v0.9.0 adds `HdPrimTypeTokens->particleField` to the supported Rprim list and
+- v0.14.0 adds `HdPrimTypeTokens->particleField` to the supported Rprim list and
   creates an adapter-owned Rprim. No `usdVol` type crosses into Core.
 - A host missing `usdVolImaging` or the `particleField` Rprim receives a
   rejection diagnostic naming the plugin or incompatible SDK.
@@ -125,4 +125,4 @@ revision or uploading. This is the v0.6.0 Mesh primvar contract as well.
 The locally validated SDK contains `usd_usdVolImaging.dll`, registers the
 adapter with `includeDerivedPrimTypes`, publishes the `particleField` token, and
 includes the conversion scene index. This establishes the integration boundary;
-native resources and rendering remain v0.9.0 scope.
+native resources and rendering remain v0.14.0 scope.
