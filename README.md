@@ -88,7 +88,15 @@ deterministically after the last referencing frame completes. Static scenes
 perform zero upload, allocation, and pipeline work after warm-up, and
 transform-, visibility-, and material-only edits stage zero geometry bytes.
 Revisioned textures and samplers are cached independently, while material
-parameter edits reuse the existing shader/pipeline variant.
+parameter edits reuse the existing shader/pipeline variant. On descriptor-
+indexing-capable devices, finite global sampled-image and deduplicated-sampler
+tables preserve unchanged slot identity, materialize the four reserved fallback
+images, update only dirty descriptor elements, and delay slot reuse and Vulkan
+object destruction until the last referencing completion. Conventional Forward
+remains the correctness fallback; negotiated devices automatically use the
+non-uniform-indexed bindless shader path with persistent per-frame material
+descriptors, so warmed static frames perform zero descriptor allocation or
+update.
 
 ## Hydra 2 adapter
 
@@ -131,7 +139,7 @@ The current renderer intentionally does not yet provide:
 
 - MaterialX loading or general graph translation beyond the basic
   `UsdPreviewSurface` subset;
-- bindless GPU Scene tables, GPU-driven indexed submission, an opaque
+- the complete GPU Scene tables, GPU-driven indexed submission, an opaque
   Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
 - advanced viewport features such as alpha blending, dome lighting, shadows,
   selection, or production culling;

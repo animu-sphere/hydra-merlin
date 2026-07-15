@@ -11,6 +11,7 @@
 
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
+#include <merlin/vulkan/bindless_resource_table.hpp>
 #include <merlin/vulkan/descriptor_indexing.hpp>
 
 namespace merlin::vulkan {
@@ -18,6 +19,10 @@ namespace merlin::vulkan {
 struct RendererOptions {
   bool enable_validation{};
   std::uint32_t frames_in_flight{3};
+  DescriptorBackendRequest descriptor_backend{
+      DescriptorBackendRequest::Automatic};
+  std::uint32_t bindless_texture_capacity{4096};
+  std::uint32_t bindless_sampler_capacity{256};
 };
 
 struct RendererCapabilities {
@@ -57,6 +62,12 @@ struct RendererStatistics {
   std::uint64_t geometry_range_retirements{};
   std::uint32_t pending_geometry_retirements{};
   std::uint32_t geometry_arena_blocks{};
+  // Logical bindless-table evidence is populated when the selected device and
+  // configuration activate bindless Forward. Conventional Forward leaves
+  // these fields zeroed and remains the correctness fallback.
+  bool bindless_resource_tables{};
+  BindlessSlotTelemetry bindless_texture_slots;
+  BindlessSamplerTelemetry bindless_samplers;
 };
 
 // Backend-owned durations for one frame. Fields are CPU wall-clock durations
@@ -126,6 +137,11 @@ struct FrameCounters {
   std::uint64_t descriptor_pool_creation_count{};
   std::uint64_t descriptor_allocation_count{};
   std::uint64_t descriptor_update_count{};
+  // Global table writes are split out from the conventional per-material
+  // descriptor work so localized-edit and steady-state evidence can measure
+  // the bindless residency contract directly.
+  std::uint64_t bindless_sampled_image_descriptor_update_count{};
+  std::uint64_t bindless_sampler_descriptor_update_count{};
 
   // Member-wise equality keeps steady-state drift detection in lockstep with
   // this field list; adding a counter cannot silently escape the comparison.
@@ -135,6 +151,10 @@ struct FrameCounters {
 struct ShaderPaths {
   std::filesystem::path vertex;
   std::filesystem::path fragment;
+  std::filesystem::path bindless_vertex;
+  std::filesystem::path bindless_fragment;
+
+  friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
 
 struct RenderProductRequest {

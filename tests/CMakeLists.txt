@@ -118,6 +118,22 @@ if(TARGET merlin-headless)
     SKIP_RETURN_CODE 77
     TIMEOUT 60
   )
+
+  add_executable(merlin-bindless-residency-tests
+    bindless_residency_test.cpp
+  )
+  target_link_libraries(merlin-bindless-residency-tests
+    PRIVATE Merlin::RenderWorld Merlin::RenderExtraction Merlin::Vulkan)
+  add_test(
+    NAME merlin-vulkan-bindless-residency
+    COMMAND merlin-bindless-residency-tests
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+  )
+  set_tests_properties(merlin-vulkan-bindless-residency PROPERTIES
+    LABELS "gpu;bindless;residency"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 60
+  )
   add_test(
     NAME merlin-vulkan-offscreen
     COMMAND merlin-headless

@@ -19,6 +19,8 @@ ADDITIVE_COUNTERS = {
     "snapshot_copied_records",
     "snapshot_rebuilt_draws",
     "snapshot_fully_rebuilt_tables",
+    "bindless_sampled_image_descriptor_update_count",
+    "bindless_sampler_descriptor_update_count",
 }
 STABLE_COUNTERS = (
     "snapshot_visited_records",
@@ -66,6 +68,8 @@ STABLE_COUNTERS = (
     "descriptor_pool_creation_count",
     "descriptor_allocation_count",
     "descriptor_update_count",
+    "bindless_sampled_image_descriptor_update_count",
+    "bindless_sampler_descriptor_update_count",
 )
 
 

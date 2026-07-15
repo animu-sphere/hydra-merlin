@@ -187,7 +187,7 @@ repository-scoped GPU runner for continuous execution remains in the
 
 - ✅ Probed every descriptor-indexing feature and sampled-image/sampler limit
   required by the planned bindless Forward path and enabled the feature chain
-  only when selected.
+  only when the negotiated tables can be maintained.
 - ✅ Added explicit conventional/bindless selection with versioned capability
   output and machine-readable configuration, feature, and limit fallback
   reasons.
@@ -207,3 +207,30 @@ repository-scoped GPU runner for continuous execution remains in the
   value, coalesced dirty descriptor indices, and recorded allocation, reuse,
   update, retirement, collection, exhaustion, stale-generation, reference, and
   deduplication evidence.
+
+## Vulkan bindless residency foundation ✅
+
+- ✅ Connected revisioned Vulkan textures and samplers to the finite logical
+  tables so unchanged resources retain indices and changed resources receive
+  distinct completion-safe replacement slots.
+- ✅ Materialized white, black, flat-normal, and error RGBA8 images, created a
+  partially-bound update-after-bind sampled-image/sampler descriptor set, and
+  rewrote only dirty elements.
+- ✅ Deduplicated Vulkan sampler objects, rewrote collected descriptors to safe
+  fallbacks before destroying replaced objects, and reused a slot only after
+  its generation advanced at completion.
+- ✅ Added bindless per-frame descriptor counters, benchmark residency evidence,
+  and a validation-enabled two-frames-in-flight regression covering stable
+  use, replacement, collection, fallback rewrite, reuse, and zero steady work.
+
+## Bindless Forward activation ✅
+
+- ✅ Added non-uniform sampled-image and sampler array shaders that consume the
+  resident table indices while retaining conventional Forward as a selectable
+  feature/limit/configuration fallback.
+- ✅ Replaced per-material image descriptors on the bindless path with one
+  global update-after-bind resource set and one persistent dynamic-material set
+  per frame context, producing zero warmed static descriptor work.
+- ✅ Added configurable automatic/conventional/bindless renderer selection,
+  packaged both shader ABIs, and validated exact color, depth, primId, and
+  instanceId parity on a textured scene.

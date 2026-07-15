@@ -262,7 +262,7 @@ struct PushConstants {
   std::uint32_t feature_mask{};
   std::uint32_t prim_id{};
   std::uint32_t instance_id{};
-  std::uint32_t padding{};
+  std::uint32_t texture_index{};
 };
 
 static_assert(sizeof(PushConstants) == 128);
@@ -278,6 +278,8 @@ static_assert(sizeof(MaterialUniforms) == 48);
 
 constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
 constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;
+constexpr std::uint32_t kSamplerIndexShift = 8U;
+constexpr std::uint32_t kSamplerIndexMask = 0xffffU;
 
 constexpr VkDeviceSize kArenaAlignment = 16;
 constexpr VkDeviceSize kMinArenaBlockBytes = 256U * 1024U;
@@ -614,7 +616,26 @@ class Renderer::Impl {
                           "create renderer",
                           "frames_in_flight must be between 2 and 8");
     }
+    if (options.descriptor_backend !=
+            DescriptorBackendRequest::Conventional &&
+        options.bindless_sampler_capacity > (1U << 16U)) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "create renderer",
+                          "bindless_sampler_capacity must not exceed 65536");
+    }
     CreateDevice(options);
+    if (capabilities_.descriptor_indexing_selection.selected_backend ==
+        DescriptorBackend::Bindless) {
+      const auto& selection = capabilities_.descriptor_indexing_selection;
+      bindless_texture_table_ =
+          std::make_unique<BindlessTextureTable>(selection.texture_capacity);
+      bindless_sampler_table_ =
+          std::make_unique<BindlessSamplerTable>(selection.sampler_capacity);
+      bindless_texture_views_.resize(selection.texture_capacity);
+      bindless_samplers_.resize(selection.sampler_capacity);
+      reserved_bindless_textures_.resize(kReservedBindlessTextureSlots);
+      statistics_.bindless_resource_tables = true;
+    }
     CreateFrameContexts(options.frames_in_flight);
     statistics_.frame_context_count = options.frames_in_flight;
     vertex_arena_.Initialize(device_, physical_device_,
@@ -637,6 +658,12 @@ class Renderer::Impl {
       retired_textures_.clear();
       for (const auto& retired : retired_samplers_) {
         vkDestroySampler(device_, retired.sampler, nullptr);
+        if (retired.bindless_slot &&
+            retired.bindless_slot.index < bindless_samplers_.size() &&
+            bindless_samplers_[retired.bindless_slot.index] ==
+                retired.sampler) {
+          bindless_samplers_[retired.bindless_slot.index] = VK_NULL_HANDLE;
+        }
       }
       retired_samplers_.clear();
       for (auto& [handle, texture] : texture_slots_) {
@@ -644,11 +671,25 @@ class Renderer::Impl {
         DestroyTexture(texture);
       }
       texture_slots_.clear();
-      for (const auto& [handle, sampler] : sampler_slots_) {
-        (void)handle;
-        vkDestroySampler(device_, sampler.sampler, nullptr);
+      if (bindless_sampler_table_) {
+        for (const auto sampler : bindless_samplers_) {
+          if (sampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device_, sampler, nullptr);
+          }
+        }
+      } else {
+        for (const auto& [handle, sampler] : sampler_slots_) {
+          (void)handle;
+          vkDestroySampler(device_, sampler.sampler, nullptr);
+        }
       }
       sampler_slots_.clear();
+      bindless_samplers_.clear();
+      bindless_texture_views_.clear();
+      for (auto& texture : reserved_bindless_textures_) {
+        DestroyTexture(texture);
+      }
+      reserved_bindless_textures_.clear();
       DestroyTexture(fallback_texture_);
       if (fallback_sampler_.sampler != VK_NULL_HANDLE) {
         vkDestroySampler(device_, fallback_sampler_.sampler, nullptr);
@@ -677,6 +718,9 @@ class Renderer::Impl {
           vkDestroyCommandPool(device_, frame.command_pool, nullptr);
         }
       }
+      if (bindless_descriptor_pool_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device_, bindless_descriptor_pool_, nullptr);
+      }
       for (const auto& [path, module] : shader_modules_) {
         (void)path;
         vkDestroyShaderModule(device_, module, nullptr);
@@ -684,6 +728,14 @@ class Renderer::Impl {
       shader_modules_.clear();
       if (descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device_, descriptor_set_layout_, nullptr);
+      }
+      if (bindless_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device_, bindless_descriptor_set_layout_,
+                                     nullptr);
+      }
+      if (bindless_material_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(
+            device_, bindless_material_descriptor_set_layout_, nullptr);
       }
       if (timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
@@ -726,7 +778,12 @@ class Renderer::Impl {
     frame_counters_.rendered_aov_mask = aov_mask(rendered_aovs);
     frame_counters_.cpu_readback_aov_count = cpu_readback_aovs.size();
     frame_counters_.cpu_readback_aov_mask = aov_mask(cpu_readback_aovs);
-    EnsureDescriptorSetLayout();
+    if (bindless_texture_table_) {
+      EnsureBindlessDescriptorSet();
+      EnsureBindlessMaterialDescriptorSetLayout();
+    } else {
+      EnsureDescriptorSetLayout();
+    }
     auto& frame = AcquireFrame(request.width, request.height, request.shaders,
                                cpu_readback_aovs);
     frame.scene_revision = request.snapshot->revision;
@@ -764,6 +821,7 @@ class Renderer::Impl {
     SyncTextures(*request.snapshot, resource_sync_mode);
     SyncSamplers(*request.snapshot, resource_sync_mode);
     PrepareMaterialDescriptors(frame, *request.snapshot);
+    PrepareBindlessDescriptors();
     if (frame_counters_.upload_bytes != 0) {
       ++statistics_.scene_uploads;
     }
@@ -841,6 +899,7 @@ class Renderer::Impl {
     const auto wait_start = CpuClock::now();
     WaitForFrame(frame, timeout);
     const auto wait_ns = ElapsedNanoseconds(wait_start);
+    frame_counters_ = frame.counters;
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
     CollectDeferred(completion);
@@ -849,8 +908,6 @@ class Renderer::Impl {
       RenderTarget*& target;
       ~ResetActiveTarget() { target = nullptr; }
     } reset_active_target{active_target_};
-    frame_counters_ = frame.counters;
-
     RenderResult result;
     const auto readback_start = CpuClock::now();
     if (HasAov(frame.cpu_readback_aovs, Aov::Color)) {
@@ -897,11 +954,13 @@ class Renderer::Impl {
     VkDeviceMemory memory{};
     VkImageView view{};
     bool pending_upload{};
+    BindlessSlotHandle bindless_slot;
   };
 
   struct SamplerSlot {
     std::uint64_t revision{};
     VkSampler sampler{};
+    BindlessSlotHandle bindless_slot;
   };
 
   struct RetiredTexture {
@@ -912,6 +971,7 @@ class Renderer::Impl {
   struct RetiredSampler {
     VkSampler sampler{};
     std::uint64_t retire_value{};
+    BindlessSlotHandle bindless_slot;
   };
 
   // GPU residency for one mesh, keyed by the serialized RenderWorld handle
@@ -990,6 +1050,8 @@ class Renderer::Impl {
     VkDescriptorPool descriptor_pool{};
     std::uint32_t descriptor_capacity{};
     std::vector<VkDescriptorSet> material_descriptor_sets;
+    VkDescriptorSet bindless_material_descriptor_set{};
+    VkDeviceSize material_uniform_stride{};
     Buffer material_uniforms;
   };
 
@@ -1206,11 +1268,12 @@ class Renderer::Impl {
         properties.properties.limits.maxSamplerAllocationCount,
     };
 
-    // The bindless Forward implementation is introduced after this negotiation
-    // gate. Until then the renderer makes its existing backend choice explicit
-    // while still reporting whether the configured future table sizes fit.
     DescriptorIndexingConfiguration descriptor_configuration;
-    descriptor_configuration.request = DescriptorBackendRequest::Conventional;
+    descriptor_configuration.request = options.descriptor_backend;
+    descriptor_configuration.texture_capacity =
+        options.bindless_texture_capacity;
+    descriptor_configuration.sampler_capacity =
+        options.bindless_sampler_capacity;
     descriptor_configuration.additional_sampler_allocation_count =
         static_cast<std::uint64_t>(descriptor_configuration.sampler_capacity) *
         options.frames_in_flight;
@@ -1338,10 +1401,20 @@ class Renderer::Impl {
       const auto texture = texture_slots_.find(handle);
       if (texture != texture_slots_.end() &&
           texture->second.pending_upload) {
-        DestroyTexture(texture->second);
+        if (texture->second.bindless_slot) {
+          RetireTexture(texture->second);
+        } else {
+          DestroyTexture(texture->second);
+        }
       }
     }
     pending_texture_handles_.clear();
+    for (auto& texture : reserved_bindless_textures_) {
+      if (texture.pending_upload) {
+        DestroyTexture(texture);
+        force_reserved_bindless_texture_writes_ = true;
+      }
+    }
     if (fallback_texture_.pending_upload) {
       DestroyTexture(fallback_texture_);
     }
@@ -1398,6 +1471,9 @@ class Renderer::Impl {
       }
     }
     pending_texture_handles_.clear();
+    for (auto& texture : reserved_bindless_textures_) {
+      texture.pending_upload = false;
+    }
     fallback_texture_.pending_upload = false;
   }
 
@@ -1432,17 +1508,49 @@ class Renderer::Impl {
     return sampler;
   }
 
+  void CollectCompletedBindlessSlots(std::uint64_t completed) {
+    if (!bindless_texture_table_) {
+      return;
+    }
+    for (const auto slot : bindless_texture_table_->Collect(completed)) {
+      bindless_texture_views_[slot.index] = VK_NULL_HANDLE;
+    }
+    for (const auto slot : bindless_sampler_table_->Collect(completed)) {
+      bindless_samplers_[slot.index] = VK_NULL_HANDLE;
+    }
+  }
+
   void RetireTexture(TextureSlot& texture) {
     if (texture.image != VK_NULL_HANDLE) {
+      if (texture.bindless_slot) {
+        bindless_texture_table_->Retire(texture.bindless_slot,
+                                        timeline_value_);
+      }
       retired_textures_.push_back({texture, timeline_value_});
       texture = {};
+      CollectCompletedBindlessSlots(latest_completed_value_);
     }
   }
 
   void RetireSampler(SamplerSlot& sampler) {
     if (sampler.sampler != VK_NULL_HANDLE) {
-      retired_samplers_.push_back({sampler.sampler, timeline_value_});
+      bool bindless_slot_retired{};
+      if (sampler.bindless_slot) {
+        const auto slot = sampler.bindless_slot;
+        bindless_sampler_table_->Release(slot, timeline_value_);
+        if (!bindless_sampler_table_->IsActive(slot)) {
+          retired_samplers_.push_back(
+              {sampler.sampler, timeline_value_, slot});
+          bindless_slot_retired = true;
+        }
+      } else {
+        retired_samplers_.push_back(
+            {sampler.sampler, timeline_value_, {}});
+      }
       sampler = {};
+      if (bindless_slot_retired) {
+        CollectCompletedBindlessSlots(latest_completed_value_);
+      }
     }
   }
 
@@ -1527,8 +1635,19 @@ class Renderer::Impl {
       }
       ++frame_counters_.texture_cache_misses;
       RetireTexture(entry->second);
-      entry->second = CreateTextureResource(
+      auto replacement = CreateTextureResource(
           texture.width, texture.height, texture.revision, *texture.pixels);
+      try {
+        if (bindless_texture_table_) {
+          replacement.bindless_slot = bindless_texture_table_->Allocate();
+          bindless_texture_views_[replacement.bindless_slot.index] =
+              replacement.view;
+        }
+      } catch (...) {
+        DestroyTexture(replacement);
+        throw;
+      }
+      entry->second = replacement;
       pending_texture_handles_.push_back(texture.texture);
     }
   }
@@ -1608,15 +1727,41 @@ class Renderer::Impl {
       }
       ++frame_counters_.sampler_cache_misses;
       RetireSampler(entry->second);
-      entry->second.revision = sampler.revision;
-      entry->second.sampler = CreateSamplerResource(
-          sampler.min_filter, sampler.mag_filter, sampler.address_u,
-          sampler.address_v);
+      SamplerSlot replacement;
+      replacement.revision = sampler.revision;
+      if (bindless_sampler_table_) {
+        BindlessSamplerDescriptor descriptor;
+        descriptor.min_filter = sampler.min_filter;
+        descriptor.mag_filter = sampler.mag_filter;
+        descriptor.address_u = sampler.address_u;
+        descriptor.address_v = sampler.address_v;
+        const auto slot = bindless_sampler_table_->Acquire(descriptor);
+        replacement.bindless_slot = slot;
+        if (bindless_samplers_[slot.index] == VK_NULL_HANDLE) {
+          try {
+            bindless_samplers_[slot.index] = CreateSamplerResource(
+                sampler.min_filter, sampler.mag_filter, sampler.address_u,
+                sampler.address_v);
+          } catch (...) {
+            bindless_sampler_table_->Release(slot, latest_completed_value_);
+            (void)bindless_sampler_table_->Collect(latest_completed_value_);
+            throw;
+          }
+        }
+        replacement.sampler = bindless_samplers_[slot.index];
+      } else {
+        replacement.sampler = CreateSamplerResource(
+            sampler.min_filter, sampler.mag_filter, sampler.address_u,
+            sampler.address_v);
+      }
+      entry->second = replacement;
     }
   }
 
   void EnsureFallbackTextureAndSampler() {
-    if (fallback_texture_.image == VK_NULL_HANDLE) {
+    if (bindless_texture_table_) {
+      EnsureReservedBindlessTextures();
+    } else if (fallback_texture_.image == VK_NULL_HANDLE) {
       const std::vector<std::uint8_t> white{255U, 255U, 255U, 255U};
       fallback_texture_ = CreateTextureResource(1, 1, 1, white, false);
     }
@@ -1626,6 +1771,208 @@ class Renderer::Impl {
           FilterMode::Linear, FilterMode::Linear, AddressMode::Repeat,
           AddressMode::Repeat);
     }
+  }
+
+  void EnsureReservedBindlessTextures() {
+    if (!bindless_texture_table_) {
+      return;
+    }
+    static const std::array<std::array<std::uint8_t, 4>,
+                            kReservedBindlessTextureSlots>
+        pixels{{
+            {255U, 255U, 255U, 255U},
+            {0U, 0U, 0U, 255U},
+            {128U, 128U, 255U, 255U},
+            {255U, 0U, 255U, 255U},
+        }};
+    for (std::uint32_t index = 0; index < pixels.size(); ++index) {
+      auto& texture = reserved_bindless_textures_[index];
+      if (texture.image == VK_NULL_HANDLE) {
+        texture = CreateTextureResource(
+            1, 1, 1,
+            std::vector<std::uint8_t>(pixels[index].begin(),
+                                      pixels[index].end()),
+            false);
+        bindless_texture_views_[index] = texture.view;
+        force_reserved_bindless_texture_writes_ = true;
+      }
+    }
+  }
+
+  [[nodiscard]] VkImageView FallbackTextureView() const noexcept {
+    if (bindless_texture_table_) {
+      return reserved_bindless_textures_[static_cast<std::uint32_t>(
+                                             BindlessFallbackTexture::White)]
+          .view;
+    }
+    return fallback_texture_.view;
+  }
+
+  void EnsureBindlessDescriptorSet() {
+    if (!bindless_texture_table_ ||
+        bindless_descriptor_set_ != VK_NULL_HANDLE) {
+      return;
+    }
+    const auto& selection = capabilities_.descriptor_indexing_selection;
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    bindings[0].descriptorCount = selection.sampler_capacity;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    bindings[1].descriptorCount = selection.texture_capacity;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    constexpr auto common_flags =
+        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+    const std::array<VkDescriptorBindingFlags, 2> binding_flags{
+        common_flags,
+        common_flags | VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT};
+    VkDescriptorSetLayoutBindingFlagsCreateInfo flags_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
+    flags_info.bindingCount = static_cast<std::uint32_t>(binding_flags.size());
+    flags_info.pBindingFlags = binding_flags.data();
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    layout_info.pNext = &flags_info;
+    layout_info.flags =
+        VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    layout_info.pBindings = bindings.data();
+    Check(vkCreateDescriptorSetLayout(device_, &layout_info, nullptr,
+                                      &bindless_descriptor_set_layout_),
+          "create bindless resource descriptor layout");
+    ++frame_counters_.descriptor_layout_cache_misses;
+
+    const std::array<VkDescriptorPoolSize, 2> sizes{{
+        {VK_DESCRIPTOR_TYPE_SAMPLER, selection.sampler_capacity},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, selection.texture_capacity},
+    }};
+    VkDescriptorPoolCreateInfo pool_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+    pool_info.maxSets = 1;
+    pool_info.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+    pool_info.pPoolSizes = sizes.data();
+    Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
+                                 &bindless_descriptor_pool_),
+          "create bindless resource descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+
+    VkDescriptorSetVariableDescriptorCountAllocateInfo variable_count{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO};
+    variable_count.descriptorSetCount = 1;
+    variable_count.pDescriptorCounts = &selection.texture_capacity;
+    VkDescriptorSetAllocateInfo allocate{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocate.pNext = &variable_count;
+    allocate.descriptorPool = bindless_descriptor_pool_;
+    allocate.descriptorSetCount = 1;
+    allocate.pSetLayouts = &bindless_descriptor_set_layout_;
+    Check(vkAllocateDescriptorSets(device_, &allocate,
+                                   &bindless_descriptor_set_),
+          "allocate bindless resource descriptor set");
+    ++frame_counters_.descriptor_allocation_count;
+  }
+
+  void EnsureBindlessMaterialDescriptorSetLayout() {
+    if (bindless_material_descriptor_set_layout_ != VK_NULL_HANDLE) {
+      ++frame_counters_.descriptor_layout_cache_hits;
+      return;
+    }
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    binding.descriptorCount = 1;
+    binding.stageFlags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    info.bindingCount = 1;
+    info.pBindings = &binding;
+    Check(vkCreateDescriptorSetLayout(
+              device_, &info, nullptr,
+              &bindless_material_descriptor_set_layout_),
+          "create bindless material descriptor layout");
+    ++frame_counters_.descriptor_layout_cache_misses;
+  }
+
+  void WriteBindlessDescriptors(
+      const std::vector<std::uint32_t>& texture_indices,
+      const std::vector<std::uint32_t>& sampler_indices) {
+    std::vector<VkDescriptorImageInfo> texture_infos(texture_indices.size());
+    std::vector<VkDescriptorImageInfo> sampler_infos(sampler_indices.size());
+    std::vector<VkWriteDescriptorSet> writes;
+    writes.reserve(texture_indices.size() + sampler_indices.size());
+    const auto error_view =
+        reserved_bindless_textures_[static_cast<std::uint32_t>(
+                                        BindlessFallbackTexture::Error)]
+            .view;
+    for (std::size_t i = 0; i < texture_indices.size(); ++i) {
+      const auto index = texture_indices[i];
+      const auto view = bindless_texture_views_[index] == VK_NULL_HANDLE
+          ? error_view
+          : bindless_texture_views_[index];
+      texture_infos[i] =
+          {VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+      VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      write.dstSet = bindless_descriptor_set_;
+      write.dstBinding = 1;
+      write.dstArrayElement = index;
+      write.descriptorCount = 1;
+      write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      write.pImageInfo = &texture_infos[i];
+      writes.push_back(write);
+    }
+    for (std::size_t i = 0; i < sampler_indices.size(); ++i) {
+      const auto index = sampler_indices[i];
+      const auto sampler = bindless_samplers_[index] == VK_NULL_HANDLE
+          ? fallback_sampler_.sampler
+          : bindless_samplers_[index];
+      sampler_infos[i] = {sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+      VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      write.dstSet = bindless_descriptor_set_;
+      write.dstBinding = 0;
+      write.dstArrayElement = index;
+      write.descriptorCount = 1;
+      write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+      write.pImageInfo = &sampler_infos[i];
+      writes.push_back(write);
+    }
+    if (!writes.empty()) {
+      vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+                             writes.data(), 0, nullptr);
+      frame_counters_.descriptor_update_count += writes.size();
+      frame_counters_.bindless_sampled_image_descriptor_update_count +=
+          texture_indices.size();
+      frame_counters_.bindless_sampler_descriptor_update_count +=
+          sampler_indices.size();
+    }
+  }
+
+  void PrepareBindlessDescriptors() {
+    if (!bindless_texture_table_) {
+      return;
+    }
+    EnsureFallbackTextureAndSampler();
+    EnsureBindlessDescriptorSet();
+
+    auto texture_indices = bindless_texture_table_->ConsumeDirtySlots();
+    if (force_reserved_bindless_texture_writes_) {
+      for (std::uint32_t index = 0;
+           index < kReservedBindlessTextureSlots; ++index) {
+        texture_indices.push_back(index);
+      }
+      std::sort(texture_indices.begin(), texture_indices.end());
+      texture_indices.erase(
+          std::unique(texture_indices.begin(), texture_indices.end()),
+          texture_indices.end());
+    }
+    const auto sampler_indices =
+        bindless_sampler_table_->ConsumeDirtySlots();
+    WriteBindlessDescriptors(texture_indices, sampler_indices);
+    force_reserved_bindless_texture_writes_ = false;
   }
 
   void EnsureDescriptorSetLayout() {
@@ -1689,8 +2036,105 @@ class Renderer::Impl {
     return result;
   }
 
+  void PrepareBindlessMaterialDescriptors(
+      FrameContext& frame, const extraction::FrameSnapshot& snapshot) {
+    frame.material_descriptor_sets.clear();
+    if (material_records_.empty()) {
+      return;
+    }
+    const auto material_count =
+        static_cast<std::uint32_t>(material_records_.size());
+    const auto uniform_stride =
+        AlignUp(sizeof(MaterialUniforms), uniform_buffer_alignment_);
+    const auto uniform_bytes = uniform_stride * material_count;
+    bool descriptor_dirty{};
+    if (frame.material_uniforms.handle == VK_NULL_HANDLE ||
+        frame.material_uniforms.size < uniform_bytes) {
+      DestroyBuffer(frame.material_uniforms);
+      frame.material_uniforms = CreateBuffer(
+          uniform_bytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      descriptor_dirty = true;
+    }
+    if (frame.descriptor_pool == VK_NULL_HANDLE) {
+      const VkDescriptorPoolSize size{
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1};
+      VkDescriptorPoolCreateInfo pool_info{
+          VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+      pool_info.maxSets = 1;
+      pool_info.poolSizeCount = 1;
+      pool_info.pPoolSizes = &size;
+      Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
+                                   &frame.descriptor_pool),
+            "create bindless material descriptor pool");
+      ++frame_counters_.descriptor_pool_creation_count;
+      VkDescriptorSetAllocateInfo allocate{
+          VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+      allocate.descriptorPool = frame.descriptor_pool;
+      allocate.descriptorSetCount = 1;
+      allocate.pSetLayouts = &bindless_material_descriptor_set_layout_;
+      Check(vkAllocateDescriptorSets(
+                device_, &allocate,
+                &frame.bindless_material_descriptor_set),
+            "allocate bindless material descriptor set");
+      ++frame_counters_.descriptor_allocation_count;
+      descriptor_dirty = true;
+    }
+    if (descriptor_dirty) {
+      const VkDescriptorBufferInfo buffer_info{
+          frame.material_uniforms.handle, 0, sizeof(MaterialUniforms)};
+      VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      write.dstSet = frame.bindless_material_descriptor_set;
+      write.dstBinding = 0;
+      write.descriptorCount = 1;
+      write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+      write.pBufferInfo = &buffer_info;
+      vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+      ++frame_counters_.descriptor_update_count;
+    }
+    frame.material_uniform_stride = uniform_stride;
+
+    void* mapped{};
+    Check(vkMapMemory(device_, frame.material_uniforms.memory, 0,
+                      uniform_bytes, 0, &mapped),
+          "map bindless material uniform buffer");
+    const auto lighting = ExtractDirectionalLighting(snapshot);
+    for (std::uint32_t i = 0; i < material_count; ++i) {
+      const auto& material = material_records_[i];
+      const MaterialUniforms uniforms{
+          material.parameters.base_color,
+          lighting.direction_intensity,
+          {lighting.color.x, lighting.color.y, lighting.color.z,
+           material.parameters.alpha_cutoff}};
+      std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
+                  &uniforms, sizeof(uniforms));
+    }
+    vkUnmapMemory(device_, frame.material_uniforms.memory);
+  }
+
+  void ValidateMaterialTextureBindings() const {
+    for (std::size_t i = 0; i < material_records_.size(); ++i) {
+      const auto& material = material_records_[i];
+      if (material.base_color_texture &&
+          (material.base_color_texture->texture_index >=
+               texture_records_.size() ||
+           material.base_color_texture->sampler_index >=
+               sampler_records_.size())) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "prepare material descriptors",
+                            "material texture binding index is invalid");
+      }
+    }
+  }
+
   void PrepareMaterialDescriptors(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot) {
+    ValidateMaterialTextureBindings();
+    if (bindless_texture_table_) {
+      PrepareBindlessMaterialDescriptors(frame, snapshot);
+      return;
+    }
     frame.material_descriptor_sets.clear();
     if (material_records_.empty()) {
       return;
@@ -1769,7 +2213,7 @@ class Renderer::Impl {
     std::vector<VkDescriptorBufferInfo> buffer_infos(material_count);
     std::vector<VkWriteDescriptorSet> writes(material_count * 2U);
     for (std::uint32_t i = 0; i < material_count; ++i) {
-      auto image_view = fallback_texture_.view;
+      auto image_view = FallbackTextureView();
       auto sampler = fallback_sampler_.sampler;
       const auto& material = material_records_[i];
       if (material.base_color_texture) {
@@ -2180,6 +2624,12 @@ class Renderer::Impl {
         ++range;
       }
     }
+    if (bindless_texture_table_) {
+      CollectCompletedBindlessSlots(completed);
+      WriteBindlessDescriptors(
+          bindless_texture_table_->ConsumeDirtySlots(),
+          bindless_sampler_table_->ConsumeDirtySlots());
+    }
     auto texture = retired_textures_.begin();
     while (texture != retired_textures_.end()) {
       if (texture->retire_value <= completed) {
@@ -2225,6 +2675,13 @@ class Renderer::Impl {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "validate render request",
                           "vertex and fragment shader paths are required");
+    }
+    if (bindless_texture_table_ &&
+        (request.shaders.bindless_vertex.empty() ||
+         request.shaders.bindless_fragment.empty())) {
+      throw RendererError(
+          RendererErrorCode::InvalidRequest, "validate render request",
+          "bindless vertex and fragment shader paths are required");
     }
     if (request.products.empty()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
@@ -2274,8 +2731,7 @@ class Renderer::Impl {
     auto reusable = [&](FrameContext& frame) {
       return !frame.outstanding && frame.target.width == width &&
              frame.target.height == height &&
-             frame.target.shaders.vertex == shaders.vertex &&
-             frame.target.shaders.fragment == shaders.fragment &&
+             frame.target.shaders == shaders &&
              frame.target.cpu_readback_aovs == cpu_readback_aovs;
     };
     auto found = std::find_if(frames_.begin(), frames_.end(), reusable);
@@ -2382,8 +2838,7 @@ class Renderer::Impl {
                     const ShaderPaths& shaders,
                     const std::vector<Aov>& cpu_readback_aovs) {
     if (target.width == width && target.height == height &&
-        target.shaders.vertex == shaders.vertex &&
-        target.shaders.fragment == shaders.fragment &&
+        target.shaders == shaders &&
         target.cpu_readback_aovs == cpu_readback_aovs) {
       ++frame_counters_.pipeline_cache_hits;
       return;
@@ -2467,8 +2922,17 @@ class Renderer::Impl {
       push_range.size = sizeof(PushConstants);
       VkPipelineLayoutCreateInfo layout_info{
           VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-      layout_info.setLayoutCount = 1;
-      layout_info.pSetLayouts = &descriptor_set_layout_;
+      const std::array<VkDescriptorSetLayout, 2> bindless_layouts{
+          bindless_descriptor_set_layout_,
+          bindless_material_descriptor_set_layout_};
+      if (bindless_texture_table_) {
+        layout_info.setLayoutCount =
+            static_cast<std::uint32_t>(bindless_layouts.size());
+        layout_info.pSetLayouts = bindless_layouts.data();
+      } else {
+        layout_info.setLayoutCount = 1;
+        layout_info.pSetLayouts = &descriptor_set_layout_;
+      }
       layout_info.pushConstantRangeCount = 1;
       layout_info.pPushConstantRanges = &push_range;
       Check(vkCreatePipelineLayout(device_, &layout_info, nullptr,
@@ -2563,8 +3027,10 @@ class Renderer::Impl {
   VkPipeline CreatePipeline(const ShaderPaths& shaders,
                             std::uint32_t variant_key) {
     ++frame_counters_.pipeline_creation_count;
-    const auto vertex_shader = GetShaderModule(shaders.vertex);
-    const auto fragment_shader = GetShaderModule(shaders.fragment);
+    const auto vertex_shader = GetShaderModule(
+        bindless_texture_table_ ? shaders.bindless_vertex : shaders.vertex);
+    const auto fragment_shader = GetShaderModule(
+        bindless_texture_table_ ? shaders.bindless_fragment : shaders.fragment);
     const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
          VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
@@ -2776,11 +3242,31 @@ class Renderer::Impl {
       }
       const auto pipeline = EnsurePipeline(active_target_->shaders, variant_key);
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-      const auto descriptor_set =
-          frame.material_descriptor_sets[draw.material_index];
-      vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              active_target_->pipeline_layout, 0, 1,
-                              &descriptor_set, 0, nullptr);
+      if (bindless_texture_table_) {
+        const auto dynamic_offset_value =
+            frame.material_uniform_stride * draw.material_index;
+        if (dynamic_offset_value >
+            std::numeric_limits<std::uint32_t>::max()) {
+          throw RendererError(RendererErrorCode::Unsupported,
+                              "record bindless material",
+                              "dynamic material offset exceeds uint32 range");
+        }
+        const auto dynamic_offset =
+            static_cast<std::uint32_t>(dynamic_offset_value);
+        const std::array<VkDescriptorSet, 2> descriptor_sets{
+            bindless_descriptor_set_, frame.bindless_material_descriptor_set};
+        vkCmdBindDescriptorSets(
+            command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            active_target_->pipeline_layout, 0,
+            static_cast<std::uint32_t>(descriptor_sets.size()),
+            descriptor_sets.data(), 1, &dynamic_offset);
+      } else {
+        const auto descriptor_set =
+            frame.material_descriptor_sets[draw.material_index];
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                active_target_->pipeline_layout, 0, 1,
+                                &descriptor_set, 0, nullptr);
+      }
       PushConstants push;
       push.model_view_projection =
           Multiply(view_projection, instance.transform);
@@ -2791,6 +3277,23 @@ class Renderer::Impl {
       push.feature_mask = feature_mask;
       if (material.alpha_mode == AlphaMode::Masked) {
         push.feature_mask |= kMaskedAlphaFlag;
+      }
+      if (bindless_texture_table_ && material.base_color_texture) {
+        const auto texture_handle =
+            texture_records_[material.base_color_texture->texture_index]
+                .texture;
+        const auto sampler_handle =
+            sampler_records_[material.base_color_texture->sampler_index]
+                .sampler;
+        const auto texture_slot = texture_slots_.at(texture_handle).bindless_slot;
+        const auto sampler_slot = sampler_slots_.at(sampler_handle).bindless_slot;
+        if (sampler_slot.index > kSamplerIndexMask) {
+          throw RendererError(RendererErrorCode::Unsupported,
+                              "record bindless material",
+                              "bindless sampler index exceeds shader encoding");
+        }
+        push.texture_index = texture_slot.index;
+        push.feature_mask |= sampler_slot.index << kSamplerIndexShift;
       }
       push.prim_id = static_cast<std::uint32_t>(geometry.mesh);
       push.instance_id = static_cast<std::uint32_t>(instance.instance);
@@ -3017,6 +3520,16 @@ class Renderer::Impl {
   std::vector<PendingImageCopy> pending_image_copies_;
   std::vector<std::uint64_t> pending_texture_handles_;
   std::vector<Buffer> frame_upload_buffers_;
+  std::unique_ptr<BindlessTextureTable> bindless_texture_table_;
+  std::unique_ptr<BindlessSamplerTable> bindless_sampler_table_;
+  std::vector<VkImageView> bindless_texture_views_;
+  std::vector<VkSampler> bindless_samplers_;
+  std::vector<TextureSlot> reserved_bindless_textures_;
+  bool force_reserved_bindless_texture_writes_{};
+  VkDescriptorSetLayout bindless_descriptor_set_layout_{};
+  VkDescriptorSetLayout bindless_material_descriptor_set_layout_{};
+  VkDescriptorPool bindless_descriptor_pool_{};
+  VkDescriptorSet bindless_descriptor_set_{};
   TextureSlot fallback_texture_;
   SamplerSlot fallback_sampler_;
   VkDescriptorSetLayout descriptor_set_layout_{};
@@ -3046,6 +3559,11 @@ RendererStatistics Renderer::statistics() const noexcept {
       static_cast<std::uint32_t>(impl_->retired_ranges_.size());
   result.geometry_arena_blocks =
       impl_->vertex_arena_.block_count() + impl_->index_arena_.block_count();
+  if (impl_->bindless_texture_table_) {
+    result.bindless_texture_slots =
+        impl_->bindless_texture_table_->telemetry();
+    result.bindless_samplers = impl_->bindless_sampler_table_->telemetry();
+  }
   return result;
 }
 

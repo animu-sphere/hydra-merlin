@@ -35,7 +35,9 @@ math(EXPR last_baseline "${baseline_count} - 1")
 foreach(index RANGE 0 ${last_baseline})
   foreach(counter IN ITEMS
       snapshot_visited_records snapshot_copied_records
-      snapshot_rebuilt_draws snapshot_fully_rebuilt_tables)
+      snapshot_rebuilt_draws snapshot_fully_rebuilt_tables
+      bindless_sampled_image_descriptor_update_count
+      bindless_sampler_descriptor_update_count)
     string(JSON legacy_benchmark REMOVE "${legacy_benchmark}"
            baselines ${index} counters "${counter}")
   endforeach()

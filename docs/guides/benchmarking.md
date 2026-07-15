@@ -90,7 +90,12 @@ readback bytes; requested, rendered, and CPU-readback AOV masks/counts; waits,
 resolves, and maps; buffer/image allocation counts and bytes; geometry arena
 suballocation/release; shader, descriptor-layout, pipeline, geometry, texture,
 sampler, and scene cache behavior; descriptor pool/allocation/update work; and
-pipeline creation.
+pipeline creation. Bindless-capable runs additionally split sampled-image and
+sampler descriptor writes so steady-state and localized-edit scaling can be
+checked independently of the conventional reference descriptors. The top-level
+`residency` object retains texture/sampler capacity, current/peak/retiring use,
+allocation/reuse/retirement, descriptor updates, exhaustion, generation
+mismatches, references, and sampler deduplication evidence.
 
 Field names, units, fixture order, and integer formatting are deterministic.
 Timing values are not.
@@ -115,10 +120,11 @@ The detailed delivery gates are defined in the
 Planned structural/timing evidence is introduced in the same order as the
 implementation:
 
-- Bindless reports current/peak/capacity slots, allocation/retirement,
-  descriptor writes, exhaustion/fallback, material descriptor binds, and update
-  time. Static frames perform zero descriptor work; changes scale with changed
-  resources.
+- Bindless Forward reports selected/fallback backend, current/peak/capacity
+  slots, allocation/retirement, descriptor writes, exhaustion, and sampler
+  deduplication. Static frames perform zero descriptor allocation/update and
+  zero global table descriptor work. Dedicated bindless update timing and
+  material-bind reduction remain later evidence additions.
 - GPU-driven indexed rendering reports candidate/visible draws, rejection by
   enabled stage, generated indirect commands, command-generation/culling time,
   and CPU command-recording slope with increasing draw count.

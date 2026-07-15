@@ -132,6 +132,12 @@ add_custom_command(TARGET hdMerlin POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${MERLIN_FRAGMENT_SPV}"
           "$<TARGET_FILE_DIR:hdMerlin>/shaders/triangle.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MERLIN_BINDLESS_VERTEX_SPV}"
+          "$<TARGET_FILE_DIR:hdMerlin>/shaders/triangle.bindless.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+          "$<TARGET_FILE_DIR:hdMerlin>/shaders/triangle.bindless.frag.spv"
   VERBATIM
 )
 add_dependencies(hdMerlin merlin-vulkan-shaders)
@@ -144,7 +150,11 @@ install(TARGETS hdMerlin
 )
 install(FILES resources/plugInfo.json
   DESTINATION "${_merlin_hydra_install_dir}/resources")
-install(FILES "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
+install(FILES
+  "${MERLIN_VERTEX_SPV}"
+  "${MERLIN_FRAGMENT_SPV}"
+  "${MERLIN_BINDLESS_VERTEX_SPV}"
+  "${MERLIN_BINDLESS_FRAGMENT_SPV}"
   DESTINATION "${_merlin_hydra_install_dir}/shaders")
 install(FILES tests/usdview-smoke.usda tests/checker.ppm
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/tests")
