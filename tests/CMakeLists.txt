@@ -36,6 +36,14 @@ set_tests_properties(merlin-mesh-scale-regression PROPERTIES
   TIMEOUT 60)
 
 if(TARGET Merlin::Vulkan)
+  add_executable(merlin-bindless-resource-table-tests
+    bindless_resource_table_test.cpp
+  )
+  target_link_libraries(merlin-bindless-resource-table-tests
+    PRIVATE Merlin::Vulkan)
+  add_test(NAME merlin-bindless-resource-table
+           COMMAND merlin-bindless-resource-table-tests)
+
   add_executable(merlin-descriptor-indexing-tests
     descriptor_indexing_test.cpp
   )
