@@ -121,6 +121,10 @@ int main(int argc, char** argv) {
       mesh.positions.size() * sizeof(merlin::extraction::DrawVertex) +
       mesh.indices.size() * sizeof(std::uint32_t);
   assert(first.counters.upload_bytes == geometry_bytes + texture.pixels.size());
+  assert(first.counters.texture_upload_bytes == texture.pixels.size());
+  assert(first.counters.vertex_upload_bytes +
+             first.counters.index_upload_bytes ==
+         geometry_bytes);
   assert(first.counters.texture_cache_misses == 1);
   assert(first.counters.sampler_cache_misses == 1);
   assert(first.counters.texture_reconcile_count == 1);
@@ -203,12 +207,17 @@ int main(int argc, char** argv) {
   assert(recovered.counters.sampler_cache_misses == 1);
   assert(recovered.counters.upload_bytes ==
          geometry_bytes + texture.pixels.size());
+  assert(recovered.counters.texture_upload_bytes == texture.pixels.size());
 
   // Retrying the rejected newer snapshot can resume incremental updates from
   // the recovered resident revision.
   const auto texture_edit = render();
   assert(texture_edit.counters.upload_bytes ==
          sizeof(merlin::extraction::DrawVertex) + texture.pixels.size());
+  assert(texture_edit.counters.vertex_upload_bytes ==
+         sizeof(merlin::extraction::DrawVertex));
+  assert(texture_edit.counters.index_upload_bytes == 0);
+  assert(texture_edit.counters.texture_upload_bytes == texture.pixels.size());
   assert(texture_edit.counters.geometry_cache_misses == 1);
   assert(texture_edit.counters.geometry_reconcile_count == 1);
   assert(texture_edit.counters.texture_cache_misses == 1);

@@ -36,6 +36,10 @@ foreach(index RANGE 0 ${last_baseline})
   foreach(counter IN ITEMS
       snapshot_visited_records snapshot_copied_records
       snapshot_rebuilt_draws snapshot_fully_rebuilt_tables
+      vertex_upload_bytes index_upload_bytes texture_upload_bytes
+      upload_ring_reserved_bytes geometry_range_reuse_count
+      geometry_arena_growth_count geometry_arena_growth_bytes
+      upload_ring_growth_count upload_ring_growth_bytes
       bindless_sampled_image_descriptor_update_count
       bindless_sampler_descriptor_update_count)
     string(JSON legacy_benchmark REMOVE "${legacy_benchmark}"

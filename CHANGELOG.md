@@ -23,6 +23,10 @@ after its public API and release process are established.
 - A non-uniform-indexed bindless Forward shader path with one global resource
   set and one persistent dynamic-material set per frame context, plus exact
   color/depth/primId/instanceId parity coverage against conventional Forward.
+- Persistent vertex/index arena and mapped geometry-upload-ring telemetry for
+  capacity, resident/free/retiring bytes, free-span fragmentation, range reuse,
+  growth, wrap, and completion collection, with per-frame vertex/index/texture
+  staged-byte evidence.
 
 ### Changed
 
