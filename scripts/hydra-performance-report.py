@@ -36,6 +36,10 @@ AVAILABILITY = {
     "presentation_ns": "presentation_ns_available",
 }
 COUNTERS = (
+    "snapshot_visited_records",
+    "snapshot_copied_records",
+    "snapshot_rebuilt_draws",
+    "snapshot_fully_rebuilt_tables",
     "mesh_sync_count",
     "material_sync_count",
     "light_sync_count",

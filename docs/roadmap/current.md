@@ -20,13 +20,13 @@ residency on top of those contracts.
 
 #### 1. Persistent snapshot completion
 
-- Replace full `FrameSnapshot` table and draw-list reconstruction with
-  structurally shared storage that copies only changed records or chunks.
-- Keep material, texture/sampler binding, instance, visibility, removal, and
-  dependent-draw invalidation proportional to affected resources without
-  introducing the persistent draw identity reserved for v0.10.0.
-- Report visited/copied records and rebuilt draws, and retain immutable older
-  snapshots across localized edits and removals.
+- Eliminate the structurally reported full-table/draw fallback for resource
+  additions and removals while retaining dense transient draw indices and
+  immutable older snapshots.
+- Keep texture/sampler structural binding invalidation proportional to
+  dependent materials instead of conservatively copying every material.
+- Extend localized-edit evidence from the current 10,000-record fixture to 100
+  edits in a one-million-prim scene, including additions and removals.
 
 #### 2. Descriptor-indexing negotiation
 

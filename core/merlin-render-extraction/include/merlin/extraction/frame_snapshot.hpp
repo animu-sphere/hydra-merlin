@@ -8,6 +8,7 @@
 
 #include <merlin/core/change_set.hpp>
 #include <merlin/core/types.hpp>
+#include <merlin/extraction/persistent_table.hpp>
 
 namespace merlin::extraction {
 
@@ -112,6 +113,9 @@ struct DrawRecord {
   std::uint32_t material_index{};
   std::uint32_t instance_index{};
   std::uint64_t sort_key{};
+  // SceneExtractor-produced draws retain the serialized instance handle so a
+  // localized visibility or binding edit can replace only its dependent draw.
+  std::uint64_t instance{};
 };
 
 struct LightRecord {
@@ -146,6 +150,16 @@ struct SnapshotDelta {
   bool render_settings_changed{};
 };
 
+// CPU work performed to construct this immutable snapshot. Resource records
+// exclude draws, which are reported separately because draw identity remains
+// intentionally transient until the v0.10.0 GPU Scene milestone.
+struct SnapshotBuildCounters {
+  std::uint64_t visited_records{};
+  std::uint64_t copied_records{};
+  std::uint64_t rebuilt_draws{};
+  std::uint64_t fully_rebuilt_tables{};
+};
+
 // Immutable result of one committed RenderWorld revision. Geometry payloads
 // are shared between consecutive snapshots when the mesh did not change, so
 // holding a snapshot across frame latency does not copy vertex data.
@@ -156,14 +170,15 @@ struct FrameSnapshot {
   std::uint64_t source_id{};
   std::uint64_t revision{};
   std::optional<SnapshotDelta> delta;
-  std::vector<GeometryRecord> geometries;
-  std::vector<TextureRecord> textures;
-  std::vector<SamplerRecord> samplers;
-  std::vector<MaterialRecord> materials;
-  std::vector<MaterialFallbackRecord> material_fallbacks;
-  std::vector<InstanceRecord> instances;
-  std::vector<DrawRecord> draws;
-  std::vector<LightRecord> lights;
+  SnapshotBuildCounters build_counters;
+  PersistentTable<GeometryRecord> geometries;
+  PersistentTable<TextureRecord> textures;
+  PersistentTable<SamplerRecord> samplers;
+  PersistentTable<MaterialRecord> materials;
+  PersistentTable<MaterialFallbackRecord> material_fallbacks;
+  PersistentTable<InstanceRecord> instances;
+  PersistentTable<DrawRecord> draws;
+  PersistentTable<LightRecord> lights;
   Mat4 view;
   Mat4 projection;
 };

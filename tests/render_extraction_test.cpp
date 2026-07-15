@@ -5,7 +5,44 @@
 #include <algorithm>
 #include <stdexcept>
 
+namespace {
+
+void CheckPersistentTable() {
+  merlin::extraction::PersistentTable<std::uint64_t> table;
+  std::vector<std::uint64_t> expected;
+  for (std::uint64_t value = 0; value < 512; ++value) {
+    const auto index = expected.empty()
+                           ? 0U
+                           : static_cast<std::size_t>((value * 37U) %
+                                                      (expected.size() + 1U));
+    table.insert(table.begin() + static_cast<std::ptrdiff_t>(index), value);
+    expected.insert(expected.begin() + static_cast<std::ptrdiff_t>(index),
+                    value);
+  }
+  assert(std::equal(table.begin(), table.end(), expected.begin(),
+                    expected.end()));
+
+  const auto previous = table;
+  const auto shared_identity = table.record_identity(0);
+  table.replace(256, 10'000U);
+  expected[256] = 10'000U;
+  assert(table[256] == 10'000U);
+  assert(previous[256] != 10'000U);
+  assert(table.record_identity(0) == shared_identity);
+
+  for (std::size_t remaining = table.size(); remaining > 32U; --remaining) {
+    const auto index = (remaining * 19U) % remaining;
+    table.erase(table.begin() + static_cast<std::ptrdiff_t>(index));
+    expected.erase(expected.begin() + static_cast<std::ptrdiff_t>(index));
+  }
+  assert(std::equal(table.begin(), table.end(), expected.begin(),
+                    expected.end()));
+}
+
+}  // namespace
+
 int main() {
+  CheckPersistentTable();
   merlin::RenderWorld world;
   merlin::MeshDescriptor mesh;
   mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},
@@ -59,6 +96,10 @@ int main() {
   assert(first->instances.front().visibility_revision == 1);
   assert(first->instances.front().material_binding_revision == 1);
   assert(first->draws.size() == 2);
+  assert(first->build_counters.visited_records == 6);
+  assert(first->build_counters.copied_records == 4);
+  assert(first->build_counters.rebuilt_draws == 2);
+  assert(first->build_counters.fully_rebuilt_tables == 4);
   assert(first->draws.front().geometry_index == 0);
   assert(first->draws.back().geometry_index == 0);
   assert(first->instances[first->draws.front().instance_index].instance ==
@@ -77,6 +118,20 @@ int main() {
                        merlin::ChangeAspect::Transform);
   extractor.Apply(world, world.Commit());
   const auto transformed = extractor.snapshot();
+  assert(transformed->build_counters.visited_records == 1);
+  assert(transformed->build_counters.copied_records == 1);
+  assert(transformed->build_counters.rebuilt_draws == 0);
+  assert(transformed->build_counters.fully_rebuilt_tables == 0);
+  assert(transformed->geometries.record_identity(0) ==
+         first->geometries.record_identity(0));
+  assert(transformed->instances.record_identity(0) ==
+         first->instances.record_identity(0));
+  assert(transformed->instances.record_identity(1) !=
+         first->instances.record_identity(1));
+  assert(transformed->draws.record_identity(0) ==
+         first->draws.record_identity(0));
+  assert(transformed->draws.record_identity(1) ==
+         first->draws.record_identity(1));
   assert(transformed->revision == 2);
   assert(transformed->source_id == first->source_id);
   assert(transformed->delta->base_revision == first->revision);
@@ -106,6 +161,16 @@ int main() {
                    std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   const auto moved = extractor.snapshot();
+  assert(moved->build_counters.visited_records == 1);
+  assert(moved->build_counters.copied_records == 1);
+  assert(moved->build_counters.rebuilt_draws == 0);
+  assert(moved->build_counters.fully_rebuilt_tables == 0);
+  assert(moved->instances.record_identity(0) ==
+         transformed->instances.record_identity(0));
+  assert(moved->instances.record_identity(1) ==
+         transformed->instances.record_identity(1));
+  assert(moved->draws.record_identity(0) ==
+         transformed->draws.record_identity(0));
   assert(moved->delta->base_revision == transformed->revision);
   assert(moved->delta->geometries.upserts ==
          std::vector<std::uint64_t>{mesh_handle.value()});
@@ -173,6 +238,10 @@ int main() {
                            merlin::ChangeAspect::Transform);
   extractor.Apply(world, world.Commit());
   const auto hidden = extractor.snapshot();
+  assert(hidden->build_counters.visited_records == 1);
+  assert(hidden->build_counters.copied_records == 1);
+  assert(hidden->build_counters.rebuilt_draws == 1);
+  assert(hidden->build_counters.fully_rebuilt_tables == 0);
   assert(hidden->draws.size() == 1);
   assert(hidden->geometries.size() == 1);
   assert(hidden->instances.size() == 2);

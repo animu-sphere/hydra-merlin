@@ -60,6 +60,7 @@ struct Baseline {
   std::string name;
   std::vector<FrameTimings> timings;
   merlin::vulkan::FrameCounters counters;
+  merlin::extraction::SnapshotBuildCounters snapshot_build_counters;
 };
 
 struct FixtureSummary {
@@ -388,7 +389,16 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
          << "\"threshold_ns\": " << hitch_threshold << ", \"count\": "
          << hitch_count << "},\n" << indent << "  \"counters\": {\n";
   const auto& count = baseline.counters;
+  const auto& snapshot = baseline.snapshot_build_counters;
   const auto counter_indent = std::string(indent) + "    ";
+  WriteCounter(stream, counter_indent, "snapshot_visited_records",
+               snapshot.visited_records);
+  WriteCounter(stream, counter_indent, "snapshot_copied_records",
+               snapshot.copied_records);
+  WriteCounter(stream, counter_indent, "snapshot_rebuilt_draws",
+               snapshot.rebuilt_draws);
+  WriteCounter(stream, counter_indent, "snapshot_fully_rebuilt_tables",
+               snapshot.fully_rebuilt_tables);
   WriteCounter(stream, counter_indent, "draw_count", count.draw_count);
   WriteCounter(stream, counter_indent, "visible_primitive_count",
                count.visible_primitive_count);
@@ -567,7 +577,7 @@ int main(int argc, char** argv) {
       auto timings = FromBackend(result.cpu_timings);
       timings.total_frame_ns = ElapsedNanoseconds(start);
       baselines.push_back(
-          {std::move(name), {timings}, result.counters});
+          {std::move(name), {timings}, result.counters, {}});
       return result;
     };
     const auto measure = [&](std::string name, merlin::RenderWorld& world,
@@ -587,7 +597,8 @@ int main(int argc, char** argv) {
       timings.extraction_ns = extraction_ns;
       timings.total_frame_ns = ElapsedNanoseconds(start);
       baselines.push_back(
-          {std::move(name), {timings}, result.counters});
+          {std::move(name), {timings}, result.counters,
+           extractor.snapshot()->build_counters});
       return result;
     };
     const auto steady = [&](std::string name) {
@@ -607,7 +618,8 @@ int main(int argc, char** argv) {
         }
       }
       AssertStatic(counters);
-      baselines.push_back({std::move(name), std::move(samples), counters});
+      baselines.push_back(
+          {std::move(name), std::move(samples), counters, {}});
     };
 
     const bool reference_fixture =

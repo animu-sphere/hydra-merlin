@@ -13,9 +13,15 @@ after its public API and release process are established.
 - SceneExtractor snapshot provenance and resource deltas with explicit base
   revisions, per-kind upsert/removal queues, and geometry/texture/sampler
   reconciliation counters in benchmark and Hydra performance evidence.
+- Structurally shared `FrameSnapshot` resource and draw tables with copy-on-
+  write record replacement, immutable older revisions, and machine-readable
+  visited/copied record, rebuilt-draw, and full-rebuild fallback counters.
 
 ### Changed
 
+- Localized geometry, material, instance, and light upserts now copy only the
+  changed extraction records. Transform-only edits retain every draw record;
+  visibility and material-binding edits rebuild only the dependent draw.
 - Vulkan Mesh and image/sampler residency now skips table traversal for static
   snapshots, reconciles only dirty resources for continuous revisions, and
   falls back to full reconciliation for foreign, manually constructed, or

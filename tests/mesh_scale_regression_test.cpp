@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <vector>
 
 namespace {
 
@@ -65,18 +66,47 @@ int main() {
     constexpr std::uint32_t mesh_count = 10'000;
     merlin::RenderWorld world;
     const auto material = world.CreateMaterial({});
+    std::vector<merlin::InstanceHandle> instances;
+    instances.reserve(mesh_count);
     for (std::uint32_t i = 0; i < mesh_count; ++i) {
       const auto mesh = world.CreateMesh(Triangle());
       merlin::InstanceDescriptor instance;
       instance.mesh = mesh;
       instance.material = material;
       instance.transform.values[12] = static_cast<float>(i);
-      world.CreateInstance(instance);
+      instances.push_back(world.CreateInstance(instance));
     }
     merlin::extraction::SceneExtractor extractor;
     extractor.Apply(world, world.Commit());
-    assert(extractor.snapshot()->geometries.size() == mesh_count);
-    assert(extractor.snapshot()->draws.size() == mesh_count);
+    const auto before = extractor.snapshot();
+    assert(before->geometries.size() == mesh_count);
+    assert(before->draws.size() == mesh_count);
+
+    // A localized transform edit copies one instance record and shares all
+    // geometry, material, and draw records independent of total scene size.
+    constexpr std::size_t changed_index = mesh_count / 2U;
+    auto changed = world.Get(instances[changed_index]);
+    changed.transform.values[13] = 1.0F;
+    world.UpdateInstance(instances[changed_index], changed,
+                         merlin::ChangeAspect::Transform);
+    extractor.Apply(world, world.Commit());
+    const auto after = extractor.snapshot();
+    assert(after->build_counters.visited_records == 1);
+    assert(after->build_counters.copied_records == 1);
+    assert(after->build_counters.rebuilt_draws == 0);
+    assert(after->build_counters.fully_rebuilt_tables == 0);
+    assert(after->geometries.record_identity(0) ==
+           before->geometries.record_identity(0));
+    assert(after->geometries.record_identity(mesh_count - 1U) ==
+           before->geometries.record_identity(mesh_count - 1U));
+    assert(after->instances.record_identity(changed_index) !=
+           before->instances.record_identity(changed_index));
+    assert(after->instances.record_identity(0) ==
+           before->instances.record_identity(0));
+    assert(after->draws.record_identity(0) ==
+           before->draws.record_identity(0));
+    assert(after->draws.record_identity(mesh_count - 1U) ==
+           before->draws.record_identity(mesh_count - 1U));
   }
 
   // Repeated primvar edits must replace only the vertex payload and preserve

@@ -15,6 +15,10 @@ from pathlib import Path
 
 SCHEMA = "merlin-benchmark/v3"
 STABLE_COUNTERS = (
+    "snapshot_visited_records",
+    "snapshot_copied_records",
+    "snapshot_rebuilt_draws",
+    "snapshot_fully_rebuilt_tables",
     "draw_count",
     "visible_primitive_count",
     "triangle_count",

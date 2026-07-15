@@ -120,6 +120,17 @@ its resident state. A different source, a skipped revision, or a manually
 constructed snapshot triggers full reconciliation. This keeps the incremental
 path an optimization rather than a correctness precondition.
 
+Snapshot resource and transient draw tables use immutable, balanced,
+structurally shared storage. A localized upsert allocates one replacement
+record and copies only its logarithmic tree path; unchanged record identities
+and subtrees remain shared by older snapshots. Transform-only edits do not
+touch draws, while visibility and material-binding edits replace only the
+dependent transient draw. Snapshot build evidence reports resource records
+visited/copied, draw decisions rebuilt, and any structural full-table fallback.
+Dense record indices still require that fallback for additions and removals;
+eliminating it remains part of v0.7.0 rather than prematurely assigning the
+persistent draw identity reserved for v0.10.0.
+
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,
 and texture changes do not rebuild unrelated geometry. Topology changes may
