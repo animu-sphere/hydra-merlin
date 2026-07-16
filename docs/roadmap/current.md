@@ -7,72 +7,29 @@ recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone
 
-### 🚧 v0.8.0 — Slang foundation and Vulkan parity
+### ⬜ v0.9.0 — `merlin-viewport` and Vulkan presentation
 
-**Objective:** move the existing Vulkan Forward shader source of truth from
-GLSL to Slang while preserving output, performance, packaging, and fallback
-behavior, and establish the shared ABI and Metal compile gates needed before
-new shader families expand.
+Extract the minimum backend-neutral operations needed by the working Vulkan
+path and an upcoming Metal bootstrap: backend factory and selection,
+renderer-meaning capabilities and limits, frame submit/resolve, completion
+lifetime, presentation target, common telemetry, and errors. Keep command
+encoding, transitions, descriptors/argument buffers, memory, synchronization,
+and native surface objects backend-owned.
 
-#### 1. Boundary and artifact audit
-
-- Audit Core, `FrameSnapshot`, viewport, presentation, and telemetry boundaries
-  for leaked Vulkan execution concepts before freezing a shared shader-facing
-  contract.
-- Pin the supported Slang toolchain and produce reproducible, versioned,
-  installable shader artifacts with dependency, compiler, and generator
-  provenance.
-- Define deterministic shader/permutation keys and reflection metadata with
-  explicit cache-compatibility rules.
-
-#### 2. Vulkan Forward migration
-
-- Migrate the existing Forward vertex and fragment paths from GLSL to Slang,
-  keeping conventional and bindless execution selectable through the existing
-  capability contract.
-- Preserve color, depth, `primId`, and `instanceId` reference output and avoid a
-  material performance regression.
-- Make clean and incremental builds rebuild only affected shader artifacts and
-  package the complete runtime shader set for build-tree and install-tree use.
-
-#### 3. ABI and cross-target gates
-
-- Add reflected C++/Slang layout and resource-binding contract tests so layout,
-  binding, permutation, and feature mismatches fail with actionable diagnostics.
-- Compile the common shader set to SPIR-V and a Metal target, declaring explicit
-  unsupported features and fallbacks rather than weakening Vulkan fast paths.
-- Retain shader capability declarations that later backend and MaterialX work
-  can extend without exposing API-specific command or resource objects through
-  Core.
-
-#### Scope boundary
-
-v0.8.0 does not add a Metal renderer, native viewport, MaterialX translation,
-Gaussian shaders, GPU-driven submission, Visibility, or meshlets. It establishes
-their reproducible shader source, reflection, ABI, and compile foundations while
-the working Vulkan renderer remains the output reference.
+Build the dedicated `merlin-viewport` application as a backend-neutral native
+host for window/input, camera, resize, renderer settings, selection/picking
+foundations, overlays, benchmark mode, screenshots, and USD loading through
+Hydra. Its first production presentation adapter is Vulkan with a direct
+swapchain path; rendering and scene behavior remain shared with headless
+execution. The application is a permanent product and performance reference,
+not temporary Metal bootstrap scaffolding.
 
 #### Exit criteria
 
-- Slang-generated Vulkan Forward preserves color, depth, `primId`, and
-  `instanceId` output under the declared exact/tolerance rules and shows no
-  material performance regression.
-- Clean and incremental builds produce complete installable versioned artifacts
-  with deterministic keys, provenance, and dependency tracking.
-- Reflection tests detect C++/shader layout and resource-binding mismatches.
-- Common shaders compile for Vulkan and Metal targets with explicit diagnostics
-  and fallback declarations for unsupported features.
-- The superseded GLSL runtime path can be removed without losing a supported
-  renderer configuration or evidence path.
-
-## Active carry-over
-
-- Keep the enrolled repository-scoped Windows x64 `vulkan-1.4` runner available
-  for release-candidate evidence. The Debug/Release Vulkan and OpenUSD 26.05
-  Hydra jobs completed in
-  [capability run 29508228337](https://github.com/animu-sphere/hydra-merlin/actions/runs/29508228337),
-  including a same-GPU `v0.7.0` benchmark baseline.
-- Retain dependency/runtime provenance, validation logs, expected/actual/diff
-  images, benchmark output, Hydra discovery, RenderBuffer, and usdview results
-  as comparable artifacts rather than reducing capability jobs to a binary
-  pass/fail signal.
+- Core and Hydra public paths expose no Vulkan or Metal types.
+- Vulkan preserves existing behavior through the new contract and supports
+  direct swapchain rendering without CPU readback.
+- Vsync-off measurements and matching headless/viewport output are retained as
+  evidence.
+- The executable's host and interaction layers are reused unchanged by Metal,
+  Mesh, and Gaussian work. usdview and DCC presentation remain separate.

@@ -1,35 +1,11 @@
 # Backlog
 
-Ordered work after the active v0.8.0 milestone in [current.md](current.md).
+Ordered work after the active v0.9.0 milestone in [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 
 ## Milestone ladder
-
-### ⬜ v0.9.0 — `merlin-viewport` and Vulkan presentation
-
-Extract the minimum backend-neutral operations needed by the working Vulkan
-path and an upcoming Metal bootstrap: backend factory and selection,
-renderer-meaning capabilities and limits, frame submit/resolve, completion
-lifetime, presentation target, common telemetry, and errors. Keep command
-encoding, transitions, descriptors/argument buffers, memory, synchronization,
-and native surface objects backend-owned.
-
-Build the dedicated `merlin-viewport` application as a backend-neutral native
-host for window/input, camera, resize, renderer settings, selection/picking
-foundations, overlays, benchmark mode, screenshots, and USD loading through
-Hydra. Its first production presentation adapter is Vulkan with a direct
-swapchain path; rendering and scene behavior remain shared with headless
-execution. The application is a permanent product and performance reference,
-not temporary Metal bootstrap scaffolding.
-
-Exit requires Core and Hydra public paths to expose no Vulkan/Metal types;
-Vulkan to preserve existing behavior through the new contract; direct Vulkan
-swapchain rendering without CPU readback; vsync-off measurements and matching
-headless/viewport output; and a dedicated executable whose host and interaction
-layers are reused unchanged by Metal, Mesh, and Gaussian. usdview and DCC
-presentation remain separate.
 
 ### ⬜ v0.10.0 — MaterialXGenSlang prototype
 
