@@ -16,20 +16,21 @@ Legend: 🚧 in progress · ⬜ not started
 
 v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
 slice. v0.6.0 shipped the performance-observability foundation and incremental
-Hydra synchronization work, with completed detail retained in the changelog and
-delivery history. The active v0.7.0 milestone extends the persistent resource
-model for Mesh and future Gaussian data. The ordered ladder then moves the
-shader source of truth from GLSL to Slang while preserving Vulkan output and
-establishing a Metal compile gate. It extracts the minimum backend contract and
-delivers the dedicated backend-neutral `merlin-viewport` with Vulkan
-presentation, proves a MaterialXGenSlang material-function slice, and brings up
-Metal residency, native presentation, and an
-HgiMetal host bridge before Gaussian shader work expands. The later Mesh and
-Gaussian path advances through persistent draw identity, GPU-driven execution,
-an experimental opaque Visibility Buffer, production MaterialX quality, and
-static meshlets. Optional Mesh Shader, Hi-Z/LOD, and large-scene streaming
-remain measurement-gated. The architecture behind this order is recorded in
-the [multi-backend shader and presentation strategy](../design/multibackend-slang-materialx.md).
+Hydra synchronization work. v0.7.0 shipped the persistent resource model,
+bindless Forward path, transfer and memory-budget infrastructure, and scale
+evidence for Mesh and future Gaussian data. Completed detail is retained in the
+changelog and delivery history. The active v0.8.0 milestone moves the shader
+source of truth from GLSL to Slang while preserving Vulkan output and
+establishing a Metal compile gate. The ordered ladder then extracts the minimum
+backend contract and delivers the dedicated backend-neutral `merlin-viewport`
+with Vulkan presentation, proves a MaterialXGenSlang material-function slice,
+and brings up Metal residency, native presentation, and an HgiMetal host bridge
+before Gaussian shader work expands. The later Mesh and Gaussian path advances
+through persistent draw identity, GPU-driven execution, an experimental opaque
+Visibility Buffer, production MaterialX quality, and static meshlets. Optional
+Mesh Shader, Hi-Z/LOD, and large-scene streaming remain measurement-gated. The
+architecture behind this order is recorded in the [multi-backend shader and
+presentation strategy](../design/multibackend-slang-materialx.md).
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
@@ -102,8 +103,8 @@ Every release must preserve these properties:
 
 | Priority | Direction |
 | --- | --- |
-| P0 | v0.7.0 persistent bindless Mesh/Gaussian resources, comparable performance evidence, and GPU capability CI |
-| P1 | Slang migration, Vulkan parity, shader ABI validation, and the Metal compile gate |
-| P2 | Backend contract, dedicated cross-backend `merlin-viewport`, MaterialXGenSlang prototype, Metal execution/residency, and Metal/Hydra presentation |
-| P3 | Gaussian MVP, persistent draw identity, GPU-driven Mesh/Gaussian execution, opaque Visibility, and MaterialX quality |
-| P4 | Static meshlets, optional Mesh Shader/Hi-Z/LOD, large-scene streaming, DCC integration, and v1.0 contracts |
+| P0 | v0.8.0 Slang migration, Vulkan parity, shader ABI validation, and the Metal compile gate |
+| P1 | Backend contract, dedicated cross-backend `merlin-viewport`, MaterialXGenSlang prototype, Metal execution/residency, and Metal/Hydra presentation |
+| P2 | Gaussian MVP, persistent draw identity, GPU-driven Mesh/Gaussian execution, opaque Visibility, and MaterialX quality |
+| P3 | Static meshlets, optional Mesh Shader/Hi-Z/LOD, and large-scene streaming |
+| P4 | DCC integration and v1.0 contracts |

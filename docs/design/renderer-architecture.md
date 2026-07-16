@@ -1,6 +1,6 @@
 # Renderer architecture
 
-**Status:** v0.6.0 implementation + accepted multi-backend direction
+**Status:** v0.7.0 implementation + accepted multi-backend direction
 
 **Last reviewed:** 2026-07-16
 

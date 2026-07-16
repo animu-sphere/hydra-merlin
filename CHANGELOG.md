@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-16
+
 ### Added
 
 - SceneExtractor snapshot provenance and resource deltas with explicit base
@@ -239,7 +241,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.6.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.7.0...main
+[0.7.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.3.0...v0.4.0

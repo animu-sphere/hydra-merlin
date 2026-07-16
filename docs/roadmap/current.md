@@ -7,62 +7,63 @@ recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone
 
-### 🚧 v0.7.0 — Persistent RenderWorld and GPU residency
+### 🚧 v0.8.0 — Slang foundation and Vulkan parity
 
-**Objective:** make static and localized Mesh/Gaussian scene work scale with
-changed resources rather than total prim count while keeping resource identity
-stable across frames.
+**Objective:** move the existing Vulkan Forward shader source of truth from
+GLSL to Slang while preserving output, performance, packaging, and fallback
+behavior, and establish the shared ABI and Metal compile gates needed before
+new shader families expand.
 
-v0.6.0 established locator-aware Hydra ingestion, resource-granular revisions,
-changed ranges, and safe partial upload. v0.7.0 work has since completed
-persistent snapshot construction, descriptor-indexing negotiation, and the
-Vulkan-facing texture/sampler residency foundation: finite generation-checked
-slots, reserved fallback images, dirty-only global descriptor writes,
-deduplicated samplers, completion-safe replacement, and benchmark telemetry.
-Negotiated devices now activate those tables through a non-uniform-indexed
-Forward path with exact conventional-path image parity; warmed static frames do
-zero descriptor allocation or update. Persistent vertex/index arenas and the
-mapped geometry-upload ring now expose capacity, stable range reuse, growth,
-fragmentation, retirement, and resource-class staged-byte evidence. Dedicated
-transfer families now run uploads asynchronously with timeline synchronization
-and explicit image ownership transitions, while device-local allocations obey
-the configured/driver VRAM budget and retain current/peak/exhaustion evidence.
-The remaining work completes bindless release and scale evidence on the
-supported GPU profiles.
+#### 1. Boundary and artifact audit
 
-#### 1. Bindless release evidence
+- Audit Core, `FrameSnapshot`, viewport, presentation, and telemetry boundaries
+  for leaked Vulkan execution concepts before freezing a shared shader-facing
+  contract.
+- Pin the supported Slang toolchain and produce reproducible, versioned,
+  installable shader artifacts with dependency, compiler, and generator
+  provenance.
+- Define deterministic shader/permutation keys and reflection metadata with
+  explicit cache-compatibility rules.
 
-- Retain conventional/bindless parity across the release image corpus.
-- Record explicit automatic and forced-conventional selection artifacts on the
-  supported GPU profiles, including actionable capacity exhaustion behavior.
+#### 2. Vulkan Forward migration
 
-#### 2. Validation and release evidence
+- Migrate the existing Forward vertex and fragment paths from GLSL to Slang,
+  keeping conventional and bindless execution selectable through the existing
+  capability contract.
+- Preserve color, depth, `primId`, and `instanceId` reference output and avoid a
+  material performance regression.
+- Make clean and incremental builds rebuild only affected shader artifacts and
+  package the complete runtime shader set for build-tree and install-tree use.
 
-- Retain reserved-image, dirty-write, partially-bound, non-uniform indexing,
-  in-flight replacement, conventional/bindless image parity, one-million-prim
-  localized-edit scaling, steady-state zero-work, fallback selection,
-  asynchronous/single-queue transfer selection, and VRAM evidence.
+#### 3. ABI and cross-target gates
+
+- Add reflected C++/Slang layout and resource-binding contract tests so layout,
+  binding, permutation, and feature mismatches fail with actionable diagnostics.
+- Compile the common shader set to SPIR-V and a Metal target, declaring explicit
+  unsupported features and fallbacks rather than weakening Vulkan fast paths.
+- Retain shader capability declarations that later backend and MaterialX work
+  can extend without exposing API-specific command or resource objects through
+  Core.
 
 #### Scope boundary
 
-v0.7.0 owns the common arena, upload, retirement, descriptor, and memory-budget
-infrastructure needed by Mesh and future Gaussian resources. Host-neutral
-`GaussianResource`, standard Hydra Gaussian ingestion, and native Gaussian
-rendering remain v0.14.0 work; this milestone does not introduce a renderer-
-specific Gaussian schema or file parser.
+v0.8.0 does not add a Metal renderer, native viewport, MaterialX translation,
+Gaussian shaders, GPU-driven submission, Visibility, or meshlets. It establishes
+their reproducible shader source, reflection, ABI, and compile foundations while
+the working Vulkan renderer remains the output reference.
 
 #### Exit criteria
 
-- Static snapshot cost no longer scales with total prim count, and changing 100
-  resources in a one-million-prim scene scales approximately with those
-  changes.
-- Unchanged GPU resource addresses, handles, and descriptor indices remain
-  stable; stale generations are detectable and texture replacement is safe
-  across frames in flight.
-- Bindless Forward matches the reference image, while descriptor work scales
-  with changed resources rather than materials or draws.
-- Steady state performs zero upload, allocation, descriptor allocation/update,
-  shader compilation, pipeline creation, and CPU wait for GPU.
+- Slang-generated Vulkan Forward preserves color, depth, `primId`, and
+  `instanceId` output under the declared exact/tolerance rules and shows no
+  material performance regression.
+- Clean and incremental builds produce complete installable versioned artifacts
+  with deterministic keys, provenance, and dependency tracking.
+- Reflection tests detect C++/shader layout and resource-binding mismatches.
+- Common shaders compile for Vulkan and Metal targets with explicit diagnostics
+  and fallback declarations for unsupported features.
+- The superseded GLSL runtime path can be removed without losing a supported
+  renderer configuration or evidence path.
 
 ## Active carry-over
 

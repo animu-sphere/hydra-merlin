@@ -150,22 +150,22 @@ These are roadmap boundaries, not implicit compatibility claims. See the
 [support matrix](docs/reference/support-matrix.md) for current platform and
 feature coverage.
 
-v0.5.0 releases the host-neutral MaterialIR and basic textured shading slice.
-v0.6.0 releases the measurement foundation and incremental Hydra sync work,
-making changed-scene costs and host presentation separately observable. The
-active v0.7.0 path completes the persistent Mesh/future-Gaussian resource
-foundation. Before the Gaussian and GPU-driven shader families expand, the
-ordered ladder moves the shader source of truth from GLSL to Slang while
-preserving Vulkan output, enforces a Metal compile gate, extracts the minimum
-backend-neutral render contract and dedicated cross-backend `merlin-viewport`,
-proves a MaterialXGenSlang material-function slice, and brings up native Metal
-plus an HgiMetal host
-presentation bridge. The later path advances through Gaussian rendering,
-persistent draw identity, GPU-driven Mesh/Gaussian execution, experimental
-opaque Visibility, production MaterialX quality, static meshlets, and only then
-optional Mesh Shader/Hi-Z/LOD. Forward and Tier 0 CPU readback remain reference
-fallbacks. See the [current milestone](docs/roadmap/current.md), [ordered
-backlog](docs/roadmap/backlog.md), [multi-backend shader and presentation
+v0.5.0 released the host-neutral MaterialIR and basic textured shading slice.
+v0.6.0 released the measurement foundation and incremental Hydra sync work,
+making changed-scene costs and host presentation separately observable. v0.7.0
+released the persistent Mesh/future-Gaussian resource foundation. Before the
+Gaussian and GPU-driven shader families expand, the active v0.8.0 milestone
+moves the shader source of truth from GLSL to Slang while preserving Vulkan
+output and enforcing a Metal compile gate. The ordered ladder then extracts the
+minimum backend-neutral render contract and dedicated cross-backend
+`merlin-viewport`, proves a MaterialXGenSlang material-function slice, and
+brings up native Metal plus an HgiMetal host presentation bridge. The later path
+advances through Gaussian rendering, persistent draw identity, GPU-driven
+Mesh/Gaussian execution, experimental opaque Visibility, production MaterialX
+quality, static meshlets, and only then optional Mesh Shader/Hi-Z/LOD. Forward
+and Tier 0 CPU readback remain reference fallbacks. See the [current
+milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
+[multi-backend shader and presentation
 strategy](docs/design/multibackend-slang-materialx.md), and [GPU-driven
 rendering policy](docs/design/gpu-driven-rendering.md) for scope, dependencies,
 and exit criteria.
