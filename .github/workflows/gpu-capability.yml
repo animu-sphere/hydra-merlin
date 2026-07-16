@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 30
     env:
       OST_HOME: ${{ github.workspace }}/.ost-ci-home
+      MSBUILDDISABLENODEREUSE: 1
     strategy:
       fail-fast: false
       matrix:
@@ -45,7 +46,9 @@ jobs:
         run: cmake -S . -B build-native -G "Visual Studio 17 2022" -A x64
 
       - name: Build
-        run: cmake --build build-native --config ${{ matrix.build_type }} --parallel 4
+        run: >-
+          cmake --build build-native --config ${{ matrix.build_type }}
+          --parallel 1 -- /nodeReuse:false
 
       - name: Run reproducibility, headless smoke, and validation tests
         run: >-
@@ -95,7 +98,7 @@ jobs:
             -G "Visual Studio 17 2022" -A x64
           if ($LASTEXITCODE -ne 0) { throw "v0.7.0 configure failed" }
           cmake --build build-v0.7.0 --config Release `
-            --target merlin-benchmark --parallel 4
+            --target merlin-benchmark --parallel 1 -- /nodeReuse:false
           if ($LASTEXITCODE -ne 0) { throw "v0.7.0 benchmark build failed" }
 
       - name: Compare v0.7.0 and current Release benchmarks
@@ -173,6 +176,7 @@ jobs:
     timeout-minutes: 30
     env:
       OST_HOME: ${{ github.workspace }}/.ost-ci-home
+      MSBUILDDISABLENODEREUSE: 1
       OST_RUNTIME_ARTIFACT: sha256:c1c54f1e8a31983ad24f2997e419b000d4ad5d030c392d592d20fd6c8ac8b227
       OST_RUNTIME_REMOTE: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:64fd1f4404ef9a939d1cace1412d6998741ebf1774153250f97f9839617f784e
 
@@ -240,7 +244,9 @@ jobs:
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
 
       - name: Build
-        run: cmake --build build --config Release --parallel 4
+        run: >-
+          cmake --build build --config Release
+          --parallel 1 -- /nodeReuse:false
 
       - name: Run discovery and RenderBuffer tests
         run: ctest --test-dir build -C Release -R "^merlin-hydra2-(discovery|render-buffer)$" --output-on-failure
