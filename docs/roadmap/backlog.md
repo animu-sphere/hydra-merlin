@@ -1,29 +1,11 @@
 # Backlog
 
-Ordered work after the active v0.7.0 milestone in [current.md](current.md).
+Ordered work after the active v0.8.0 milestone in [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 
 ## Milestone ladder
-
-### ⬜ v0.8.0 — Slang foundation and Vulkan parity
-
-Audit Core, `FrameSnapshot`, viewport, presentation, and telemetry boundaries
-for leaked Vulkan execution concepts. Pin Slang, add reproducible build/install
-shader artifacts and dependency tracking, migrate the existing Vulkan Forward
-path from GLSL pass by pass, and validate SPIR-V plus reflection metadata. Add
-C++/Slang ABI contract tests, deterministic shader/permutation keys, capability
-declarations, and Metal-target generation/compiler gates for the common shader
-set before Gaussian, Visibility, or meshlet shader families expand.
-
-Exit requires the Slang Vulkan path to preserve color, depth, `primId`, and
-`instanceId` reference output without a material performance regression; clean
-and incremental builds to produce installable versioned artifacts; reflection
-to detect layout and resource-binding mismatches; common shaders to compile for
-Vulkan and Metal with explicit diagnostics/fallbacks for unsupported features;
-and the superseded GLSL path to be removable. This milestone does not add a
-Metal renderer or a general-purpose RHI.
 
 ### ⬜ v0.9.0 — `merlin-viewport` and Vulkan presentation
 

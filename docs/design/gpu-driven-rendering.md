@@ -131,9 +131,10 @@ Transform-only edits do not touch draws, while visibility and material-binding
 edits replace only the dependent transient draw. Snapshot build evidence
 reports resource records visited/copied, draw decisions rebuilt, and any
 structural full-table fallback.
-Dense record indices still require that fallback for additions and removals;
-eliminating it remains part of v0.7.0 rather than prematurely assigning the
-persistent draw identity reserved for v0.15.0.
+Additions use dense append, while removals preserve density through an
+identity-aware swap and update only records and transient draws that reference
+the removed or displaced resource. This bounded structural edit path is
+separate from the persistent draw identity reserved for v0.15.0.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,
