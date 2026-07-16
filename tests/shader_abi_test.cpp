@@ -107,6 +107,28 @@ void RequireBinding(std::string_view json, std::string_view name,
           "Slang resource set/binding mismatch");
 }
 
+// Every manifest reference is resolved relative to the package directory, so a
+// value carrying a separator or a drive letter means a build path leaked.
+void RequireBareFilenames(const std::string& json, std::string_view field) {
+  const std::string key = "\"" + std::string(field) + "\":\"";
+  std::size_t position = json.find(key);
+  std::size_t seen{};
+  while (position != std::string::npos) {
+    const auto start = position + key.size();
+    const auto end = json.find('"', start);
+    Require(end != std::string::npos, "manifest JSON is truncated");
+    const auto value = json.substr(start, end - start);
+    Require(value.find('/') == std::string::npos &&
+                value.find('\\') == std::string::npos &&
+                value.find(':') == std::string::npos,
+            "manifest field " + std::string(field) +
+                " is not a bare filename: " + value);
+    ++seen;
+    position = json.find(key, end);
+  }
+  Require(seen > 0, "manifest has no \"" + std::string(field) + "\" field");
+}
+
 std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
   return static_cast<std::size_t>(
       std::distance(std::sregex_iterator(text.begin(), text.end(), pattern),
@@ -185,9 +207,9 @@ int main(int argc, char** argv) {
     Require(CountRegex(manifest,
                        std::regex("\\\"cache_key\\\":\\\"[0-9a-f]{64}\\\"")) == 6,
             "manifest does not contain one deterministic key per artifact");
-    Require(manifest.find(":/dev/") == std::string::npos &&
-                manifest.find(":\\\\dev\\\\") == std::string::npos,
-            "manifest leaked an absolute source path");
+    RequireBareFilenames(manifest, "path");
+    RequireBareFilenames(manifest, "reflection");
+    RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
     static_assert(kVersion == 1);

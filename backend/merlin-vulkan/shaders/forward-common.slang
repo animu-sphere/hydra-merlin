@@ -30,6 +30,13 @@ struct MaterialConstants
 [[vk::push_constant]]
 ConstantBuffer<DrawConstants> draw_constants;
 
+// draw_constants.texture_index and the encoded sampler index are only
+// populated when this is set, so resource reads must stay behind it.
+bool HasBaseColorTexture()
+{
+    return (draw_constants.feature_mask & kBaseColorTextureFlag) != 0u;
+}
+
 struct ForwardVertexInput
 {
     [[vk::location(0)]] float3 position : POSITION;
@@ -80,7 +87,7 @@ float4 ShadeForward(
     float4 texture_sample)
 {
     float4 shaded = input.color;
-    if ((draw_constants.feature_mask & kBaseColorTextureFlag) != 0u)
+    if (HasBaseColorTexture())
     {
         shaded *= texture_sample;
     }

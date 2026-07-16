@@ -25,6 +25,13 @@ if(_merlin_slang_version STREQUAL "")
   # Vulkan SDK builds of slangc currently print the version to stderr.
   set(_merlin_slang_version "${_merlin_slang_version_error}")
 endif()
+# Extract rather than match the whole output: slangc builds differ in whether
+# they print a bare version, a "slangc version X" line, or a suffixed one.
+if(NOT _merlin_slang_version MATCHES "([0-9]+[.][0-9]+([.][0-9]+)?)")
+  message(FATAL_ERROR
+    "could not read a version from 'slangc -version' at ${MERLIN_SLANGC_EXECUTABLE}: '${_merlin_slang_version}'")
+endif()
+set(_merlin_slang_version "${CMAKE_MATCH_1}")
 string(REPLACE "." "[.]" _merlin_slang_series_regex
        "${MERLIN_SLANG_REQUIRED_SERIES}")
 if(NOT _merlin_slang_version MATCHES
@@ -75,6 +82,7 @@ target_compile_definitions(merlin-vulkan PRIVATE
   MERLIN_VULKAN_MIN_VERSION_STRING="${MERLIN_VULKAN_MIN_VERSION}"
   MERLIN_VULKAN_SDK_VERSION="${_merlin_vulkan_sdk_version}"
   MERLIN_SLANG_VERSION="${_merlin_slang_version}"
+  MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION=${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}
 )
 
 set(MERLIN_SHADER_OUTPUT_DIR
@@ -96,17 +104,38 @@ set(_merlin_shader_forward
 set(_merlin_shader_bindless
     "${_merlin_shader_source_dir}/forward-bindless.slang")
 
-function(_merlin_compile_spirv _output _source _entry _stage _capabilities)
+# Compile policy shared by every target. These feed both the slangc command
+# line and the manifest cache keys, so changing one moves the other.
+set(_merlin_slang_spirv_profile "sm_6_6")
+set(_merlin_slang_metal_profile "metallib_2_4")
+set(_merlin_slang_matrix_layout "column-major")
+set(_merlin_slang_optimization "O2")
+
+set(_merlin_conventional_features "material_constants+base_color_texture")
+set(_merlin_bindless_features
+    "${_merlin_conventional_features}+bindless_resources+non_uniform_resource_indexing")
+
+# _capabilities is the literal -capability argument, or "none" when the target
+# takes no capability flag. Every field below is also recorded verbatim for the
+# manifest, so the provenance and the compile share one source of truth.
+function(_merlin_compile_shader _output _source _entry _stage _target _profile
+                               _capabilities _permutation _features)
   set(_reflection "${_output}.reflection.json")
   set(_depfile "${_output}.d")
+  set(_capability_arguments "")
+  if(NOT _capabilities STREQUAL "none")
+    set(_capability_arguments -capability "${_capabilities}")
+  endif()
   add_custom_command(
     OUTPUT "${_output}" "${_reflection}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${MERLIN_SHADER_OUTPUT_DIR}"
     COMMAND "${MERLIN_SLANGC_EXECUTABLE}" "${_source}"
             -entry "${_entry}" -stage "${_stage}"
-            -target spirv -profile sm_6_6
-            -capability "${_capabilities}"
-            -matrix-layout-column-major -O2 -warnings-as-errors all
+            -target "${_target}" -profile "${_profile}"
+            ${_capability_arguments}
+            "-matrix-layout-${_merlin_slang_matrix_layout}"
+            "-${_merlin_slang_optimization}"
+            -warnings-as-errors all
             -reflection-json "${_reflection}"
             -depfile "${_depfile}"
             -o "${_output}"
@@ -115,48 +144,40 @@ function(_merlin_compile_spirv _output _source _entry _stage _capabilities)
       "${_merlin_shader_common}"
     DEPFILE "${_depfile}"
     WORKING_DIRECTORY "${_merlin_shader_source_dir}"
-    COMMENT "Slang SPIR-V ${_entry}"
+    COMMENT "Slang ${_target} ${_entry}"
     VERBATIM
   )
+  set_property(GLOBAL APPEND PROPERTY MERLIN_SHADER_RECORDS
+    "${_output}|${_reflection}|${_source}|${_entry}|${_stage}|${_target}|${_profile}|${_capabilities}|${_permutation}|${_features}")
 endfunction()
 
-function(_merlin_compile_metal _output _source _entry _stage)
-  set(_reflection "${_output}.reflection.json")
-  set(_depfile "${_output}.d")
-  add_custom_command(
-    OUTPUT "${_output}" "${_reflection}"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${MERLIN_SHADER_OUTPUT_DIR}"
-    COMMAND "${MERLIN_SLANGC_EXECUTABLE}" "${_source}"
-            -entry "${_entry}" -stage "${_stage}"
-            -target metal -profile metallib_2_4
-            -matrix-layout-column-major -O2 -warnings-as-errors all
-            -reflection-json "${_reflection}"
-            -depfile "${_depfile}"
-            -o "${_output}"
-    DEPENDS
-      "${_merlin_shader_source_dir}/${_source}"
-      "${_merlin_shader_common}"
-    DEPFILE "${_depfile}"
-    WORKING_DIRECTORY "${_merlin_shader_source_dir}"
-    COMMENT "Slang Metal ${_entry}"
-    VERBATIM
-  )
-endfunction()
+_merlin_compile_shader("${MERLIN_VERTEX_SPV}" forward.slang
+  forward_vertex vertex spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5 forward-conventional "${_merlin_conventional_features}")
+_merlin_compile_shader("${MERLIN_FRAGMENT_SPV}" forward.slang
+  forward_fragment fragment spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5 forward-conventional "${_merlin_conventional_features}")
+_merlin_compile_shader("${MERLIN_BINDLESS_VERTEX_SPV}" forward-bindless.slang
+  forward_bindless_vertex vertex spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5+spvShaderNonUniformEXT forward-bindless
+  "${_merlin_bindless_features}")
+_merlin_compile_shader("${MERLIN_BINDLESS_FRAGMENT_SPV}" forward-bindless.slang
+  forward_bindless_fragment fragment spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5+spvShaderNonUniformEXT forward-bindless
+  "${_merlin_bindless_features}")
+_merlin_compile_shader("${MERLIN_VERTEX_METAL}" forward.slang
+  forward_vertex vertex metal "${_merlin_slang_metal_profile}"
+  none forward-conventional "${_merlin_conventional_features}")
+_merlin_compile_shader("${MERLIN_FRAGMENT_METAL}" forward.slang
+  forward_fragment fragment metal "${_merlin_slang_metal_profile}"
+  none forward-conventional "${_merlin_conventional_features}")
 
-_merlin_compile_spirv("${MERLIN_VERTEX_SPV}" forward.slang
-  forward_vertex vertex spirv_1_5)
-_merlin_compile_spirv("${MERLIN_FRAGMENT_SPV}" forward.slang
-  forward_fragment fragment spirv_1_5)
-_merlin_compile_spirv("${MERLIN_BINDLESS_VERTEX_SPV}"
-  forward-bindless.slang forward_bindless_vertex vertex
-  spirv_1_5+spvShaderNonUniformEXT)
-_merlin_compile_spirv("${MERLIN_BINDLESS_FRAGMENT_SPV}"
-  forward-bindless.slang forward_bindless_fragment fragment
-  spirv_1_5+spvShaderNonUniformEXT)
-_merlin_compile_metal("${MERLIN_VERTEX_METAL}" forward.slang
-  forward_vertex vertex)
-_merlin_compile_metal("${MERLIN_FRAGMENT_METAL}" forward.slang
-  forward_fragment fragment)
+get_property(_merlin_shader_records GLOBAL PROPERTY MERLIN_SHADER_RECORDS)
+list(JOIN _merlin_shader_records "\n" _merlin_shader_records_text)
+set(_merlin_shader_records_file
+    "${CMAKE_CURRENT_BINARY_DIR}/shader-records.txt")
+file(GENERATE OUTPUT "${_merlin_shader_records_file}"
+  CONTENT "${_merlin_shader_records_text}\n")
 
 set(MERLIN_SHADER_MANIFEST "${MERLIN_SHADER_OUTPUT_DIR}/manifest.json")
 set(_merlin_shader_reflections
@@ -173,25 +194,16 @@ add_custom_command(
     "-DMERLIN_SHADER_MANIFEST:FILEPATH=${MERLIN_SHADER_MANIFEST}"
     "-DMERLIN_SHADER_SCHEMA_VERSION:STRING=${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
     "-DMERLIN_SHADER_ABI_VERSION:STRING=${MERLIN_SHADER_ABI_VERSION}"
+    "-DMERLIN_SHADER_RECORDS_FILE:FILEPATH=${_merlin_shader_records_file}"
     "-DMERLIN_SLANG_VERSION:STRING=${_merlin_slang_version}"
     "-DMERLIN_SLANG_REQUIRED_SERIES:STRING=${MERLIN_SLANG_REQUIRED_SERIES}"
+    "-DMERLIN_SLANG_MATRIX_LAYOUT:STRING=${_merlin_slang_matrix_layout}"
+    "-DMERLIN_SLANG_OPTIMIZATION:STRING=${_merlin_slang_optimization}"
     "-DMERLIN_VULKAN_SDK_VERSION:STRING=${_merlin_vulkan_sdk_version}"
     "-DMERLIN_CMAKE_GENERATOR:STRING=${CMAKE_GENERATOR}"
     "-DMERLIN_FORWARD_SOURCE:FILEPATH=${_merlin_shader_forward}"
     "-DMERLIN_BINDLESS_SOURCE:FILEPATH=${_merlin_shader_bindless}"
     "-DMERLIN_COMMON_SOURCE:FILEPATH=${_merlin_shader_common}"
-    "-DMERLIN_FORWARD_VERTEX_SPV:FILEPATH=${MERLIN_VERTEX_SPV}"
-    "-DMERLIN_FORWARD_FRAGMENT_SPV:FILEPATH=${MERLIN_FRAGMENT_SPV}"
-    "-DMERLIN_BINDLESS_VERTEX_SPV:FILEPATH=${MERLIN_BINDLESS_VERTEX_SPV}"
-    "-DMERLIN_BINDLESS_FRAGMENT_SPV:FILEPATH=${MERLIN_BINDLESS_FRAGMENT_SPV}"
-    "-DMERLIN_FORWARD_VERTEX_METAL:FILEPATH=${MERLIN_VERTEX_METAL}"
-    "-DMERLIN_FORWARD_FRAGMENT_METAL:FILEPATH=${MERLIN_FRAGMENT_METAL}"
-    "-DMERLIN_FORWARD_VERTEX_REFLECTION:FILEPATH=${MERLIN_VERTEX_SPV}.reflection.json"
-    "-DMERLIN_FORWARD_FRAGMENT_REFLECTION:FILEPATH=${MERLIN_FRAGMENT_SPV}.reflection.json"
-    "-DMERLIN_BINDLESS_VERTEX_REFLECTION:FILEPATH=${MERLIN_BINDLESS_VERTEX_SPV}.reflection.json"
-    "-DMERLIN_BINDLESS_FRAGMENT_REFLECTION:FILEPATH=${MERLIN_BINDLESS_FRAGMENT_SPV}.reflection.json"
-    "-DMERLIN_FORWARD_VERTEX_METAL_REFLECTION:FILEPATH=${MERLIN_VERTEX_METAL}.reflection.json"
-    "-DMERLIN_FORWARD_FRAGMENT_METAL_REFLECTION:FILEPATH=${MERLIN_FRAGMENT_METAL}.reflection.json"
     -P "${PROJECT_SOURCE_DIR}/cmake/write-shader-manifest.cmake"
   DEPENDS
     "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
@@ -200,6 +212,7 @@ add_custom_command(
     ${_merlin_shader_reflections}
     "${_merlin_shader_forward}" "${_merlin_shader_bindless}"
     "${_merlin_shader_common}"
+    "${_merlin_shader_records_file}"
     "${PROJECT_SOURCE_DIR}/cmake/write-shader-manifest.cmake"
   COMMENT "Writing deterministic shader artifact manifest"
   VERBATIM

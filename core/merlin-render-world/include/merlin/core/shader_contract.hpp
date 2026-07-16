@@ -21,6 +21,17 @@ constexpr ShaderCapability operator|(ShaderCapability lhs,
                                        static_cast<std::uint64_t>(rhs));
 }
 
+constexpr ShaderCapability operator&(ShaderCapability lhs,
+                                     ShaderCapability rhs) noexcept {
+  return static_cast<ShaderCapability>(static_cast<std::uint64_t>(lhs) &
+                                       static_cast<std::uint64_t>(rhs));
+}
+
+[[nodiscard]] constexpr bool HasCapability(ShaderCapability capabilities,
+                                           ShaderCapability query) noexcept {
+  return (capabilities & query) == query;
+}
+
 enum class ShaderStage : std::uint8_t { Vertex = 1, Fragment = 2 };
 
 struct ShaderPermutation {

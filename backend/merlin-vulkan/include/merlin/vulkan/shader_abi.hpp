@@ -2,7 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
+#include <filesystem>
+#include <string>
 
 #include <merlin/core/shader_contract.hpp>
 #include <merlin/core/types.hpp>
@@ -11,7 +12,14 @@ namespace merlin::vulkan::shader_abi {
 
 inline constexpr std::uint32_t kVersion = 1;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 1;
-inline constexpr std::string_view kArtifactDirectory = "shaders/v1";
+
+// Derived rather than spelled out so a schema bump cannot leave the runtime
+// loading a directory the build system no longer writes. merlin-vulkan
+// static_asserts this against MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION.
+[[nodiscard]] inline std::filesystem::path ArtifactDirectory() {
+  return std::filesystem::path("shaders") /
+         ("v" + std::to_string(kArtifactSchemaVersion));
+}
 
 struct alignas(16) DrawConstants {
   Mat4 model_view_projection;

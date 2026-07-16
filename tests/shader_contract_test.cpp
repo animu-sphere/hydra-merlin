@@ -22,6 +22,13 @@ int main() {
           ShaderCapability::NonUniformResourceIndexing,
       1};
 
+  static_assert(merlin::HasCapability(bindless.capabilities,
+                                      ShaderCapability::BaseColorTexture));
+  static_assert(merlin::HasCapability(
+      bindless.capabilities, ShaderCapability::NonUniformResourceIndexing));
+  static_assert(!merlin::HasCapability(
+      conventional.capabilities, ShaderCapability::BindlessResources));
+
   static_assert(merlin::MakeShaderPermutationKey(conventional) ==
                 merlin::MakeShaderPermutationKey(same));
   static_assert(merlin::MakeShaderPermutationKey(conventional) !=

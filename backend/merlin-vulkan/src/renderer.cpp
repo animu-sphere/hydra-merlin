@@ -276,6 +276,32 @@ std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
 using PushConstants = shader_abi::DrawConstants;
 using MaterialUniforms = shader_abi::MaterialConstants;
 
+static_assert(shader_abi::kArtifactSchemaVersion ==
+                  MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION,
+              "shader artifact schema version drifted from the build system");
+
+// The descriptor layouts and writes below are built from these declarations,
+// so the shader ABI and the Vulkan resource setup cannot drift apart.
+static_assert(shader_abi::kConventionalBaseColorTexture.set == 0);
+static_assert(shader_abi::kConventionalBaseColorTexture.resource_class ==
+              shader_abi::ResourceClass::CombinedImageSampler);
+static_assert(shader_abi::kConventionalMaterialConstants.set == 0);
+static_assert(shader_abi::kConventionalMaterialConstants.resource_class ==
+              shader_abi::ResourceClass::UniformBuffer);
+static_assert(shader_abi::kBindlessSamplers.set == 0);
+static_assert(shader_abi::kBindlessSamplers.resource_class ==
+              shader_abi::ResourceClass::Sampler);
+static_assert(shader_abi::kBindlessTextures.set == 0);
+static_assert(shader_abi::kBindlessTextures.resource_class ==
+              shader_abi::ResourceClass::SampledImage);
+static_assert(shader_abi::kBindlessMaterialConstants.set == 1);
+static_assert(shader_abi::kBindlessMaterialConstants.resource_class ==
+              shader_abi::ResourceClass::UniformBuffer);
+
+// Vulkan requires the variable-count binding to be the highest in its set.
+static_assert(shader_abi::kBindlessTextures.binding >
+              shader_abi::kBindlessSamplers.binding);
+
 constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
 constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;
 constexpr std::uint32_t kSamplerIndexShift = 8U;
@@ -2237,11 +2263,11 @@ class Renderer::Impl {
     }
     const auto& selection = capabilities_.descriptor_indexing_selection;
     std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
-    bindings[0].binding = 0;
+    bindings[0].binding = shader_abi::kBindlessSamplers.binding;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
     bindings[0].descriptorCount = selection.sampler_capacity;
     bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    bindings[1].binding = 1;
+    bindings[1].binding = shader_abi::kBindlessTextures.binding;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     bindings[1].descriptorCount = selection.texture_capacity;
     bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -2304,7 +2330,7 @@ class Renderer::Impl {
       return;
     }
     VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
+    binding.binding = shader_abi::kBindlessMaterialConstants.binding;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     binding.descriptorCount = 1;
     binding.stageFlags =
@@ -2340,7 +2366,7 @@ class Renderer::Impl {
           {VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
       VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       write.dstSet = bindless_descriptor_set_;
-      write.dstBinding = 1;
+      write.dstBinding = shader_abi::kBindlessTextures.binding;
       write.dstArrayElement = index;
       write.descriptorCount = 1;
       write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -2355,7 +2381,7 @@ class Renderer::Impl {
       sampler_infos[i] = {sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
       VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       write.dstSet = bindless_descriptor_set_;
-      write.dstBinding = 0;
+      write.dstBinding = shader_abi::kBindlessSamplers.binding;
       write.dstArrayElement = index;
       write.descriptorCount = 1;
       write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -2404,11 +2430,11 @@ class Renderer::Impl {
     }
     ++frame_counters_.descriptor_layout_cache_misses;
     std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
-    bindings[0].binding = 0;
+    bindings[0].binding = shader_abi::kConventionalBaseColorTexture.binding;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    bindings[1].binding = 1;
+    bindings[1].binding = shader_abi::kConventionalMaterialConstants.binding;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
@@ -2508,7 +2534,7 @@ class Renderer::Impl {
           frame.material_uniforms.handle, 0, sizeof(MaterialUniforms)};
       VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       write.dstSet = frame.bindless_material_descriptor_set;
-      write.dstBinding = 0;
+      write.dstBinding = shader_abi::kBindlessMaterialConstants.binding;
       write.descriptorCount = 1;
       write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
       write.pBufferInfo = &buffer_info;
@@ -2663,14 +2689,14 @@ class Renderer::Impl {
       auto& image_write = writes[i * 2U];
       image_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       image_write.dstSet = frame.material_descriptor_sets[i];
-      image_write.dstBinding = 0;
+      image_write.dstBinding = shader_abi::kConventionalBaseColorTexture.binding;
       image_write.descriptorCount = 1;
       image_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
       image_write.pImageInfo = &image_infos[i];
       auto& buffer_write = writes[i * 2U + 1U];
       buffer_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       buffer_write.dstSet = frame.material_descriptor_sets[i];
-      buffer_write.dstBinding = 1;
+      buffer_write.dstBinding = shader_abi::kConventionalMaterialConstants.binding;
       buffer_write.descriptorCount = 1;
       buffer_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
       buffer_write.pBufferInfo = &buffer_infos[i];
@@ -3399,9 +3425,11 @@ class Renderer::Impl {
       push_range.size = sizeof(PushConstants);
       VkPipelineLayoutCreateInfo layout_info{
           VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-      const std::array<VkDescriptorSetLayout, 2> bindless_layouts{
-          bindless_descriptor_set_layout_,
-          bindless_material_descriptor_set_layout_};
+      std::array<VkDescriptorSetLayout, 2> bindless_layouts{};
+      bindless_layouts[shader_abi::kBindlessTextures.set] =
+          bindless_descriptor_set_layout_;
+      bindless_layouts[shader_abi::kBindlessMaterialConstants.set] =
+          bindless_material_descriptor_set_layout_;
       if (bindless_texture_table_) {
         layout_info.setLayoutCount =
             static_cast<std::uint32_t>(bindless_layouts.size());
@@ -3730,8 +3758,11 @@ class Renderer::Impl {
         }
         const auto dynamic_offset =
             static_cast<std::uint32_t>(dynamic_offset_value);
-        const std::array<VkDescriptorSet, 2> descriptor_sets{
-            bindless_descriptor_set_, frame.bindless_material_descriptor_set};
+        std::array<VkDescriptorSet, 2> descriptor_sets{};
+        descriptor_sets[shader_abi::kBindlessTextures.set] =
+            bindless_descriptor_set_;
+        descriptor_sets[shader_abi::kBindlessMaterialConstants.set] =
+            frame.bindless_material_descriptor_set;
         vkCmdBindDescriptorSets(
             command, VK_PIPELINE_BIND_POINT_GRAPHICS,
             active_target_->pipeline_layout, 0,

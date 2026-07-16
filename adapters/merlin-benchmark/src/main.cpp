@@ -757,8 +757,8 @@ int main(int argc, char** argv) {
   try {
     const auto arguments = ParseArguments(argc, argv);
     const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
-    const auto shader_dir = executable_dir /
-        merlin::vulkan::shader_abi::kArtifactDirectory;
+    const auto shader_dir =
+        executable_dir / merlin::vulkan::shader_abi::ArtifactDirectory();
     const merlin::vulkan::ShaderPaths shaders{
         shader_dir / "triangle.vert.spv",
         shader_dir / "triangle.frag.spv",

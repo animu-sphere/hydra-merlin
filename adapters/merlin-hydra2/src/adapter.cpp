@@ -1386,8 +1386,8 @@ class SceneBridge {
             "Hydra regression requested unavailable Vulkan validation");
       }
     }
-    const auto shader_dir = PluginDirectory() /
-        merlin::vulkan::shader_abi::kArtifactDirectory;
+    const auto shader_dir =
+        PluginDirectory() / merlin::vulkan::shader_abi::ArtifactDirectory();
     const merlin::vulkan::ShaderPaths shaders{
         shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
         shader_dir / "triangle.bindless.vert.spv",
