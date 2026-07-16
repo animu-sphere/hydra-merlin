@@ -23,8 +23,13 @@ merlin::vulkan::RenderResult MakeResult() {
   result.prim_id.row_pitch_bytes = 8;
   result.prim_id.pixels = {1, 1, 2,
                            std::numeric_limits<std::uint32_t>::max()};
+  result.instance_id.product =
+      merlin::MakeRenderProduct(2, 2, merlin::Aov::InstanceId);
+  result.instance_id.row_pitch_bytes = 8;
+  result.instance_id.pixels = {10, 10, 20,
+                               std::numeric_limits<std::uint32_t>::max()};
   result.rendered_aovs = {merlin::Aov::Color, merlin::Aov::Depth,
-                          merlin::Aov::PrimId};
+                          merlin::Aov::PrimId, merlin::Aov::InstanceId};
   result.cpu_readback_aovs = result.rendered_aovs;
   result.completion_value = 1;
   return result;
@@ -50,11 +55,12 @@ int main(int argc, char** argv) {
   actual.color.pixels[0] = 200;
   actual.depth.pixels[1] = 0.25F;
   actual.prim_id.pixels[2] = 7;
+  actual.instance_id.pixels[0] = 99;
 
   const auto artifacts =
       merlin::vulkan::SaveComparisonArtifacts(expected, actual, output);
   assert(!artifacts.matches);
-  assert(artifacts.files.size() == 9);
+  assert(artifacts.files.size() == 12);
   for (const auto& file : artifacts.files) {
     assert(std::filesystem::is_regular_file(file));
     assert(std::filesystem::file_size(file) > 32);

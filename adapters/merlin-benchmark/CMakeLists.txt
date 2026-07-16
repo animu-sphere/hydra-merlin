@@ -52,23 +52,17 @@ target_compile_definitions(merlin-benchmark PRIVATE
 
 add_dependencies(merlin-benchmark merlin-vulkan-shaders)
 
-add_custom_command(TARGET merlin-benchmark POST_BUILD
+add_custom_target(merlin-benchmark-shader-package
   COMMAND ${CMAKE_COMMAND} -E make_directory
-          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders"
+          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_VERTEX_SPV}"
-          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/triangle.vert.spv"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_FRAGMENT_SPV}"
-          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/triangle.frag.spv"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_BINDLESS_VERTEX_SPV}"
-          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/triangle.bindless.vert.spv"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_BINDLESS_FRAGMENT_SPV}"
-          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/triangle.bindless.frag.spv"
+          ${MERLIN_SHADER_PACKAGE_FILES}
+          "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+  DEPENDS ${MERLIN_SHADER_PACKAGE_FILES}
   VERBATIM
 )
+add_dependencies(merlin-benchmark-shader-package merlin-vulkan-shaders)
+add_dependencies(merlin-benchmark merlin-benchmark-shader-package)
 
 install(TARGETS merlin-benchmark
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"

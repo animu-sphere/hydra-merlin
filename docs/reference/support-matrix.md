@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.7.0 · **Last reviewed:** 2026-07-16
+**Status:** v0.8.0 development · **Last reviewed:** 2026-07-16
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -10,13 +10,14 @@ work, but is not currently claimed as supported evidence.
 
 | Platform | Core | Vulkan/headless | Hydra 2 | Evidence level |
 | --- | --- | --- | --- | --- |
-| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Release with OpenUSD 26.05 | Core hosted CI; GPU/Hydra local validation; manual capability workflow defined, runner pending |
+| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Release with OpenUSD 26.05 | Core hosted CI plus successful self-hosted [GPU/Hydra capability run 29508228337](https://github.com/animu-sphere/hydra-merlin/actions/runs/29508228337) |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Core hosted CI |
 | macOS | Not validated | Not validated | Not validated | No current claim |
 
-A repository-scoped Windows GPU runner has not yet been enrolled, so the manual
-capability workflow is not continuous evidence. Enrollment is tracked in the
-[backlog](../roadmap/backlog.md#cross-cutting-open-items).
+A repository-scoped Windows x64 GPU runner is enrolled with the `vulkan-1.4`
+label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
+Release on demand; it is capability evidence rather than a per-commit required
+check.
 
 ## Dependency contract
 
@@ -26,7 +27,7 @@ capability workflow is not continuous evidence. Enrollment is tracked in the
 | C++ compiler | C++20 | All builds |
 | OpenStrata CLI | 0.17.0 | Managed build/validation, managed Hydra view, and capability CI |
 | Vulkan headers/loader/device | 1.4 | Vulkan/headless and Hydra |
-| Vulkan SDK `glslc` | Compatible with Vulkan 1.4; 1.4.350.0 in capability workflow | Shader build |
+| Vulkan SDK `slangc` | Slang 2026.8.x; Vulkan SDK 1.4.350.0 in capability workflow | Shader build and SPIR-V/Metal compile gates |
 | OpenUSD | 26.05 currently validated | Hydra 2 only |
 | Python + `testusdview` | Matching the OpenUSD runtime | Install-tree Hydra host test |
 
@@ -47,7 +48,7 @@ responsibility.
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available |
 | Explicit submit/completion/timeout-aware resolve | Available |
 | Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
-| PNG/EXR expected/actual/diff regression artifacts | Available for color, depth, and primId |
+| PNG/EXR expected/actual/diff regression artifacts | Exact comparison is available for color, depth, primId, and instanceId |
 | Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, bindless/geometry/transfer/VRAM residency telemetry, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
 | Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes |
 | Core/Vulkan installed CMake targets | Available |
@@ -55,7 +56,7 @@ responsibility.
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
-| Slang shader source and Metal compile gate | Planned for v0.8.0; the current Vulkan path still builds GLSL with `glslc` |
+| Slang shader source and Metal compile gate | Slang is the Forward source of truth; conventional and bindless SPIR-V plus conventional Metal/reflection artifacts are packaged under `shaders/v1`, with Metal non-uniform bindless access explicitly falling back to conventional Forward |
 | MaterialXGenSlang material-function prototype | Planned for v0.10.0; production MaterialX and Visibility quality remains v0.18.0 work |
 | Native Metal backend and residency | Planned for v0.11.0; no current Metal execution support is claimed |
 | Native Metal viewport presentation | Planned for v0.12.0 after the backend-neutral viewport boundary |

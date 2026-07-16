@@ -149,7 +149,10 @@ their frame context until the single-use token resolves. See the
 
 - Vulkan 1.4 loader, headers, and a Vulkan 1.4 physical device with a graphics
   queue are the minimum backend requirements.
-- Shader compilation uses `glslc` from a compatible Vulkan SDK.
+- Forward shader compilation uses pinned Slang 2026.8.x from the Vulkan SDK.
+  Vulkan consumes versioned SPIR-V artifacts; the same conventional entries
+  must also pass Metal source generation, and reflection is checked against the
+  C++ upload/resource-binding ABI.
 - The backend uses persistent frame contexts and completion-based resource
   retirement.
 - When a distinct transfer family and timeline semaphores are available,

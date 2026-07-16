@@ -6,11 +6,11 @@ $expectedSha256 = "855b27ba05d2d8119c5114c5d4ff870ca38f2c632b11e1bb9923b9b7e6ecf
 $workspace = if ($env:GITHUB_WORKSPACE) { $env:GITHUB_WORKSPACE } else { (Get-Location).Path }
 $sdkRoot = Join-Path $workspace ".ci/vulkan-sdk/$version"
 $sdkBin = Join-Path $sdkRoot "Bin"
-$glslc = Join-Path $sdkBin "glslc.exe"
+$slangc = Join-Path $sdkBin "slangc.exe"
 
 # Tools the capability jobs rely on. A restored cache is only trusted when all
 # of them are present, so a partially populated prefix triggers a reinstall.
-$requiredTools = @("glslc.exe", "vulkaninfo.exe")
+$requiredTools = @("slangc.exe", "vulkaninfoSDK.exe")
 function Get-MissingVulkanTool {
   foreach ($tool in $requiredTools) {
     if (-not (Test-Path -LiteralPath (Join-Path $sdkBin $tool))) {
@@ -57,4 +57,4 @@ if ($env:GITHUB_PATH) {
 }
 
 Write-Host "LunarG Vulkan SDK ${version}: $sdkRoot"
-& $glslc --version
+& $slangc -version

@@ -39,6 +39,7 @@
 #include <merlin/core/diagnostic.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
+#include <merlin/vulkan/shader_abi.hpp>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -1385,7 +1386,8 @@ class SceneBridge {
             "Hydra regression requested unavailable Vulkan validation");
       }
     }
-    const auto shader_dir = PluginDirectory() / "shaders";
+    const auto shader_dir =
+        PluginDirectory() / merlin::vulkan::shader_abi::ArtifactDirectory();
     const merlin::vulkan::ShaderPaths shaders{
         shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
         shader_dir / "triangle.bindless.vert.spv",

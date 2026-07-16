@@ -65,12 +65,13 @@ backend code where present:
 
 ## Regression artifacts
 
-`SaveComparisonArtifacts` requires color, depth, and primId CPU products at one
-extent and writes nine deterministic paths:
+`SaveComparisonArtifacts` requires color, depth, primId, and instanceId CPU
+products at one extent and writes twelve deterministic paths:
 
 - `color-{expected,actual,diff}.png` as RGBA8 PNG;
 - `depth-{expected,actual,diff}.exr` as float OpenEXR;
-- `primId-{expected,actual,diff}.exr` as unsigned-integer OpenEXR.
+- `primId-{expected,actual,diff}.exr` as unsigned-integer OpenEXR;
+- `instanceId-{expected,actual,diff}.exr` as unsigned-integer OpenEXR.
 
 The PNG and uncompressed scanline EXR sinks have no optional image-library
 dependency. The headless `--artifact-dir` path compares its first and final

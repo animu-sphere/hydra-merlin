@@ -10,23 +10,17 @@ target_link_libraries(merlin-headless
 
 add_dependencies(merlin-headless merlin-vulkan-shaders)
 
-add_custom_command(TARGET merlin-headless POST_BUILD
+add_custom_target(merlin-headless-shader-package
   COMMAND ${CMAKE_COMMAND} -E make_directory
-          "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+          "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_VERTEX_SPV}"
-          "$<TARGET_FILE_DIR:merlin-headless>/shaders/triangle.vert.spv"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_FRAGMENT_SPV}"
-          "$<TARGET_FILE_DIR:merlin-headless>/shaders/triangle.frag.spv"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_BINDLESS_VERTEX_SPV}"
-          "$<TARGET_FILE_DIR:merlin-headless>/shaders/triangle.bindless.vert.spv"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${MERLIN_BINDLESS_FRAGMENT_SPV}"
-          "$<TARGET_FILE_DIR:merlin-headless>/shaders/triangle.bindless.frag.spv"
+          ${MERLIN_SHADER_PACKAGE_FILES}
+          "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+  DEPENDS ${MERLIN_SHADER_PACKAGE_FILES}
   VERBATIM
 )
+add_dependencies(merlin-headless-shader-package merlin-vulkan-shaders)
+add_dependencies(merlin-headless merlin-headless-shader-package)
 
 if(MERLIN_GENERATE_RENDERER_REPORT AND NOT CMAKE_CROSSCOMPILING)
   add_custom_command(TARGET merlin-headless POST_BUILD
@@ -40,11 +34,4 @@ endif()
 
 install(TARGETS merlin-headless
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-)
-install(FILES
-  "${MERLIN_VERTEX_SPV}"
-  "${MERLIN_FRAGMENT_SPV}"
-  "${MERLIN_BINDLESS_VERTEX_SPV}"
-  "${MERLIN_BINDLESS_FRAGMENT_SPV}"
-  DESTINATION "${CMAKE_INSTALL_BINDIR}/shaders"
 )

@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 30
     env:
       OST_HOME: ${{ github.workspace }}/.ost-ci-home
+      MSBUILDDISABLENODEREUSE: 1
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +35,7 @@ jobs:
       - name: Verify Vulkan 1.4 driver capability
         shell: pwsh
         run: |
-          vulkaninfo --summary | Out-File -Encoding utf8 vulkaninfo-summary.txt
+          vulkaninfoSDK --summary | Out-File -Encoding utf8 vulkaninfo-summary.txt
 
       - name: Bootstrap pinned ost 0.17.0
         shell: pwsh
@@ -45,12 +46,14 @@ jobs:
         run: cmake -S . -B build-native -G "Visual Studio 17 2022" -A x64
 
       - name: Build
-        run: cmake --build build-native --config ${{ matrix.build_type }} --parallel 4
+        run: >-
+          cmake --build build-native --config ${{ matrix.build_type }}
+          --parallel 4 -- /nodeReuse:false
 
       - name: Run reproducibility, headless smoke, and validation tests
         run: >-
           ctest --test-dir build-native -C ${{ matrix.build_type }}
-          -R "^merlin-(render-world|render-extraction|render-product-contract|render-artifacts|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|resource-update|material-resources|bindless-residency|offscreen|validation))$"
+          -R "^merlin-(render-world|render-extraction|shader-(contract|abi)|render-product-contract|render-artifacts|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|resource-update|material-resources|bindless-residency|offscreen|validation))$"
           --output-on-failure --verbose
 
       - name: Record descriptor selection and exhaustion evidence
@@ -78,6 +81,62 @@ jobs:
           if ($capacityOutput -notmatch "bindless texture table: exhausted \(capacity=4") {
             throw "bindless exhaustion output was not actionable: $capacityOutput"
           }
+          exit 0
+
+      - name: Check out the v0.7.0 benchmark baseline
+        if: matrix.build_type == 'Release'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: v0.7.0
+          path: .ci/baseline-v0.7.0
+          persist-credentials: false
+
+      - name: Build the v0.7.0 benchmark baseline
+        if: matrix.build_type == 'Release'
+        shell: pwsh
+        run: |
+          cmake -S .ci/baseline-v0.7.0 -B build-v0.7.0 `
+            -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw "v0.7.0 configure failed" }
+          cmake --build build-v0.7.0 --config Release `
+            --target merlin-benchmark --parallel 4 -- /nodeReuse:false
+          if ($LASTEXITCODE -ne 0) { throw "v0.7.0 benchmark build failed" }
+
+      - name: Compare v0.7.0 and current Release benchmarks
+        if: matrix.build_type == 'Release'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force `
+            build-native/evidence/benchmark-v0.7.0 | Out-Null
+          $evidence = "build-native/evidence/benchmark-v0.7.0"
+          $baseline = "build-v0.7.0/adapters/merlin-benchmark/Release/merlin-benchmark.exe"
+          $current = "build-native/adapters/merlin-benchmark/Release/merlin-benchmark.exe"
+          $arguments = @(
+            "--fixture", "reference", "--width", "512", "--height", "512",
+            "--steady-frames", "120"
+          )
+          & $baseline @arguments --output "$evidence/v0.7.0.json"
+          if ($LASTEXITCODE -ne 0) { throw "v0.7.0 benchmark failed" }
+          & $current @arguments --output "$evidence/current.json"
+          if ($LASTEXITCODE -ne 0) { throw "current benchmark failed" }
+          python scripts/compare-benchmarks.py `
+            "$evidence/v0.7.0.json" "$evidence/current.json" `
+            --output "$evidence/structural-comparison.json"
+          if ($LASTEXITCODE -ne 0) {
+            throw "v0.7.0 structural benchmark comparison failed"
+          }
+          python scripts/compare-benchmarks.py `
+            "$evidence/v0.7.0.json" "$evidence/current.json" `
+            --timing-threshold-percent 20 `
+            --output "$evidence/timing-observation.json"
+          $timingExit = $LASTEXITCODE
+          if ($timingExit -notin 0, 2) {
+            throw "v0.7.0 timing comparison could not be evaluated"
+          }
+          if ($timingExit -eq 2) {
+            Write-Warning "observed timing deltas exceeded 20%; retained as non-gating evidence"
+          }
+          exit 0
 
       - name: Validate the OpenStrata renderer lifecycle
         if: matrix.build_type == 'Release'
@@ -118,6 +177,7 @@ jobs:
     timeout-minutes: 30
     env:
       OST_HOME: ${{ github.workspace }}/.ost-ci-home
+      MSBUILDDISABLENODEREUSE: 1
       OST_RUNTIME_ARTIFACT: sha256:c1c54f1e8a31983ad24f2997e419b000d4ad5d030c392d592d20fd6c8ac8b227
       OST_RUNTIME_REMOTE: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:64fd1f4404ef9a939d1cace1412d6998741ebf1774153250f97f9839617f784e
 
@@ -137,7 +197,7 @@ jobs:
       - name: Verify Vulkan 1.4 driver capability
         shell: pwsh
         run: |
-          vulkaninfo --summary | Out-Null
+          vulkaninfoSDK --summary | Out-Null
 
       - name: Bootstrap pinned ost 0.17.0
         shell: pwsh
@@ -185,7 +245,9 @@ jobs:
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
 
       - name: Build
-        run: cmake --build build --config Release --parallel 4
+        run: >-
+          cmake --build build --config Release
+          --parallel 4 -- /nodeReuse:false
 
       - name: Run discovery and RenderBuffer tests
         run: ctest --test-dir build -C Release -R "^merlin-hydra2-(discovery|render-buffer)$" --output-on-failure

@@ -67,11 +67,11 @@ the working Vulkan renderer remains the output reference.
 
 ## Active carry-over
 
-- Enroll or confirm an organization-scoped Windows x64 runner with the existing
-  `vulkan-1.4` label so the manual workflow becomes continuing GPU evidence.
-  The repository-scoped runner API reports zero enrolled runners and the
-  capability workflow has no prior runs as of 2026-07-16; organization runner
-  visibility still requires an administrator confirmation.
+- Keep the enrolled repository-scoped Windows x64 `vulkan-1.4` runner available
+  for release-candidate evidence. The Debug/Release Vulkan and OpenUSD 26.05
+  Hydra jobs completed in
+  [capability run 29508228337](https://github.com/animu-sphere/hydra-merlin/actions/runs/29508228337),
+  including a same-GPU `v0.7.0` benchmark baseline.
 - Retain dependency/runtime provenance, validation logs, expected/actual/diff
   images, benchmark output, Hydra discovery, RenderBuffer, and usdview results
   as comparable artifacts rather than reducing capability jobs to a binary
