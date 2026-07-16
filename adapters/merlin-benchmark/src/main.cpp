@@ -1,6 +1,7 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
+#include <merlin/vulkan/shader_abi.hpp>
 
 #include <vulkan/vulkan_core.h>
 
@@ -756,11 +757,13 @@ int main(int argc, char** argv) {
   try {
     const auto arguments = ParseArguments(argc, argv);
     const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
+    const auto shader_dir = executable_dir /
+        merlin::vulkan::shader_abi::kArtifactDirectory;
     const merlin::vulkan::ShaderPaths shaders{
-        executable_dir / "shaders" / "triangle.vert.spv",
-        executable_dir / "shaders" / "triangle.frag.spv",
-        executable_dir / "shaders" / "triangle.bindless.vert.spv",
-        executable_dir / "shaders" / "triangle.bindless.frag.spv"};
+        shader_dir / "triangle.vert.spv",
+        shader_dir / "triangle.frag.spv",
+        shader_dir / "triangle.bindless.vert.spv",
+        shader_dir / "triangle.bindless.frag.spv"};
     merlin::vulkan::Renderer renderer;
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;

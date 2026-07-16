@@ -273,3 +273,21 @@ repository-scoped GPU runner for continuous execution remains in the
   against the automatically selected bindless render when available, retaining
   exact color, depth, and primId expected/actual/diff images; capability CI now
   runs the resource-update, material, and bindless lifetime regressions too.
+
+## Slang shader and ABI foundation ✅
+
+- ✅ Replaced the conventional and bindless GLSL Forward sources with shared
+  Slang modules while retaining the existing Vulkan descriptor negotiation and
+  runtime SPIR-V entry points.
+- ✅ Pinned Slang 2026.8.x and added dependency-aware SPIR-V and Metal codegen,
+  per-target reflection, versioned build/install packaging, and deterministic
+  cache keys with source, compiler, profile, capability, matrix-layout,
+  optimization, entry-point, permutation, and generator provenance.
+- ✅ Extracted stable C++ Forward push-constant, material-uniform, and resource-
+  binding ABI declarations; reflected tests fail with actionable field or
+  set/binding diagnostics and Core retains only semantic shader capabilities.
+- ✅ Declared Metal non-uniform bindless indexing unsupported and selected the
+  conventional Forward compile gate without weakening the Vulkan bindless path.
+- ✅ Extended forced-conventional versus automatic-path artifacts to exact
+  color, depth, primId, and instanceId comparisons, and removed the superseded
+  GLSL runtime path.

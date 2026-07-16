@@ -22,6 +22,10 @@ string(JSON _openusd_validated GET "${_merlin_metadata}"
   requirements openusd validated)
 string(JSON _openusd_detected GET "${_merlin_metadata}"
   requirements openusd detected)
+string(JSON _slang_required GET "${_merlin_metadata}"
+  requirements slang required_series)
+string(JSON _shader_abi_version GET "${_merlin_metadata}"
+  requirements slang shader_abi_version)
 
 if(NOT _schema STREQUAL "animu-sphere.hdmerlin.release-metadata" OR
    NOT _schema_version EQUAL 1)
@@ -46,8 +50,21 @@ endif()
 if(NOT _packaging_contract STREQUAL "runtime-only")
   message(FATAL_ERROR "unexpected runtime product packaging contract")
 endif()
+if(NOT _slang_required STREQUAL "2026.8" OR
+   NOT _shader_abi_version EQUAL 1)
+  message(FATAL_ERROR "unexpected Slang/shader ABI metadata contract")
+endif()
 
 if(MERLIN_EXPECTED_VULKAN)
+  string(JSON _slang_detected GET "${_merlin_metadata}"
+    requirements slang detected)
+  string(JSON _shader_artifact_schema GET "${_merlin_metadata}"
+    requirements slang artifact_schema_version)
+  if(NOT _slang_detected MATCHES "^2026[.]8([.][0-9]+)?$" OR
+     NOT _shader_artifact_schema EQUAL 1)
+    message(FATAL_ERROR
+      "Vulkan metadata requires Slang 2026.8.x and shader artifacts v1")
+  endif()
   if(NOT _exported_target_count EQUAL 3)
     message(FATAL_ERROR "Vulkan metadata must export three targets")
   endif()

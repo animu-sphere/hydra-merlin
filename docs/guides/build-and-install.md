@@ -13,8 +13,9 @@ Every configuration requires:
 - a build system supported by CMake.
 
 The Vulkan/headless configuration additionally requires Vulkan 1.4 headers and
-loader, a Vulkan 1.4 physical device with a graphics queue, and `glslc` from the
-Vulkan SDK. The Hydra configuration also requires a compatible OpenUSD SDK;
+loader, a Vulkan 1.4 physical device with a graphics queue, and the pinned
+Slang 2026.8.x `slangc` shipped by Vulkan SDK 1.4.350.0. The Hydra configuration
+also requires a compatible OpenUSD SDK;
 OpenUSD 26.05 is the currently validated version.
 
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
@@ -49,7 +50,8 @@ Use `Release` in place of `Debug` to verify the release configuration.
 ## Vulkan and headless rendering
 
 When `MERLIN_ENABLE_VULKAN=ON` (the default), CMake locates Vulkan 1.4 and
-`glslc`, builds the Vulkan backend and shaders, and builds `merlin-headless`.
+Slang 2026.8.x, builds the Vulkan backend and versioned shader artifacts, and
+builds `merlin-headless`.
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
@@ -94,8 +96,9 @@ cmake --install build --config Release --prefix C:/merlin
 ```
 
 Core headers, libraries, and versioned CMake package files are always installed.
-Vulkan-enabled builds also install the Vulkan library, `merlin-headless`, and its
-SPIR-V shaders. Hydra-enabled builds install the `hdMerlin` plugin below
+Vulkan-enabled builds also install the Vulkan library, `merlin-headless`, and
+`<prefix>/<bindir>/shaders/v1` with SPIR-V, Metal compile-gate source,
+reflection JSON, and the deterministic artifact manifest. Hydra-enabled builds install the `hdMerlin` plugin below
 `<prefix>/<libdir>/usd/hdMerlin` and its smoke fixture below
 `<prefix>/<datadir>/merlin/tests`. Every configuration also installs
 `<prefix>/<datadir>/merlin/VERSION` plus

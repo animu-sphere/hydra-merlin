@@ -21,6 +21,12 @@
       "detected": @_merlin_metadata_vulkan_version@,
       "sdk_detected": @_merlin_metadata_vulkan_sdk_version@
     },
+    "slang": {
+      "required_series": "@MERLIN_SLANG_REQUIRED_SERIES@",
+      "detected": @_merlin_metadata_slang_version@,
+      "shader_abi_version": @MERLIN_SHADER_ABI_VERSION@,
+      "artifact_schema_version": @_merlin_metadata_shader_artifact_schema@
+    },
     "openusd": {
       "validated": "@MERLIN_OPENUSD_VALIDATED_VERSION@",
       "detected": @_merlin_metadata_openusd_version@

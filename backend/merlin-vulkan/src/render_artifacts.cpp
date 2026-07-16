@@ -180,10 +180,11 @@ Bytes MakeExr(std::uint32_t width, std::uint32_t height,
 
 void RequireComparisonInputs(const RenderResult& expected,
                              const RenderResult& actual) {
-  for (const auto aov : {Aov::Color, Aov::Depth, Aov::PrimId}) {
+  for (const auto aov :
+       {Aov::Color, Aov::Depth, Aov::PrimId, Aov::InstanceId}) {
     if (!HasCpuReadback(expected, aov) || !HasCpuReadback(actual, aov)) {
       throw std::invalid_argument(
-          "comparison artifacts require color, depth, and primId readback");
+          "comparison artifacts require color, depth, primId, and instanceId readback");
     }
   }
   ValidateRenderResult(expected);
@@ -281,6 +282,13 @@ ComparisonArtifactSet SaveComparisonArtifacts(
     prim_id_diff.pixels[i] = different ? 1U : 0U;
     result.matches = result.matches && !different;
   }
+  ImageUint32 instance_id_diff = actual.instance_id;
+  for (std::size_t i = 0; i < instance_id_diff.pixels.size(); ++i) {
+    const bool different =
+        expected.instance_id.pixels[i] != actual.instance_id.pixels[i];
+    instance_id_diff.pixels[i] = different ? 1U : 0U;
+    result.matches = result.matches && !different;
+  }
 
   const auto add = [&](std::string_view name) {
     result.files.push_back(directory / name);
@@ -295,6 +303,9 @@ ComparisonArtifactSet SaveComparisonArtifacts(
   WriteExr(add("primId-expected.exr"), expected.prim_id);
   WriteExr(add("primId-actual.exr"), actual.prim_id);
   WriteExr(add("primId-diff.exr"), prim_id_diff);
+  WriteExr(add("instanceId-expected.exr"), expected.instance_id);
+  WriteExr(add("instanceId-actual.exr"), actual.instance_id);
+  WriteExr(add("instanceId-diff.exr"), instance_id_diff);
   return result;
 }
 

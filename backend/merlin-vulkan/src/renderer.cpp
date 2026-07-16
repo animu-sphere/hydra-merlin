@@ -1,4 +1,5 @@
 #include <merlin/vulkan/renderer.hpp>
+#include <merlin/vulkan/shader_abi.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -272,27 +273,8 @@ std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
   return {column(cofactor0), column(cofactor1), column(cofactor2)};
 }
 
-struct PushConstants {
-  Mat4 model_view_projection;
-  Vec4 normal_matrix_column0;
-  Vec4 normal_matrix_column1;
-  Vec4 normal_matrix_column2;
-  std::uint32_t feature_mask{};
-  std::uint32_t prim_id{};
-  std::uint32_t instance_id{};
-  std::uint32_t texture_index{};
-};
-
-static_assert(sizeof(PushConstants) == 128);
-static_assert(offsetof(PushConstants, feature_mask) == 112);
-
-struct MaterialUniforms {
-  Vec4 base_color;
-  Vec4 light_direction_intensity;
-  Vec4 light_color_alpha_cutoff;
-};
-
-static_assert(sizeof(MaterialUniforms) == 48);
+using PushConstants = shader_abi::DrawConstants;
+using MaterialUniforms = shader_abi::MaterialConstants;
 
 constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
 constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;

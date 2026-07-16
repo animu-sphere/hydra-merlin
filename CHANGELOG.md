@@ -8,6 +8,30 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- A backend-neutral shader capability/permutation contract and stable Forward
+  shader ABI with reflected C++/Slang size, offset, entry-point, resource-class,
+  descriptor set, and binding validation.
+- Versioned `shaders/v1` packages containing Slang-generated SPIR-V, Metal
+  compile-gate source, target reflection, and a deterministic SHA-256 manifest
+  with compiler, profile, capability, dependency, generator, permutation, and
+  cache-compatibility provenance.
+- An explicit Metal conventional-Forward fallback declaration for the
+  unsupported non-uniform bindless resource-indexing feature.
+- Self-hosted Release capability evidence that builds the `v0.7.0` tag on the
+  same GPU and retains matching raw benchmark and comparison JSON reports.
+
+### Changed
+
+- Vulkan conventional and bindless Forward now compile from shared Slang
+  modules with pinned Slang 2026.8.x instead of the removed GLSL runtime source.
+- Build-tree, Hydra-plugin, and install-tree shader packaging now tracks each
+  generated artifact incrementally and preserves the versioned manifest and
+  reflection files.
+- Reference comparison artifacts now cover exact `instanceId` output alongside
+  color, depth, and `primId`.
+
 ## [0.7.0] - 2026-07-16
 
 ### Added

@@ -156,7 +156,10 @@ making changed-scene costs and host presentation separately observable. v0.7.0
 released the persistent Mesh/future-Gaussian resource foundation. Before the
 Gaussian and GPU-driven shader families expand, the active v0.8.0 milestone
 moves the shader source of truth from GLSL to Slang while preserving Vulkan
-output and enforcing a Metal compile gate. The ordered ladder then extracts the
+output and enforcing a Metal compile gate. Its implementation uses versioned
+SPIR-V/Metal/reflection artifacts and a deterministic provenance manifest; the
+Vulkan renderer continues to use SPIR-V while Metal non-uniform bindless access
+falls back explicitly to conventional Forward. The ordered ladder then extracts the
 minimum backend-neutral render contract and dedicated cross-backend
 `merlin-viewport`, proves a MaterialXGenSlang material-function slice, and
 brings up native Metal plus an HgiMetal host presentation bridge. The later path
@@ -177,8 +180,8 @@ separate FileFormat plugins or importers. Mesh and Gaussian resources share the
 persistent RenderWorld, camera, transforms, visibility, allocation, lifetime,
 and profiling infrastructure while retaining separate rendering algorithms.
 
-The Vulkan path requires a Vulkan 1.4-capable graphics queue and `glslc`
-from the Vulkan SDK at build time.
+The Vulkan path requires a Vulkan 1.4-capable graphics queue and Slang
+2026.8.x (`slangc`) from the Vulkan SDK at build time.
 
 ## Supported configurations
 
@@ -188,7 +191,7 @@ Hydra are optional dependency layers:
 | Configuration | CMake options | Required dependencies |
 |---|---|---|
 | Core-only | `MERLIN_ENABLE_VULKAN=OFF` | C++20 compiler |
-| Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and `glslc` |
+| Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
 | Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
 
 Windows with Visual Studio 2022 is the currently validated development path.
@@ -216,8 +219,9 @@ cmake --install build --config Release --prefix C:/merlin
 ```
 
 This installs the public headers, libraries, versioned CMake package files,
-and, when enabled, `merlin-headless` and `merlin-benchmark` with their SPIR-V
-shaders. A downstream CMake project can consume the package without referring
+and, when enabled, `merlin-headless` and `merlin-benchmark` with their
+versioned SPIR-V, Metal compile-gate, reflection, and manifest artifacts. A
+downstream CMake project can consume the package without referring
 to the Merlin source tree:
 
 ```cmake

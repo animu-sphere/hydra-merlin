@@ -2,6 +2,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/render_artifacts.hpp>
 #include <merlin/vulkan/renderer.hpp>
+#include <merlin/vulkan/shader_abi.hpp>
 
 #include <vulkan/vulkan_core.h>
 
@@ -608,11 +609,13 @@ int main(int argc, char** argv) {
     std::optional<merlin::vulkan::RenderResult> expected_result;
     if (!arguments.probe_only) {
       const auto executable_dir = std::filesystem::absolute(argv[0]).parent_path();
+      const auto shader_dir = executable_dir /
+          merlin::vulkan::shader_abi::kArtifactDirectory;
       const merlin::vulkan::ShaderPaths shaders{
-          executable_dir / "shaders" / "triangle.vert.spv",
-          executable_dir / "shaders" / "triangle.frag.spv",
-          executable_dir / "shaders" / "triangle.bindless.vert.spv",
-          executable_dir / "shaders" / "triangle.bindless.frag.spv"};
+          shader_dir / "triangle.vert.spv",
+          shader_dir / "triangle.frag.spv",
+          shader_dir / "triangle.bindless.vert.spv",
+          shader_dir / "triangle.bindless.frag.spv"};
       merlin::vulkan::RenderRequest request;
       request.snapshot = extractor.snapshot();
       request.width = arguments.width;
@@ -622,6 +625,7 @@ int main(int argc, char** argv) {
                           {merlin::Aov::Depth, true}};
       if (!arguments.artifact_dir.empty()) {
         request.products.push_back({merlin::Aov::PrimId, true});
+        request.products.push_back({merlin::Aov::InstanceId, true});
       }
       for (std::uint32_t frame = 0; frame < arguments.frames; ++frame) {
         const auto completion = renderer.Submit(request);

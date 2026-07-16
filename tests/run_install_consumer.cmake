@@ -37,6 +37,29 @@ endif()
 set(_headless
     "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/merlin-headless${MERLIN_EXECUTABLE_SUFFIX}")
 if(EXISTS "${_headless}")
+  set(_shader_dir
+      "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/shaders/v1")
+  foreach(_shader_file
+      triangle.vert.spv triangle.frag.spv
+      triangle.bindless.vert.spv triangle.bindless.frag.spv
+      triangle.vert.metal triangle.frag.metal
+      triangle.vert.spv.reflection.json triangle.frag.spv.reflection.json
+      triangle.bindless.vert.spv.reflection.json
+      triangle.bindless.frag.spv.reflection.json
+      triangle.vert.metal.reflection.json
+      triangle.frag.metal.reflection.json manifest.json)
+    if(NOT EXISTS "${_shader_dir}/${_shader_file}")
+      message(FATAL_ERROR
+        "installed shader artifact is missing: ${_shader_dir}/${_shader_file}")
+    endif()
+  endforeach()
+  file(READ "${_shader_dir}/manifest.json" _shader_manifest)
+  string(JSON _shader_schema ERROR_VARIABLE _shader_json_error
+         GET "${_shader_manifest}" schema_version)
+  if(_shader_json_error OR NOT _shader_schema EQUAL 1)
+    message(FATAL_ERROR
+      "installed shader manifest is invalid: ${_shader_json_error}")
+  endif()
   execute_process(
     COMMAND "${_headless}"
       --report "${MERLIN_BUILD_DIR}/renderer-report.json"

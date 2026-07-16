@@ -15,6 +15,13 @@ target_link_libraries(merlin-render-world-tests PRIVATE Merlin::RenderWorld)
 
 add_test(NAME merlin-render-world COMMAND merlin-render-world-tests)
 
+add_executable(merlin-shader-contract-tests
+  shader_contract_test.cpp
+)
+target_link_libraries(merlin-shader-contract-tests
+  PRIVATE Merlin::RenderWorld)
+add_test(NAME merlin-shader-contract COMMAND merlin-shader-contract-tests)
+
 add_executable(merlin-render-extraction-tests
   render_extraction_test.cpp
 )
@@ -36,6 +43,24 @@ set_tests_properties(merlin-mesh-scale-regression PROPERTIES
   TIMEOUT 60)
 
 if(TARGET Merlin::Vulkan)
+  add_executable(merlin-shader-abi-tests
+    shader_abi_test.cpp
+  )
+  target_link_libraries(merlin-shader-abi-tests PRIVATE Merlin::Vulkan)
+  add_dependencies(merlin-shader-abi-tests merlin-vulkan-shaders)
+  add_test(
+    NAME merlin-shader-abi
+    COMMAND merlin-shader-abi-tests
+      "${MERLIN_VERTEX_SPV}.reflection.json"
+      "${MERLIN_FRAGMENT_SPV}.reflection.json"
+      "${MERLIN_BINDLESS_VERTEX_SPV}.reflection.json"
+      "${MERLIN_BINDLESS_FRAGMENT_SPV}.reflection.json"
+      "${MERLIN_VERTEX_METAL}.reflection.json"
+      "${MERLIN_FRAGMENT_METAL}.reflection.json"
+      "${MERLIN_SHADER_MANIFEST}"
+  )
+  set_tests_properties(merlin-shader-abi PROPERTIES LABELS "shader;abi")
+
   add_executable(merlin-bindless-resource-table-tests
     bindless_resource_table_test.cpp
   )
@@ -79,7 +104,7 @@ if(TARGET merlin-headless)
   add_test(
     NAME merlin-vulkan-execution-lifetime
     COMMAND merlin-execution-lifetime-tests
-            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
   )
   set_tests_properties(merlin-vulkan-execution-lifetime PROPERTIES
     LABELS "gpu;lifetime"
@@ -95,7 +120,7 @@ if(TARGET merlin-headless)
   add_test(
     NAME merlin-vulkan-resource-update
     COMMAND merlin-resource-update-tests
-            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
   )
   set_tests_properties(merlin-vulkan-resource-update PROPERTIES
     LABELS "gpu"
@@ -111,7 +136,7 @@ if(TARGET merlin-headless)
   add_test(
     NAME merlin-vulkan-material-resources
     COMMAND merlin-material-resource-tests
-            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
   )
   set_tests_properties(merlin-vulkan-material-resources PROPERTIES
     LABELS "gpu;materials"
@@ -127,7 +152,7 @@ if(TARGET merlin-headless)
   add_test(
     NAME merlin-vulkan-bindless-residency
     COMMAND merlin-bindless-residency-tests
-            "$<TARGET_FILE_DIR:merlin-headless>/shaders"
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
   )
   set_tests_properties(merlin-vulkan-bindless-residency PROPERTIES
     LABELS "gpu;bindless;residency"
