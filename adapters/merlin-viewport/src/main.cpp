@@ -112,7 +112,9 @@ Arguments ParseArguments(int argc, char** argv) {
              "  --width N --height N --vsync on|off --validate\n"
              "  --frames N --benchmark report.json --screenshot image.ppm\n"
              "  --usd scene.usd --hidden --reference-check --resize-test\n"
-             "Controls: arrows move the camera, left click picks, S captures, Esc exits.\n";
+             "USD controls: Alt+LMB tumble, Alt+MMB track, Alt+RMB dolly, "
+             "wheel dolly, F frame all.\n"
+             "Other controls: arrows pan, left click picks, S captures, Esc exits.\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(option));
@@ -362,9 +364,16 @@ int main(int argc, char** argv) {
             }
             break;
           case merlin::viewport::EventType::PointerDown:
-            pick = std::pair{event.x, event.y};
+            if (event.button == merlin::viewport::MouseButton::Left &&
+                !event.modifiers.alt && !event.modifiers.super) {
+              pick = std::pair{event.x, event.y};
+            }
+            break;
+          case merlin::viewport::EventType::PointerUp:
             break;
           case merlin::viewport::EventType::PointerMove:
+            break;
+          case merlin::viewport::EventType::Scroll:
             break;
         }
       }

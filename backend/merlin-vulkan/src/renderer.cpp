@@ -324,6 +324,7 @@ static_assert(shader_abi::kBindlessTextures.binding >
 
 constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
 constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;
+constexpr std::uint32_t kCounterClockwiseFrontFaceFlag = 1U << 30U;
 constexpr std::uint32_t kSamplerIndexShift = 8U;
 constexpr std::uint32_t kSamplerIndexMask = 0xffffU;
 
@@ -3705,9 +3706,10 @@ class Renderer::Impl {
     raster.cullMode = (variant_key & kDoubleSidedFlag) != 0U
                           ? VK_CULL_MODE_NONE
                           : VK_CULL_MODE_BACK_BIT;
-    // Merlin snapshots use a conventional Y-up winding while the offscreen
-    // Vulkan viewport has a positive height (framebuffer Y-down).
-    raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    raster.frontFace =
+        (variant_key & kCounterClockwiseFrontFaceFlag) != 0U
+            ? VK_FRONT_FACE_COUNTER_CLOCKWISE
+            : VK_FRONT_FACE_CLOCKWISE;
     raster.lineWidth = 1.0F;
     VkPipelineMultisampleStateCreateInfo multisample{
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
@@ -4183,6 +4185,9 @@ class Renderer::Impl {
       }
       if (material.double_sided) {
         variant_key |= kDoubleSidedFlag;
+      }
+      if (snapshot.front_face == FrontFaceWinding::CounterClockwise) {
+        variant_key |= kCounterClockwiseFrontFaceFlag;
       }
       const auto pipeline = EnsurePipeline(active_target_->shaders, variant_key);
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);

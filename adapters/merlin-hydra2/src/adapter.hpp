@@ -88,6 +88,11 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
   void CommitResources(HdChangeTracker* tracker) override;
   HdAovDescriptor GetDefaultAovDescriptor(const TfToken& name) const override;
 
+  // The standalone Vulkan viewport reflects projection Y to compensate for
+  // its positive-height framebuffer viewport. Other Hydra hosts keep the
+  // renderer's conventional clockwise default.
+  void SetCameraFrontFaceCounterClockwise(bool counter_clockwise);
+
  private:
   class Impl;
   std::unique_ptr<Impl> impl_;

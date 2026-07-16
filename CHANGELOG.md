@@ -27,6 +27,9 @@ after its public API and release process are established.
 - Hydra render execution now consumes the backend-neutral renderer contract;
   normal native viewport frames omit CPU AOV readback while usdview retains its
   RenderBuffer compatibility path.
+- Hydra USD viewport framing and navigation now follow usdview's free-camera
+  defaults and gestures, honor Y/Z `upAxis`, and preserve front-face culling
+  while correcting Vulkan framebuffer Y orientation.
 - Release metadata now records the viewport product and pinned GLFW 3.4
   fallback commit.
 

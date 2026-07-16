@@ -55,8 +55,10 @@ Render the headless smoke image:
 ./build/adapters/merlin-headless/Debug/merlin-headless.exe --frames 6 --output merlin.ppm
 ```
 
-Run the native Vulkan viewport (arrow keys pan, click reads picking IDs, and
-`S` writes a screenshot):
+Run the native Vulkan viewport. Hydra USD navigation follows usdview: Alt+left
+tumbles, Alt+middle tracks, Alt+right and the wheel dolly, and `F` frames the
+stage. Arrow keys pan, an unmodified left click reads picking IDs, and `S`
+writes a screenshot.
 
 ```powershell
 ./build/adapters/merlin-viewport/Debug/merlin-viewport.exe --vsync off

@@ -307,10 +307,10 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Adapted the existing Vulkan renderer and Hydra delegate to that contract
   while keeping Vulkan, Metal, GLFW, and native surface types out of Core and
   concrete backend/window types out of the Hydra public boundary.
-- ✅ Added the permanent GLFW-hosted `merlin-viewport` product with camera and
-  resize controls, click-triggered ID readback, screenshots, title timing,
-  backend selection, benchmark mode, and optional OpenUSD loading through
-  Hydra.
+- ✅ Added the permanent GLFW-hosted `merlin-viewport` product with
+  usdview-style, `upAxis`-aware framing and tumble/track/dolly controls, resize,
+  click-triggered ID readback, screenshots, title timing, backend selection,
+  benchmark mode, and optional OpenUSD loading through Hydra.
 - ✅ Added Vulkan surface/swapchain ownership, FIFO and vsync-off present-mode
   selection, GPU-only color blit into the acquired image, out-of-date/resize
   recovery, and per-swapchain-image completion semaphores.

@@ -68,10 +68,13 @@ ctest --test-dir build -C Debug --output-on-failure
   --vsync off --benchmark viewport.json
 ```
 
-USD stages are initially framed from their render/proxy bounds and up axis. The
-viewport uses arrow keys for camera pan, click-triggered `primId` and
-`instanceId` readback, `S` for a PPM screenshot, and Escape to close. Normal
-frames present through the Vulkan swapchain without CPU readback. Use
+USD stages use usdview-compatible initial framing: the render/proxy bounds,
+authored Y/Z `upAxis`, 60-degree vertical FOV, maximum bounds dimension, and a
+1.1 frame-fit margin. `F` restores that framing. Alt+left drag tumbles,
+Alt+middle (or Alt+Ctrl+left) tracks, Alt+right and the wheel dolly, arrow keys
+pan, an unmodified left click triggers `primId` and `instanceId` readback, `S`
+writes a PPM screenshot, and Escape closes the window. Normal frames present
+through the Vulkan swapchain without CPU readback. Use
 `-DMERLIN_BUILD_VIEWPORT=OFF` for a Vulkan/headless-only build.
 
 The Vulkan tests distinguish an unavailable optional device or validation

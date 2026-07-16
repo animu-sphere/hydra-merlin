@@ -1019,6 +1019,11 @@ class SceneBridge {
         world_.CreateRenderSettings(render_settings_descriptor_);
   }
 
+  void SetCameraFrontFaceWinding(merlin::FrontFaceWinding winding) {
+    std::scoped_lock lock(mutex_);
+    camera_front_face_ = winding;
+  }
+
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
                 const SdfPath& material_path,
                 const std::vector<merlin::Mat4>& transforms, bool visible,
@@ -1750,6 +1755,7 @@ class SceneBridge {
       descriptor.label = key;
       descriptor.view = view;
       descriptor.projection = projection;
+      descriptor.front_face = camera_front_face_;
       const auto handle = world_.CreateCamera(std::move(descriptor));
       cameras_.emplace(key, handle);
       return handle;
@@ -1757,10 +1763,12 @@ class SceneBridge {
     const auto handle = found->second;
     const auto& old = world_.Get(handle);
     if (!MatricesEqual(old.view, view) ||
-        !MatricesEqual(old.projection, projection)) {
+        !MatricesEqual(old.projection, projection) ||
+        old.front_face != camera_front_face_) {
       auto descriptor = old;
       descriptor.view = view;
       descriptor.projection = projection;
+      descriptor.front_face = camera_front_face_;
       world_.UpdateCamera(handle, std::move(descriptor),
                           merlin::ChangeAspect::Camera);
     }
@@ -1769,6 +1777,8 @@ class SceneBridge {
 
   std::mutex mutex_;
   merlin::RenderWorld world_;
+  merlin::FrontFaceWinding camera_front_face_{
+      merlin::FrontFaceWinding::Clockwise};
   merlin::extraction::SceneExtractor extractor_;
   std::shared_ptr<merlin::render::Backend> renderer_;
   merlin::MaterialHandle fallback_material_;
@@ -2919,6 +2929,13 @@ HdMerlinRenderDelegate::HdMerlinRenderDelegate(
       resources_(std::make_shared<HdResourceRegistry>()) {}
 
 HdMerlinRenderDelegate::~HdMerlinRenderDelegate() = default;
+
+void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
+    bool counter_clockwise) {
+  impl_->bridge->SetCameraFrontFaceWinding(
+      counter_clockwise ? merlin::FrontFaceWinding::CounterClockwise
+                        : merlin::FrontFaceWinding::Clockwise);
+}
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
   static const TfTokenVector types{HdPrimTypeTokens->mesh};

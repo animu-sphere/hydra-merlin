@@ -11,7 +11,9 @@ enum class EventType {
   Resize,
   KeyDown,
   PointerDown,
+  PointerUp,
   PointerMove,
+  Scroll,
 };
 
 enum class Key {
@@ -21,16 +23,34 @@ enum class Key {
   Right,
   Up,
   Down,
+  Frame,
   Screenshot,
+};
+
+enum class MouseButton {
+  None,
+  Left,
+  Middle,
+  Right,
+};
+
+struct Modifiers {
+  bool alt{};
+  bool control{};
+  bool shift{};
+  bool super{};
 };
 
 struct Event {
   EventType type{EventType::Close};
   Key key{Key::Unknown};
+  MouseButton button{MouseButton::None};
+  Modifiers modifiers;
   std::uint32_t width{};
   std::uint32_t height{};
   std::int32_t x{};
   std::int32_t y{};
+  double scroll_y{};
 };
 
 class Window {

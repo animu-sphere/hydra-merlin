@@ -46,7 +46,7 @@ responsibility.
 | Host-neutral scene model and draw extraction | Available |
 | Host-neutral MaterialIR and revisioned texture/sampler resources | Available |
 | Backend-neutral renderer contract | `Merlin::RenderBackend` provides factory/selection, renderer capabilities and limits, logical presentation/completion handles, submit/resolve, common telemetry, and errors without concrete GPU/window types |
-| Native Vulkan viewport | `merlin-viewport` provides GLFW window/input, camera pan, resize, click-triggered ID picking, screenshots, benchmark mode, vsync selection, and optional Hydra USD loading |
+| Native Vulkan viewport | `merlin-viewport` provides GLFW window/input, usdview-style tumble/track/dolly/frame-all navigation with Y/Z `upAxis`, resize, click-triggered ID picking, screenshots, benchmark mode, vsync selection, and optional Hydra USD loading |
 | Vulkan swapchain presentation | GPU-only offscreen-to-swapchain blit with per-image completion, out-of-date/resize recovery, zero CPU readback by default, and exact offscreen product parity evidence |
 | Basic Vulkan material shading | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available |

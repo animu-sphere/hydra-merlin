@@ -18,9 +18,62 @@ Key TranslateKey(int key) noexcept {
     case GLFW_KEY_RIGHT: return Key::Right;
     case GLFW_KEY_UP: return Key::Up;
     case GLFW_KEY_DOWN: return Key::Down;
+    case GLFW_KEY_F: return Key::Frame;
     case GLFW_KEY_S: return Key::Screenshot;
     default: return Key::Unknown;
   }
+}
+
+MouseButton TranslateMouseButton(int button) noexcept {
+  switch (button) {
+    case GLFW_MOUSE_BUTTON_LEFT: return MouseButton::Left;
+    case GLFW_MOUSE_BUTTON_MIDDLE: return MouseButton::Middle;
+    case GLFW_MOUSE_BUTTON_RIGHT: return MouseButton::Right;
+    default: return MouseButton::None;
+  }
+}
+
+Modifiers TranslateModifiers(int modifiers) noexcept {
+  return {
+      .alt = (modifiers & GLFW_MOD_ALT) != 0,
+      .control = (modifiers & GLFW_MOD_CONTROL) != 0,
+      .shift = (modifiers & GLFW_MOD_SHIFT) != 0,
+      .super = (modifiers & GLFW_MOD_SUPER) != 0,
+  };
+}
+
+Modifiers ReadModifiers(GLFWwindow* window) noexcept {
+  const auto pressed = [window](int key) {
+    const auto state = glfwGetKey(window, key);
+    return state == GLFW_PRESS || state == GLFW_REPEAT;
+  };
+  return {
+      .alt = pressed(GLFW_KEY_LEFT_ALT) || pressed(GLFW_KEY_RIGHT_ALT),
+      .control = pressed(GLFW_KEY_LEFT_CONTROL) ||
+                 pressed(GLFW_KEY_RIGHT_CONTROL),
+      .shift = pressed(GLFW_KEY_LEFT_SHIFT) || pressed(GLFW_KEY_RIGHT_SHIFT),
+      .super = pressed(GLFW_KEY_LEFT_SUPER) || pressed(GLFW_KEY_RIGHT_SUPER),
+  };
+}
+
+void SetFramebufferPointerPosition(GLFWwindow* window, double x, double y,
+                                   Event& event) noexcept {
+  int window_width{};
+  int window_height{};
+  int framebuffer_width{};
+  int framebuffer_height{};
+  glfwGetWindowSize(window, &window_width, &window_height);
+  glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
+  const auto scale_x = window_width > 0
+                           ? static_cast<double>(framebuffer_width) /
+                                 static_cast<double>(window_width)
+                           : 1.0;
+  const auto scale_y = window_height > 0
+                           ? static_cast<double>(framebuffer_height) /
+                                 static_cast<double>(window_height)
+                           : 1.0;
+  event.x = static_cast<std::int32_t>(x * scale_x);
+  event.y = static_cast<std::int32_t>(y * scale_y);
 }
 
 std::runtime_error GlfwError(std::string_view operation) {
@@ -78,22 +131,33 @@ class GlfwWindow final : public Window {
       }
     });
     glfwSetMouseButtonCallback(window_, [](GLFWwindow* window, int button,
-                                           int action, int) {
-      if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        double x{};
-        double y{};
-        glfwGetCursorPos(window, &x, &y);
-        Event event{EventType::PointerDown};
-        event.x = static_cast<std::int32_t>(x);
-        event.y = static_cast<std::int32_t>(y);
-        Self(window).events_.push_back(event);
+                                           int action, int modifiers) {
+      const auto translated = TranslateMouseButton(button);
+      if (translated == MouseButton::None ||
+          (action != GLFW_PRESS && action != GLFW_RELEASE)) {
+        return;
       }
+      double x{};
+      double y{};
+      glfwGetCursorPos(window, &x, &y);
+      Event event{action == GLFW_PRESS ? EventType::PointerDown
+                                      : EventType::PointerUp};
+      event.button = translated;
+      event.modifiers = TranslateModifiers(modifiers);
+      SetFramebufferPointerPosition(window, x, y, event);
+      Self(window).events_.push_back(event);
     });
     glfwSetCursorPosCallback(window_, [](GLFWwindow* window, double x,
                                         double y) {
       Event event{EventType::PointerMove};
-      event.x = static_cast<std::int32_t>(x);
-      event.y = static_cast<std::int32_t>(y);
+      event.modifiers = ReadModifiers(window);
+      SetFramebufferPointerPosition(window, x, y, event);
+      Self(window).events_.push_back(event);
+    });
+    glfwSetScrollCallback(window_, [](GLFWwindow* window, double, double y) {
+      Event event{EventType::Scroll};
+      event.modifiers = ReadModifiers(window);
+      event.scroll_y = y;
       Self(window).events_.push_back(event);
     });
     int framebuffer_width{};
