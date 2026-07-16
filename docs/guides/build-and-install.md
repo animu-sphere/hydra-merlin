@@ -68,7 +68,8 @@ ctest --test-dir build -C Debug --output-on-failure
   --vsync off --benchmark viewport.json
 ```
 
-The viewport uses arrow keys for camera pan, click-triggered `primId` and
+USD stages are initially framed from their render/proxy bounds and up axis. The
+viewport uses arrow keys for camera pan, click-triggered `primId` and
 `instanceId` readback, `S` for a PPM screenshot, and Escape to close. Normal
 frames present through the Vulkan swapchain without CPU readback. Use
 `-DMERLIN_BUILD_VIEWPORT=OFF` for a Vulkan/headless-only build.

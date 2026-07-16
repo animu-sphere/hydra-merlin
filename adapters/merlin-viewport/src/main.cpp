@@ -260,6 +260,7 @@ int main(int argc, char** argv) {
       options.validation = arguments.validation;
       options.vsync = arguments.vsync;
       options.visible = arguments.visible;
+      options.reference_check = arguments.reference_check;
       options.resize_test = arguments.resize_test;
       return merlin::viewport::RunHydraViewport(options);
 #else

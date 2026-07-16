@@ -19,6 +19,7 @@ struct HydraViewportOptions {
   bool validation{};
   bool vsync{true};
   bool visible{true};
+  bool reference_check{};
   bool resize_test{};
 };
 

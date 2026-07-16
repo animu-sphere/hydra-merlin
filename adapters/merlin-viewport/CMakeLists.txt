@@ -93,6 +93,7 @@ if(MERLIN_BUILD_TESTS)
               --frames 6
               --vsync off
               --validate
+              --reference-check
               --resize-test
               --usd "${PROJECT_SOURCE_DIR}/adapters/merlin-hydra2/tests/usdview-smoke.usda"
               --benchmark "${CMAKE_CURRENT_BINARY_DIR}/viewport-hydra-benchmark.json"

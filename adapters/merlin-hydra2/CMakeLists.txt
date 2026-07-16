@@ -83,6 +83,7 @@ add_library(merlin-hydra2-runtime STATIC
 add_library(merlin-hydra2-host-dependencies INTERFACE)
 target_link_libraries(merlin-hydra2-host-dependencies INTERFACE
   usd
+  usdGeom
   usdImaging
 )
 
