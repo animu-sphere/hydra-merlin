@@ -1,18 +1,18 @@
 # Execution and render-product lifetime
 
-**Status:** v0.4.0 implementation · **Last reviewed:** 2026-07-14
+**Status:** v0.9.0 implementation · **Last reviewed:** 2026-07-17
 
-The Vulkan boundary separates immutable input, GPU submission, completion, and
-CPU product resolution:
+The backend-neutral boundary separates immutable input, GPU submission,
+completion, optional presentation, and CPU product resolution:
 
 ```text
-RenderRequest(shared FrameSnapshot, extent, shaders, products)
+RenderRequest(shared FrameSnapshot, extent, products, presentation target)
     │ Submit: validate, synchronize resources, record, queue
     ▼
 CompletionToken(renderer identity, monotonic submission value)
     │ IsComplete or Resolve(timeout)
     ▼
-RenderResult(selected CPU products, timings, counters)
+RenderResult(selected CPU products, timings, common counters)
 ```
 
 `Renderer::Render` remains a synchronous compatibility wrapper. It requests all
@@ -27,6 +27,9 @@ use the explicit API so production and CPU transfer are visible in the request.
 | Frame command pool/buffer | One backend `FrameContext`; unavailable from successful `Submit` until its token is resolved |
 | Attachment images/framebuffer | Owned by that frame context and retained across matching requests; never reused while its token is unresolved |
 | Host-visible readback buffers | Owned by the same frame target; mapped only after completion and retained until resolve copies into caller-owned vectors |
+| Logical presentation target | Backend-specific and owner-checked; contains no native handle in Core |
+| Vulkan surface/swapchain | Owned by the Vulkan backend; the GLFW adapter only supplies required instance extensions and a surface-creation callback |
+| Acquired swapchain image | Retained from acquire through the graphics submission and present; its per-image completion semaphore is not reused until the image is acquired again |
 | Geometry ranges | Owned by the persistent GPU scene; an edit versions a range while older submissions may read it, then retires the old range at its last completion value |
 | Staging regions | Owned by the staging ring through the completion value of the submission that consumes them |
 | `RenderResult` payloads | Owned entirely by the caller and independent of renderer/frame lifetime |
@@ -46,10 +49,10 @@ write attachments that are not requested, but it records image-to-buffer copies,
 maps memory, allocates result payloads, and counts readback bytes only for the
 requested CPU products. Unsupported and duplicate AOV requests are rejected.
 
-Hydra derives the request from host AOV bindings and adds depth for regression
-coverage evidence. Headless requests color/depth, adding primId only when
-comparison artifacts are requested. The benchmark deliberately reads all four
-AOVs to keep its v2 counter contract stable.
+Hydra derives CPU readback requests from host AOV bindings. Native viewport
+frames request a GPU-only color product and add CPU color/ID products only for
+screenshots or picking. usdview retains Tier 0 RenderBuffer readback. Headless
+requests color/depth, adding IDs when comparison artifacts are requested.
 
 ## Error classification
 
@@ -61,6 +64,7 @@ backend code where present:
 - `timeout` leaves the completion token valid for a later resolve;
 - `device-lost` identifies `VK_ERROR_DEVICE_LOST`;
 - `unsupported` covers missing Vulkan/format capabilities and unsupported AOVs;
+- `backend-unavailable` identifies failed explicit or automatic backend selection;
 - `backend-failure` covers other Vulkan or backend operation failures.
 
 ## Regression artifacts

@@ -7,7 +7,8 @@
   },
   "configuration": {
     "vulkan": @_merlin_metadata_vulkan_enabled@,
-    "hydra2": @_merlin_metadata_hydra2_enabled@
+    "hydra2": @_merlin_metadata_hydra2_enabled@,
+    "viewport": @_merlin_metadata_viewport_enabled@
   },
   "requirements": {
     "cmake": {
@@ -30,13 +31,18 @@
     "openusd": {
       "validated": "@MERLIN_OPENUSD_VALIDATED_VERSION@",
       "detected": @_merlin_metadata_openusd_version@
+    },
+    "glfw": {
+      "minimum": "@MERLIN_GLFW_MIN_VERSION@",
+      "fallback_commit": "@MERLIN_GLFW_PINNED_COMMIT@"
     }
   },
   "packaging": {
     "cmake_package": "Merlin",
     "exported_targets": [
       "Merlin::RenderWorld",
-      "Merlin::RenderExtraction"@_merlin_metadata_exported_vulkan@
+      "Merlin::RenderExtraction",
+      "Merlin::RenderBackend"@_merlin_metadata_exported_vulkan@
     ],
     "runtime_products_contract": "runtime-only",
     "runtime_products": @_merlin_metadata_runtime_products@

@@ -77,6 +77,15 @@ add_library(merlin-hydra2-runtime STATIC
   src/adapter.cpp
 )
 
+# Keeps OpenUSD imported-target lookup in the directory where find_package(pxr)
+# created those non-GLOBAL targets, while allowing the sibling viewport product
+# to consume the host-side UsdImaging APIs.
+add_library(merlin-hydra2-host-dependencies INTERFACE)
+target_link_libraries(merlin-hydra2-host-dependencies INTERFACE
+  usd
+  usdImaging
+)
+
 target_include_directories(merlin-hydra2-runtime PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
@@ -170,6 +179,7 @@ if(MERLIN_BUILD_TESTS)
   )
   get_filename_component(_merlin_pxr_root
     "${_merlin_pxr_include_dir_selected}/.." ABSOLUTE)
+  set(MERLIN_OPENUSD_RUNTIME_ROOT "${_merlin_pxr_root}" PARENT_SCOPE)
   set_tests_properties(merlin-hydra2-discovery PROPERTIES
     ENVIRONMENT_MODIFICATION
       "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"

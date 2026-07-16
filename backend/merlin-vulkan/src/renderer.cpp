@@ -17,6 +17,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -42,6 +43,7 @@ RendererError::RendererError(RendererErrorCode code, std::string operation,
                          operation + ": " + detail),
       code_(code),
       operation_(std::move(operation)),
+      detail_(std::move(detail)),
       native_code_(native_code) {}
 
 namespace {
@@ -160,6 +162,24 @@ void Check(VkResult result, const char* operation) {
                       "VkResult " +
                           std::to_string(static_cast<std::int32_t>(result)),
                       static_cast<std::int32_t>(result));
+}
+
+template <typename Handle>
+std::uintptr_t EncodeHandle(Handle handle) noexcept {
+  if constexpr (std::is_pointer_v<Handle>) {
+    return reinterpret_cast<std::uintptr_t>(handle);
+  } else {
+    return static_cast<std::uintptr_t>(handle);
+  }
+}
+
+template <typename Handle>
+Handle DecodeHandle(std::uintptr_t handle) noexcept {
+  if constexpr (std::is_pointer_v<Handle>) {
+    return reinterpret_cast<Handle>(handle);
+  } else {
+    return static_cast<Handle>(handle);
+  }
 }
 
 std::vector<std::uint32_t> ReadSpirv(const std::filesystem::path& path) {
@@ -947,6 +967,14 @@ class Renderer::Impl {
                           "create renderer",
                           "bindless_sampler_capacity must not exceed 65536");
     }
+    if (options.presentation) {
+      if (options.presentation->create_surface == nullptr) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "create presentation target",
+                            "presentation surface callback is null");
+      }
+      presentation_vsync_ = options.presentation->vsync;
+    }
     CreateDevice(options);
     memory_budget_.Initialize(physical_device_, device_,
                               capabilities_.memory_budget_extension,
@@ -1041,6 +1069,9 @@ class Renderer::Impl {
       for (auto& frame : frames_) {
         DestroyTarget(frame.target);
         DestroyBuffer(frame.material_uniforms);
+        if (frame.image_available != VK_NULL_HANDLE) {
+          vkDestroySemaphore(device_, frame.image_available, nullptr);
+        }
         if (frame.timestamp_pool != VK_NULL_HANDLE) {
           vkDestroyQueryPool(device_, frame.timestamp_pool, nullptr);
         }
@@ -1082,7 +1113,11 @@ class Renderer::Impl {
       if (transfer_timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, transfer_timeline_semaphore_, nullptr);
       }
+      DestroySwapchain();
       vkDestroyDevice(device_, nullptr);
+    }
+    if (surface_ != VK_NULL_HANDLE && instance_ != VK_NULL_HANDLE) {
+      vkDestroySurfaceKHR(instance_, surface_, nullptr);
     }
     if (debug_messenger_ != VK_NULL_HANDLE) {
       const auto destroy = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
@@ -1138,6 +1173,11 @@ class Renderer::Impl {
     } reset_active_target{active_target_};
     EnsureTarget(frame.target, request.width, request.height, request.shaders,
                   frame.cpu_readback_aovs);
+    if (request.present) {
+      PreparePresentation(frame, request.width, request.height);
+    } else {
+      frame.present_pending = false;
+    }
 
     const auto upload_start = CpuClock::now();
     geometry_records_.Sync(request.snapshot->geometries);
@@ -1237,6 +1277,12 @@ class Renderer::Impl {
     }
     frame.cpu_timings.queue_submission_ns =
         ElapsedNanoseconds(submission_start);
+    if (frame.present_pending) {
+      const auto presentation_start = CpuClock::now();
+      PresentFrame(frame);
+      frame.cpu_timings.presentation_ns =
+          ElapsedNanoseconds(presentation_start);
+    }
     frame.counters = frame_counters_;
     CommitTextureUploads();
     CommitResourceSnapshot(*request.snapshot);
@@ -1418,6 +1464,9 @@ class Renderer::Impl {
     VkCommandBuffer transfer_command_buffer{};
     VkFence fence{};
     VkQueryPool timestamp_pool{};
+    VkSemaphore image_available{};
+    std::uint32_t present_image_index{};
+    bool present_pending{};
     std::uint64_t completion_value{};
     bool outstanding{};
     RenderTarget target;
@@ -1432,6 +1481,20 @@ class Renderer::Impl {
     VkDescriptorSet bindless_material_descriptor_set{};
     VkDeviceSize material_uniform_stride{};
     Buffer material_uniforms;
+  };
+
+  struct SwapchainState {
+    VkSwapchainKHR handle{};
+    VkFormat format{VK_FORMAT_UNDEFINED};
+    VkColorSpaceKHR color_space{VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+    VkPresentModeKHR present_mode{VK_PRESENT_MODE_FIFO_KHR};
+    VkExtent2D extent{};
+    std::uint32_t requested_width{};
+    std::uint32_t requested_height{};
+    std::vector<VkImage> images;
+    std::vector<VkSemaphore> render_finished;
+    std::vector<bool> initialized;
+    bool dirty{};
   };
 
   enum class ResourceSyncMode {
@@ -1476,9 +1539,32 @@ class Renderer::Impl {
         : std::vector<const char*>{};
     const bool use_debug_utils =
         use_validation && HasInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    const std::vector<const char*> extensions = use_debug_utils
-        ? std::vector<const char*>{VK_EXT_DEBUG_UTILS_EXTENSION_NAME}
-        : std::vector<const char*>{};
+    std::vector<const char*> extensions;
+    if (use_debug_utils) {
+      extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
+    if (options.presentation) {
+      if (options.presentation->required_instance_extensions.empty()) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "create presentation target",
+                            "presentation adapter supplied no instance extensions");
+      }
+      for (const auto& extension :
+           options.presentation->required_instance_extensions) {
+        if (extension.empty() || !HasInstanceExtension(extension.c_str())) {
+          throw RendererError(RendererErrorCode::Unsupported,
+                              "create presentation target",
+                              "required Vulkan instance extension is unavailable: " +
+                                  extension);
+        }
+        if (std::find_if(extensions.begin(), extensions.end(),
+                         [&](const char* existing) {
+                           return extension == existing;
+                         }) == extensions.end()) {
+          extensions.push_back(extension.c_str());
+        }
+      }
+    }
 
     VkDebugUtilsMessengerCreateInfoEXT debug_info{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
@@ -1525,6 +1611,20 @@ class Renderer::Impl {
     instance_info.ppEnabledExtensionNames = extensions.data();
     Check(vkCreateInstance(&instance_info, nullptr, &instance_),
           "create Vulkan instance");
+    if (options.presentation) {
+      std::uintptr_t encoded_surface{};
+      const auto result = static_cast<VkResult>(
+          options.presentation->create_surface(
+              options.presentation->user_data, EncodeHandle(instance_),
+              &encoded_surface));
+      Check(result, "create Vulkan presentation surface");
+      surface_ = DecodeHandle<VkSurfaceKHR>(encoded_surface);
+      if (surface_ == VK_NULL_HANDLE) {
+        throw RendererError(RendererErrorCode::BackendFailure,
+                            "create presentation target",
+                            "presentation adapter returned a null surface");
+      }
+    }
     if (use_debug_utils) {
       const auto create = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
           vkGetInstanceProcAddr(instance_, "vkCreateDebugUtilsMessengerEXT"));
@@ -1561,8 +1661,17 @@ class Renderer::Impl {
       std::uint32_t transfer_family = VK_QUEUE_FAMILY_IGNORED;
       for (std::uint32_t index = 0; index < queue_count; ++index) {
         const auto flags = queues[index].queueFlags;
+        bool presentation_supported = true;
+        if (surface_ != VK_NULL_HANDLE) {
+          VkBool32 supported{};
+          Check(vkGetPhysicalDeviceSurfaceSupportKHR(candidate, index,
+                                                     surface_, &supported),
+                "query Vulkan presentation support");
+          presentation_supported = supported == VK_TRUE;
+        }
         if (graphics_family == VK_QUEUE_FAMILY_IGNORED &&
-            (flags & VK_QUEUE_GRAPHICS_BIT) != 0U) {
+            (flags & VK_QUEUE_GRAPHICS_BIT) != 0U &&
+            presentation_supported) {
           graphics_family = index;
         }
         if (transfer_family == VK_QUEUE_FAMILY_IGNORED &&
@@ -1571,7 +1680,9 @@ class Renderer::Impl {
           transfer_family = index;
         }
       }
-      if (graphics_family != VK_QUEUE_FAMILY_IGNORED) {
+      if (graphics_family != VK_QUEUE_FAMILY_IGNORED &&
+          (surface_ == VK_NULL_HANDLE ||
+           HasDeviceExtension(candidate, VK_KHR_SWAPCHAIN_EXTENSION_NAME))) {
         physical_device_ = candidate;
         queue_family_ = graphics_family;
         transfer_queue_family_ =
@@ -1621,6 +1732,7 @@ class Renderer::Impl {
     capabilities_.timestamp_queries =
         properties.properties.limits.timestampPeriod > 0.0F &&
         selected_timestamp_valid_bits_ != 0U;
+    capabilities_.external_presentation = surface_ != VK_NULL_HANDLE;
     timestamp_period_ns_ = properties.properties.limits.timestampPeriod;
 
     VkFormatProperties depth_properties{};
@@ -1703,10 +1815,13 @@ class Renderer::Impl {
       transfer_queue_info.queueFamilyIndex = transfer_queue_family_;
       queue_infos.push_back(transfer_queue_info);
     }
-    const std::vector<const char*> device_extensions =
-        capabilities_.memory_budget_extension
-            ? std::vector<const char*>{VK_EXT_MEMORY_BUDGET_EXTENSION_NAME}
-            : std::vector<const char*>{};
+    std::vector<const char*> device_extensions;
+    if (capabilities_.memory_budget_extension) {
+      device_extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+    }
+    if (surface_ != VK_NULL_HANDLE) {
+      device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    }
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     VkPhysicalDeviceTimelineSemaphoreFeatures enabled_timeline{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
@@ -1778,6 +1893,13 @@ class Renderer::Impl {
       Check(vkAllocateCommandBuffers(device_, &command_info,
                                      &frame.command_buffer),
             "allocate frame command buffer");
+      if (surface_ != VK_NULL_HANDLE) {
+        VkSemaphoreCreateInfo semaphore_info{
+            VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
+                                &frame.image_available),
+              "create presentation acquire semaphore");
+      }
       if (capabilities_.async_transfer_queue) {
         pool_info.queueFamilyIndex = transfer_queue_family_;
         Check(vkCreateCommandPool(device_, &pool_info, nullptr,
@@ -3188,6 +3310,11 @@ class Renderer::Impl {
           RendererErrorCode::InvalidRequest, "validate render request",
           "bindless vertex and fragment shader paths are required");
     }
+    if (request.present && surface_ == VK_NULL_HANDLE) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "presentation was requested without a presentation target");
+    }
     if (request.products.empty()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "validate render request",
@@ -3208,6 +3335,11 @@ class Renderer::Impl {
                                 std::string(AovName(product.aov)));
       }
       seen.push_back(product.aov);
+    }
+    if (request.present && !HasAov(seen, Aov::Color)) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "presentation requires the color AOV");
     }
   }
 
@@ -3696,6 +3828,313 @@ class Renderer::Impl {
     target = {};
   }
 
+  void DestroySwapchain() noexcept {
+    if (device_ != VK_NULL_HANDLE) {
+      for (const auto semaphore : swapchain_.render_finished) {
+        vkDestroySemaphore(device_, semaphore, nullptr);
+      }
+    }
+    if (device_ != VK_NULL_HANDLE && swapchain_.handle != VK_NULL_HANDLE) {
+      vkDestroySwapchainKHR(device_, swapchain_.handle, nullptr);
+    }
+    swapchain_ = {};
+  }
+
+  VkSurfaceFormatKHR SelectSurfaceFormat() const {
+    std::uint32_t count{};
+    Check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_,
+                                               &count, nullptr),
+          "query presentation surface formats");
+    if (count == 0) {
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "create Vulkan swapchain",
+                          "presentation surface exposes no formats");
+    }
+    std::vector<VkSurfaceFormatKHR> formats(count);
+    Check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_,
+                                               &count, formats.data()),
+          "query presentation surface formats");
+    const std::array<VkFormat, 4> preferred{
+        VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM,
+        VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8A8_SRGB};
+    for (const auto format : preferred) {
+      const auto found = std::find_if(
+          formats.begin(), formats.end(), [format](const auto& candidate) {
+            return candidate.format == format &&
+                   candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+          });
+      if (found != formats.end()) {
+        return *found;
+      }
+    }
+    return formats.front();
+  }
+
+  VkPresentModeKHR SelectPresentMode() const {
+    std::uint32_t count{};
+    Check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device_, surface_,
+                                                    &count, nullptr),
+          "query Vulkan present modes");
+    std::vector<VkPresentModeKHR> modes(count);
+    Check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device_, surface_,
+                                                    &count, modes.data()),
+          "query Vulkan present modes");
+    if (!presentation_vsync_) {
+      for (const auto preferred : {VK_PRESENT_MODE_IMMEDIATE_KHR,
+                                   VK_PRESENT_MODE_MAILBOX_KHR}) {
+        if (std::find(modes.begin(), modes.end(), preferred) != modes.end()) {
+          return preferred;
+        }
+      }
+    }
+    return VK_PRESENT_MODE_FIFO_KHR;
+  }
+
+  void CreateSwapchain(std::uint32_t requested_width,
+                       std::uint32_t requested_height) {
+    VkSurfaceCapabilitiesKHR surface_capabilities{};
+    Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+              physical_device_, surface_, &surface_capabilities),
+          "query presentation surface capabilities");
+    if ((surface_capabilities.supportedUsageFlags &
+         VK_IMAGE_USAGE_TRANSFER_DST_BIT) == 0U) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "create Vulkan swapchain",
+          "presentation images do not support GPU transfer destinations");
+    }
+
+    const auto surface_format = SelectSurfaceFormat();
+    VkFormatProperties source_properties{};
+    VkFormatProperties destination_properties{};
+    vkGetPhysicalDeviceFormatProperties(physical_device_, kColorFormat,
+                                        &source_properties);
+    vkGetPhysicalDeviceFormatProperties(physical_device_,
+                                        surface_format.format,
+                                        &destination_properties);
+    if ((source_properties.optimalTilingFeatures &
+         VK_FORMAT_FEATURE_BLIT_SRC_BIT) == 0U ||
+        (destination_properties.optimalTilingFeatures &
+         VK_FORMAT_FEATURE_BLIT_DST_BIT) == 0U) {
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "create Vulkan swapchain",
+                          "offscreen-to-presentation GPU blit is unsupported");
+    }
+
+    VkExtent2D extent{};
+    if (surface_capabilities.currentExtent.width !=
+        std::numeric_limits<std::uint32_t>::max()) {
+      extent = surface_capabilities.currentExtent;
+    } else {
+      extent.width = std::clamp(requested_width,
+                                surface_capabilities.minImageExtent.width,
+                                surface_capabilities.maxImageExtent.width);
+      extent.height = std::clamp(requested_height,
+                                 surface_capabilities.minImageExtent.height,
+                                 surface_capabilities.maxImageExtent.height);
+    }
+    if (extent.width == 0 || extent.height == 0) {
+      throw RendererError(RendererErrorCode::ResourceBusy,
+                          "create Vulkan swapchain",
+                          "presentation surface is minimized");
+    }
+
+    std::uint32_t image_count = surface_capabilities.minImageCount + 1U;
+    if (surface_capabilities.maxImageCount != 0) {
+      image_count = std::min(image_count,
+                             surface_capabilities.maxImageCount);
+    }
+    VkCompositeAlphaFlagBitsKHR composite_alpha =
+        VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    if ((surface_capabilities.supportedCompositeAlpha & composite_alpha) == 0U) {
+      constexpr std::array<VkCompositeAlphaFlagBitsKHR, 3> alternatives{
+          VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+          VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+          VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR};
+      const auto found = std::find_if(
+          alternatives.begin(), alternatives.end(),
+          [&](const auto value) {
+            return (surface_capabilities.supportedCompositeAlpha & value) != 0U;
+          });
+      if (found == alternatives.end()) {
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "create Vulkan swapchain",
+                            "presentation surface exposes no composite alpha mode");
+      }
+      composite_alpha = *found;
+    }
+
+    VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+    info.surface = surface_;
+    info.minImageCount = image_count;
+    info.imageFormat = surface_format.format;
+    info.imageColorSpace = surface_format.colorSpace;
+    info.imageExtent = extent;
+    info.imageArrayLayers = 1;
+    info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    info.preTransform = surface_capabilities.currentTransform;
+    info.compositeAlpha = composite_alpha;
+    info.presentMode = SelectPresentMode();
+    info.clipped = VK_TRUE;
+    info.oldSwapchain = swapchain_.handle;
+
+    VkSwapchainKHR replacement{};
+    Check(vkCreateSwapchainKHR(device_, &info, nullptr, &replacement),
+          "create Vulkan swapchain");
+    std::uint32_t actual_count{};
+    Check(vkGetSwapchainImagesKHR(device_, replacement, &actual_count, nullptr),
+          "query Vulkan swapchain images");
+    std::vector<VkImage> images(actual_count);
+    Check(vkGetSwapchainImagesKHR(device_, replacement, &actual_count,
+                                  images.data()),
+          "query Vulkan swapchain images");
+    std::vector<VkSemaphore> render_finished(actual_count);
+    try {
+      VkSemaphoreCreateInfo semaphore_info{
+          VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+      for (auto& semaphore : render_finished) {
+        Check(vkCreateSemaphore(device_, &semaphore_info, nullptr, &semaphore),
+              "create per-image presentation completion semaphore");
+      }
+    } catch (...) {
+      for (const auto semaphore : render_finished) {
+        if (semaphore != VK_NULL_HANDLE) {
+          vkDestroySemaphore(device_, semaphore, nullptr);
+        }
+      }
+      vkDestroySwapchainKHR(device_, replacement, nullptr);
+      throw;
+    }
+
+    const bool replacing = swapchain_.handle != VK_NULL_HANDLE;
+    if (replacing) {
+      for (const auto semaphore : swapchain_.render_finished) {
+        vkDestroySemaphore(device_, semaphore, nullptr);
+      }
+      vkDestroySwapchainKHR(device_, swapchain_.handle, nullptr);
+      ++statistics_.swapchain_recreates;
+    }
+    swapchain_.handle = replacement;
+    swapchain_.format = surface_format.format;
+    swapchain_.color_space = surface_format.colorSpace;
+    swapchain_.present_mode = info.presentMode;
+    swapchain_.extent = extent;
+    swapchain_.requested_width = requested_width;
+    swapchain_.requested_height = requested_height;
+    swapchain_.images = std::move(images);
+    swapchain_.render_finished = std::move(render_finished);
+    swapchain_.initialized.assign(actual_count, false);
+    swapchain_.dirty = false;
+  }
+
+  void EnsureSwapchain(std::uint32_t width, std::uint32_t height) {
+    if (swapchain_.handle != VK_NULL_HANDLE && !swapchain_.dirty &&
+        swapchain_.requested_width == width &&
+        swapchain_.requested_height == height) {
+      return;
+    }
+    if (swapchain_.handle != VK_NULL_HANDLE) {
+      Check(vkDeviceWaitIdle(device_), "wait before recreating Vulkan swapchain");
+    }
+    CreateSwapchain(width, height);
+  }
+
+  void PreparePresentation(FrameContext& frame, std::uint32_t width,
+                           std::uint32_t height) {
+    EnsureSwapchain(width, height);
+    auto result = vkAcquireNextImageKHR(
+        device_, swapchain_.handle,
+        std::numeric_limits<std::uint64_t>::max(), frame.image_available,
+        VK_NULL_HANDLE, &frame.present_image_index);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+      swapchain_.dirty = true;
+      EnsureSwapchain(width, height);
+      result = vkAcquireNextImageKHR(
+          device_, swapchain_.handle,
+          std::numeric_limits<std::uint64_t>::max(), frame.image_available,
+          VK_NULL_HANDLE, &frame.present_image_index);
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+      Check(result, "acquire Vulkan presentation image");
+    }
+    if (result == VK_SUBOPTIMAL_KHR) {
+      swapchain_.dirty = true;
+    }
+    frame.present_pending = true;
+  }
+
+  void RecordPresentation(VkCommandBuffer command,
+                          const FrameContext& frame) {
+    const auto image = swapchain_.images.at(frame.present_image_index);
+    VkImageMemoryBarrier to_transfer{
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    to_transfer.srcAccessMask = 0;
+    to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_transfer.oldLayout =
+        swapchain_.initialized.at(frame.present_image_index)
+            ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+            : VK_IMAGE_LAYOUT_UNDEFINED;
+    to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_transfer.image = image;
+    to_transfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    to_transfer.subresourceRange.levelCount = 1;
+    to_transfer.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &to_transfer);
+
+    VkImageBlit blit{};
+    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.srcSubresource.layerCount = 1;
+    blit.srcOffsets[1] = {static_cast<std::int32_t>(active_target_->width),
+                          static_cast<std::int32_t>(active_target_->height), 1};
+    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.dstSubresource.layerCount = 1;
+    blit.dstOffsets[1] = {static_cast<std::int32_t>(swapchain_.extent.width),
+                          static_cast<std::int32_t>(swapchain_.extent.height), 1};
+    vkCmdBlitImage(command, active_target_->color,
+                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                   VK_FILTER_NEAREST);
+
+    VkImageMemoryBarrier to_present = to_transfer;
+    to_present.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_present.dstAccessMask = 0;
+    to_present.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_present.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &to_present);
+    frame_counters_.present_count = 1;
+    frame_counters_.presentation_copy_bytes =
+        static_cast<std::uint64_t>(swapchain_.extent.width) *
+        swapchain_.extent.height * 4U;
+  }
+
+  void PresentFrame(const FrameContext& frame) {
+    VkPresentInfoKHR info{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    info.waitSemaphoreCount = 1;
+    const auto render_finished =
+        swapchain_.render_finished.at(frame.present_image_index);
+    info.pWaitSemaphores = &render_finished;
+    info.swapchainCount = 1;
+    info.pSwapchains = &swapchain_.handle;
+    info.pImageIndices = &frame.present_image_index;
+    const auto result = vkQueuePresentKHR(queue_, &info);
+    swapchain_.initialized.at(frame.present_image_index) = true;
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+      swapchain_.dirty = true;
+      if (result == VK_SUBOPTIMAL_KHR) {
+        ++statistics_.frames_presented;
+      }
+      return;
+    }
+    Check(result, "present Vulkan swapchain image");
+    ++statistics_.frames_presented;
+  }
+
   void RecordFrame(VkCommandBuffer command,
                    const FrameContext& frame,
                    const extraction::FrameSnapshot& snapshot,
@@ -3847,6 +4286,9 @@ class Renderer::Impl {
                              active_target_->instance_id_readback.handle, 1,
                              &id_copy);
     }
+    if (frame.present_pending) {
+      RecordPresentation(command, frame);
+    }
   }
 
   std::uint64_t SubmitTransfers(FrameContext& frame) {
@@ -3876,32 +4318,62 @@ class Renderer::Impl {
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &frame.command_buffer;
-    const VkPipelineStageFlags transfer_wait_stage =
-        VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+
+    std::array<VkSemaphore, 2> wait_semaphores{};
+    std::array<VkPipelineStageFlags, 2> wait_stages{};
+    std::array<std::uint64_t, 2> wait_values{};
+    std::uint32_t wait_count{};
     if (transfer_completion != 0) {
-      submit.waitSemaphoreCount = 1;
-      submit.pWaitSemaphores = &transfer_timeline_semaphore_;
-      submit.pWaitDstStageMask = &transfer_wait_stage;
+      wait_semaphores[wait_count] = transfer_timeline_semaphore_;
+      wait_stages[wait_count] = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
+                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      wait_values[wait_count] = transfer_completion;
+      ++wait_count;
     }
+    if (frame.present_pending) {
+      wait_semaphores[wait_count] = frame.image_available;
+      wait_stages[wait_count] = VK_PIPELINE_STAGE_TRANSFER_BIT;
+      wait_values[wait_count] = 0;
+      ++wait_count;
+    }
+    submit.waitSemaphoreCount = wait_count;
+    submit.pWaitSemaphores = wait_semaphores.data();
+    submit.pWaitDstStageMask = wait_stages.data();
+
+    std::array<VkSemaphore, 2> signal_semaphores{};
+    std::array<std::uint64_t, 2> signal_values{};
+    std::uint32_t signal_count{};
     std::uint64_t completion{};
+    VkTimelineSemaphoreSubmitInfo timeline{
+        VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
     if (timeline_semaphore_ != VK_NULL_HANDLE) {
       completion = ++timeline_value_;
-      VkTimelineSemaphoreSubmitInfo timeline{
-          VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-      if (transfer_completion != 0) {
-        timeline.waitSemaphoreValueCount = 1;
-        timeline.pWaitSemaphoreValues = &transfer_completion;
+      timeline.waitSemaphoreValueCount = wait_count;
+      timeline.pWaitSemaphoreValues = wait_values.data();
+      signal_semaphores[signal_count] = timeline_semaphore_;
+      signal_values[signal_count] = completion;
+      ++signal_count;
+      if (frame.present_pending) {
+        signal_semaphores[signal_count] =
+            swapchain_.render_finished.at(frame.present_image_index);
+        signal_values[signal_count] = 0;
+        ++signal_count;
       }
-      timeline.signalSemaphoreValueCount = 1;
-      timeline.pSignalSemaphoreValues = &completion;
+      timeline.signalSemaphoreValueCount = signal_count;
+      timeline.pSignalSemaphoreValues = signal_values.data();
       submit.pNext = &timeline;
-      submit.signalSemaphoreCount = 1;
-      submit.pSignalSemaphores = &timeline_semaphore_;
+      submit.signalSemaphoreCount = signal_count;
+      submit.pSignalSemaphores = signal_semaphores.data();
       Check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE),
             "submit extracted scene frame");
     } else {
       completion = ++timeline_value_;
+      if (frame.present_pending) {
+        signal_semaphores[0] =
+            swapchain_.render_finished.at(frame.present_image_index);
+        submit.signalSemaphoreCount = 1;
+        submit.pSignalSemaphores = signal_semaphores.data();
+      }
       Check(vkQueueSubmit(queue_, 1, &submit, frame.fence),
             "submit extracted scene frame");
     }
@@ -4026,6 +4498,7 @@ class Renderer::Impl {
   }
 
   VkInstance instance_{};
+  VkSurfaceKHR surface_{};
   VkPhysicalDevice physical_device_{};
   VkDevice device_{};
   VkQueue queue_{};
@@ -4089,6 +4562,8 @@ class Renderer::Impl {
   std::uint64_t resident_snapshot_source_{};
   std::uint64_t resident_snapshot_revision_{};
   bool resource_residency_dirty_{};
+  bool presentation_vsync_{true};
+  SwapchainState swapchain_;
   RenderTarget* active_target_{};
   std::atomic<std::uint64_t> validation_messages_{};
 };

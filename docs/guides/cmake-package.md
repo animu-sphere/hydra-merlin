@@ -21,10 +21,10 @@ directory containing `MerlinConfig.cmake`.
 cmake_minimum_required(VERSION 3.24)
 project(MyRenderer LANGUAGES CXX)
 
-find_package(Merlin 0.1 REQUIRED COMPONENTS RenderExtraction)
+find_package(Merlin 0.1 REQUIRED COMPONENTS RenderBackend)
 
 add_executable(my-renderer main.cpp)
-target_link_libraries(my-renderer PRIVATE Merlin::RenderExtraction)
+target_link_libraries(my-renderer PRIVATE Merlin::RenderBackend)
 ```
 
 Configure the consumer with:
@@ -40,7 +40,8 @@ cmake --build build --config Release
 | --- | --- | --- | --- |
 | `RenderWorld` | `Merlin::RenderWorld` | Always | C++20 only |
 | `RenderExtraction` | `Merlin::RenderExtraction` | Always | `Merlin::RenderWorld` |
-| `Vulkan` | `Merlin::Vulkan` | Vulkan enabled | Vulkan 1.4 and `Merlin::RenderExtraction` |
+| `RenderBackend` | `Merlin::RenderBackend` | Always | `Merlin::RenderExtraction` |
+| `Vulkan` | `Merlin::Vulkan` | Vulkan enabled | Vulkan 1.4, `Merlin::RenderBackend`, and `Merlin::RenderExtraction` |
 
 Requesting `Vulkan` makes the installed package discover Vulkan 1.4. A consumer
 requesting only Core components does not need Vulkan, even when the producer was
@@ -52,7 +53,7 @@ fail. The package exposes `Merlin_VERSION`, `Merlin_WITH_VULKAN`, and
 
 ## Runtime-only products
 
-For v0.1.0, `merlin-headless`, `merlin-benchmark`, and the `hdMerlin` plugin are
+`merlin-headless`, `merlin-benchmark`, `merlin-viewport`, and the `hdMerlin` plugin are
 runtime-only install products, not imported CMake targets. Their executables or
 plugin module, resources, and shaders are installed together so they can run
 without the source tree. They do not expose a supported link-time consumer API,
@@ -66,7 +67,7 @@ transitive dependency of the Core or Vulkan CMake targets.
 
 Every configured build generates `merlin-release-metadata.json` and installs it
 under `<prefix>/<datadir>/merlin`. Schema version 1 records the project version,
-enabled Vulkan/Hydra layers, dependency minimums or validated versions, exported
+enabled Vulkan/Hydra/viewport layers, dependency minimums or validated versions, exported
 CMake targets, and the runtime-only product list. Release archives carry the
 same file and the plain-text `VERSION` source of truth so tooling can inspect
 their contract without parsing this guide.

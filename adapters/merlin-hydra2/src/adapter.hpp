@@ -11,6 +11,10 @@
 #include <mutex>
 #include <vector>
 
+namespace merlin::render {
+class Backend;
+}
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 class HdMerlinRenderBuffer final : public HdRenderBuffer {
@@ -54,6 +58,9 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
 class HdMerlinRenderDelegate final : public HdRenderDelegate {
  public:
   explicit HdMerlinRenderDelegate(const HdRenderSettingsMap& settings = {});
+  HdMerlinRenderDelegate(
+      std::shared_ptr<merlin::render::Backend> backend,
+      const HdRenderSettingsMap& settings = {});
   ~HdMerlinRenderDelegate() override;
 
   const TfTokenVector& GetSupportedRprimTypes() const override;
