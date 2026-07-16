@@ -81,6 +81,7 @@ jobs:
           if ($capacityOutput -notmatch "bindless texture table: exhausted \(capacity=4") {
             throw "bindless exhaustion output was not actionable: $capacityOutput"
           }
+          exit 0
 
       - name: Check out the v0.7.0 benchmark baseline
         if: matrix.build_type == 'Release'
