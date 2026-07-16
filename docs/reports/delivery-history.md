@@ -291,3 +291,10 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Extended forced-conventional versus automatic-path artifacts to exact
   color, depth, primId, and instanceId comparisons, and removed the superseded
   GLSL runtime path.
+- ✅ Confirmed the repository-scoped Windows x64 `vulkan-1.4` runner with a
+  green Debug/Release Vulkan and OpenUSD 26.05 Hydra
+  [capability run](https://github.com/animu-sphere/hydra-merlin/actions/runs/29508228337).
+  Release evidence builds the `v0.7.0` tag on the same GPU: structural
+  comparison passes with zero regressions, and the 120-frame steady-state GPU
+  median moves from 1,231,700 ns to 1,188,085 ns (-3.5%). Raw reports and a
+  non-gating 20% timing observation are retained for review.

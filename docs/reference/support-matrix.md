@@ -10,13 +10,14 @@ work, but is not currently claimed as supported evidence.
 
 | Platform | Core | Vulkan/headless | Hydra 2 | Evidence level |
 | --- | --- | --- | --- | --- |
-| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Release with OpenUSD 26.05 | Core hosted CI; GPU/Hydra local validation; manual capability workflow defined, runner pending |
+| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Release with OpenUSD 26.05 | Core hosted CI plus successful self-hosted [GPU/Hydra capability run 29508228337](https://github.com/animu-sphere/hydra-merlin/actions/runs/29508228337) |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Core hosted CI |
 | macOS | Not validated | Not validated | Not validated | No current claim |
 
-A repository-scoped Windows GPU runner has not yet been enrolled, so the manual
-capability workflow is not continuous evidence. Enrollment is tracked in the
-[backlog](../roadmap/backlog.md#cross-cutting-open-items).
+A repository-scoped Windows x64 GPU runner is enrolled with the `vulkan-1.4`
+label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
+Release on demand; it is capability evidence rather than a per-commit required
+check.
 
 ## Dependency contract
 
