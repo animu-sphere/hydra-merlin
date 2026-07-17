@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.8.0 · **Last reviewed:** 2026-07-17
+**Status:** v0.9.0 development · **Last reviewed:** 2026-07-17
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -8,11 +8,11 @@ work, but is not currently claimed as supported evidence.
 
 ## Toolchain and platform coverage
 
-| Platform | Core | Vulkan/headless | Hydra 2 | Evidence level |
-| --- | --- | --- | --- | --- |
-| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Release with OpenUSD 26.05 | Core hosted CI plus successful self-hosted [GPU/Hydra capability run 29508228337](https://github.com/animu-sphere/hydra-merlin/actions/runs/29508228337) |
-| Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Core hosted CI |
-| macOS | Not validated | Not validated | Not validated | No current claim |
+| Platform | Core | Vulkan/headless | Vulkan viewport | Hydra 2 | Evidence level |
+| --- | --- | --- | --- | --- | --- |
+| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 | Core hosted CI plus local v0.9 viewport/Hydra validation; capability workflow retains the same evidence |
+| Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Not continuously exercised | Core hosted CI |
+| macOS | Not validated | Not validated | Not validated | Not validated | No current claim |
 
 A repository-scoped Windows x64 GPU runner is enrolled with the `vulkan-1.4`
 label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
@@ -28,6 +28,7 @@ check.
 | OpenStrata CLI | 0.17.0 | Managed build/validation, managed Hydra view, and capability CI |
 | Vulkan headers/loader/device | 1.4 | Vulkan/headless and Hydra |
 | Vulkan SDK `slangc` | Slang 2026.8.x; Vulkan SDK 1.4.350.0 in capability workflow | Shader build and SPIR-V/Metal compile gates |
+| GLFW | 3.4; pinned commit fallback recorded in release metadata | `merlin-viewport` window/input and Vulkan surface adapter |
 | OpenUSD | 26.05 currently validated | Hydra 2 only |
 | Python + `testusdview` | Matching the OpenUSD runtime | Install-tree Hydra host test |
 
@@ -44,6 +45,9 @@ responsibility.
 | --- | --- |
 | Host-neutral scene model and draw extraction | Available |
 | Host-neutral MaterialIR and revisioned texture/sampler resources | Available |
+| Backend-neutral renderer contract | `Merlin::RenderBackend` provides factory/selection, renderer capabilities and limits, logical presentation/completion handles, submit/resolve, common telemetry, and errors without concrete GPU/window types |
+| Native Vulkan viewport | `merlin-viewport` provides GLFW window/input, usdview-style tumble/track/dolly/frame-all navigation with Y/Z `upAxis`, resize, click-triggered ID picking, screenshots, benchmark mode, vsync selection, and optional Hydra USD loading |
+| Vulkan swapchain presentation | GPU-only offscreen-to-swapchain blit with per-image completion, out-of-date/resize recovery, zero CPU readback by default, and exact offscreen product parity evidence |
 | Basic Vulkan material shading | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available |
 | Explicit submit/completion/timeout-aware resolve | Available |
@@ -51,7 +55,7 @@ responsibility.
 | PNG/EXR expected/actual/diff regression artifacts | Exact comparison is available for color, depth, primId, and instanceId |
 | Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, bindless/geometry/transfer/VRAM residency telemetry, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
 | Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes |
-| Core/Vulkan installed CMake targets | Available |
+| Core/Vulkan installed CMake targets | `Merlin::RenderWorld`, `Merlin::RenderExtraction`, `Merlin::RenderBackend`, and optional `Merlin::Vulkan` are available |
 | Versioned dependency and package metadata | Available as installed JSON |
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
@@ -71,7 +75,7 @@ responsibility.
 | Static meshlet indexed-indirect rendering | Planned for v0.19.0 from standard Hydra mesh data; no custom USD schema is planned |
 | Mesh Shader, Hi-Z, and discrete meshlet LOD | Planned as optional, capability- and benchmark-selected v0.20.0 paths with indexed fallback |
 | Hierarchical meshlets and virtualized geometry | Post-v1 research direction; unavailable and not implied by static meshlet support |
-| Structured render errors | Vulkan boundary exposes stable invalid-request/token, resource-busy/exhausted, timeout, device-lost, unsupported, and backend-failure classes |
+| Structured render errors | The common boundary exposes stable invalid-request/token, resource-busy/exhausted, timeout, device-lost, unsupported, backend-unavailable, and backend-failure classes; Vulkan maps native failures into it |
 | Host-neutral diagnostic sink | `merlin-diagnostic/v1` is available with stable codes, dispositions, source paths, and named recovery; Hydra forwards records to OpenUSD diagnostics and telemetry |
 | Standard OpenUSD Gaussian ingestion and rendering | The OpenUSD 26.05 `ParticleField3DGaussianSplat` → `usdVolImaging` → Hydra `particleField` boundary is accepted and documented; host-neutral Gaussian resources and rendering remain v0.14.0 work |
 | Subdivision refinement | Unavailable |

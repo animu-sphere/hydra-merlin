@@ -37,6 +37,9 @@ set(MERLIN_OPENUSD_VALIDATED_VERSION "26.05")
 set(MERLIN_SLANG_REQUIRED_SERIES "2026.8")
 set(MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION 1)
 set(MERLIN_SHADER_ABI_VERSION 1)
+set(MERLIN_GLFW_MIN_VERSION "3.4")
+set(MERLIN_GLFW_PINNED_COMMIT
+    "7b6aead9fb88b3623e3b3725ebb42670cbe4c579")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -44,6 +47,7 @@ include(CMakePackageConfigHelpers)
 option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
+option(MERLIN_BUILD_VIEWPORT "Build the native merlin-viewport application" ON)
 option(MERLIN_GENERATE_RENDERER_REPORT
   "Generate OpenStrata renderer evidence after linking merlin-headless" ON)
 
@@ -63,6 +67,7 @@ endif()
 
 add_subdirectory(core/merlin-render-world)
 add_subdirectory(core/merlin-render-extraction)
+add_subdirectory(core/merlin-render-backend)
 
 if(MERLIN_ENABLE_VULKAN)
   add_subdirectory(backend/merlin-vulkan)
@@ -74,6 +79,10 @@ if(MERLIN_ENABLE_HYDRA2)
   add_subdirectory(adapters/merlin-hydra2)
 endif()
 
+if(MERLIN_ENABLE_VULKAN AND MERLIN_BUILD_VIEWPORT)
+  add_subdirectory(adapters/merlin-viewport)
+endif()
+
 if(MERLIN_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
@@ -83,6 +92,7 @@ set(_merlin_install_cmakedir "${CMAKE_INSTALL_LIBDIR}/cmake/Merlin")
 set(_merlin_core_targets
   merlin-render-world
   merlin-render-extraction
+  merlin-render-backend
 )
 
 install(TARGETS ${_merlin_core_targets}
@@ -102,6 +112,8 @@ endif()
 install(DIRECTORY core/merlin-render-world/include/
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 install(DIRECTORY core/merlin-render-extraction/include/
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(DIRECTORY core/merlin-render-backend/include/
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 if(TARGET merlin-vulkan)
   install(DIRECTORY backend/merlin-vulkan/include/
@@ -173,6 +185,16 @@ else()
   set(_merlin_metadata_runtime_products "")
 endif()
 
+if(TARGET merlin-viewport)
+  set(_merlin_metadata_viewport_enabled true)
+  if(_merlin_metadata_runtime_products)
+    string(APPEND _merlin_metadata_runtime_products ",\n")
+  endif()
+  string(APPEND _merlin_metadata_runtime_products "      \"merlin-viewport\"")
+else()
+  set(_merlin_metadata_viewport_enabled false)
+endif()
+
 if(MERLIN_ENABLE_HYDRA2)
   set(_merlin_metadata_hydra2_enabled true)
   set(_merlin_metadata_openusd_version "null")
@@ -220,6 +242,7 @@ if(MERLIN_BUILD_TESTS)
       "-DMERLIN_EXPECTED_VERSION:STRING=${PROJECT_VERSION}"
       "-DMERLIN_EXPECTED_VULKAN:BOOL=${MERLIN_ENABLE_VULKAN}"
       "-DMERLIN_EXPECTED_HYDRA2:BOOL=${MERLIN_ENABLE_HYDRA2}"
+      "-DMERLIN_EXPECTED_VIEWPORT:BOOL=${_merlin_metadata_viewport_enabled}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify-release-metadata.cmake"
   )
   set_tests_properties(merlin-release-metadata PROPERTIES LABELS packaging)

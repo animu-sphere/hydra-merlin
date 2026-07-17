@@ -1,8 +1,8 @@
 # Renderer architecture
 
-**Status:** v0.7.0 implementation + accepted multi-backend direction
+**Status:** v0.9.0 backend/viewport implementation + accepted future direction
 
-**Last reviewed:** 2026-07-16
+**Last reviewed:** 2026-07-17
 
 hdMerlin is a lightweight, host-neutral raster renderer with Vulkan as its
 current and first backend and Metal as its planned second backend. It is not a
@@ -15,10 +15,10 @@ the [multi-backend strategy](multibackend-slang-materialx.md).
 ## Dependency boundary
 
 ```text
-DCC / usdview / headless source
+DCC / usdview / headless / native viewport source
             │
             ▼
-Hydra or headless adapter
+Hydra, headless, or viewport adapter
             │  normalize host data
             ▼
 Scene model: RenderWorld
@@ -27,15 +27,18 @@ Scene model: RenderWorld
 Draw model: GPU Scene + DrawItem / DrawPacket
             │  frame plan
             ▼
+Backend-neutral execution contract
+            │  factory selection / submit / resolve / presentation
+            ▼
 Execution model: selected backend
             │
             ▼
-Offscreen RenderProduct
+Offscreen RenderProduct or native presentation
 ```
 
 Required rules:
 
-- Core public APIs do not expose `pxr::`, Vulkan, Metal, Qt, Houdini, Maya, or
+- Core public APIs do not expose `pxr::`, Vulkan, Metal, GLFW, Qt, Houdini, Maya, or
   other DCC SDK types.
 - Hydra dirty bits, topology, and primvar interpolation are normalized in the
   adapter before entering the scene model.
@@ -44,8 +47,8 @@ Required rules:
 - DCC discovery, UI, environment, and package metadata belong to integration
   packages rather than Core.
 - Core and backend-neutral execution own no native window or presentation
-  object; backend presentation adapters own Vulkan surfaces/swapchains or Metal
-  layers/drawables.
+  object. The GLFW adapter supplies Vulkan instance requirements and surface
+  creation; Vulkan owns the resulting surface, swapchain, images, and sync.
 - Tier 0 CPU readback remains the correctness reference when lower-copy host
   presentation is added.
 - Dependencies point from adapters/integrations toward Core and backend, never
@@ -59,6 +62,22 @@ Required rules:
 | Draw | Immutable frame snapshot, draw items, batches, GPU Scene | Host callbacks or DCC types |
 | Material | Host-neutral `MaterialIR`, parameters, texture bindings | Raw MaterialX/Hydra networks |
 | Execution | Frame plan, submission, completion, resource lifetime | Mutations to the scene model |
+
+## Backend contract and native viewport
+
+`Merlin::RenderBackend` contains only renderer meanings: backend selection,
+capabilities and limits, immutable snapshot requests, requested AOV/readback,
+logical presentation and completion handles, submit/resolve, common timings and
+counters, and structured errors. Vulkan-specific diagnostics and every native
+object remain in `Merlin::Vulkan`.
+
+`merlin-viewport` is the permanent native host. GLFW owns window/input event
+delivery, the application owns camera, picking, screenshots, resize, title and
+benchmark behavior, and the selected backend owns presentation execution. The
+Vulkan adapter acquires a swapchain image and performs a GPU color blit from the
+same offscreen attachment used for reference output. Normal frames allocate no
+readback buffer and transfer no image data to the CPU; screenshots, picking,
+and differential checks opt into selected AOV readback.
 
 The target scene-to-GPU path is:
 
@@ -174,6 +193,9 @@ their frame context until the single-use token resolves. See the
   renderer validation failures.
 - Missing devices, validation layers, or optional capabilities have explicit
   capability/skip semantics in tests.
+- Native presentation selects FIFO for vsync and prefers Immediate then Mailbox
+  when vsync is off, recreates on extent/out-of-date changes, and uses one
+  render-finished semaphore per swapchain image.
 
 ## Material and shader variants
 

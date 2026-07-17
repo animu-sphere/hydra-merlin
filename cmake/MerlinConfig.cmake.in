@@ -10,6 +10,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/MerlinTargets.cmake")
 
 set(Merlin_RenderWorld_FOUND TRUE)
 set(Merlin_RenderExtraction_FOUND TRUE)
+set(Merlin_RenderBackend_FOUND TRUE)
 set(Merlin_Vulkan_FOUND FALSE)
 
 set(_merlin_load_vulkan FALSE)
@@ -32,7 +33,7 @@ if(_merlin_load_vulkan)
   endif()
 endif()
 
-set(_merlin_known_components RenderWorld RenderExtraction Vulkan)
+set(_merlin_known_components RenderWorld RenderExtraction RenderBackend Vulkan)
 foreach(_merlin_component IN LISTS Merlin_FIND_COMPONENTS)
   if(NOT _merlin_component IN_LIST _merlin_known_components)
     set(Merlin_${_merlin_component}_FOUND FALSE)

@@ -4,9 +4,10 @@
 
 hdMerlin is an OST-oriented, host-neutral Vulkan raster renderer. The current
 implementation provides a handle-based `RenderWorld`, deterministic extraction
-into an immutable resource-granular `FrameSnapshot`, and a persistent Vulkan
-offscreen renderer with explicit submission/completion lifetime and selectable
-color/depth/primId/instanceId CPU readback. Its host-neutral `MaterialIR`
+into an immutable resource-granular `FrameSnapshot`, a backend-neutral render
+contract, and a persistent Vulkan renderer with offscreen and GLFW-hosted
+swapchain presentation. Submission/completion lifetime and selectable
+color/depth/primId/instanceId CPU readback remain explicit. Its host-neutral `MaterialIR`
 supports revisioned texture/sampler bindings and basic directional-lit,
 textured, vertex-colored, opaque or alpha-masked shading.
 
@@ -52,6 +53,15 @@ Render the headless smoke image:
 
 ```powershell
 ./build/adapters/merlin-headless/Debug/merlin-headless.exe --frames 6 --output merlin.ppm
+```
+
+Run the native Vulkan viewport. Hydra USD navigation follows usdview: Alt+left
+tumbles, Alt+middle tracks, Alt+right and the wheel dolly, and `F` frames the
+stage. Arrow keys pan, an unmodified left click reads picking IDs, and `S`
+writes a screenshot.
+
+```powershell
+./build/adapters/merlin-viewport/Debug/merlin-viewport.exe --vsync off
 ```
 
 Retain unchanged-frame expected/actual/diff evidence as PNG and OpenEXR:
@@ -153,16 +163,13 @@ feature coverage.
 v0.5.0 released the host-neutral MaterialIR and basic textured shading slice.
 v0.6.0 released the measurement foundation and incremental Hydra sync work,
 making changed-scene costs and host presentation separately observable. v0.7.0
-released the persistent Mesh/future-Gaussian resource foundation. Before the
-Gaussian and GPU-driven shader families expand, the active v0.8.0 milestone
-moves the shader source of truth from GLSL to Slang while preserving Vulkan
-output and enforcing a Metal compile gate. Its implementation uses versioned
-SPIR-V/Metal/reflection artifacts and a deterministic provenance manifest; the
-Vulkan renderer continues to use SPIR-V while Metal non-uniform bindless access
-falls back explicitly to conventional Forward. The ordered ladder then extracts the
-minimum backend-neutral render contract and dedicated cross-backend
-`merlin-viewport`, proves a MaterialXGenSlang material-function slice, and
-brings up native Metal plus an HgiMetal host presentation bridge. The later path
+released the persistent Mesh/future-Gaussian resource foundation, and v0.8.0
+moved the Forward shader source of truth to Slang with reflected artifacts and
+a Metal compile gate. The completed v0.9.0 work adds the minimum backend-neutral
+render contract and dedicated cross-backend `merlin-viewport` with validated
+Vulkan swapchain presentation and Hydra USD loading. The active v0.10.0
+milestone proves a MaterialXGenSlang material-function slice before native
+Metal and an HgiMetal host presentation bridge. The later path
 advances through Gaussian rendering, persistent draw identity, GPU-driven
 Mesh/Gaussian execution, experimental opaque Visibility, production MaterialX
 quality, static meshlets, and only then optional Mesh Shader/Hi-Z/LOD. Forward
@@ -192,6 +199,7 @@ Hydra are optional dependency layers:
 |---|---|---|
 | Core-only | `MERLIN_ENABLE_VULKAN=OFF` | C++20 compiler |
 | Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
+| Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback |
 | Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
 
 Windows with Visual Studio 2022 is the currently validated development path.
@@ -219,29 +227,30 @@ cmake --install build --config Release --prefix C:/merlin
 ```
 
 This installs the public headers, libraries, versioned CMake package files,
-and, when enabled, `merlin-headless` and `merlin-benchmark` with their
+and, when enabled, `merlin-headless`, `merlin-benchmark`, and `merlin-viewport` with their
 versioned SPIR-V, Metal compile-gate, reflection, and manifest artifacts. A
 downstream CMake project can consume the package without referring
 to the Merlin source tree:
 
 ```cmake
-find_package(Merlin 0.1 REQUIRED COMPONENTS RenderExtraction)
-target_link_libraries(my-renderer PRIVATE Merlin::RenderExtraction)
+find_package(Merlin 0.1 REQUIRED COMPONENTS RenderBackend)
+target_link_libraries(my-renderer PRIVATE Merlin::RenderBackend)
 ```
 
 Available package components and targets are `RenderWorld`
-(`Merlin::RenderWorld`), `RenderExtraction` (`Merlin::RenderExtraction`), and,
-for Vulkan-enabled builds, `Vulkan` (`Merlin::Vulkan`). The install-consumer
+(`Merlin::RenderWorld`), `RenderExtraction` (`Merlin::RenderExtraction`),
+`RenderBackend` (`Merlin::RenderBackend`), and, for Vulkan-enabled builds,
+`Vulkan` (`Merlin::Vulkan`). The install-consumer
 CTest installs to an isolated prefix and verifies downstream configure, build,
 link, and execution.
 
 ## Architecture boundary
 
 Dependencies flow from adapters into the host-neutral scene model, deterministic
-draw extraction, and then the offscreen backend. Public Core APIs do not expose
-OpenUSD, Hydra, Vulkan, Qt, or DCC types. Hydra owns host path/dirty-bit
-translation, while the Vulkan backend owns execution and CPU render-product
-readback without owning a native window or swapchain.
+draw extraction, backend-neutral execution contract, and concrete backend.
+Public Core APIs do not expose OpenUSD, Hydra, Vulkan, GLFW, Qt, or DCC types.
+Hydra owns host path/dirty-bit translation; the GLFW adapter owns the window;
+and Vulkan owns execution, readback, surface, swapchain, and synchronization.
 
 ## Project documentation
 

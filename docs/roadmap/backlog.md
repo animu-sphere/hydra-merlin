@@ -1,27 +1,11 @@
 # Backlog
 
-Ordered work after the active v0.9.0 milestone in [current.md](current.md).
+Ordered work after the active v0.10.0 milestone in [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started
 
 ## Milestone ladder
-
-### ⬜ v0.10.0 — MaterialXGenSlang prototype
-
-Use the official MaterialX Slang Shader Generator for a deliberate prototype
-covering constants, colors, images, texcoords, normals, multiply/add/mix, and a
-small Standard Surface subset. Generate a cached Slang material-evaluation
-module rather than a complete render pass, connect it to Vulkan Forward through
-the host-neutral `MaterialIR` boundary, diagnose unsupported nodes, and keep
-geometry, lights, alpha policy, resources, and AOV writes renderer-owned.
-
-Exit requires a MaterialX document to produce a deterministic
-`evaluateMaterial`-style module and cache key; the Vulkan Forward path to call
-it with reference images in tolerance; and both SPIR-V and Metal-target
-artifacts plus reflection metadata to be generated from the same module. Raw
-MaterialX graphs do not enter Core, and this prototype is not production-wide
-node coverage.
 
 ### ⬜ v0.11.0 — Metal backend bootstrap and residency
 
@@ -240,9 +224,6 @@ smoke tests; Core remains independent of every DCC SDK.
 - ⬜ **OpenUSD compatibility.** Extend the validated 26.05 shared-SDK and MSVC
   configuration checks with runtime plugin ABI diagnostics where supported by
   the host.
-- ⬜ **Shader artifacts.** Define Slang-generated SPIR-V/Metal-target manifests,
-  reflection metadata, compiler/generator provenance, versioning, and cache-
-  compatibility contracts.
 - ⬜ **Build and exported products.** Add independently justified options and
   resolve `Merlin::Hydra2`/`Merlin::Headless` packaging without making OpenUSD a
   Core/Vulkan transitive dependency.

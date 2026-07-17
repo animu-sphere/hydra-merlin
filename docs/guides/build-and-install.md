@@ -1,7 +1,7 @@
 # Build and install
 
-hdMerlin can be built as portable Core libraries, with the Vulkan/headless
-backend, or with the opt-in Hydra 2 adapter. Build only the layers whose
+hdMerlin can be built as portable Core libraries, with the Vulkan headless and
+native viewport products, or with the opt-in Hydra 2 adapter. Build only the layers whose
 dependencies are available.
 
 ## Prerequisites
@@ -17,6 +17,10 @@ loader, a Vulkan 1.4 physical device with a graphics queue, and the pinned
 Slang 2026.8.x `slangc` shipped by Vulkan SDK 1.4.350.0. The Hydra configuration
 also requires a compatible OpenUSD SDK;
 OpenUSD 26.05 is the currently validated version.
+
+The viewport uses GLFW 3.4. CMake first accepts an installed `glfw3` package;
+otherwise it fetches the commit pinned in the top-level build and release
+metadata. GLFW is private to the viewport and never becomes a Core dependency.
 
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
 Core-only Debug and Release builds with Ninja. See the
@@ -47,11 +51,11 @@ ctest --test-dir build-core --output-on-failure
 
 Use `Release` in place of `Debug` to verify the release configuration.
 
-## Vulkan and headless rendering
+## Vulkan, headless rendering, and native viewport
 
 When `MERLIN_ENABLE_VULKAN=ON` (the default), CMake locates Vulkan 1.4 and
 Slang 2026.8.x, builds the Vulkan backend and versioned shader artifacts, and
-builds `merlin-headless`.
+builds `merlin-headless` and, by default, `merlin-viewport`.
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
@@ -60,7 +64,18 @@ cmake --build build --config Debug --parallel
 ctest --test-dir build -C Debug --output-on-failure
 ./build/adapters/merlin-headless/Debug/merlin-headless.exe `
   --frames 6 --output merlin.ppm
+./build/adapters/merlin-viewport/Debug/merlin-viewport.exe `
+  --vsync off --benchmark viewport.json
 ```
+
+USD stages use usdview-compatible initial framing: the render/proxy bounds,
+authored Y/Z `upAxis`, 60-degree vertical FOV, maximum bounds dimension, and a
+1.1 frame-fit margin. `F` restores that framing. Alt+left drag tumbles,
+Alt+middle (or Alt+Ctrl+left) tracks, Alt+right and the wheel dolly, arrow keys
+pan, an unmodified left click triggers `primId` and `instanceId` readback, `S`
+writes a PPM screenshot, and Escape closes the window. Normal frames present
+through the Vulkan swapchain without CPU readback. Use
+`-DMERLIN_BUILD_VIEWPORT=OFF` for a Vulkan/headless-only build.
 
 The Vulkan tests distinguish an unavailable optional device or validation
 capability from a renderer failure. Review CTest output rather than treating a
@@ -77,6 +92,8 @@ cmake -S . -B build-hydra2 -G "Visual Studio 17 2022" -A x64 `
   -DCMAKE_PREFIX_PATH=C:/path/to/openusd
 cmake --build build-hydra2 --config Release --parallel
 ctest --test-dir build-hydra2 -C Release --output-on-failure
+./build-hydra2/adapters/merlin-viewport/Release/merlin-viewport.exe `
+  --usd C:/path/to/scene.usda
 ```
 
 The Hydra configuration accepts the validated OpenUSD 26.05 shared SDK and
@@ -96,7 +113,8 @@ cmake --install build --config Release --prefix C:/merlin
 ```
 
 Core headers, libraries, and versioned CMake package files are always installed.
-Vulkan-enabled builds also install the Vulkan library, `merlin-headless`, and
+Vulkan-enabled builds also install the Vulkan library, `merlin-headless`,
+`merlin-benchmark`, `merlin-viewport`, and
 `<prefix>/<bindir>/shaders/v1` with SPIR-V, Metal compile-gate source,
 reflection JSON, and the deterministic artifact manifest. Hydra-enabled builds install the `hdMerlin` plugin below
 `<prefix>/<libdir>/usd/hdMerlin` and its smoke fixture below
@@ -116,6 +134,7 @@ contract.
 | `MERLIN_BUILD_TESTS` | `ON` | Build and register the test suite. |
 | `MERLIN_ENABLE_VULKAN` | `ON` | Build Vulkan, shaders, and headless products. |
 | `MERLIN_ENABLE_HYDRA2` | `OFF` | Build the OpenUSD Hydra 2 adapter; requires Vulkan. |
+| `MERLIN_BUILD_VIEWPORT` | `ON` | Build the GLFW-hosted native viewport; requires Vulkan. |
 
 Use a new build directory when changing dependency roots or major capability
 options. Existing CMake caches can otherwise retain an older Vulkan or OpenUSD

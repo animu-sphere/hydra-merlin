@@ -298,3 +298,25 @@ repository-scoped GPU runner for continuous execution remains in the
   comparison passes with zero regressions, and the 120-frame steady-state GPU
   median moves from 1,231,700 ns to 1,188,085 ns (-3.5%). Raw reports and a
   non-gating 20% timing observation are retained for review.
+
+## Backend-neutral viewport and Vulkan presentation ✅
+
+- ✅ Added `Merlin::RenderBackend` with backend selection/factories,
+  renderer-meaning capabilities and limits, logical presentation and completion
+  handles, submit/resolve, common timings/counters, and structured errors.
+- ✅ Adapted the existing Vulkan renderer and Hydra delegate to that contract
+  while keeping Vulkan, Metal, GLFW, and native surface types out of Core and
+  concrete backend/window types out of the Hydra public boundary.
+- ✅ Added the permanent GLFW-hosted `merlin-viewport` product with
+  usdview-style, `upAxis`-aware framing and tumble/track/dolly controls, resize,
+  click-triggered ID readback, screenshots, title timing, backend selection,
+  benchmark mode, and optional OpenUSD loading through Hydra.
+- ✅ Added Vulkan surface/swapchain ownership, FIFO and vsync-off present-mode
+  selection, GPU-only color blit into the acquired image, out-of-date/resize
+  recovery, and per-swapchain-image completion semaphores.
+- ✅ Retained exact viewport/offscreen color and depth parity, zero CPU readback
+  on normal presentation frames, resize recreation, presentation-copy bytes,
+  validation message counts, and CPU/GPU timing evidence in CTest and
+  `merlin.viewport-benchmark/v1` reports.
+- ✅ Added Core-only, installed-package, Vulkan viewport, and OpenUSD/Hydra USD
+  viewport coverage plus a forbidden concrete-backend type scan.

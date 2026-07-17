@@ -1,6 +1,6 @@
 # Multi-backend, Slang, MaterialX, and HgiMetal strategy
 
-**Status:** Accepted roadmap direction
+**Status:** v0.9 backend/viewport boundary implemented; later stages accepted
 
 **Date:** 2026-07-16
 
@@ -47,13 +47,18 @@ Vulkan/Metal contract.
 - The backend interface is expressed in renderer operations such as capability
   discovery, frame submission, resolve/readback, and presentation. It does not
   reproduce Vulkan command-buffer methods in a virtual RHI.
-- The minimum contract is extracted from working Vulkan and Metal paths. A
-  general-purpose RHI is not designed in advance.
+- The initial minimum contract is extracted from the working Vulkan path and
+  kept Metal-neutral; Metal extends renderer meanings only when its bootstrap
+  proves they are required. A general-purpose RHI is not designed in advance.
 - The dedicated `merlin-viewport` application owns windows, input, camera
   control, UI, resize, picking, and an abstract presentation target. It is a
   permanent renderer product and performance reference. Vulkan owns its
   surface/swapchain adapter and Metal owns its `CAMetalLayer` and drawables;
   both plug into the same application host.
+- The v0.9 Vulkan host uses GLFW behind a private adapter. GLFW types do not
+  enter Core or Hydra public APIs, and Vulkan owns the created surface and
+  swapchain. Presentation uses a GPU blit from the reference color attachment,
+  retaining exact offscreen output and zero CPU readback for normal frames.
 - Hydra ingestion mutates `RenderWorld` and never selects or calls a GPU API.
   Backend selection is a build, plugin, environment, command-line, or automatic
   platform decision.
@@ -190,10 +195,9 @@ command-buffer, and counter-sample diagnostics.
 
 ## Sequencing and non-goals
 
-The ordered delivery is: complete the current Vulkan persistent-residency
-milestone; migrate the Vulkan reference shaders to Slang and enforce a Metal
-compile gate; extract the backend contract and neutral viewport boundary;
-prototype MaterialXGenSlang; bootstrap Metal, residency, native presentation,
+The Vulkan persistent-residency milestone, Slang migration/Metal compile gate,
+and backend contract/native Vulkan viewport boundary are complete. The ordered
+delivery continues with the MaterialXGenSlang prototype; Metal residency, native presentation,
 and HgiMetal presentation; then add Gaussian and the later GPU-driven,
 Visibility, production MaterialX, and meshlet work. The detailed release gates
 are in the [roadmap](../roadmap/backlog.md).

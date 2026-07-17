@@ -7,29 +7,22 @@ recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone
 
-### ⬜ v0.9.0 — `merlin-viewport` and Vulkan presentation
+### ⬜ v0.10.0 — MaterialXGenSlang prototype
 
-Extract the minimum backend-neutral operations needed by the working Vulkan
-path and an upcoming Metal bootstrap: backend factory and selection,
-renderer-meaning capabilities and limits, frame submit/resolve, completion
-lifetime, presentation target, common telemetry, and errors. Keep command
-encoding, transitions, descriptors/argument buffers, memory, synchronization,
-and native surface objects backend-owned.
-
-Build the dedicated `merlin-viewport` application as a backend-neutral native
-host for window/input, camera, resize, renderer settings, selection/picking
-foundations, overlays, benchmark mode, screenshots, and USD loading through
-Hydra. Its first production presentation adapter is Vulkan with a direct
-swapchain path; rendering and scene behavior remain shared with headless
-execution. The application is a permanent product and performance reference,
-not temporary Metal bootstrap scaffolding.
+Use the official MaterialX Slang Shader Generator for a deliberate prototype
+covering constants, colors, images, texcoords, normals, multiply/add/mix, and a
+small Standard Surface subset. Generate a cached Slang material-evaluation
+module rather than a complete render pass, connect it to Vulkan Forward through
+the host-neutral `MaterialIR` boundary, diagnose unsupported nodes, and keep
+geometry, lights, alpha policy, resources, and AOV writes renderer-owned.
 
 #### Exit criteria
 
-- Core and Hydra public paths expose no Vulkan or Metal types.
-- Vulkan preserves existing behavior through the new contract and supports
-  direct swapchain rendering without CPU readback.
-- Vsync-off measurements and matching headless/viewport output are retained as
-  evidence.
-- The executable's host and interaction layers are reused unchanged by Metal,
-  Mesh, and Gaussian work. usdview and DCC presentation remain separate.
+- A MaterialX document produces a deterministic `evaluateMaterial`-style
+  module and cache key.
+- Vulkan Forward calls the generated function and matches reference images
+  within the declared tolerance.
+- SPIR-V and Metal-target artifacts plus reflection metadata come from the same
+  generated module.
+- Raw MaterialX graphs do not enter Core; this milestone does not claim
+  production-wide node coverage.

@@ -749,11 +749,13 @@ class SceneExtractor::Impl {
 
     next->view = {};
     next->projection = {};
+    next->front_face = FrontFaceWinding::Clockwise;
     if (active_camera.valid()) {
       const auto camera = cameras.find(active_camera.value());
       if (camera != cameras.end()) {
         next->view = camera->second.view;
         next->projection = camera->second.projection;
+        next->front_face = camera->second.front_face;
       }
     }
     const auto light_update = UpdateTable(

@@ -50,10 +50,10 @@ jobs:
           cmake --build build-native --config ${{ matrix.build_type }}
           --parallel 4 -- /nodeReuse:false
 
-      - name: Run reproducibility, headless smoke, and validation tests
+      - name: Run reproducibility, viewport, headless smoke, and validation tests
         run: >-
           ctest --test-dir build-native -C ${{ matrix.build_type }}
-          -R "^merlin-(render-world|render-extraction|shader-(contract|abi)|render-product-contract|render-artifacts|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|resource-update|material-resources|bindless-residency|offscreen|validation))$"
+          -R "^merlin-(render-world|render-extraction|render-backend|backend-boundaries|shader-(contract|abi)|render-product-contract|render-artifacts|viewport-vulkan|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|resource-update|material-resources|bindless-residency|offscreen|validation))$"
           --output-on-failure --verbose
 
       - name: Record descriptor selection and exhaustion evidence
@@ -164,6 +164,7 @@ jobs:
             build-native/renderer-report.json
             build-native/tests/merlin-vulkan-capabilities.json
             build-native/tests/merlin-benchmark*.json
+            build-native/adapters/merlin-viewport/viewport-benchmark.json
             build-native/evidence
             build-native/tests/merlin-validation.ppm
             build-native/tests/offscreen-artifacts
@@ -249,8 +250,8 @@ jobs:
           cmake --build build --config Release
           --parallel 4 -- /nodeReuse:false
 
-      - name: Run discovery and RenderBuffer tests
-        run: ctest --test-dir build -C Release -R "^merlin-hydra2-(discovery|render-buffer)$" --output-on-failure
+      - name: Run discovery, RenderBuffer, and viewport tests
+        run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer)|viewport-(vulkan|hydra))$" --output-on-failure
 
       - name: Run install-tree usdview regression
         run: ctest --test-dir build -C Release -R "^merlin-hydra2-usdview-smoke$" --output-on-failure --verbose
@@ -266,4 +267,5 @@ jobs:
             build/adapters/merlin-hydra2/usdview-install/*.log
             build/adapters/merlin-hydra2/usdview-install/*.json
             build/adapters/merlin-hydra2/usdview-install/*.png
+            build/adapters/merlin-viewport/viewport*.json
             build/Testing/Temporary/LastTest.log

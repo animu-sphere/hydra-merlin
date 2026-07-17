@@ -20,12 +20,12 @@ Hydra synchronization work. v0.7.0 shipped the persistent resource model,
 bindless Forward path, transfer and memory-budget infrastructure, and scale
 evidence for Mesh and future Gaussian data. v0.8.0 moved the Vulkan Forward
 shader source of truth to Slang, established reflected shader ABI validation,
-and added the Metal compile gate. Completed detail is retained in the changelog
-and delivery history. The active v0.9.0 milestone extracts the minimum backend
-contract and delivers the dedicated backend-neutral `merlin-viewport`
-with Vulkan presentation, proves a MaterialXGenSlang material-function slice,
-and brings up Metal residency, native presentation, and an HgiMetal host bridge
-before Gaussian shader work expands. The later Mesh and Gaussian path advances
+and added the Metal compile gate. v0.9.0 extracts the minimum backend contract
+and delivers the dedicated backend-neutral `merlin-viewport` with Vulkan
+presentation; its completed pre-release detail is retained in the changelog and
+delivery history. The active v0.10.0 milestone proves a MaterialXGenSlang
+material-function slice before Metal residency, native presentation, and an
+HgiMetal host bridge come online. The later Mesh and Gaussian path advances
 through persistent draw identity, GPU-driven execution, an experimental opaque
 Visibility Buffer, production MaterialX quality, and static meshlets. Optional
 Mesh Shader, Hi-Z/LOD, and large-scene streaming remain measurement-gated. The

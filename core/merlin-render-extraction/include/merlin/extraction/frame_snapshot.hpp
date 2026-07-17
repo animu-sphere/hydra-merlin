@@ -187,6 +187,7 @@ struct FrameSnapshot {
   PersistentTable<LightRecord> lights;
   Mat4 view;
   Mat4 projection;
+  FrontFaceWinding front_face{FrontFaceWinding::Clockwise};
 };
 
 }  // namespace merlin::extraction

@@ -181,10 +181,18 @@ struct InstanceDescriptor {
   bool visible{true};
 };
 
+// Winding after the camera projection and viewport transform. This is carried
+// with the camera because a projection-space axis reflection reverses it.
+enum class FrontFaceWinding {
+  Clockwise,
+  CounterClockwise,
+};
+
 struct CameraDescriptor {
   std::string label;
   Mat4 view;
   Mat4 projection;
+  FrontFaceWinding front_face{FrontFaceWinding::Clockwise};
 };
 
 enum class LightType { Directional, Point, Spot, Dome };

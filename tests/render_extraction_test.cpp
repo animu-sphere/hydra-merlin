@@ -555,13 +555,18 @@ int main() {
   const auto first_camera_handle = world.CreateCamera(first_camera);
   merlin::CameraDescriptor second_camera;
   second_camera.view.values[12] = 2.0F;
+  second_camera.front_face = merlin::FrontFaceWinding::CounterClockwise;
   const auto second_camera_handle = world.CreateCamera(second_camera);
   extractor.Apply(world, world.Commit());
   assert(extractor.snapshot()->view.values[12] == 0.0F);
   extractor.SetActiveCamera(second_camera_handle);
   assert(extractor.snapshot()->view.values[12] == 2.0F);
+  assert(extractor.snapshot()->front_face ==
+         merlin::FrontFaceWinding::CounterClockwise);
   extractor.SetActiveCamera(first_camera_handle);
   assert(extractor.snapshot()->view.values[12] == 1.0F);
+  assert(extractor.snapshot()->front_face ==
+         merlin::FrontFaceWinding::Clockwise);
 
   bool old_revision_rejected = false;
   try {

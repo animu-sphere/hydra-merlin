@@ -8,6 +8,31 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- `Merlin::RenderBackend`, a backend-neutral factory, selection, capability,
+  limit, submission, completion, presentation-target, telemetry, and structured
+  error contract used by Vulkan and Hydra without native GPU/window types.
+- `merlin-viewport`, a GLFW-hosted Vulkan application with resize, camera,
+  picking, screenshots, benchmark output, vsync control, and optional OpenUSD
+  stage loading through Hydra with bounds-based initial camera framing.
+- Vulkan swapchain presentation with GPU-only offscreen-to-present blits,
+  out-of-date/resize recovery, per-image completion semaphores, validation
+  coverage, and FIFO or vsync-off present-mode selection.
+- Boundary, install-consumer, viewport/headless parity, zero-readback,
+  resize, Vulkan validation, and non-background Hydra USD viewport tests.
+
+### Changed
+
+- Hydra render execution now consumes the backend-neutral renderer contract;
+  normal native viewport frames omit CPU AOV readback while usdview retains its
+  RenderBuffer compatibility path.
+- Hydra USD viewport framing and navigation now follow usdview's free-camera
+  defaults and gestures, honor Y/Z `upAxis`, and preserve front-face culling
+  while correcting Vulkan framebuffer Y orientation.
+- Release metadata now records the viewport product and pinned GLFW 3.4
+  fallback commit.
+
 ## [0.8.0] - 2026-07-17
 
 ### Added

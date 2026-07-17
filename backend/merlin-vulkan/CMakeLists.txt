@@ -52,6 +52,7 @@ set(MERLIN_VULKAN_SDK_DETECTED_VERSION
     "${_merlin_vulkan_sdk_version}" PARENT_SCOPE)
 
 add_library(merlin-vulkan STATIC
+  src/backend.cpp
   src/bindless_resource_table.cpp
   src/descriptor_indexing.cpp
   src/render_artifacts.cpp
@@ -72,6 +73,7 @@ target_include_directories(merlin-vulkan
 
 target_link_libraries(merlin-vulkan
   PUBLIC
+    Merlin::RenderBackend
     Merlin::RenderExtraction
     Vulkan::Vulkan
 )

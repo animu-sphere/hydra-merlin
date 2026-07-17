@@ -7,6 +7,25 @@ hdMerlin keeps two complementary performance records:
 - `merlin-hydra-performance/v1` combines delegate telemetry with an OpenUSD
   Chrome trace for scene-index, CPU-to-Hgi upload, composite, and presentation
   scopes in the install-tree usdview regression.
+- `merlin.viewport-benchmark/v1` records native viewport CPU/GPU frame time,
+  presented frames, swapchain recreation, validation, GPU presentation-copy
+  bytes, and zero-CPU-readback frames; the Hydra variant records cumulative
+  readback bytes for the USD scene path.
+
+## Native viewport benchmark
+
+```powershell
+./build/adapters/merlin-viewport/Release/merlin-viewport.exe `
+  --frames 240 --vsync off --benchmark viewport.json
+```
+
+Use `--hidden --reference-check --resize-test --validate` for the automated
+evidence path. The reference check deliberately requests color/depth readback
+for one presented and one offscreen submission and requires exact equality;
+other presented frames must record zero readback. `presentation_copy_bytes`
+records the GPU blit into the swapchain rather than a CPU transfer. A Hydra
+build accepts `--usd scene.usda` and proves normal USD viewport frames retain
+zero cumulative readback.
 
 Use Release builds, a fixed driver and resolution, and fixed GPU clock/power
 policy for timing comparisons. Ordinary CI gates structural work; timing gates

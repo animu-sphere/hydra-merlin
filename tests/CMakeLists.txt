@@ -31,6 +31,20 @@ target_link_libraries(merlin-render-extraction-tests
 
 add_test(NAME merlin-render-extraction COMMAND merlin-render-extraction-tests)
 
+add_executable(merlin-render-backend-tests
+  backend_contract_test.cpp
+)
+target_link_libraries(merlin-render-backend-tests PRIVATE Merlin::RenderBackend)
+add_test(NAME merlin-render-backend COMMAND merlin-render-backend-tests)
+
+add_test(
+  NAME merlin-backend-boundaries
+  COMMAND ${CMAKE_COMMAND}
+    "-DMERLIN_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    -P "${PROJECT_SOURCE_DIR}/cmake/verify-backend-boundaries.cmake"
+)
+set_tests_properties(merlin-backend-boundaries PROPERTIES LABELS "architecture")
+
 add_executable(merlin-mesh-scale-regression-tests
   mesh_scale_regression_test.cpp
 )

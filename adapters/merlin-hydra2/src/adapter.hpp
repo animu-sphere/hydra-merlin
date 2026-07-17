@@ -11,6 +11,10 @@
 #include <mutex>
 #include <vector>
 
+namespace merlin::render {
+class Backend;
+}
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 class HdMerlinRenderBuffer final : public HdRenderBuffer {
@@ -54,6 +58,9 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
 class HdMerlinRenderDelegate final : public HdRenderDelegate {
  public:
   explicit HdMerlinRenderDelegate(const HdRenderSettingsMap& settings = {});
+  HdMerlinRenderDelegate(
+      std::shared_ptr<merlin::render::Backend> backend,
+      const HdRenderSettingsMap& settings = {});
   ~HdMerlinRenderDelegate() override;
 
   const TfTokenVector& GetSupportedRprimTypes() const override;
@@ -80,6 +87,11 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
       const HdSceneIndexBaseRefPtr& terminal_scene_index) override;
   void CommitResources(HdChangeTracker* tracker) override;
   HdAovDescriptor GetDefaultAovDescriptor(const TfToken& name) const override;
+
+  // The standalone Vulkan viewport reflects projection Y to compensate for
+  // its positive-height framebuffer viewport. Other Hydra hosts keep the
+  // renderer's conventional clockwise default.
+  void SetCameraFrontFaceCounterClockwise(bool counter_clockwise);
 
  private:
   class Impl;

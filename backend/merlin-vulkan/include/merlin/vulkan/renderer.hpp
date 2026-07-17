@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -15,6 +16,19 @@
 #include <merlin/vulkan/descriptor_indexing.hpp>
 
 namespace merlin::vulkan {
+
+struct PresentationOptions {
+  using CreateSurface = std::int32_t (*)(void* user_data,
+                                         std::uintptr_t instance,
+                                         std::uintptr_t* surface);
+
+  // Supplied by a backend presentation adapter (GLFW in merlin-viewport).
+  // Core and the viewport host never own or inspect the resulting surface.
+  std::vector<std::string> required_instance_extensions;
+  void* user_data{};
+  CreateSurface create_surface{};
+  bool vsync{true};
+};
 
 struct RendererOptions {
   bool enable_validation{};
@@ -28,6 +42,7 @@ struct RendererOptions {
   // clamped to the driver-reported budget when VK_EXT_memory_budget exists.
   std::uint64_t vram_limit_bytes{};
   bool enable_async_transfer{true};
+  std::optional<PresentationOptions> presentation;
 };
 
 struct RendererCapabilities {
@@ -59,6 +74,7 @@ struct RendererCapabilities {
   // True when the selected graphics queue exposes timestamp bits. Per-frame
   // GPU execution durations are zero only when this capability is false.
   bool timestamp_queries{};
+  bool external_presentation{};
   DescriptorIndexingFeatures descriptor_indexing_features;
   DescriptorIndexingLimits descriptor_indexing_limits;
   DescriptorIndexingSelection descriptor_indexing_selection;
@@ -135,6 +151,8 @@ struct TransferQueueTelemetry {
 
 struct RendererStatistics {
   std::uint64_t frames_submitted{};
+  std::uint64_t frames_presented{};
+  std::uint64_t swapchain_recreates{};
   std::uint64_t scene_uploads{};
   std::uint64_t validation_messages{};
   std::uint32_t frame_context_count{};
@@ -169,6 +187,7 @@ struct FrameCpuTimings {
   std::uint64_t queue_submission_ns{};
   std::uint64_t completion_wait_ns{};
   std::uint64_t readback_ns{};
+  std::uint64_t presentation_ns{};
   // Device timestamps span the graphics submission: single-queue uploads,
   // draws, and selected AOV copies. Dedicated transfer-queue execution is
   // synchronized but not folded into this graphics-queue duration.
@@ -248,6 +267,8 @@ struct FrameCounters {
   std::uint64_t bindless_sampler_descriptor_update_count{};
   std::uint64_t transfer_submission_count{};
   std::uint64_t queue_ownership_transfer_count{};
+  std::uint64_t present_count{};
+  std::uint64_t presentation_copy_bytes{};
 
   // Member-wise equality keeps steady-state drift detection in lockstep with
   // this field list; adding a counter cannot silently escape the comparison.
@@ -282,6 +303,10 @@ struct RenderRequest {
   ShaderPaths shaders;
   std::vector<RenderProductRequest> products{
       {Aov::Color, true}, {Aov::Depth, true}};
+  // Presentation uses the renderer's backend-owned default target. The color
+  // attachment is copied GPU-to-GPU into the acquired swapchain image; CPU
+  // readback remains independently controlled by the product requests.
+  bool present{};
 };
 
 enum class RendererErrorCode {
@@ -307,6 +332,7 @@ class RendererError : public std::runtime_error {
   [[nodiscard]] const std::string& operation() const noexcept {
     return operation_;
   }
+  [[nodiscard]] const std::string& detail() const noexcept { return detail_; }
   [[nodiscard]] std::int32_t native_code() const noexcept {
     return native_code_;
   }
@@ -314,6 +340,7 @@ class RendererError : public std::runtime_error {
  private:
   RendererErrorCode code_;
   std::string operation_;
+  std::string detail_;
   std::int32_t native_code_{};
 };
 

@@ -38,7 +38,8 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/core/diagnostic.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
-#include <merlin/vulkan/renderer.hpp>
+#include <merlin/render/backend.hpp>
+#include <merlin/vulkan/backend.hpp>
 #include <merlin/vulkan/shader_abi.hpp>
 
 #ifdef _WIN32
@@ -1005,7 +1006,8 @@ bool HasRequestedRenderTag(const SdfPath& path,
 
 class SceneBridge {
  public:
-  SceneBridge() {
+  explicit SceneBridge(std::shared_ptr<merlin::render::Backend> backend = {})
+      : renderer_(std::move(backend)) {
     merlin::MaterialDescriptor material;
     material.label = "Hydra fallback material";
     material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
@@ -1015,6 +1017,11 @@ class SceneBridge {
     render_settings_descriptor_.depth_aov = false;
     render_settings_ =
         world_.CreateRenderSettings(render_settings_descriptor_);
+  }
+
+  void SetCameraFrontFaceWinding(merlin::FrontFaceWinding winding) {
+    std::scoped_lock lock(mutex_);
+    camera_front_face_ = winding;
   }
 
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
@@ -1277,6 +1284,12 @@ class SceneBridge {
       const auto camera_update_start = CpuClock::now();
       active_camera = SyncCameraLocked(key, view, projection);
       render_world_update_ns += ElapsedNanoseconds(camera_update_start);
+    } else {
+      const auto camera_update_start = CpuClock::now();
+      active_camera = SyncCameraLocked(
+          "__merlinViewportCamera", ToMerlinMatrix(state.GetWorldToViewMatrix()),
+          ToMerlinMatrix(state.GetProjectionMatrix()));
+      render_world_update_ns += ElapsedNanoseconds(camera_update_start);
     }
     extractor_.SetActiveCamera(active_camera);
 
@@ -1296,6 +1309,14 @@ class SceneBridge {
           buffer->GetHeight() != 0) {
         width = buffer->GetWidth();
         height = buffer->GetHeight();
+      }
+    }
+    if ((width == 0 || height == 0) && renderer_ &&
+        renderer_->default_presentation_target()) {
+      const auto& viewport = state.GetViewport();
+      if (viewport[2] > 0.0F && viewport[3] > 0.0F) {
+        width = static_cast<std::uint32_t>(viewport[2]);
+        height = static_cast<std::uint32_t>(viewport[3]);
       }
     }
     if (width == 0 || height == 0) {
@@ -1378,38 +1399,50 @@ class SceneBridge {
 
     if (!renderer_) {
       const bool validation_requested = ValidationRequested();
-      renderer_ = std::make_unique<merlin::vulkan::Renderer>(
-          merlin::vulkan::RendererOptions{validation_requested});
+      const auto shader_dir =
+          PluginDirectory() / merlin::vulkan::shader_abi::ArtifactDirectory();
+      merlin::vulkan::BackendFactoryOptions factory_options;
+      factory_options.shaders = {
+          shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
+          shader_dir / "triangle.bindless.vert.spv",
+          shader_dir / "triangle.bindless.frag.spv"};
+      merlin::vulkan::BackendFactory factory(std::move(factory_options));
+      std::vector<merlin::render::BackendFactory*> factories{&factory};
+      merlin::render::BackendCreateInfo create_info;
+      create_info.backend = merlin::render::BackendRequest::Vulkan;
+      create_info.enable_validation = validation_requested;
+      renderer_ = std::shared_ptr<merlin::render::Backend>(
+          merlin::render::CreateBackend(create_info, factories));
       if (validation_requested &&
           !renderer_->capabilities().validation_enabled) {
         throw std::runtime_error(
             "Hydra regression requested unavailable Vulkan validation");
       }
     }
-    const auto shader_dir =
-        PluginDirectory() / merlin::vulkan::shader_abi::ArtifactDirectory();
-    const merlin::vulkan::ShaderPaths shaders{
-        shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
-        shader_dir / "triangle.bindless.vert.spv",
-        shader_dir / "triangle.bindless.frag.spv"};
     const auto snapshot = extractor_.snapshot();
     const auto snapshot_build_counters =
         changes.empty() ? merlin::extraction::SnapshotBuildCounters{}
                         : snapshot->build_counters;
-    merlin::vulkan::RenderRequest request;
+    merlin::render::RenderRequest request;
     request.snapshot = snapshot;
     request.width = width;
     request.height = height;
-    request.shaders = shaders;
     request.products.clear();
-    const auto request_product = [&](merlin::Aov aov) {
+    const auto presentation = renderer_->default_presentation_target();
+    if (presentation) {
+      request.presentation = *presentation;
+      request.products.push_back({merlin::Aov::Color, false});
+    }
+    const auto request_product = [&](merlin::Aov aov, bool cpu_readback = true) {
       const auto found = std::find_if(
           request.products.begin(), request.products.end(),
-          [aov](const merlin::vulkan::RenderProductRequest& product) {
+          [aov](const merlin::render::RenderProductRequest& product) {
             return product.aov == aov;
           });
       if (found == request.products.end()) {
-        request.products.push_back({aov, true});
+        request.products.push_back({aov, cpu_readback});
+      } else if (cpu_readback) {
+        found->cpu_readback = true;
       }
     };
     for (const auto& binding : bindings) {
@@ -1425,7 +1458,9 @@ class SceneBridge {
     }
     // Regression evidence uses depth coverage even when the host binds only a
     // display color product.
-    request_product(merlin::Aov::Depth);
+    if (!presentation) {
+      request_product(merlin::Aov::Depth);
+    }
     const auto result = renderer_->Resolve(renderer_->Submit(request));
     const auto renderer_statistics = renderer_->statistics();
     if (ValidationRequested() &&
@@ -1519,9 +1554,9 @@ class SceneBridge {
                << missing_texcoord_geometries
                << " material_fallbacks=" << snapshot->material_fallbacks.size()
                << " texture_cache_hits="
-               << result.counters.texture_cache_hits
+               << result.telemetry.texture_cache_hits
                << " texture_cache_misses="
-               << result.counters.texture_cache_misses
+               << result.telemetry.texture_cache_misses
                << " validation_enabled="
                << renderer_->capabilities().validation_enabled
                << " validation_messages="
@@ -1549,18 +1584,18 @@ class SceneBridge {
                << snapshot_build_counters.rebuilt_draws
                << " snapshot_fully_rebuilt_tables="
                << snapshot_build_counters.fully_rebuilt_tables
-               << " gpu_scene_update_ns=" << result.cpu_timings.upload_ns
+               << " gpu_scene_update_ns=" << result.timings.upload_ns
                << " command_recording_ns="
-               << result.cpu_timings.command_recording_ns
+               << result.timings.command_recording_ns
                << " queue_submission_ns="
-               << result.cpu_timings.queue_submission_ns
+               << result.timings.queue_submission_ns
                << " gpu_execution_ns="
-               << result.cpu_timings.gpu_execution_ns
+               << result.timings.gpu_execution_ns
                << " completion_wait_ns="
-               << result.cpu_timings.completion_wait_ns
-               << " readback_ns=" << result.cpu_timings.readback_ns
+               << result.timings.completion_wait_ns
+               << " readback_ns=" << result.timings.readback_ns
                << " backend_total_ns="
-               << result.cpu_timings.backend_total_ns
+               << result.timings.backend_total_ns
                << " render_pass_execute_ns=" << render_execute_ns
                << " points_fetch_count="
                << frame_telemetry.points_fetch_count
@@ -1594,52 +1629,52 @@ class SceneBridge {
                << " host_composite_ns=0 host_composite_ns_available=0"
                << " presentation_ns=0 presentation_ns_available=0"
                << " requested_aov_count="
-               << result.counters.requested_aov_count
+               << result.telemetry.requested_aov_count
                << " rendered_aov_count="
-               << result.counters.rendered_aov_count
+               << result.telemetry.rendered_aov_count
                << " cpu_readback_aov_count="
-               << result.counters.cpu_readback_aov_count
+               << result.telemetry.cpu_readback_aov_count
                << " requested_aov_mask="
-               << result.counters.requested_aov_mask
+               << result.telemetry.requested_aov_mask
                << " rendered_aov_mask="
-               << result.counters.rendered_aov_mask
+               << result.telemetry.rendered_aov_mask
                << " cpu_readback_aov_mask="
-               << result.counters.cpu_readback_aov_mask
-               << " upload_bytes=" << result.counters.upload_bytes
-               << " readback_bytes=" << result.counters.readback_bytes
-               << " allocation_count=" << result.counters.allocation_count
+               << result.telemetry.cpu_readback_aov_mask
+               << " upload_bytes=" << result.telemetry.upload_bytes
+               << " readback_bytes=" << result.telemetry.readback_bytes
+               << " allocation_count=" << result.telemetry.allocation_count
                << " visible_primitive_count="
-               << result.counters.visible_primitive_count
-               << " wait_count=" << result.counters.wait_count
-               << " map_count=" << result.counters.map_count
-               << " resolve_count=" << result.counters.resolve_count
+               << result.telemetry.visible_primitive_count
+               << " wait_count=" << result.telemetry.wait_count
+               << " map_count=" << result.telemetry.map_count
+               << " resolve_count=" << result.telemetry.resolve_count
                << " descriptor_pool_creation_count="
-               << result.counters.descriptor_pool_creation_count
+               << result.telemetry.descriptor_pool_creation_count
                << " descriptor_allocation_count="
-               << result.counters.descriptor_allocation_count
+               << result.telemetry.descriptor_allocation_count
                << " descriptor_update_count="
-               << result.counters.descriptor_update_count
+               << result.telemetry.descriptor_update_count
                << " bindless_sampled_image_descriptor_update_count="
-               << result.counters
+               << result.telemetry
                       .bindless_sampled_image_descriptor_update_count
                << " bindless_sampler_descriptor_update_count="
-               << result.counters.bindless_sampler_descriptor_update_count
+               << result.telemetry.bindless_sampler_descriptor_update_count
                << " geometry_reconcile_count="
-               << result.counters.geometry_reconcile_count
+               << result.telemetry.geometry_reconcile_count
                << " texture_reconcile_count="
-               << result.counters.texture_reconcile_count
+               << result.telemetry.texture_reconcile_count
                << " sampler_reconcile_count="
-               << result.counters.sampler_reconcile_count
+               << result.telemetry.sampler_reconcile_count
                << " pipeline_creation_count="
-               << result.counters.pipeline_creation_count
+               << result.telemetry.pipeline_creation_count
                << " shader_module_cache_misses="
-               << result.counters.shader_module_cache_misses
+               << result.telemetry.shader_module_cache_misses
                << " geometry_cache_misses="
-               << result.counters.geometry_cache_misses
+               << result.telemetry.geometry_cache_misses
                << " buffer_allocation_bytes="
-               << result.counters.buffer_allocation_bytes
+               << result.telemetry.buffer_allocation_bytes
                << " image_allocation_bytes="
-               << result.counters.image_allocation_bytes
+               << result.telemetry.image_allocation_bytes
                << " mesh_aspects=" << mesh_aspects
                << " material_aspects=" << material_aspects
                << " instance_aspects=" << instance_aspects
@@ -1720,6 +1755,7 @@ class SceneBridge {
       descriptor.label = key;
       descriptor.view = view;
       descriptor.projection = projection;
+      descriptor.front_face = camera_front_face_;
       const auto handle = world_.CreateCamera(std::move(descriptor));
       cameras_.emplace(key, handle);
       return handle;
@@ -1727,10 +1763,12 @@ class SceneBridge {
     const auto handle = found->second;
     const auto& old = world_.Get(handle);
     if (!MatricesEqual(old.view, view) ||
-        !MatricesEqual(old.projection, projection)) {
+        !MatricesEqual(old.projection, projection) ||
+        old.front_face != camera_front_face_) {
       auto descriptor = old;
       descriptor.view = view;
       descriptor.projection = projection;
+      descriptor.front_face = camera_front_face_;
       world_.UpdateCamera(handle, std::move(descriptor),
                           merlin::ChangeAspect::Camera);
     }
@@ -1739,8 +1777,10 @@ class SceneBridge {
 
   std::mutex mutex_;
   merlin::RenderWorld world_;
+  merlin::FrontFaceWinding camera_front_face_{
+      merlin::FrontFaceWinding::Clockwise};
   merlin::extraction::SceneExtractor extractor_;
-  std::unique_ptr<merlin::vulkan::Renderer> renderer_;
+  std::shared_ptr<merlin::render::Backend> renderer_;
   merlin::MaterialHandle fallback_material_;
   merlin::RenderSettingsHandle render_settings_;
   merlin::RenderSettingsDescriptor render_settings_descriptor_;
@@ -2862,7 +2902,15 @@ void HdMerlinRenderBuffer::_Deallocate() {
 
 class HdMerlinRenderDelegate::Impl {
  public:
-  std::shared_ptr<SceneBridge> bridge = std::make_shared<SceneBridge>();
+  Impl() : bridge(std::make_shared<SceneBridge>()) {}
+  explicit Impl(std::shared_ptr<merlin::render::Backend> backend) {
+    if (!backend) {
+      throw std::invalid_argument("Hydra renderer backend is null");
+    }
+    bridge = std::make_shared<SceneBridge>(std::move(backend));
+  }
+
+  std::shared_ptr<SceneBridge> bridge;
   HydraDirtyTracker dirty_tracker;
   HdSceneIndexBaseRefPtr terminal_scene_index;
 };
@@ -2873,7 +2921,21 @@ HdMerlinRenderDelegate::HdMerlinRenderDelegate(
       impl_(std::make_unique<Impl>()),
       resources_(std::make_shared<HdResourceRegistry>()) {}
 
+HdMerlinRenderDelegate::HdMerlinRenderDelegate(
+    std::shared_ptr<merlin::render::Backend> backend,
+    const HdRenderSettingsMap& settings)
+    : HdRenderDelegate(settings),
+      impl_(std::make_unique<Impl>(std::move(backend))),
+      resources_(std::make_shared<HdResourceRegistry>()) {}
+
 HdMerlinRenderDelegate::~HdMerlinRenderDelegate() = default;
+
+void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
+    bool counter_clockwise) {
+  impl_->bridge->SetCameraFrontFaceWinding(
+      counter_clockwise ? merlin::FrontFaceWinding::CounterClockwise
+                        : merlin::FrontFaceWinding::Clockwise);
+}
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
   static const TfTokenVector types{HdPrimTypeTokens->mesh};
