@@ -23,7 +23,8 @@ int main(int argc, char** argv) {
   const merlin::vulkan::ShaderPaths shaders{
       shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
       shader_dir / "triangle.bindless.vert.spv",
-      shader_dir / "triangle.bindless.frag.spv"};
+      shader_dir / "triangle.bindless.frag.spv",
+      shader_dir / "environment.hdr"};
 
   std::optional<merlin::vulkan::Renderer> renderer;
   try {

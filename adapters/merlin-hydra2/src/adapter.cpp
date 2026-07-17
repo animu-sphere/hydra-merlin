@@ -1342,7 +1342,8 @@ class SceneBridge {
       factory_options.shaders = {
           shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
           shader_dir / "triangle.bindless.vert.spv",
-          shader_dir / "triangle.bindless.frag.spv"};
+          shader_dir / "triangle.bindless.frag.spv",
+          shader_dir / "environment.hdr"};
       merlin::vulkan::BackendFactory factory(std::move(factory_options));
       std::vector<merlin::render::BackendFactory*> factories{&factory};
       merlin::render::BackendCreateInfo create_info;

@@ -1,4 +1,6 @@
 #include <merlin/vulkan/renderer.hpp>
+#include "environment_lighting.hpp"
+
 #include <merlin/vulkan/shader_abi.hpp>
 
 #include <vulkan/vulkan.h>
@@ -1137,6 +1139,7 @@ class Renderer::Impl {
     const auto backend_start = CpuClock::now();
     frame_counters_ = {};
     ResetAbandonedUploads();
+    EnsureEnvironmentLighting(request.shaders.environment);
 
     auto rendered_aovs = RenderedAovs(request);
     auto cpu_readback_aovs = CpuReadbackAovs(request);
@@ -2621,6 +2624,28 @@ class Renderer::Impl {
     return result;
   }
 
+  void EnsureEnvironmentLighting(const std::filesystem::path& path) {
+    if (path == environment_path_) {
+      return;
+    }
+    auto replacement = detail::LoadDiffuseEnvironment(path);
+    environment_lighting_ = std::move(replacement);
+    environment_path_ = path;
+  }
+
+  MaterialUniforms MakeMaterialUniforms(
+      const extraction::MaterialRecord& material,
+      const DirectionalLighting& lighting) const {
+    MaterialUniforms result{};
+    result.base_color = material.parameters.base_color;
+    result.light_direction_intensity = lighting.direction_intensity;
+    result.light_color_alpha_cutoff = {
+        lighting.color.x, lighting.color.y, lighting.color.z,
+        material.parameters.alpha_cutoff};
+    result.diffuse_environment = environment_lighting_.coefficients;
+    return result;
+  }
+
   void PrepareBindlessMaterialDescriptors(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot) {
     frame.material_descriptor_sets.clear();
@@ -2687,11 +2712,7 @@ class Renderer::Impl {
     const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
-      const MaterialUniforms uniforms{
-          material.parameters.base_color,
-          lighting.direction_intensity,
-          {lighting.color.x, lighting.color.y, lighting.color.z,
-           material.parameters.alpha_cutoff}};
+      const auto uniforms = MakeMaterialUniforms(material, lighting);
       std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
                   &uniforms, sizeof(uniforms));
     }
@@ -2771,11 +2792,7 @@ class Renderer::Impl {
     const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
-      const MaterialUniforms uniforms{
-          material.parameters.base_color,
-          lighting.direction_intensity,
-          {lighting.color.x, lighting.color.y, lighting.color.z,
-           material.parameters.alpha_cutoff}};
+      const auto uniforms = MakeMaterialUniforms(material, lighting);
       std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
                   &uniforms, sizeof(uniforms));
     }
@@ -3325,6 +3342,11 @@ class Renderer::Impl {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "validate render request",
                           "vertex and fragment shader paths are required");
+    }
+    if (request.shaders.environment.empty()) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "environment HDR path is required");
     }
     if (bindless_texture_table_ &&
         (request.shaders.bindless_vertex.empty() ||
@@ -4583,6 +4605,8 @@ class Renderer::Impl {
   std::vector<RetiredBuffer> deferred_;
   std::vector<RetiredTexture> retired_textures_;
   std::vector<RetiredSampler> retired_samplers_;
+  std::filesystem::path environment_path_;
+  detail::DiffuseEnvironment environment_lighting_;
   DeviceArena vertex_arena_;
   DeviceArena index_arena_;
   StagingRing staging_;

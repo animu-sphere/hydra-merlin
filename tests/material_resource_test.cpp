@@ -46,7 +46,8 @@ int main(int argc, char** argv) {
   const merlin::vulkan::ShaderPaths shaders{
       shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
       shader_dir / "triangle.bindless.vert.spv",
-      shader_dir / "triangle.bindless.frag.spv"};
+      shader_dir / "triangle.bindless.frag.spv",
+      shader_dir / "environment.hdr"};
 
   std::optional<merlin::vulkan::Renderer> renderer;
   try {
@@ -337,6 +338,28 @@ int main(int argc, char** argv) {
   assert(CoveredPixels(tilted) > 200);
   assert(CenterBrightness(front_lit) * 3U >
          CenterBrightness(tilted) * 4U);
+
+  // With both normals perpendicular to the +Z directional light, any
+  // difference comes from the StinsonBeach environment's SH irradiance.
+  lit_instance.transform = {};
+  lighting_world.UpdateInstance(lit_instance_handle, lit_instance,
+                                merlin::ChangeAspect::Transform);
+  lit_mesh.normals.assign(4, {0.0F, 1.0F, 0.0F});
+  lighting_world.UpdateMesh(lit_mesh_handle, lit_mesh,
+                            merlin::ChangeAspect::Primvars);
+  lighting_extractor.Apply(lighting_world, lighting_world.Commit());
+  const auto sky_ibl = renderer->Render(
+      *lighting_extractor.snapshot(), 64, 64, shaders);
+  lit_mesh.normals.assign(4, {0.0F, -1.0F, 0.0F});
+  lighting_world.UpdateMesh(lit_mesh_handle, lit_mesh,
+                            merlin::ChangeAspect::Primvars);
+  lighting_extractor.Apply(lighting_world, lighting_world.Commit());
+  const auto ground_ibl = renderer->Render(
+      *lighting_extractor.snapshot(), 64, 64, shaders);
+  const auto sky_brightness = CenterBrightness(sky_ibl);
+  const auto ground_brightness = CenterBrightness(ground_ibl);
+  assert(sky_brightness > ground_brightness + 3U ||
+         ground_brightness > sky_brightness + 3U);
   assert(renderer->statistics().validation_messages == 0);
 
   std::cout << "MaterialIR texture/sampler and variant contract verified\n";

@@ -25,6 +25,7 @@ struct MaterialConstants
     float4 base_color;
     float4 light_direction_intensity;
     float4 light_color_alpha_cutoff;
+    float4 diffuse_environment[9];
 };
 
 [[vk::push_constant]]
@@ -93,13 +94,33 @@ float4 ShadeForward(
     }
     if ((draw_constants.feature_mask & kDirectionalLightFlag) != 0u)
     {
+        float3 normal = normalize(input.shading_normal);
+        float x = normal.x;
+        float y = normal.y;
+        float z = normal.z;
+        float3 light_scale =
+            material.diffuse_environment[0].rgb * 0.2820947918f +
+            material.diffuse_environment[1].rgb * (0.4886025119f * y) +
+            material.diffuse_environment[2].rgb * (0.4886025119f * z) +
+            material.diffuse_environment[3].rgb * (0.4886025119f * x) +
+            material.diffuse_environment[4].rgb *
+                (1.0925484306f * x * y) +
+            material.diffuse_environment[5].rgb *
+                (1.0925484306f * y * z) +
+            material.diffuse_environment[6].rgb *
+                (0.3153915653f * (3.0f * z * z - 1.0f)) +
+            material.diffuse_environment[7].rgb *
+                (1.0925484306f * x * z) +
+            material.diffuse_environment[8].rgb *
+                (0.5462742153f * (x * x - y * y));
+        light_scale = max(light_scale, float3(0.0f, 0.0f, 0.0f));
         float n_dot_l = max(
-            dot(normalize(input.shading_normal),
+            dot(normal,
                 normalize(material.light_direction_intensity.xyz)),
             0.0f);
-        float light_scale =
-            0.15f + 0.85f * n_dot_l * material.light_direction_intensity.w;
-        shaded.rgb *= material.light_color_alpha_cutoff.rgb * light_scale;
+        light_scale += material.light_color_alpha_cutoff.rgb *
+            (0.85f * n_dot_l * material.light_direction_intensity.w);
+        shaded.rgb *= light_scale;
     }
     if ((draw_constants.feature_mask & kMaskedAlphaFlag) != 0u &&
         shaded.a < material.light_color_alpha_cutoff.a)

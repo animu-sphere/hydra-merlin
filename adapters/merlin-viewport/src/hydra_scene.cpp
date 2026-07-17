@@ -357,7 +357,8 @@ std::shared_ptr<render::Backend> CreateRenderer(
   vulkan_options.shaders = {
       shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
       shader_dir / "triangle.bindless.vert.spv",
-      shader_dir / "triangle.bindless.frag.spv"};
+      shader_dir / "triangle.bindless.frag.spv",
+      shader_dir / "environment.hdr"};
   vulkan::BackendFactory vulkan_factory(std::move(vulkan_options));
   std::vector<render::BackendFactory*> factories{&vulkan_factory};
   render::BackendCreateInfo create_info;

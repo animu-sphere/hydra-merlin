@@ -280,6 +280,7 @@ struct ShaderPaths {
   std::filesystem::path fragment;
   std::filesystem::path bindless_vertex;
   std::filesystem::path bindless_fragment;
+  std::filesystem::path environment;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };

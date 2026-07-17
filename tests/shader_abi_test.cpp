@@ -94,6 +94,7 @@ void RequireCommonAbi(std::string_view json) {
   RequireField(json, "base_color", 0, 16);
   RequireField(json, "light_direction_intensity", 16, 16);
   RequireField(json, "light_color_alpha_cutoff", 32, 16);
+  RequireField(json, "diffuse_environment", 48, 144);
 }
 
 void RequireBinding(std::string_view json, std::string_view name,
@@ -195,10 +196,14 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":1",
                     "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":1",
+    RequireContains(manifest, "\"shader_abi_version\":2",
                     "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
                     "Slang toolchain series is not pinned");
+    RequireContains(
+        manifest,
+        "\"environment\":{\"path\":\"environment.hdr\",\"sha256\":\"4897697c757edc524dc9b7bcc692e8e05a7f02dbede3e30d2291dc0831dece17\",\"representation\":\"diffuse-sh-l2\"}",
+        "environment artifact identity is absent");
     RequireContains(manifest,
                     "\"feature\":\"non_uniform_resource_indexing\"",
                     "Metal unsupported feature diagnostic is absent");
@@ -212,7 +217,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 1);
+    static_assert(kVersion == 2);
     static_assert(kArtifactSchemaVersion == 1);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);

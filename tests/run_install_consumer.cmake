@@ -47,7 +47,7 @@ if(EXISTS "${_headless}")
       triangle.bindless.vert.spv.reflection.json
       triangle.bindless.frag.spv.reflection.json
       triangle.vert.metal.reflection.json
-      triangle.frag.metal.reflection.json manifest.json)
+      triangle.frag.metal.reflection.json manifest.json environment.hdr)
     if(NOT EXISTS "${_shader_dir}/${_shader_file}")
       message(FATAL_ERROR
         "installed shader artifact is missing: ${_shader_dir}/${_shader_file}")
@@ -60,6 +60,21 @@ if(EXISTS "${_headless}")
     message(FATAL_ERROR
       "installed shader manifest is invalid: ${_shader_json_error}")
   endif()
+  file(SHA256 "${_shader_dir}/environment.hdr" _environment_sha256)
+  if(NOT _environment_sha256 STREQUAL
+     "4897697c757edc524dc9b7bcc692e8e05a7f02dbede3e30d2291dc0831dece17")
+    message(FATAL_ERROR
+      "installed environment.hdr has unexpected SHA-256: ${_environment_sha256}")
+  endif()
+  foreach(_notice_file IN ITEMS
+      "${_stage_dir}/${MERLIN_INSTALL_DATADIR}/merlin/licenses/THIRD_PARTY_NOTICES.md"
+      "${_stage_dir}/${MERLIN_INSTALL_DATADIR}/merlin/licenses/openusd/LICENSE.txt"
+      "${_stage_dir}/${MERLIN_INSTALL_DATADIR}/merlin/licenses/openusd/NOTICE.txt")
+    if(NOT EXISTS "${_notice_file}")
+      message(FATAL_ERROR
+        "installed third-party notice is missing: ${_notice_file}")
+    endif()
+  endforeach()
   execute_process(
     COMMAND "${_headless}"
       --report "${MERLIN_BUILD_DIR}/renderer-report.json"

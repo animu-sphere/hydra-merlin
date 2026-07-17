@@ -308,7 +308,8 @@ int main(int argc, char** argv) {
         shader_dir / "triangle.vert.spv",
         shader_dir / "triangle.frag.spv",
         shader_dir / "triangle.bindless.vert.spv",
-        shader_dir / "triangle.bindless.frag.spv"};
+        shader_dir / "triangle.bindless.frag.spv",
+        shader_dir / "environment.hdr"};
     merlin::vulkan::BackendFactory vulkan_factory(
         std::move(vulkan_options));
     std::vector<merlin::render::BackendFactory*> factories{&vulkan_factory};
