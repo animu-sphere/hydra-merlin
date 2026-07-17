@@ -1257,6 +1257,7 @@ class Renderer::Impl {
       RecordUploads(frame.command_buffer, false);
     }
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
+                 request.clear_color,
                  frame.cpu_readback_aovs);
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
       vkCmdWriteTimestamp(frame.command_buffer,
@@ -3312,6 +3313,14 @@ class Renderer::Impl {
                           "validate render request", "snapshot is null");
     }
     ValidateExtent(request.width, request.height);
+    if (!std::isfinite(request.clear_color.x) ||
+        !std::isfinite(request.clear_color.y) ||
+        !std::isfinite(request.clear_color.z) ||
+        !std::isfinite(request.clear_color.w)) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "clear color components must be finite");
+    }
     if (request.shaders.vertex.empty() || request.shaders.fragment.empty()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "validate render request",
@@ -4174,9 +4183,11 @@ class Renderer::Impl {
   void RecordFrame(VkCommandBuffer command,
                    const FrameContext& frame,
                    const extraction::FrameSnapshot& snapshot,
+                   const Vec4& clear_color,
                    const std::vector<Aov>& cpu_readback_aovs) {
     std::array<VkClearValue, 4> clear{};
-    clear[0].color = {{0.018F, 0.025F, 0.045F, 1.0F}};
+    clear[0].color = {
+        {clear_color.x, clear_color.y, clear_color.z, clear_color.w}};
     clear[1].depthStencil = {1.0F, 0};
     clear[2].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
     clear[3].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();

@@ -173,6 +173,7 @@ struct RenderRequest {
   std::shared_ptr<const extraction::FrameSnapshot> snapshot;
   std::uint32_t width{512};
   std::uint32_t height{512};
+  Vec4 clear_color{0.018F, 0.025F, 0.028F, 1.0F};
   std::vector<RenderProductRequest> products{
       {Aov::Color, true}, {Aov::Depth, true}};
   PresentationTarget presentation;

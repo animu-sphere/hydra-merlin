@@ -93,6 +93,27 @@ def Xform "World"
         uniform token[] xformOpOrder = ["xformOp:translate"]
     }
 
+    # A non-planar quad reduced from Kitchen_set's pCube230. Dominant-axis
+    # projection collapses corners 0 and 3, while HdMeshUtil's authored-order
+    # fan produces two valid triangles.
+    def Mesh "TwistedQuad"
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(0, 0, 0),
+                            (0.197799, 0.374878, 1.509079),
+                            (0, 0.220719, 1.518082),
+                            (0, 0.151184, 0)]
+        color3f[] primvars:displayColor = [(0.9, 0.3, 0.15)] (
+            interpolation = "constant"
+        )
+        float xformOp:rotateY = 90
+        float3 xformOp:scale = (0.3, 0.3, 0.3)
+        double3 xformOp:translate = (-0.7, 0.65, 0)
+        uniform token[] xformOpOrder = ["xformOp:scale", "xformOp:rotateY",
+                                        "xformOp:translate"]
+    }
+
     def PointInstancer "Instances"
     {
         rel prototypes = [</World/Instances/Prototype>]

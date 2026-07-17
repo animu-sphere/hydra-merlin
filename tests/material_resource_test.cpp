@@ -133,6 +133,26 @@ int main(int argc, char** argv) {
   const auto opaque_coverage = CoveredPixels(first);
   assert(opaque_coverage > 1000);
 
+  // A host-provided clear color must reach the Vulkan color attachment. The
+  // quad leaves the top-left pixel uncovered, so it records only this value.
+  merlin::vulkan::RenderRequest clear_request;
+  clear_request.snapshot = extractor.snapshot();
+  clear_request.width = 64;
+  clear_request.height = 64;
+  clear_request.shaders = shaders;
+  clear_request.clear_color = {0.25F, 0.5F, 0.75F, 1.0F};
+  clear_request.products = {
+      {merlin::Aov::Color, true}, {merlin::Aov::Depth, true},
+      {merlin::Aov::PrimId, true}, {merlin::Aov::InstanceId, true}};
+  const auto clear_result = renderer->Resolve(renderer->Submit(clear_request));
+  assert(clear_result.color.pixels[0] >= 63U &&
+         clear_result.color.pixels[0] <= 64U);
+  assert(clear_result.color.pixels[1] >= 127U &&
+         clear_result.color.pixels[1] <= 128U);
+  assert(clear_result.color.pixels[2] >= 191U &&
+         clear_result.color.pixels[2] <= 192U);
+  assert(clear_result.color.pixels[3] == 255U);
+
   // Parameter values travel through per-frame uniforms and never enter the
   // feature/state pipeline key.
   material.parameters.base_color = {0.5F, 0.75F, 1.0F, 1.0F};
