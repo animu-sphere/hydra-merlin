@@ -1179,6 +1179,18 @@ class Renderer::Impl {
     } else {
       frame.present_pending = false;
     }
+    // The acquired image and its signaled acquire semaphore are only consumed
+    // by a successful graphics submission; reclaim both on earlier failures.
+    struct ReclaimPresentationOnError {
+      Impl& impl;
+      FrameContext& frame;
+      bool armed;
+      ~ReclaimPresentationOnError() {
+        if (armed) {
+          impl.ReclaimAcquiredImage(frame);
+        }
+      }
+    } reclaim_presentation{*this, frame, frame.present_pending};
 
     const auto upload_start = CpuClock::now();
     geometry_records_.Sync(request.snapshot->geometries);
@@ -1276,6 +1288,7 @@ class Renderer::Impl {
       }
       throw;
     }
+    reclaim_presentation.armed = false;
     frame.cpu_timings.queue_submission_ns =
         ElapsedNanoseconds(submission_start);
     if (frame.present_pending) {
@@ -4135,6 +4148,27 @@ class Renderer::Impl {
     }
     Check(result, "present Vulkan swapchain image");
     ++statistics_.frames_presented;
+  }
+
+  // Recovers from a Submit failure between image acquisition and queue
+  // submission. The acquire semaphore may still carry a pending signal, so it
+  // is drained with a wait-only submission rather than destroyed, and the
+  // swapchain is retired so the presentation engine releases the
+  // never-presented image on recreation.
+  void ReclaimAcquiredImage(FrameContext& frame) noexcept {
+    frame.present_pending = false;
+    swapchain_.dirty = true;
+    if (queue_ == VK_NULL_HANDLE || frame.image_available == VK_NULL_HANDLE) {
+      return;
+    }
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    submit.waitSemaphoreCount = 1;
+    submit.pWaitSemaphores = &frame.image_available;
+    submit.pWaitDstStageMask = &wait_stage;
+    if (vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS) {
+      (void)vkQueueWaitIdle(queue_);
+    }
   }
 
   void RecordFrame(VkCommandBuffer command,

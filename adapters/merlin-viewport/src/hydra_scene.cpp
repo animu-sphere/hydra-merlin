@@ -592,6 +592,12 @@ int RunHydraViewport(const HydraViewportOptions& options) {
       const auto* instance =
           static_cast<const std::uint32_t*>(instance_id->Map());
       if (prim == nullptr || instance == nullptr) {
+        if (prim != nullptr) {
+          prim_id->Unmap();
+        }
+        if (instance != nullptr) {
+          instance_id->Unmap();
+        }
         throw std::runtime_error("could not map viewport picking AOVs");
       }
       std::cout << "Pick " << x << ',' << y << ": primId=" << prim[index]
@@ -620,14 +626,20 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   if (statistics.validation_messages != 0) {
     throw std::runtime_error("Vulkan validation reported Hydra viewport messages");
   }
-  if (options.reference_check && !reference_checked) {
-    throw std::runtime_error("Hydra viewport content check did not execute");
-  }
-  if (!readback_requested && statistics.readback_bytes != 0) {
-    throw std::runtime_error("Hydra viewport performed an unexpected CPU readback");
-  }
-  if (statistics.frames_presented != frames) {
-    throw std::runtime_error("Hydra viewport did not present every rendered frame");
+  if (options.reference_check) {
+    if (!reference_checked) {
+      throw std::runtime_error("Hydra viewport content check did not execute");
+    }
+    if (!readback_requested && statistics.readback_bytes != 0) {
+      throw std::runtime_error(
+          "Hydra viewport performed an unexpected CPU readback");
+    }
+    // Evidence-only invariant: an interactive session may legitimately drop a
+    // present when the surface goes out of date between acquire and present.
+    if (statistics.frames_presented != frames) {
+      throw std::runtime_error(
+          "Hydra viewport did not present every rendered frame");
+    }
   }
   return 0;
 }

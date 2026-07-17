@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -45,12 +46,32 @@ struct Arguments {
 };
 
 std::uint64_t ReadUnsigned(std::string_view value, std::string_view name) {
+  // std::stoull would accept and wrap a leading minus sign.
+  if (value.empty() || value.front() < '0' || value.front() > '9') {
+    throw std::invalid_argument(std::string(name) +
+                                " must be a non-negative integer");
+  }
   std::size_t consumed{};
-  const auto result = std::stoull(std::string(value), &consumed);
+  std::uint64_t result{};
+  try {
+    result = std::stoull(std::string(value), &consumed);
+  } catch (const std::exception&) {
+    throw std::invalid_argument(std::string(name) +
+                                " must be a non-negative integer");
+  }
   if (consumed != value.size()) {
-    throw std::invalid_argument(std::string(name) + " must be an integer");
+    throw std::invalid_argument(std::string(name) +
+                                " must be a non-negative integer");
   }
   return result;
+}
+
+std::uint32_t ReadUnsigned32(std::string_view value, std::string_view name) {
+  const auto result = ReadUnsigned(value, name);
+  if (result > std::numeric_limits<std::uint32_t>::max()) {
+    throw std::invalid_argument(std::string(name) + " is out of range");
+  }
+  return static_cast<std::uint32_t>(result);
 }
 
 merlin::render::BackendRequest ReadBackend(std::string_view value) {
@@ -78,9 +99,9 @@ Arguments ParseArguments(int argc, char** argv) {
       return argv[index];
     };
     if (option == "--width") {
-      result.width = static_cast<std::uint32_t>(ReadUnsigned(next(), option));
+      result.width = ReadUnsigned32(next(), option);
     } else if (option == "--height") {
-      result.height = static_cast<std::uint32_t>(ReadUnsigned(next(), option));
+      result.height = ReadUnsigned32(next(), option);
     } else if (option == "--frames") {
       result.frame_limit = ReadUnsigned(next(), option);
     } else if (option == "--backend") {

@@ -143,7 +143,13 @@ int main() {
   assert(selection.requested == BackendRequest::Automatic);
   assert(selection.selected == BackendKind::Vulkan);
   assert(selection.automatic);
+#if defined(__APPLE__)
+  // Automatic selection prefers Metal on Apple platforms; the unavailable
+  // Metal fake forces the Vulkan fallback.
+  assert(selection.reason == "available fallback");
+#else
   assert(selection.reason == "platform preference");
+#endif
   assert(backend->capabilities().contract_version == kBackendContractVersion);
   assert(backend->capabilities().external_presentation);
   assert(backend->default_presentation_target());

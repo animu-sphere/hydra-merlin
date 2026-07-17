@@ -89,6 +89,8 @@ class VulkanBackend final : public render::Backend {
     return presentation_;
   }
 
+  // Validation only: the Vulkan swapchain recreates lazily from the extent of
+  // the next presented RenderRequest, so hosts must submit the new size.
   void ResizePresentationTarget(render::PresentationTarget target,
                                 std::uint32_t width,
                                 std::uint32_t height) override {
@@ -100,8 +102,6 @@ class VulkanBackend final : public render::Backend {
                                   "resize presentation target",
                                   "requested extent is unsupported");
     }
-    presentation_width_ = width;
-    presentation_height_ = height;
   }
 
   render::CompletionToken Submit(
@@ -275,8 +275,6 @@ class VulkanBackend final : public render::Backend {
   Renderer renderer_;
   ShaderPaths shaders_;
   std::uint64_t owner_{};
-  std::uint32_t presentation_width_{};
-  std::uint32_t presentation_height_{};
   std::uint64_t readback_bytes_{};
   std::uint64_t presentation_copy_bytes_{};
   render::RendererCapabilities capabilities_;

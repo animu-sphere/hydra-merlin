@@ -254,6 +254,9 @@ class Backend {
   [[nodiscard]] virtual RendererStatistics statistics() const noexcept = 0;
   [[nodiscard]] virtual std::optional<PresentationTarget>
   default_presentation_target() const noexcept = 0;
+  // Declares the host's new presentation extent. Backends may defer the
+  // native resize until the next presented RenderRequest, whose width/height
+  // remain the authoritative extent for that frame.
   virtual void ResizePresentationTarget(PresentationTarget target,
                                         std::uint32_t width,
                                         std::uint32_t height) = 0;

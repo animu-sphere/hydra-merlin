@@ -85,6 +85,7 @@ std::runtime_error GlfwError(std::string_view operation) {
                                                      std::string(detail)));
 }
 
+// Owns process-wide GLFW initialization; create at most one instance.
 class GlfwWindow final : public Window {
  public:
   GlfwWindow(std::string_view title, std::uint32_t width,
@@ -93,6 +94,21 @@ class GlfwWindow final : public Window {
       throw GlfwError("initialize GLFW");
     }
     initialized_ = true;
+    // A constructor exception skips the destructor, so release GLFW here.
+    try {
+      Initialize(title, width, height, visible);
+    } catch (...) {
+      if (window_ != nullptr) {
+        glfwDestroyWindow(window_);
+      }
+      glfwTerminate();
+      throw;
+    }
+  }
+
+ private:
+  void Initialize(std::string_view title, std::uint32_t width,
+                  std::uint32_t height, bool visible) {
     if (glfwVulkanSupported() != GLFW_TRUE) {
       throw GlfwError("query GLFW Vulkan support");
     }
@@ -167,6 +183,7 @@ class GlfwWindow final : public Window {
     height_ = static_cast<std::uint32_t>(std::max(0, framebuffer_height));
   }
 
+ public:
   ~GlfwWindow() override {
     if (window_ != nullptr) {
       glfwDestroyWindow(window_);
