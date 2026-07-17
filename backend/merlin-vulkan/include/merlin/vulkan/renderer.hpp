@@ -280,6 +280,7 @@ struct ShaderPaths {
   std::filesystem::path fragment;
   std::filesystem::path bindless_vertex;
   std::filesystem::path bindless_fragment;
+  std::filesystem::path environment;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
@@ -301,6 +302,7 @@ struct RenderRequest {
   std::uint32_t width{512};
   std::uint32_t height{512};
   ShaderPaths shaders;
+  Vec4 clear_color{kDefaultClearColor};
   std::vector<RenderProductRequest> products{
       {Aov::Color, true}, {Aov::Depth, true}};
   // Presentation uses the renderer's backend-owned default target. The color

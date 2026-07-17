@@ -15,13 +15,15 @@ if(NOT DEFINED MERLIN_SHADER_MANIFEST OR
    NOT DEFINED MERLIN_CMAKE_GENERATOR OR
    NOT DEFINED MERLIN_FORWARD_SOURCE OR
    NOT DEFINED MERLIN_BINDLESS_SOURCE OR
-   NOT DEFINED MERLIN_COMMON_SOURCE)
+   NOT DEFINED MERLIN_COMMON_SOURCE OR
+   NOT DEFINED MERLIN_ENVIRONMENT_HDR)
   message(FATAL_ERROR "Missing shader manifest generation argument")
 endif()
 
 foreach(_required_file
     MERLIN_SHADER_RECORDS_FILE
-    MERLIN_FORWARD_SOURCE MERLIN_BINDLESS_SOURCE MERLIN_COMMON_SOURCE)
+    MERLIN_FORWARD_SOURCE MERLIN_BINDLESS_SOURCE MERLIN_COMMON_SOURCE
+    MERLIN_ENVIRONMENT_HDR)
   if(NOT EXISTS "${${_required_file}}")
     message(FATAL_ERROR
       "Shader manifest input ${_required_file} is missing: ${${_required_file}}")
@@ -39,6 +41,7 @@ endfunction()
 file(SHA256 "${MERLIN_COMMON_SOURCE}" _common_hash)
 file(SHA256 "${MERLIN_FORWARD_SOURCE}" _forward_hash)
 file(SHA256 "${MERLIN_BINDLESS_SOURCE}" _bindless_hash)
+file(SHA256 "${MERLIN_ENVIRONMENT_HDR}" _environment_hash)
 string(SHA256 _forward_dependency_hash
   "forward-common.slang:${_common_hash}|forward.slang:${_forward_hash}")
 string(SHA256 _bindless_dependency_hash
@@ -114,7 +117,7 @@ _merlin_json_escape("${MERLIN_CMAKE_GENERATOR}" _generator)
 _merlin_json_escape("${MERLIN_VULKAN_SDK_VERSION}" _sdk_version)
 _merlin_json_escape("${MERLIN_SLANG_VERSION}" _slang_version)
 set(_manifest
-"{\n  \"schema_version\": ${MERLIN_SHADER_SCHEMA_VERSION},\n  \"shader_abi_version\": ${MERLIN_SHADER_ABI_VERSION},\n  \"cache_compatibility\": {\n    \"algorithm\": \"sha256\",\n    \"rule\": \"all cache-key inputs must match exactly\"\n  },\n  \"toolchain\": {\n    \"compiler\": \"slangc\",\n    \"compiler_version\": \"${_slang_version}\",\n    \"required_series\": \"${MERLIN_SLANG_REQUIRED_SERIES}\",\n    \"vulkan_sdk_version\": \"${_sdk_version}\",\n    \"generator\": \"CMake ${CMAKE_VERSION} / ${_generator}\"\n  },\n  \"policy\": {\n    \"matrix_layout\": \"${MERLIN_SLANG_MATRIX_LAYOUT}\",\n    \"optimization\": \"${MERLIN_SLANG_OPTIMIZATION}\",\n    \"debug_info\": false\n  },\n  \"sources\": [\n    {\"path\": \"forward-common.slang\", \"sha256\": \"${_common_hash}\"},\n    {\"path\": \"forward.slang\", \"sha256\": \"${_forward_hash}\"},\n    {\"path\": \"forward-bindless.slang\", \"sha256\": \"${_bindless_hash}\"}\n  ],\n  \"artifacts\": [\n${_artifacts}\n  ],\n  \"unsupported_features\": [\n    {\n      \"target\": \"metal\",\n      \"feature\": \"non_uniform_resource_indexing\",\n      \"diagnostic\": \"Slang reports NonUniformResourceIndex unavailable for the Metal fragment target\",\n      \"fallback\": \"forward-conventional\"\n    }\n  ]\n}\n")
+"{\n  \"schema_version\": ${MERLIN_SHADER_SCHEMA_VERSION},\n  \"shader_abi_version\": ${MERLIN_SHADER_ABI_VERSION},\n  \"cache_compatibility\": {\n    \"algorithm\": \"sha256\",\n    \"rule\": \"all cache-key inputs must match exactly\"\n  },\n  \"toolchain\": {\n    \"compiler\": \"slangc\",\n    \"compiler_version\": \"${_slang_version}\",\n    \"required_series\": \"${MERLIN_SLANG_REQUIRED_SERIES}\",\n    \"vulkan_sdk_version\": \"${_sdk_version}\",\n    \"generator\": \"CMake ${CMAKE_VERSION} / ${_generator}\"\n  },\n  \"policy\": {\n    \"matrix_layout\": \"${MERLIN_SLANG_MATRIX_LAYOUT}\",\n    \"optimization\": \"${MERLIN_SLANG_OPTIMIZATION}\",\n    \"debug_info\": false\n  },\n  \"sources\": [\n    {\"path\": \"forward-common.slang\", \"sha256\": \"${_common_hash}\"},\n    {\"path\": \"forward.slang\", \"sha256\": \"${_forward_hash}\"},\n    {\"path\": \"forward-bindless.slang\", \"sha256\": \"${_bindless_hash}\"}\n  ],\n  \"environment\": {\n    \"path\": \"environment.hdr\",\n    \"sha256\": \"${_environment_hash}\",\n    \"representation\": \"diffuse-sh-l2\"\n  },\n  \"artifacts\": [\n${_artifacts}\n  ],\n  \"unsupported_features\": [\n    {\n      \"target\": \"metal\",\n      \"feature\": \"non_uniform_resource_indexing\",\n      \"diagnostic\": \"Slang reports NonUniformResourceIndex unavailable for the Metal fragment target\",\n      \"fallback\": \"forward-conventional\"\n    }\n  ]\n}\n")
 
 get_filename_component(_manifest_dir "${MERLIN_SHADER_MANIFEST}" DIRECTORY)
 file(MAKE_DIRECTORY "${_manifest_dir}")

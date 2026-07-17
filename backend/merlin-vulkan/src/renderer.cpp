@@ -1,4 +1,6 @@
 #include <merlin/vulkan/renderer.hpp>
+#include "environment_lighting.hpp"
+
 #include <merlin/vulkan/shader_abi.hpp>
 
 #include <vulkan/vulkan.h>
@@ -1137,6 +1139,7 @@ class Renderer::Impl {
     const auto backend_start = CpuClock::now();
     frame_counters_ = {};
     ResetAbandonedUploads();
+    EnsureEnvironmentLighting(request.shaders.environment);
 
     auto rendered_aovs = RenderedAovs(request);
     auto cpu_readback_aovs = CpuReadbackAovs(request);
@@ -1257,6 +1260,7 @@ class Renderer::Impl {
       RecordUploads(frame.command_buffer, false);
     }
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
+                 request.clear_color,
                  frame.cpu_readback_aovs);
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
       vkCmdWriteTimestamp(frame.command_buffer,
@@ -2620,6 +2624,28 @@ class Renderer::Impl {
     return result;
   }
 
+  void EnsureEnvironmentLighting(const std::filesystem::path& path) {
+    if (path == environment_path_) {
+      return;
+    }
+    auto replacement = detail::LoadDiffuseEnvironment(path);
+    environment_lighting_ = std::move(replacement);
+    environment_path_ = path;
+  }
+
+  MaterialUniforms MakeMaterialUniforms(
+      const extraction::MaterialRecord& material,
+      const DirectionalLighting& lighting) const {
+    MaterialUniforms result{};
+    result.base_color = material.parameters.base_color;
+    result.light_direction_intensity = lighting.direction_intensity;
+    result.light_color_alpha_cutoff = {
+        lighting.color.x, lighting.color.y, lighting.color.z,
+        material.parameters.alpha_cutoff};
+    result.diffuse_environment = environment_lighting_.coefficients;
+    return result;
+  }
+
   void PrepareBindlessMaterialDescriptors(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot) {
     frame.material_descriptor_sets.clear();
@@ -2686,11 +2712,7 @@ class Renderer::Impl {
     const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
-      const MaterialUniforms uniforms{
-          material.parameters.base_color,
-          lighting.direction_intensity,
-          {lighting.color.x, lighting.color.y, lighting.color.z,
-           material.parameters.alpha_cutoff}};
+      const auto uniforms = MakeMaterialUniforms(material, lighting);
       std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
                   &uniforms, sizeof(uniforms));
     }
@@ -2770,11 +2792,7 @@ class Renderer::Impl {
     const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
-      const MaterialUniforms uniforms{
-          material.parameters.base_color,
-          lighting.direction_intensity,
-          {lighting.color.x, lighting.color.y, lighting.color.z,
-           material.parameters.alpha_cutoff}};
+      const auto uniforms = MakeMaterialUniforms(material, lighting);
       std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
                   &uniforms, sizeof(uniforms));
     }
@@ -3312,10 +3330,23 @@ class Renderer::Impl {
                           "validate render request", "snapshot is null");
     }
     ValidateExtent(request.width, request.height);
+    if (!std::isfinite(request.clear_color.x) ||
+        !std::isfinite(request.clear_color.y) ||
+        !std::isfinite(request.clear_color.z) ||
+        !std::isfinite(request.clear_color.w)) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "clear color components must be finite");
+    }
     if (request.shaders.vertex.empty() || request.shaders.fragment.empty()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "validate render request",
                           "vertex and fragment shader paths are required");
+    }
+    if (request.shaders.environment.empty()) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "validate render request",
+                          "environment HDR path is required");
     }
     if (bindless_texture_table_ &&
         (request.shaders.bindless_vertex.empty() ||
@@ -4174,9 +4205,11 @@ class Renderer::Impl {
   void RecordFrame(VkCommandBuffer command,
                    const FrameContext& frame,
                    const extraction::FrameSnapshot& snapshot,
+                   const Vec4& clear_color,
                    const std::vector<Aov>& cpu_readback_aovs) {
     std::array<VkClearValue, 4> clear{};
-    clear[0].color = {{0.018F, 0.025F, 0.045F, 1.0F}};
+    clear[0].color = {
+        {clear_color.x, clear_color.y, clear_color.z, clear_color.w}};
     clear[1].depthStencil = {1.0F, 0};
     clear[2].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
     clear[3].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
@@ -4572,6 +4605,8 @@ class Renderer::Impl {
   std::vector<RetiredBuffer> deferred_;
   std::vector<RetiredTexture> retired_textures_;
   std::vector<RetiredSampler> retired_samplers_;
+  std::filesystem::path environment_path_;
+  detail::DiffuseEnvironment environment_lighting_;
   DeviceArena vertex_arena_;
   DeviceArena index_arena_;
   StagingRing staging_;

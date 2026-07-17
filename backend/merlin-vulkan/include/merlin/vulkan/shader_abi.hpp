@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -10,7 +11,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 1;
+inline constexpr std::uint32_t kVersion = 2;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 1;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -36,6 +37,7 @@ struct alignas(16) MaterialConstants {
   Vec4 base_color;
   Vec4 light_direction_intensity;
   Vec4 light_color_alpha_cutoff;
+  std::array<Vec4, 9> diffuse_environment;
 };
 
 static_assert(sizeof(DrawConstants) == 128);
@@ -48,11 +50,12 @@ static_assert(offsetof(DrawConstants, feature_mask) == 112);
 static_assert(offsetof(DrawConstants, prim_id) == 116);
 static_assert(offsetof(DrawConstants, instance_id) == 120);
 static_assert(offsetof(DrawConstants, texture_index) == 124);
-static_assert(sizeof(MaterialConstants) == 48);
+static_assert(sizeof(MaterialConstants) == 192);
 static_assert(alignof(MaterialConstants) == 16);
 static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);
 static_assert(offsetof(MaterialConstants, light_color_alpha_cutoff) == 32);
+static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 
 enum class ResourceClass {
   CombinedImageSampler,

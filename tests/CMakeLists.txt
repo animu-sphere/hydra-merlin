@@ -75,6 +75,22 @@ if(TARGET Merlin::Vulkan)
   )
   set_tests_properties(merlin-shader-abi PROPERTIES LABELS "shader;abi")
 
+  add_executable(merlin-environment-lighting-tests
+    environment_lighting_test.cpp
+  )
+  target_include_directories(merlin-environment-lighting-tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/src"
+  )
+  target_link_libraries(merlin-environment-lighting-tests
+    PRIVATE Merlin::Vulkan)
+  add_test(
+    NAME merlin-environment-lighting
+    COMMAND merlin-environment-lighting-tests
+            "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/assets/environment.hdr"
+  )
+  set_tests_properties(merlin-environment-lighting PROPERTIES
+    LABELS "materials;ibl")
+
   add_executable(merlin-bindless-resource-table-tests
     bindless_resource_table_test.cpp
   )

@@ -299,7 +299,7 @@ void WritePpm(const std::filesystem::path& path, std::uint32_t width,
 }
 
 bool HasVisibleColor(const std::vector<std::uint8_t>& rgba) {
-  constexpr std::array<int, 3> background{5, 6, 11};
+  constexpr std::array<int, 3> background{5, 6, 7};
   for (std::size_t offset = 0; offset + 3 < rgba.size(); offset += 4) {
     for (std::size_t channel = 0; channel < background.size(); ++channel) {
       if (std::abs(static_cast<int>(rgba[offset + channel]) -
@@ -357,7 +357,8 @@ std::shared_ptr<render::Backend> CreateRenderer(
   vulkan_options.shaders = {
       shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
       shader_dir / "triangle.bindless.vert.spv",
-      shader_dir / "triangle.bindless.frag.spv"};
+      shader_dir / "triangle.bindless.frag.spv",
+      shader_dir / "environment.hdr"};
   vulkan::BackendFactory vulkan_factory(std::move(vulkan_options));
   std::vector<render::BackendFactory*> factories{&vulkan_factory};
   render::BackendCreateInfo create_info;

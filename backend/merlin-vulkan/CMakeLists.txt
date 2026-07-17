@@ -55,6 +55,7 @@ add_library(merlin-vulkan STATIC
   src/backend.cpp
   src/bindless_resource_table.cpp
   src/descriptor_indexing.cpp
+  src/environment_lighting.cpp
   src/render_artifacts.cpp
   src/renderer.cpp
 )
@@ -89,6 +90,8 @@ target_compile_definitions(merlin-vulkan PRIVATE
 
 set(MERLIN_SHADER_OUTPUT_DIR
     "${CMAKE_CURRENT_BINARY_DIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
+set(MERLIN_ENVIRONMENT_HDR
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/environment.hdr")
 set(MERLIN_VERTEX_SPV "${MERLIN_SHADER_OUTPUT_DIR}/triangle.vert.spv")
 set(MERLIN_FRAGMENT_SPV "${MERLIN_SHADER_OUTPUT_DIR}/triangle.frag.spv")
 set(MERLIN_BINDLESS_VERTEX_SPV
@@ -206,6 +209,7 @@ add_custom_command(
     "-DMERLIN_FORWARD_SOURCE:FILEPATH=${_merlin_shader_forward}"
     "-DMERLIN_BINDLESS_SOURCE:FILEPATH=${_merlin_shader_bindless}"
     "-DMERLIN_COMMON_SOURCE:FILEPATH=${_merlin_shader_common}"
+    "-DMERLIN_ENVIRONMENT_HDR:FILEPATH=${MERLIN_ENVIRONMENT_HDR}"
     -P "${PROJECT_SOURCE_DIR}/cmake/write-shader-manifest.cmake"
   DEPENDS
     "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
@@ -214,6 +218,7 @@ add_custom_command(
     ${_merlin_shader_reflections}
     "${_merlin_shader_forward}" "${_merlin_shader_bindless}"
     "${_merlin_shader_common}"
+    "${MERLIN_ENVIRONMENT_HDR}"
     "${_merlin_shader_records_file}"
     "${PROJECT_SOURCE_DIR}/cmake/write-shader-manifest.cmake"
   COMMENT "Writing deterministic shader artifact manifest"
@@ -242,6 +247,7 @@ set(_merlin_shader_package_files
   "${MERLIN_FRAGMENT_METAL}"
   ${_merlin_shader_reflections}
   "${MERLIN_SHADER_MANIFEST}"
+  "${MERLIN_ENVIRONMENT_HDR}"
 )
 install(FILES ${_merlin_shader_package_files}
   DESTINATION

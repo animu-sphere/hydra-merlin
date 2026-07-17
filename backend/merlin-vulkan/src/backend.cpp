@@ -114,6 +114,7 @@ class VulkanBackend final : public render::Backend {
     native.width = request.width;
     native.height = request.height;
     native.shaders = shaders_;
+    native.clear_color = request.clear_color;
     native.products.clear();
     native.products.reserve(request.products.size());
     for (const auto& product : request.products) {

@@ -3,7 +3,6 @@
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/quaternion.h>
 #include <pxr/base/gf/rotation.h>
-#include <pxr/base/gf/vec2d.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3d.h>
 #include <pxr/base/gf/vec3f.h>
@@ -347,108 +346,21 @@ struct PrimvarInput {
   SceneIndexPrimvarSources sources;
 };
 
-float Cross2(const GfVec2d& a, const GfVec2d& b, const GfVec2d& c) {
-  return static_cast<float>((b[0] - a[0]) * (c[1] - a[1]) -
-                            (b[1] - a[1]) * (c[0] - a[0]));
-}
-
-bool PointInTriangle(const GfVec2d& p, const GfVec2d& a, const GfVec2d& b,
-                     const GfVec2d& c, float winding) {
-  constexpr float epsilon = 1.0e-7F;
-  return Cross2(a, b, p) * winding >= -epsilon &&
-         Cross2(b, c, p) * winding >= -epsilon &&
-         Cross2(c, a, p) * winding >= -epsilon;
-}
-
 std::vector<std::array<std::uint32_t, 3>> TriangulateFace(
-    std::span<const std::uint32_t> points, const std::vector<GfVec3d>& positions,
-    std::string& diagnostic) {
+    std::span<const std::uint32_t> points, std::string& diagnostic) {
   if (points.size() < 3) {
     diagnostic = "face has fewer than three vertices";
     return {};
   }
-  GfVec3d normal(0.0);
-  for (std::size_t i = 0; i < points.size(); ++i) {
-    const auto& a = positions[points[i]];
-    const auto& b = positions[points[(i + 1U) % points.size()]];
-    normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
-    normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
-    normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
-  }
-  const GfVec3d magnitude(std::abs(normal[0]), std::abs(normal[1]),
-                          std::abs(normal[2]));
-  int drop_axis = 2;
-  if (magnitude[0] >= magnitude[1] && magnitude[0] >= magnitude[2]) {
-    drop_axis = 0;
-  } else if (magnitude[1] >= magnitude[2]) {
-    drop_axis = 1;
-  }
-  std::vector<GfVec2d> projected;
-  projected.reserve(points.size());
-  for (const auto point : points) {
-    const auto& value = positions[point];
-    if (drop_axis == 0) {
-      projected.emplace_back(value[1], value[2]);
-    } else if (drop_axis == 1) {
-      projected.emplace_back(value[0], value[2]);
-    } else {
-      projected.emplace_back(value[0], value[1]);
-    }
-  }
-  double area{};
-  for (std::size_t i = 0; i < projected.size(); ++i) {
-    const auto& a = projected[i];
-    const auto& b = projected[(i + 1U) % projected.size()];
-    area += a[0] * b[1] - b[0] * a[1];
-  }
-  if (std::abs(area) <= 1.0e-12) {
-    diagnostic = "face is degenerate";
-    return {};
-  }
-  const float winding = area > 0.0 ? 1.0F : -1.0F;
-  std::vector<std::uint32_t> remaining(points.size());
-  for (std::uint32_t i = 0; i < remaining.size(); ++i) {
-    remaining[i] = i;
-  }
+  // Match HdMeshUtil's authored-order fan triangulation. Hydra render
+  // delegates must accept non-planar polygons consistently: projecting such a
+  // face to an inferred plane can collapse otherwise usable corners and reject
+  // the complete rprim, as happened with Kitchen_set's twisted stove quad.
   std::vector<std::array<std::uint32_t, 3>> triangles;
   triangles.reserve(points.size() - 2U);
-  while (remaining.size() > 3U) {
-    bool clipped{};
-    for (std::size_t i = 0; i < remaining.size(); ++i) {
-      const auto previous = remaining[(i + remaining.size() - 1U) %
-                                      remaining.size()];
-      const auto current = remaining[i];
-      const auto next = remaining[(i + 1U) % remaining.size()];
-      if (Cross2(projected[previous], projected[current], projected[next]) *
-              winding <= 1.0e-7F) {
-        continue;
-      }
-      bool contains_point{};
-      for (const auto candidate : remaining) {
-        if (candidate == previous || candidate == current ||
-            candidate == next) {
-          continue;
-        }
-        if (PointInTriangle(projected[candidate], projected[previous],
-                            projected[current], projected[next], winding)) {
-          contains_point = true;
-          break;
-        }
-      }
-      if (contains_point) {
-        continue;
-      }
-      triangles.push_back({previous, current, next});
-      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(i));
-      clipped = true;
-      break;
-    }
-    if (!clipped) {
-      diagnostic = "face is self-intersecting or numerically degenerate";
-      return {};
-    }
+  for (std::uint32_t corner = 1U; corner + 1U < points.size(); ++corner) {
+    triangles.push_back({0U, corner, corner + 1U});
   }
-  triangles.push_back({remaining[0], remaining[1], remaining[2]});
   return triangles;
 }
 
@@ -902,6 +814,10 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
     return result;
   }
 
+  result.material.features = static_cast<merlin::MaterialFeature>(
+      static_cast<std::uint32_t>(result.material.features) &
+      ~static_cast<std::uint32_t>(merlin::MaterialFeature::VertexColor));
+
   if (const auto* value = FindParameter(*surface, "diffuseColor")) {
     (void)ReadColor(*value, result.material.parameters.base_color);
   }
@@ -935,6 +851,26 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
   }
   const auto texture_node =
       network.nodes.find(color_connection->second.front().upstreamNode);
+  if (texture_node != network.nodes.end() &&
+      texture_node->second.nodeTypeId.GetString().starts_with(
+          "UsdPrimvarReader_")) {
+    const auto* varname = FindParameter(texture_node->second, "varname");
+    const bool reads_display_color =
+        varname != nullptr &&
+        ((varname->IsHolding<TfToken>() &&
+          varname->UncheckedGet<TfToken>() == TfToken("displayColor")) ||
+         (varname->IsHolding<std::string>() &&
+          varname->UncheckedGet<std::string>() == "displayColor"));
+    if (reads_display_color) {
+      // USD resolves a connected input by ignoring its authored value, so any
+      // diffuseColor constant captured above must not tint the vertex colors.
+      result.material.parameters.base_color.x = 1.0F;
+      result.material.parameters.base_color.y = 1.0F;
+      result.material.parameters.base_color.z = 1.0F;
+      result.material.features |= merlin::MaterialFeature::VertexColor;
+      return result;
+    }
+  }
   if (texture_node == network.nodes.end() ||
       texture_node->second.nodeTypeId != TfToken("UsdUVTexture")) {
     result.diagnostic =
@@ -1010,7 +946,9 @@ class SceneBridge {
       : renderer_(std::move(backend)) {
     merlin::MaterialDescriptor material;
     material.label = "Hydra fallback material";
-    material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+    // Unbound Hydra meshes use displayColor as their authored viewport color.
+    // Keep the fallback neutral so it does not tint the entire scene.
+    material.parameters.base_color = {1.0F, 1.0F, 1.0F, 1.0F};
     fallback_material_ = world_.CreateMaterial(std::move(material));
     render_settings_descriptor_.label = "Hydra render pass";
     render_settings_descriptor_.color_aov = false;
@@ -1297,8 +1235,12 @@ class SceneBridge {
     std::uint32_t height{};
     bool color_aov{};
     bool depth_aov{};
+    merlin::Vec4 clear_color = merlin::kDefaultClearColor;
     for (const auto& binding : bindings) {
       color_aov = color_aov || binding.aovName == HdAovTokens->color;
+      if (binding.aovName == HdAovTokens->color) {
+        (void)ReadColor(binding.clearValue, clear_color);
+      }
       depth_aov = depth_aov || HdAovHasDepthSemantic(binding.aovName);
       HdRenderBuffer* buffer = binding.renderBuffer;
       if (buffer == nullptr && !binding.renderBufferId.IsEmpty()) {
@@ -1405,7 +1347,8 @@ class SceneBridge {
       factory_options.shaders = {
           shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
           shader_dir / "triangle.bindless.vert.spv",
-          shader_dir / "triangle.bindless.frag.spv"};
+          shader_dir / "triangle.bindless.frag.spv",
+          shader_dir / "environment.hdr"};
       merlin::vulkan::BackendFactory factory(std::move(factory_options));
       std::vector<merlin::render::BackendFactory*> factories{&factory};
       merlin::render::BackendCreateInfo create_info;
@@ -1427,6 +1370,7 @@ class SceneBridge {
     request.snapshot = snapshot;
     request.width = width;
     request.height = height;
+    request.clear_color = clear_color;
     request.products.clear();
     const auto presentation = renderer_->default_presentation_target();
     if (presentation) {
@@ -1530,6 +1474,23 @@ class SceneBridge {
                           snapshot->materials.end(), [](const auto& material) {
                             return material.base_color_texture.has_value();
                           }));
+        const auto vertex_color_materials = static_cast<std::size_t>(
+            std::count_if(snapshot->materials.begin(),
+                          snapshot->materials.end(), [](const auto& material) {
+                            return merlin::HasMaterialFeature(
+                                material.features,
+                                merlin::MaterialFeature::VertexColor);
+                          }));
+        const auto neutral_vertex_color_materials = static_cast<std::size_t>(
+            std::count_if(snapshot->materials.begin(), snapshot->materials.end(),
+                          [](const auto& material) {
+                            return merlin::HasMaterialFeature(
+                                       material.features,
+                                       merlin::MaterialFeature::VertexColor) &&
+                                   material.parameters.base_color.x == 1.0F &&
+                                   material.parameters.base_color.y == 1.0F &&
+                                   material.parameters.base_color.z == 1.0F;
+                          }));
         const auto texcoord_geometries = static_cast<std::size_t>(
             std::count_if(snapshot->geometries.begin(),
                           snapshot->geometries.end(), [](const auto& geometry) {
@@ -1549,6 +1510,9 @@ class SceneBridge {
                << " covered_x_sum=" << covered_x_sum
                << " covered_y_sum=" << covered_y_sum
                << " textured_materials=" << textured_materials
+               << " vertex_color_materials=" << vertex_color_materials
+               << " neutral_vertex_color_materials="
+               << neutral_vertex_color_materials
                << " texcoord_geometries=" << texcoord_geometries
                << " missing_texcoord_geometries="
                << missing_texcoord_geometries
@@ -2469,8 +2433,7 @@ class HdMerlinMesh final : public HdMesh {
           face_points.push_back(static_cast<std::uint32_t>(point));
         }
         std::string diagnostic;
-        const auto triangles =
-            TriangulateFace(face_points, points_, diagnostic);
+        const auto triangles = TriangulateFace(face_points, diagnostic);
         if (triangles.empty()) {
           ReportHydraDiagnostic(
               "hydra.mesh.triangulation", GetId(),
