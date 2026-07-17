@@ -38,6 +38,11 @@ struct Mat4 {
       0.0F, 0.0F, 0.0F, 1.0F};
 };
 
+// Color attachment clear value used by every backend and adapter when the
+// host does not supply one. Viewport background expectations in tests are
+// quantized from these components.
+inline constexpr Vec4 kDefaultClearColor{0.018F, 0.025F, 0.028F, 1.0F};
+
 template <typename Tag>
 class Handle {
  public:

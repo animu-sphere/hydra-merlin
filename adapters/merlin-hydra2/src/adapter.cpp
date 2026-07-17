@@ -862,6 +862,11 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
          (varname->IsHolding<std::string>() &&
           varname->UncheckedGet<std::string>() == "displayColor"));
     if (reads_display_color) {
+      // USD resolves a connected input by ignoring its authored value, so any
+      // diffuseColor constant captured above must not tint the vertex colors.
+      result.material.parameters.base_color.x = 1.0F;
+      result.material.parameters.base_color.y = 1.0F;
+      result.material.parameters.base_color.z = 1.0F;
       result.material.features |= merlin::MaterialFeature::VertexColor;
       return result;
     }
@@ -1230,7 +1235,7 @@ class SceneBridge {
     std::uint32_t height{};
     bool color_aov{};
     bool depth_aov{};
-    merlin::Vec4 clear_color{0.018F, 0.025F, 0.028F, 1.0F};
+    merlin::Vec4 clear_color = merlin::kDefaultClearColor;
     for (const auto& binding : bindings) {
       color_aov = color_aov || binding.aovName == HdAovTokens->color;
       if (binding.aovName == HdAovTokens->color) {

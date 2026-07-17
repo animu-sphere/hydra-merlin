@@ -302,7 +302,7 @@ struct RenderRequest {
   std::uint32_t width{512};
   std::uint32_t height{512};
   ShaderPaths shaders;
-  Vec4 clear_color{0.018F, 0.025F, 0.028F, 1.0F};
+  Vec4 clear_color{kDefaultClearColor};
   std::vector<RenderProductRequest> products{
       {Aov::Color, true}, {Aov::Depth, true}};
   // Presentation uses the renderer's backend-owned default target. The color
