@@ -45,6 +45,88 @@ add_test(
 )
 set_tests_properties(merlin-backend-boundaries PROPERTIES LABELS "architecture")
 
+if(TARGET Merlin::MaterialX)
+  add_executable(merlin-materialx-sha256-tests
+    sha256_test.cpp
+  )
+  target_include_directories(merlin-materialx-sha256-tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/material/merlin-materialx/src"
+  )
+  target_link_libraries(merlin-materialx-sha256-tests
+    PRIVATE Merlin::MaterialX)
+  add_test(NAME merlin-materialx-sha256
+           COMMAND merlin-materialx-sha256-tests)
+  set_tests_properties(merlin-materialx-sha256 PROPERTIES
+    LABELS "materials;materialx;cache"
+  )
+
+  add_executable(merlin-materialx-compiler-tests
+    materialx_compiler_test.cpp
+  )
+  target_link_libraries(merlin-materialx-compiler-tests
+    PRIVATE Merlin::MaterialX)
+  add_test(
+    NAME merlin-materialx-compiler
+    COMMAND merlin-materialx-compiler-tests
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
+      "${_merlin_materialx_data_root}"
+      "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.slang"
+  )
+  set_tests_properties(merlin-materialx-compiler PROPERTIES
+    LABELS "materials;materialx;shader"
+    FIXTURES_SETUP merlin-materialx-generated-module
+  )
+
+  find_program(MERLIN_MATERIALX_TEST_SLANGC
+    NAMES slangc
+    HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin"
+  )
+  if(MERLIN_MATERIALX_TEST_SLANGC)
+    add_test(
+      NAME merlin-materialx-spirv-compile
+      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/compile-wrapper.slang"
+        -I "${CMAKE_CURRENT_BINARY_DIR}"
+        -entry merlin_materialx_test_fragment
+        -stage fragment
+        -target spirv
+        -profile sm_6_6
+        -capability spirv_1_5
+        -matrix-layout-column-major
+        -O2
+        -warnings-as-errors all
+        -reflection-json
+          "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.spv.reflection.json"
+        -o "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.spv"
+    )
+    set_tests_properties(merlin-materialx-spirv-compile PROPERTIES
+      LABELS "materials;materialx;shader;spirv"
+      FIXTURES_REQUIRED merlin-materialx-generated-module
+    )
+
+    add_test(
+      NAME merlin-materialx-metal-compile
+      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/compile-wrapper.slang"
+        -I "${CMAKE_CURRENT_BINARY_DIR}"
+        -entry merlin_materialx_test_fragment
+        -stage fragment
+        -target metal
+        -profile metallib_2_4
+        -matrix-layout-column-major
+        -O2
+        -warnings-as-errors all
+        -reflection-json
+          "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.metal.reflection.json"
+        -o "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.metal"
+    )
+    set_tests_properties(merlin-materialx-metal-compile PROPERTIES
+      LABELS "materials;materialx;metal;shader"
+      FIXTURES_REQUIRED merlin-materialx-generated-module
+    )
+  endif()
+endif()
+
 add_executable(merlin-mesh-scale-regression-tests
   mesh_scale_regression_test.cpp
 )

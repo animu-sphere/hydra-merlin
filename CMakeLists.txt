@@ -37,6 +37,9 @@ set(MERLIN_OPENUSD_VALIDATED_VERSION "26.05")
 set(MERLIN_SLANG_REQUIRED_SERIES "2026.8")
 set(MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION 1)
 set(MERLIN_SHADER_ABI_VERSION 2)
+set(MERLIN_MATERIALX_MIN_VERSION "1.39.6")
+set(MERLIN_MATERIALX_GENSLANG_REVISION
+    "38368ee04da84ce1f8837ecba7322dd6d81291f8")
 set(MERLIN_GLFW_MIN_VERSION "3.4")
 set(MERLIN_GLFW_PINNED_COMMIT
     "7b6aead9fb88b3623e3b3725ebb42670cbe4c579")
@@ -47,6 +50,12 @@ include(CMakePackageConfigHelpers)
 option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
+option(MERLIN_ENABLE_MATERIALX
+  "Build the MaterialXGenSlang material-function compiler" OFF)
+option(MERLIN_FETCH_MATERIALX
+  "Fetch the pinned MaterialX source when no compatible package is available" OFF)
+set(MERLIN_MATERIALX_SOURCE_DIR "" CACHE PATH
+  "Optional compatible MaterialX source tree used instead of fetching")
 option(MERLIN_BUILD_VIEWPORT "Build the native merlin-viewport application" ON)
 option(MERLIN_GENERATE_RENDERER_REPORT
   "Generate OpenStrata renderer evidence after linking merlin-headless" ON)
@@ -68,6 +77,77 @@ endif()
 add_subdirectory(core/merlin-render-world)
 add_subdirectory(core/merlin-render-extraction)
 add_subdirectory(core/merlin-render-backend)
+
+if(MERLIN_ENABLE_MATERIALX)
+  find_package(MaterialX ${MERLIN_MATERIALX_MIN_VERSION} CONFIG QUIET)
+  if(TARGET MaterialXGenSlang)
+    set(MERLIN_MATERIALX_DETECTED_VERSION "${MaterialX_VERSION}")
+  else()
+    if(CMAKE_VERSION VERSION_LESS 3.26)
+      message(FATAL_ERROR
+        "MaterialX ${MERLIN_MATERIALX_MIN_VERSION} source builds require CMake 3.26 or newer")
+    endif()
+
+    set(MATERIALX_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_VIEWER OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GRAPH_EDITOR OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_GLSL OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_OSL OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_MDL OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_MSL OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_GEN_SLANG ON CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_RENDER OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_RENDER_PLATFORMS OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(MATERIALX_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+    if(MERLIN_MATERIALX_SOURCE_DIR)
+      cmake_path(ABSOLUTE_PATH MERLIN_MATERIALX_SOURCE_DIR
+                 NORMALIZE OUTPUT_VARIABLE _merlin_materialx_source)
+      if(NOT EXISTS "${_merlin_materialx_source}/source/MaterialXGenSlang/CMakeLists.txt")
+        message(FATAL_ERROR
+          "MERLIN_MATERIALX_SOURCE_DIR does not contain MaterialXGenSlang: ${_merlin_materialx_source}")
+      endif()
+      # MaterialX supports embedding, but its package-generation code uses
+      # CMAKE_PROJECT_NAME (the top-level project by default). Scope the name
+      # so its install exports remain MaterialXConfig/MaterialXTargets.
+      set(_merlin_parent_cmake_project_name "${CMAKE_PROJECT_NAME}")
+      set(CMAKE_PROJECT_NAME MaterialX)
+      add_subdirectory("${_merlin_materialx_source}"
+        "${CMAKE_CURRENT_BINARY_DIR}/_deps/materialx-build")
+      set(CMAKE_PROJECT_NAME "${_merlin_parent_cmake_project_name}")
+      set(_merlin_materialx_data_root "${_merlin_materialx_source}")
+    elseif(MERLIN_FETCH_MATERIALX)
+      include(FetchContent)
+      FetchContent_Declare(merlin_materialx_upstream
+        GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/MaterialX.git
+        GIT_TAG ${MERLIN_MATERIALX_GENSLANG_REVISION}
+        GIT_SHALLOW FALSE
+        GIT_PROGRESS TRUE
+      )
+      set(_merlin_parent_cmake_project_name "${CMAKE_PROJECT_NAME}")
+      set(CMAKE_PROJECT_NAME MaterialX)
+      FetchContent_MakeAvailable(merlin_materialx_upstream)
+      set(CMAKE_PROJECT_NAME "${_merlin_parent_cmake_project_name}")
+      set(_merlin_materialx_data_root "${merlin_materialx_upstream_SOURCE_DIR}")
+    else()
+      message(FATAL_ERROR
+        "MERLIN_ENABLE_MATERIALX requires a MaterialX ${MERLIN_MATERIALX_MIN_VERSION}+ package with MaterialXGenSlang, MERLIN_MATERIALX_SOURCE_DIR, or MERLIN_FETCH_MATERIALX=ON")
+    endif()
+    set(MERLIN_MATERIALX_DETECTED_VERSION
+        "${MERLIN_MATERIALX_MIN_VERSION}")
+  endif()
+
+  if(NOT TARGET MaterialXGenSlang)
+    message(FATAL_ERROR
+      "The selected MaterialX dependency does not provide MaterialXGenSlang")
+  endif()
+  if(DEFINED MATERIALX_STDLIB_DIR)
+    set(_merlin_materialx_data_root "${MATERIALX_BASE_DIR}")
+  endif()
+  add_subdirectory(material/merlin-materialx)
+endif()
 
 if(MERLIN_ENABLE_VULKAN)
   add_subdirectory(backend/merlin-vulkan)
@@ -109,6 +189,14 @@ if(TARGET merlin-vulkan)
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
   )
 endif()
+if(TARGET merlin-materialx)
+  install(TARGETS merlin-materialx
+    EXPORT MerlinMaterialXTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  )
+endif()
 install(DIRECTORY core/merlin-render-world/include/
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 install(DIRECTORY core/merlin-render-extraction/include/
@@ -117,6 +205,10 @@ install(DIRECTORY core/merlin-render-backend/include/
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 if(TARGET merlin-vulkan)
   install(DIRECTORY backend/merlin-vulkan/include/
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+endif()
+if(TARGET merlin-materialx)
+  install(DIRECTORY material/merlin-materialx/include/
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 endif()
 
@@ -128,6 +220,13 @@ install(EXPORT MerlinTargets
 if(TARGET merlin-vulkan)
   install(EXPORT MerlinVulkanTargets
     FILE MerlinVulkanTargets.cmake
+    NAMESPACE Merlin::
+    DESTINATION "${_merlin_install_cmakedir}"
+  )
+endif()
+if(TARGET merlin-materialx)
+  install(EXPORT MerlinMaterialXTargets
+    FILE MerlinMaterialXTargets.cmake
     NAMESPACE Merlin::
     DESTINATION "${_merlin_install_cmakedir}"
   )
@@ -185,6 +284,18 @@ else()
   set(_merlin_metadata_runtime_products "")
 endif()
 
+if(MERLIN_ENABLE_MATERIALX)
+  set(_merlin_metadata_materialx_enabled true)
+  set(_merlin_metadata_materialx_version
+      "\"${MERLIN_MATERIALX_DETECTED_VERSION}\"")
+  set(_merlin_metadata_exported_materialx
+      ",\n      \"Merlin::MaterialX\"")
+else()
+  set(_merlin_metadata_materialx_enabled false)
+  set(_merlin_metadata_materialx_version "null")
+  set(_merlin_metadata_exported_materialx "")
+endif()
+
 if(TARGET merlin-viewport)
   set(_merlin_metadata_viewport_enabled true)
   if(_merlin_metadata_runtime_products)
@@ -233,10 +344,18 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/openstrata.renderer.yaml"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin"
 )
-if(MERLIN_ENABLE_VULKAN)
+if(MERLIN_ENABLE_VULKAN OR MERLIN_ENABLE_MATERIALX)
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/licenses"
   )
+endif()
+if(MERLIN_ENABLE_MATERIALX AND
+   EXISTS "${_merlin_materialx_data_root}/LICENSE")
+  install(FILES "${_merlin_materialx_data_root}/LICENSE"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/licenses/materialx"
+  )
+endif()
+if(MERLIN_ENABLE_VULKAN)
   install(FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/openusd/LICENSE.txt"
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/openusd/NOTICE.txt"
@@ -252,6 +371,7 @@ if(MERLIN_BUILD_TESTS)
       "-DMERLIN_EXPECTED_VERSION:STRING=${PROJECT_VERSION}"
       "-DMERLIN_EXPECTED_VULKAN:BOOL=${MERLIN_ENABLE_VULKAN}"
       "-DMERLIN_EXPECTED_HYDRA2:BOOL=${MERLIN_ENABLE_HYDRA2}"
+      "-DMERLIN_EXPECTED_MATERIALX:BOOL=${MERLIN_ENABLE_MATERIALX}"
       "-DMERLIN_EXPECTED_VIEWPORT:BOOL=${_merlin_metadata_viewport_enabled}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify-release-metadata.cmake"
   )

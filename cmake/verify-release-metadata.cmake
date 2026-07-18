@@ -2,6 +2,7 @@ if(NOT DEFINED MERLIN_METADATA OR
    NOT DEFINED MERLIN_EXPECTED_VERSION OR
    NOT DEFINED MERLIN_EXPECTED_VULKAN OR
    NOT DEFINED MERLIN_EXPECTED_HYDRA2 OR
+   NOT DEFINED MERLIN_EXPECTED_MATERIALX OR
    NOT DEFINED MERLIN_EXPECTED_VIEWPORT)
   message(FATAL_ERROR "release metadata verification arguments are incomplete")
 endif()
@@ -13,6 +14,7 @@ string(JSON _schema_version GET "${_merlin_metadata}" schema_version)
 string(JSON _project_version GET "${_merlin_metadata}" project version)
 string(JSON _vulkan_enabled GET "${_merlin_metadata}" configuration vulkan)
 string(JSON _hydra2_enabled GET "${_merlin_metadata}" configuration hydra2)
+string(JSON _materialx_enabled GET "${_merlin_metadata}" configuration materialx)
 string(JSON _viewport_enabled GET "${_merlin_metadata}" configuration viewport)
 string(JSON _packaging_contract GET "${_merlin_metadata}"
        packaging runtime_products_contract)
@@ -28,6 +30,12 @@ string(JSON _slang_required GET "${_merlin_metadata}"
   requirements slang required_series)
 string(JSON _shader_abi_version GET "${_merlin_metadata}"
   requirements slang shader_abi_version)
+string(JSON _materialx_minimum GET "${_merlin_metadata}"
+  requirements materialx minimum)
+string(JSON _materialx_detected GET "${_merlin_metadata}"
+  requirements materialx detected)
+string(JSON _materialx_revision GET "${_merlin_metadata}"
+  requirements materialx genslang_revision)
 string(JSON _glfw_minimum GET "${_merlin_metadata}"
   requirements glfw minimum)
 string(JSON _glfw_fallback_commit GET "${_merlin_metadata}"
@@ -53,6 +61,11 @@ if((_hydra2_enabled AND NOT MERLIN_EXPECTED_HYDRA2) OR
   message(FATAL_ERROR
     "metadata Hydra flag ${_hydra2_enabled} != ${MERLIN_EXPECTED_HYDRA2}")
 endif()
+if((_materialx_enabled AND NOT MERLIN_EXPECTED_MATERIALX) OR
+   (NOT _materialx_enabled AND MERLIN_EXPECTED_MATERIALX))
+  message(FATAL_ERROR
+    "metadata MaterialX flag ${_materialx_enabled} != ${MERLIN_EXPECTED_MATERIALX}")
+endif()
 if((_viewport_enabled AND NOT MERLIN_EXPECTED_VIEWPORT) OR
    (NOT _viewport_enabled AND MERLIN_EXPECTED_VIEWPORT))
   message(FATAL_ERROR
@@ -67,6 +80,12 @@ endif()
 if(NOT _slang_required STREQUAL "2026.8" OR
    NOT _shader_abi_version EQUAL 2)
   message(FATAL_ERROR "unexpected Slang/shader ABI metadata contract")
+endif()
+string(LENGTH "${_materialx_revision}" _materialx_revision_length)
+if(NOT _materialx_minimum STREQUAL "1.39.6" OR
+   NOT _materialx_revision MATCHES "^[0-9a-f]+$" OR
+   NOT _materialx_revision_length EQUAL 40)
+  message(FATAL_ERROR "unexpected MaterialXGenSlang dependency metadata")
 endif()
 string(LENGTH "${_glfw_fallback_commit}" _glfw_commit_length)
 if(NOT _glfw_minimum STREQUAL "3.4" OR
@@ -85,8 +104,14 @@ if(MERLIN_EXPECTED_VULKAN)
     message(FATAL_ERROR
       "Vulkan metadata requires Slang 2026.8.x and shader artifacts v1")
   endif()
-  if(NOT _exported_target_count EQUAL 4)
-    message(FATAL_ERROR "Vulkan metadata must export four targets")
+  set(_expected_exported_target_count 4)
+  if(MERLIN_EXPECTED_MATERIALX)
+    math(EXPR _expected_exported_target_count
+         "${_expected_exported_target_count} + 1")
+  endif()
+  if(NOT _exported_target_count EQUAL _expected_exported_target_count)
+    message(FATAL_ERROR
+      "Vulkan metadata exported target count is incorrect")
   endif()
   string(JSON _vulkan_target GET "${_merlin_metadata}"
          packaging exported_targets 3)
@@ -94,8 +119,29 @@ if(MERLIN_EXPECTED_VULKAN)
     message(FATAL_ERROR "Vulkan metadata target is missing")
   endif()
 else()
-  if(NOT _exported_target_count EQUAL 3)
-    message(FATAL_ERROR "Core metadata must export three targets")
+  set(_expected_exported_target_count 3)
+  if(MERLIN_EXPECTED_MATERIALX)
+    math(EXPR _expected_exported_target_count
+         "${_expected_exported_target_count} + 1")
+  endif()
+  if(NOT _exported_target_count EQUAL _expected_exported_target_count)
+    message(FATAL_ERROR "Core metadata exported target count is incorrect")
+  endif()
+endif()
+
+if(MERLIN_EXPECTED_MATERIALX)
+  if("${_materialx_detected}" VERSION_LESS "${_materialx_minimum}")
+    message(FATAL_ERROR
+      "MaterialX metadata ${_materialx_detected} is older than ${_materialx_minimum}")
+  endif()
+  set(_materialx_target_index 3)
+  if(MERLIN_EXPECTED_VULKAN)
+    set(_materialx_target_index 4)
+  endif()
+  string(JSON _materialx_target GET "${_merlin_metadata}"
+         packaging exported_targets ${_materialx_target_index})
+  if(NOT _materialx_target STREQUAL "Merlin::MaterialX")
+    message(FATAL_ERROR "MaterialX metadata target is missing")
   endif()
 endif()
 
