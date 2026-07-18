@@ -15,11 +15,12 @@ forward note to the superseded report. Open work belongs in the
 
 ## Reading order
 
-The newest report carries the live ask list. Report 6 covers the v0.10.0
-MaterialX compiler slice and the remaining v0.18.0 OpenStrata asks.
+The newest report carries the live ask list. Report 7 records the v0.18.0
+recheck and carries the open v0.19.0 asks.
 
 | # | Date | Report | `ost` | Focus |
 | --- | --- | --- | --- | --- |
+| 7 | 2026-07-18 | [v0.18.0 ask recheck](07-2026-07-18-v0.18.0-recheck-v0.19.0-asks.md) | 0.18.0 | Completion-bound evidence and capability-scoped advice confirmed; `renderer viewport` exercised; external provenance, producer-session schema, and build intents open |
 | 6 | 2026-07-18 | [MaterialX feature-intent dogfooding](06-2026-07-18-v0.17.0-materialx-v0.18.0-asks.md) | 0.17.0 | Optional MaterialXGenSlang build intent, honest external validation, and public-report redaction |
 | 5 | 2026-07-15 | [Renderer dogfooding handoff](05-2026-07-15-v0.17.0-dogfooding-v0.18.0-asks.md) | 0.17.0 | Producer-session completion, target ownership, managed tests, and external provenance |
 | 4 | 2026-07-13 | [Renderer adoption](04-2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md) | 0.16.0 | Existing-renderer adoption, build completion, and generator recovery |
