@@ -190,6 +190,29 @@ and profiling infrastructure while retaining separate rendering algorithms.
 The Vulkan path requires a Vulkan 1.4-capable graphics queue and Slang
 2026.8.x (`slangc`) from the Vulkan SDK at build time.
 
+## MaterialX prototype
+
+The v0.10.0 work adds an optional compiler boundary that turns a deliberate
+MaterialX graph subset into a renderer-consumable Slang material function. It
+uses the official MaterialXGenSlang implementation pinned at
+`38368ee04da84ce1f8837ecba7322dd6d81291f8`. A compatible prebuilt MaterialX
+1.39.6 package is preferred; development builds can use an existing source tree
+or explicitly fetch the pin:
+
+```powershell
+cmake -S . -B build-materialx -G "Visual Studio 17 2022" -A x64 `
+  -DMERLIN_ENABLE_VULKAN=OFF `
+  -DMERLIN_ENABLE_MATERIALX=ON `
+  -DMERLIN_FETCH_MATERIALX=ON
+cmake --build build-materialx --config Debug
+ctest --test-dir build-materialx -C Debug -R merlin-materialx `
+  --output-on-failure
+```
+
+Source fallback builds require CMake 3.26 or newer. The generated module owns
+only graph evaluation; geometry, lighting, alpha policy, render passes,
+resources, and AOV writes remain renderer-owned.
+
 ## Supported configurations
 
 The host-neutral libraries require CMake 3.24 and a C++20 compiler. Vulkan and
@@ -201,6 +224,7 @@ Hydra are optional dependency layers:
 | Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
 | Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback |
 | Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
+| MaterialX compiler | `MERLIN_ENABLE_MATERIALX=ON` | MaterialX 1.39.6 with MaterialXGenSlang; CMake 3.26+ for source fallback |
 
 Windows with Visual Studio 2022 is the currently validated development path.
 Core-only Debug and Release builds run on hosted Windows and Linux CI. GPU and
@@ -240,7 +264,8 @@ target_link_libraries(my-renderer PRIVATE Merlin::RenderBackend)
 Available package components and targets are `RenderWorld`
 (`Merlin::RenderWorld`), `RenderExtraction` (`Merlin::RenderExtraction`),
 `RenderBackend` (`Merlin::RenderBackend`), and, for Vulkan-enabled builds,
-`Vulkan` (`Merlin::Vulkan`). The install-consumer
+`Vulkan` (`Merlin::Vulkan`). MaterialX-enabled builds also export `MaterialX`
+(`Merlin::MaterialX`). The install-consumer
 CTest installs to an isolated prefix and verifies downstream configure, build,
 link, and execution.
 
@@ -262,8 +287,7 @@ and Vulkan owns execution, readback, surface, swapchain, and synchronization.
 - [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md)
 - [Execution and render-product lifetime](docs/design/execution-lifetime.md)
 - [OpenStrata project layout](docs/design/openstrata-project.md)
-- [OST v0.17 dogfooding and v0.18 asks](docs/reports/2026-07-15-v0.17.0-dogfooding-v0.18.0-asks.md)
-- [Historical OST v0.16 renderer-adoption dogfooding report](docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
+- [OST dogfooding reports](docs/reports/ost/README.md)
 - [Build and install](docs/guides/build-and-install.md)
 - [Benchmarking](docs/guides/benchmarking.md)
 - [Using the CMake package](docs/guides/cmake-package.md)

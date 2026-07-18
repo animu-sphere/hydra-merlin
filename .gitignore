@@ -16,8 +16,14 @@
 /docs/reports/*
 !/docs/reports/README.md
 !/docs/reports/delivery-history.md
-!/docs/reports/2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md
-!/docs/reports/2026-07-15-v0.17.0-dogfooding-v0.18.0-asks.md
+!/docs/reports/ost/
+/docs/reports/ost/*
+!/docs/reports/ost/README.md
+!/docs/reports/ost/[0-9][0-9]-*.md
+!/docs/reports/releases/
+/docs/reports/releases/*
+!/docs/reports/releases/README.md
+!/docs/reports/releases/[0-9][0-9]-*.md
 *.user
 *.suo
 *.ppm

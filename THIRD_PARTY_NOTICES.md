@@ -1,5 +1,18 @@
 # Third-Party Notices
 
+## MaterialX
+
+The optional `Merlin::MaterialX` compiler links the official MaterialX Slang
+Shader Generator. The source fallback is pinned to the upstream revision below;
+compatible packaged builds may be supplied instead.
+
+- Upstream repository: AcademySoftwareFoundation/MaterialX
+- Upstream revision: `38368ee04da84ce1f8837ecba7322dd6d81291f8`
+- Version at the pinned revision: 1.39.6
+- Copyright: Copyright Contributors to the MaterialX Project
+- License: Apache License 2.0; source builds install the upstream `LICENSE`
+  under `share/merlin/licenses/materialx`
+
 ## OpenUSD Stinson Beach environment image
 
 `backend/merlin-vulkan/assets/environment.hdr` is an unmodified copy of

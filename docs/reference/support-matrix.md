@@ -30,6 +30,7 @@ check.
 | Vulkan SDK `slangc` | Slang 2026.8.x; Vulkan SDK 1.4.350.0 in capability workflow | Shader build and SPIR-V/Metal compile gates |
 | GLFW | 3.4; pinned commit fallback recorded in release metadata | `merlin-viewport` window/input and Vulkan surface adapter |
 | OpenUSD | 26.05 currently validated | Hydra 2 only |
+| MaterialX | 1.39.6 prototype pin at `38368ee04da84ce1f8837ecba7322dd6d81291f8`; source builds require CMake 3.26+ | Optional `Merlin::MaterialX` compiler |
 | Python + `testusdview` | Matching the OpenUSD runtime | Install-tree Hydra host test |
 
 Hydra configuration verifies the exact OpenUSD 26.05 header version and shared
@@ -55,13 +56,13 @@ responsibility.
 | PNG/EXR expected/actual/diff regression artifacts | Exact comparison is available for color, depth, primId, and instanceId |
 | Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, bindless/geometry/transfer/VRAM residency telemetry, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
 | Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes |
-| Core/Vulkan installed CMake targets | `Merlin::RenderWorld`, `Merlin::RenderExtraction`, `Merlin::RenderBackend`, and optional `Merlin::Vulkan` are available |
+| Installed CMake targets | `Merlin::RenderWorld`, `Merlin::RenderExtraction`, `Merlin::RenderBackend`, optional `Merlin::Vulkan`, and optional `Merlin::MaterialX` are available |
 | Versioned dependency and package metadata | Available as installed JSON |
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Slang shader source and Metal compile gate | Slang is the Forward source of truth; conventional and bindless SPIR-V plus conventional Metal/reflection artifacts are packaged under `shaders/v1`, with Metal non-uniform bindless access explicitly falling back to conventional Forward |
-| MaterialXGenSlang material-function prototype | Planned for v0.10.0; production MaterialX and Visibility quality remains v0.18.0 work |
+| MaterialXGenSlang material-function prototype | In progress for v0.10.0: the optional installed compiler emits deterministic graph-only Slang functions/cache keys, logical reflection, diagnostics, and SPIR-V/Metal compile-gate evidence for constants and add/multiply/mix; image/geometry inputs, Standard Surface, Vulkan Forward image parity, and artifact-manifest evidence remain incomplete |
 | Native Metal backend and residency | Planned for v0.11.0; no current Metal execution support is claimed |
 | Native Metal viewport presentation | Planned for v0.12.0 after the backend-neutral viewport boundary |
 | HgiMetal host presentation bridge | Planned for v0.13.0 with direct-share, GPU-copy, and CPU-readback fallback tiers validated per supported host |

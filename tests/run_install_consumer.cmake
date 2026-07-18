@@ -155,6 +155,52 @@ if(NOT _run_result EQUAL 0)
   message(FATAL_ERROR "Merlin consumer run failed: ${_run_result}")
 endif()
 
+# MaterialX-enabled installs compile and link the public compiler boundary from
+# the isolated prefix. This catches missing static transitive dependencies and
+# sibling MaterialX package discovery without requiring a renderer backend.
+set(_materialx_targets
+    "${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin/MerlinMaterialXTargets.cmake")
+if(EXISTS "${_materialx_targets}")
+  set(_materialx_consumer_build_dir
+      "${MERLIN_TEST_BINARY_DIR}/materialx-install-consumer-build")
+  execute_process(
+    COMMAND "${MERLIN_CMAKE_COMMAND}"
+            -S "${MERLIN_SOURCE_DIR}/tests/materialx-install-consumer"
+            -B "${_materialx_consumer_build_dir}"
+            ${_generator_args}
+            "-DCMAKE_PREFIX_PATH=${_stage_dir}"
+            "-DMerlin_DIR=${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin"
+    RESULT_VARIABLE _materialx_configure_result
+  )
+  if(NOT _materialx_configure_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin MaterialX consumer configure failed: ${_materialx_configure_result}")
+  endif()
+  execute_process(
+    COMMAND "${MERLIN_CMAKE_COMMAND}" --build
+            "${_materialx_consumer_build_dir}" ${_config_args}
+    RESULT_VARIABLE _materialx_build_result
+  )
+  if(NOT _materialx_build_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin MaterialX consumer build failed: ${_materialx_build_result}")
+  endif()
+  set(_materialx_consumer_executable
+      "${_materialx_consumer_build_dir}/merlin-materialx-install-consumer${CMAKE_EXECUTABLE_SUFFIX}")
+  if(MERLIN_MULTI_CONFIG AND NOT "${MERLIN_CONFIG}" STREQUAL "")
+    set(_materialx_consumer_executable
+        "${_materialx_consumer_build_dir}/${MERLIN_CONFIG}/merlin-materialx-install-consumer${CMAKE_EXECUTABLE_SUFFIX}")
+  endif()
+  execute_process(
+    COMMAND "${_materialx_consumer_executable}"
+    RESULT_VARIABLE _materialx_run_result
+  )
+  if(NOT _materialx_run_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin MaterialX consumer run failed: ${_materialx_run_result}")
+  endif()
+endif()
+
 # Vulkan-enabled installs additionally compile the v0.4.0 execution and image
 # artifact public headers through the isolated package export.
 if(EXISTS "${_headless}")

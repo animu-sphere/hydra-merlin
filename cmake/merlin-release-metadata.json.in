@@ -8,6 +8,7 @@
   "configuration": {
     "vulkan": @_merlin_metadata_vulkan_enabled@,
     "hydra2": @_merlin_metadata_hydra2_enabled@,
+    "materialx": @_merlin_metadata_materialx_enabled@,
     "viewport": @_merlin_metadata_viewport_enabled@
   },
   "requirements": {
@@ -28,6 +29,11 @@
       "shader_abi_version": @MERLIN_SHADER_ABI_VERSION@,
       "artifact_schema_version": @_merlin_metadata_shader_artifact_schema@
     },
+    "materialx": {
+      "minimum": "@MERLIN_MATERIALX_MIN_VERSION@",
+      "detected": @_merlin_metadata_materialx_version@,
+      "genslang_revision": "@MERLIN_MATERIALX_GENSLANG_REVISION@"
+    },
     "openusd": {
       "validated": "@MERLIN_OPENUSD_VALIDATED_VERSION@",
       "detected": @_merlin_metadata_openusd_version@
@@ -42,7 +48,7 @@
     "exported_targets": [
       "Merlin::RenderWorld",
       "Merlin::RenderExtraction",
-      "Merlin::RenderBackend"@_merlin_metadata_exported_vulkan@
+      "Merlin::RenderBackend"@_merlin_metadata_exported_vulkan@@_merlin_metadata_exported_materialx@
     ],
     "runtime_products_contract": "runtime-only",
     "runtime_products": @_merlin_metadata_runtime_products@

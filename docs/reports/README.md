@@ -1,18 +1,14 @@
 # Reports
 
-Dated dogfooding and implementation-evidence reports are kept here as local-only
-history. Everything in this directory except this README and the curated
-[delivery history](delivery-history.md) is Git-ignored, so a clean checkout does
-not contain machine-specific working reports.
+Dated ad hoc implementation evidence remains local-only by default. The
+repository tracks this README, the curated [delivery history](delivery-history.md),
+the reviewed, append-only [OST dogfooding series](ost/README.md), and the
+[release-engineering review series](releases/README.md). Other files under this
+directory remain Git-ignored so raw machine output does not become public
+documentation accidentally.
 
-Cross-project handoffs that define concrete upstream acceptance criteria may be
-committed explicitly. Current and historical handoffs:
-
-- [OST v0.17.0 dogfooding and v0.18.0 asks](2026-07-15-v0.17.0-dogfooding-v0.18.0-asks.md)
-- [Historical OST v0.16.0 renderer adoption and v0.17.0 asks](2026-07-13-v0.16.0-renderer-adoption-v0.17.0-asks.md)
-
-These notes capture *how* a change was validated on a specific machine at a
-specific time. They are working history, not a published contract:
+Reports capture *how* a change was validated at a specific time. They are
+evidence and upstream feedback, not a published product contract:
 
 - Design rationale that outlives a single session belongs in [design](../design/).
 - Shipped scope belongs in the [changelog](../../CHANGELOG.md), with optional
