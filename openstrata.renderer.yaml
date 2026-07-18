@@ -11,6 +11,7 @@ composition:
   adapters:
     headless: merlin-headless
     hydra2: hdMerlin
+    viewport: merlin-viewport
 render_products:
   required: [color, depth]
 frame:
