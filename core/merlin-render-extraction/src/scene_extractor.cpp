@@ -46,6 +46,7 @@ struct MaterialEntry {
   std::uint64_t revision{};
   std::uint64_t parameter_revision{};
   std::uint64_t feature_revision{};
+  std::uint64_t module_revision{};
   MaterialDescriptor descriptor;
 };
 
@@ -284,10 +285,12 @@ class SceneExtractor::Impl {
     record.revision = entry.revision;
     record.parameter_revision = entry.parameter_revision;
     record.feature_revision = entry.feature_revision;
+    record.module_revision = entry.module_revision;
     record.parameters = material.parameters;
     record.alpha_mode = material.alpha_mode;
     record.double_sided = material.double_sided;
     record.features = material.features;
+    record.module = material.module;
     if (record.alpha_mode == AlphaMode::Blended) {
       record.alpha_mode = AlphaMode::Opaque;
       fallbacks.push_back(
@@ -881,6 +884,10 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           if (change.change_kind == ChangeKind::Created ||
               change.HasAspect(ChangeAspect::MaterialFeatures)) {
             entry.feature_revision = change.resource_revision;
+          }
+          if (change.change_kind == ChangeKind::Created ||
+              change.HasAspect(ChangeAspect::MaterialModule)) {
+            entry.module_revision = change.resource_revision;
           }
           entry.descriptor =
               world.Get(MaterialHandle::FromValue(change.handle));

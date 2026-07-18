@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -97,6 +98,47 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
     throw std::invalid_argument(
         "only texture coordinate set 0 is currently supported");
   }
+  if (!descriptor.module) {
+    return;
+  }
+
+  const auto& module = *descriptor.module;
+  if (module.key.empty() || module.entry_point.empty() ||
+      module.revision == 0U) {
+    throw std::invalid_argument(
+        "material module requires a key, entry point, and non-zero revision");
+  }
+  if (module.abi_version != kMaterialAbiVersion ||
+      module.reflection_schema_version !=
+          kMaterialReflectionSchemaVersion) {
+    throw std::invalid_argument(
+        "material module ABI or reflection schema is unsupported");
+  }
+  const auto validate_layout = [](const auto& entries, bool resources) {
+    std::unordered_set<std::string> names;
+    for (const auto& entry : entries) {
+      if (entry.name.empty() || entry.array_size == 0U ||
+          entry.type == MaterialValueType::Unknown) {
+        throw std::invalid_argument(
+            "material module layout entries require a name, type, and "
+            "non-zero array size");
+      }
+      const bool resource_type =
+          entry.type == MaterialValueType::Texture2D ||
+          entry.type == MaterialValueType::Sampler ||
+          entry.type == MaterialValueType::CombinedTextureSampler;
+      if (resource_type != resources) {
+        throw std::invalid_argument(
+            "material module parameter/resource layout type mismatch");
+      }
+      if (!names.insert(entry.name).second) {
+        throw std::invalid_argument(
+            "material module layout contains a duplicate name");
+      }
+    }
+  };
+  validate_layout(module.parameters.entries, false);
+  validate_layout(module.resources.entries, true);
 }
 
 template <typename HandleType>

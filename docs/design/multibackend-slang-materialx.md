@@ -145,9 +145,10 @@ Vulkan Forward execution, and topology/instance/resource identity separation.
 Material identity is layered. Canonical graph topology and generator/library
 provenance identify the target-neutral module; compiler, target, profile,
 layout, and capability policy identify a backend artifact; runtime values and
-texture assignment remain instance and binding state. The initial prototype key
-includes the complete canonical document and generated source, so it is
-deterministic but not yet the final topology-only module key.
+texture assignment remain instance and binding state. The current compiler
+separates a generated-source/interface module key from parameter and resource
+default-state keys. Standard-library/include fingerprints and the backend
+artifact-key layer remain incomplete.
 
 Production MaterialX quality remains a later milestone. v0.18.0 extends the
 accepted v0.10.0 function and reflection contract with broader Standard Surface,

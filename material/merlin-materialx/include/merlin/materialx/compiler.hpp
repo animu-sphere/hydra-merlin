@@ -1,5 +1,7 @@
 #pragma once
 
+#include <merlin/core/types.hpp>
+
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -39,7 +41,14 @@ struct MaterialFunctionModule {
   std::string source;
   std::string entry_point{"evaluateMaterial"};
   std::string output_type;
+  // Topology-only, target-neutral identity. `cache_key` remains as a
+  // compatibility alias for this key.
+  std::string module_key;
   std::string cache_key;
+  // Runtime uniform values and texture/resource defaults are deliberately
+  // identified separately from generated shader topology.
+  std::string instance_key;
+  std::string resource_key;
   std::string materialx_version;
   std::string generator_version;
   // Merlin's tested upstream compatibility baseline. The actual dependency
@@ -47,6 +56,7 @@ struct MaterialFunctionModule {
   std::string generator_revision;
   std::vector<MaterialFunctionPort> inputs;
   std::vector<MaterialFunctionPort> uniforms;
+  merlin::MaterialModule logical_module;
 };
 
 struct CompileOptions {

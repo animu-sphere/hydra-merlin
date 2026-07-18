@@ -190,11 +190,13 @@ specialization changes topology, generated source, or the ABI. Texture content
 or assignment does not enter the shader key unless it changes the declared
 resource interface.
 
-The current compiler's deterministic SHA-256 key hashes the canonical document
-and generated source, so changing a prototype value currently changes the key.
-That test proves deterministic input identity only. It does **not** satisfy the
-final topology/instance separation and must be replaced or layered before the
-v0.10.0 gate is complete.
+The compiler hashes generated source, its logical interface, ABI/reflection
+versions, generator version/revision, and fixed generator options into a
+target-neutral module key. Reflected uniform defaults and resource defaults
+produce separate instance and resource-state keys, so a parameter-only edit
+keeps the module key and source unchanged. Standard-library and transitive
+include fingerprints plus the separate target-artifact key remain required
+before the v0.10.0 identity gate is complete.
 
 ## Diagnostics and fallback
 

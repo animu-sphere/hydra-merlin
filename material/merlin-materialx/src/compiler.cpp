@@ -13,6 +13,7 @@
 #include <MaterialXGenSlang/SlangShaderGenerator.h>
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <memory>
 #include <set>
@@ -27,8 +28,12 @@ namespace {
 namespace mx = MaterialX;
 
 constexpr std::string_view kEntryPoint = "evaluateMaterial";
-constexpr std::string_view kCacheSchema =
-    "animu-sphere.hdmerlin.material-function-cache.v1";
+constexpr std::string_view kModuleKeySchema =
+    "animu-sphere.hdmerlin.material-module.v1";
+constexpr std::string_view kInstanceKeySchema =
+    "animu-sphere.hdmerlin.material-instance.v1";
+constexpr std::string_view kResourceKeySchema =
+    "animu-sphere.hdmerlin.material-resources.v1";
 
 class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
  public:
@@ -134,6 +139,101 @@ bool IsSupportedOutput(std::string_view type) {
   static const std::set<std::string_view> supported = {
       "float", "color3", "color4", "vector2", "vector3", "vector4"};
   return supported.contains(type);
+}
+
+MaterialValueType ToMaterialValueType(std::string_view type) {
+  if (type == "float") {
+    return MaterialValueType::Float;
+  }
+  if (type == "vector2") {
+    return MaterialValueType::Float2;
+  }
+  if (type == "color3" || type == "vector3") {
+    return MaterialValueType::Float3;
+  }
+  if (type == "color4" || type == "vector4") {
+    return MaterialValueType::Float4;
+  }
+  if (type == "integer") {
+    return MaterialValueType::Integer;
+  }
+  if (type == "boolean") {
+    return MaterialValueType::Boolean;
+  }
+  if (type == "filename") {
+    return MaterialValueType::CombinedTextureSampler;
+  }
+  return MaterialValueType::Unknown;
+}
+
+bool IsResourceType(MaterialValueType type) {
+  return type == MaterialValueType::Texture2D ||
+         type == MaterialValueType::Sampler ||
+         type == MaterialValueType::CombinedTextureSampler;
+}
+
+std::string Lowercase(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](char c) {
+    return static_cast<char>(
+        std::tolower(static_cast<unsigned char>(c)));
+  });
+  return value;
+}
+
+void PopulateLogicalModule(MaterialFunctionModule& module) {
+  auto& logical = module.logical_module;
+  logical.entry_point = module.entry_point;
+  for (const auto& input : module.inputs) {
+    const auto semantic = Lowercase(input.name + " " + input.variable);
+    if (semantic.find("texcoord") != std::string::npos) {
+      logical.requirements.inputs |= MaterialInputRequirement::Texcoord0;
+    }
+    if (semantic.find("normal") != std::string::npos) {
+      logical.requirements.inputs |= MaterialInputRequirement::ShadingNormal;
+    }
+    if (semantic.find("position") != std::string::npos) {
+      logical.requirements.inputs |= MaterialInputRequirement::Position;
+    }
+  }
+  for (const auto& uniform : module.uniforms) {
+    const auto type = ToMaterialValueType(uniform.type);
+    const auto name =
+        uniform.variable.empty() ? uniform.name : uniform.variable;
+    if (IsResourceType(type)) {
+      logical.resources.entries.push_back({name, type, 1});
+    } else {
+      logical.parameters.entries.push_back({name, type, 1});
+    }
+  }
+  if (module.output_type == "color3" || module.output_type == "color4") {
+    logical.requirements.results = MaterialResultField::BaseColor;
+  }
+}
+
+void AppendPortInterface(std::string& record, std::string_view kind,
+                         const MaterialFunctionPort& port) {
+  AppendCacheField(record, std::string(kind) + "-block", port.block);
+  AppendCacheField(record, std::string(kind) + "-name", port.name);
+  AppendCacheField(record, std::string(kind) + "-variable", port.variable);
+  AppendCacheField(record, std::string(kind) + "-type", port.type);
+}
+
+std::string MakeIdentity(std::string_view schema,
+                         const MaterialFunctionModule& module,
+                         bool include_parameters, bool include_resources) {
+  std::string record;
+  AppendCacheField(record, "schema", schema);
+  AppendCacheField(record, "module", module.module_key);
+  for (const auto& uniform : module.uniforms) {
+    const bool resource = IsResourceType(ToMaterialValueType(uniform.type));
+    if ((resource && include_resources) ||
+        (!resource && include_parameters)) {
+      AppendPortInterface(record, resource ? "resource" : "parameter",
+                          uniform);
+      AppendCacheField(record, "value", uniform.default_value);
+    }
+  }
+  return "sha256:" + detail::Sha256(record);
 }
 
 std::map<std::string, std::string> FindUnsupportedNodes(
@@ -306,19 +406,40 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     module.generator_version = generator->getVersion();
     module.generator_revision = MERLIN_MATERIALX_GENSLANG_REVISION;
     CollectReflection(stage, module);
+    PopulateLogicalModule(module);
 
-    const auto canonical_document =
-        NormalizeNewlines(mx::writeToXmlString(document));
-    std::string cache_record;
-    AppendCacheField(cache_record, "schema", kCacheSchema);
-    AppendCacheField(cache_record, "materialx", module.materialx_version);
-    AppendCacheField(cache_record, "generator", module.generator_version);
-    AppendCacheField(cache_record, "revision", module.generator_revision);
-    AppendCacheField(cache_record, "entry", module.entry_point);
-    AppendCacheField(cache_record, "renderable", renderable->getNamePath());
-    AppendCacheField(cache_record, "document", canonical_document);
-    AppendCacheField(cache_record, "source", module.source);
-    module.cache_key = "sha256:" + detail::Sha256(cache_record);
+    // Generated source and its logical interface encode graph topology and
+    // compile-time specialization, while reflected defaults remain runtime
+    // instance/resource state. This keeps parameter-only edits from forcing
+    // shader regeneration.
+    std::string module_record;
+    AppendCacheField(module_record, "schema", kModuleKeySchema);
+    AppendCacheField(module_record, "materialx", module.materialx_version);
+    AppendCacheField(module_record, "generator", module.generator_version);
+    AppendCacheField(module_record, "revision", module.generator_revision);
+    AppendCacheField(module_record, "generator-options",
+                     "max-lights=0;srgb-output=false");
+    AppendCacheField(module_record, "abi",
+                     std::to_string(module.logical_module.abi_version));
+    AppendCacheField(
+        module_record, "reflection",
+        std::to_string(module.logical_module.reflection_schema_version));
+    AppendCacheField(module_record, "entry", module.entry_point);
+    AppendCacheField(module_record, "output", module.output_type);
+    for (const auto& input : module.inputs) {
+      AppendPortInterface(module_record, "input", input);
+    }
+    for (const auto& uniform : module.uniforms) {
+      AppendPortInterface(module_record, "uniform", uniform);
+    }
+    AppendCacheField(module_record, "source", module.source);
+    module.module_key = "sha256:" + detail::Sha256(module_record);
+    module.cache_key = module.module_key;
+    module.logical_module.key = module.module_key;
+    module.instance_key =
+        MakeIdentity(kInstanceKeySchema, module, true, false);
+    module.resource_key =
+        MakeIdentity(kResourceKeySchema, module, false, true);
     result.module = std::move(module);
   } catch (const std::exception& error) {
     AddError(result, DiagnosticCode::GenerationFailure,

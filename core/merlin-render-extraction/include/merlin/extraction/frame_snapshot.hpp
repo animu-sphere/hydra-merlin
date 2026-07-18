@@ -77,11 +77,13 @@ struct MaterialRecord {
   std::uint64_t revision{};
   std::uint64_t parameter_revision{};
   std::uint64_t feature_revision{};
+  std::uint64_t module_revision{};
   MaterialParameterBlock parameters;
   std::optional<TextureBindingRecord> base_color_texture;
   AlphaMode alpha_mode{AlphaMode::Opaque};
   bool double_sided{};
   MaterialFeature features{MaterialFeature::None};
+  std::optional<MaterialModule> module;
 };
 
 enum class MaterialFallbackCode {

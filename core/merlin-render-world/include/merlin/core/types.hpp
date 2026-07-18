@@ -163,6 +163,102 @@ struct TextureBinding {
   std::uint32_t texcoord_set{};
 };
 
+// Versioned, host-neutral contract for generated material functions. Source
+// integrations populate this logical metadata; renderer backends derive their
+// own native bindings and pipeline layouts from it.
+inline constexpr std::uint32_t kMaterialAbiVersion = 1;
+inline constexpr std::uint32_t kMaterialReflectionSchemaVersion = 1;
+
+enum class MaterialValueType {
+  Float,
+  Float2,
+  Float3,
+  Float4,
+  Integer,
+  Boolean,
+  Texture2D,
+  Sampler,
+  CombinedTextureSampler,
+  Unknown,
+};
+
+struct MaterialParameterLayoutEntry {
+  std::string name;
+  MaterialValueType type{MaterialValueType::Unknown};
+  std::uint32_t array_size{1};
+};
+
+struct MaterialParameterLayout {
+  std::vector<MaterialParameterLayoutEntry> entries;
+};
+
+struct MaterialResourceLayoutEntry {
+  std::string name;
+  MaterialValueType type{MaterialValueType::Unknown};
+  std::uint32_t array_size{1};
+};
+
+struct MaterialResourceLayout {
+  std::vector<MaterialResourceLayoutEntry> entries;
+};
+
+enum class MaterialInputRequirement : std::uint32_t {
+  None = 0,
+  Position = 1U << 0U,
+  ShadingNormal = 1U << 1U,
+  Texcoord0 = 1U << 2U,
+};
+
+[[nodiscard]] constexpr MaterialInputRequirement operator|(
+    MaterialInputRequirement lhs, MaterialInputRequirement rhs) noexcept {
+  return static_cast<MaterialInputRequirement>(
+      static_cast<std::uint32_t>(lhs) | static_cast<std::uint32_t>(rhs));
+}
+
+constexpr MaterialInputRequirement& operator|=(
+    MaterialInputRequirement& lhs, MaterialInputRequirement rhs) noexcept {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+enum class MaterialResultField : std::uint32_t {
+  None = 0,
+  BaseColor = 1U << 0U,
+  Metalness = 1U << 1U,
+  SpecularRoughness = 1U << 2U,
+  ShadingNormal = 1U << 3U,
+};
+
+[[nodiscard]] constexpr MaterialResultField operator|(
+    MaterialResultField lhs, MaterialResultField rhs) noexcept {
+  return static_cast<MaterialResultField>(static_cast<std::uint32_t>(lhs) |
+                                          static_cast<std::uint32_t>(rhs));
+}
+
+constexpr MaterialResultField& operator|=(MaterialResultField& lhs,
+                                          MaterialResultField rhs) noexcept {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+struct MaterialFeatureRequirements {
+  MaterialInputRequirement inputs{MaterialInputRequirement::None};
+  MaterialResultField results{MaterialResultField::None};
+};
+
+struct MaterialModule {
+  std::string key;
+  std::string entry_point{"evaluateMaterial"};
+  std::uint32_t abi_version{kMaterialAbiVersion};
+  std::uint32_t reflection_schema_version{kMaterialReflectionSchemaVersion};
+  // Monotonic content revision for replacement under a stable external
+  // material identity. Parameter-only edits do not change this revision.
+  std::uint64_t revision{1};
+  MaterialParameterLayout parameters;
+  MaterialResourceLayout resources;
+  MaterialFeatureRequirements requirements;
+};
+
 // MaterialIR is the only material representation accepted by the host-neutral
 // scene model. Source graphs (Hydra, MaterialX, or a future DCC adapter) must be
 // normalized before they cross this boundary.
@@ -174,6 +270,9 @@ struct MaterialIR {
   bool double_sided{};
   MaterialFeature features{MaterialFeature::VertexColor |
                            MaterialFeature::DirectionalLight};
+  // Generated module identity and logical reflection are optional. Existing
+  // basic materials continue through the handwritten renderer path.
+  std::optional<MaterialModule> module;
 };
 
 using MaterialDescriptor = MaterialIR;

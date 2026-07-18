@@ -36,7 +36,8 @@ enum class ChangeAspect : std::uint32_t {
   // Derived packed-vertex layout changed (for example face-varying expansion
   // after topology edits) without claiming that authored points/primvars did.
   VertexLayout = 1U << 14U,
-  All = (1U << 15U) - 1U
+  MaterialModule = 1U << 15U,
+  All = (1U << 16U) - 1U
 };
 
 [[nodiscard]] constexpr ChangeAspect operator|(ChangeAspect lhs,
@@ -70,7 +71,8 @@ constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
              ChangeAspect::Primvars | ChangeAspect::MaterialPartition |
              ChangeAspect::VertexLayout;
     case ObjectKind::Material:
-      return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures;
+      return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures |
+             ChangeAspect::MaterialModule;
     case ObjectKind::Texture:
       return ChangeAspect::TextureData;
     case ObjectKind::Sampler:

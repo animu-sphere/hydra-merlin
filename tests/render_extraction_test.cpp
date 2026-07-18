@@ -589,6 +589,18 @@ int main() {
   blended.features |= merlin::MaterialFeature::BaseColorTexture;
   blended.base_color_texture =
       merlin::TextureBinding{texture_handle, sampler_handle, 0};
+  merlin::MaterialModule generated_module;
+  generated_module.key = "sha256:test-material-module";
+  generated_module.parameters.entries.push_back(
+      {"base_color", merlin::MaterialValueType::Float3, 1});
+  generated_module.resources.entries.push_back(
+      {"base_color_image",
+       merlin::MaterialValueType::CombinedTextureSampler, 1});
+  generated_module.requirements.inputs =
+      merlin::MaterialInputRequirement::Texcoord0;
+  generated_module.requirements.results =
+      merlin::MaterialResultField::BaseColor;
+  blended.module = generated_module;
   const auto blended_handle = material_world.CreateMaterial(blended);
   merlin::LightDescriptor light;
   const auto light_handle = material_world.CreateLight(light);
@@ -605,6 +617,10 @@ int main() {
   assert(material_snapshot->materials.size() == 1);
   assert(material_snapshot->materials.front().material == blended_handle.value());
   assert(material_snapshot->materials.front().base_color_texture.has_value());
+  assert(material_snapshot->materials.front().module.has_value());
+  assert(material_snapshot->materials.front().module->key ==
+         generated_module.key);
+  assert(material_snapshot->materials.front().module_revision == 1);
   assert(material_snapshot->materials.front().alpha_mode ==
          merlin::AlphaMode::Opaque);
   assert(material_snapshot->lights.front().light == light_handle.value());
@@ -621,6 +637,21 @@ int main() {
   assert(parameter_snapshot->delta->textures.upserts.empty());
   assert(parameter_snapshot->materials.front().parameter_revision == 2);
   assert(parameter_snapshot->materials.front().feature_revision == 1);
+  assert(parameter_snapshot->materials.front().module_revision == 1);
+  assert(parameter_snapshot->materials.front().module->key ==
+         generated_module.key);
+
+  generated_module.key = "sha256:test-material-module-replacement";
+  generated_module.revision = 2;
+  blended.module = generated_module;
+  material_world.UpdateMaterial(blended_handle, blended,
+                                merlin::ChangeAspect::MaterialModule);
+  material_extractor.Apply(material_world, material_world.Commit());
+  const auto module_snapshot = material_extractor.snapshot();
+  assert(module_snapshot->materials.front().parameter_revision == 2);
+  assert(module_snapshot->materials.front().feature_revision == 1);
+  assert(module_snapshot->materials.front().module_revision == 3);
+  assert(module_snapshot->materials.front().module->revision == 2);
 
   material_world.Remove(texture_handle);
   material_extractor.Apply(material_world, material_world.Commit());

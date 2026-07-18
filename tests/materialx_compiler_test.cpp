@@ -51,6 +51,9 @@ int main(int argc, char** argv) {
          std::string::npos);
   assert(first.module->source.find("SV_Target") == std::string::npos);
   assert(first.module->cache_key == second.module->cache_key);
+  assert(first.module->module_key == first.module->cache_key);
+  assert(first.module->instance_key == second.module->instance_key);
+  assert(first.module->resource_key == second.module->resource_key);
   assert(first.module->source == second.module->source);
   assert(first.module->cache_key.starts_with("sha256:"));
   assert(first.module->cache_key.size() == 71U);
@@ -58,6 +61,14 @@ int main(int argc, char** argv) {
   assert(!first.module->generator_version.empty());
   assert(first.module->generator_revision ==
          "38368ee04da84ce1f8837ecba7322dd6d81291f8");
+  assert(first.module->logical_module.key == first.module->module_key);
+  assert(first.module->logical_module.entry_point == "evaluateMaterial");
+  assert(first.module->logical_module.abi_version ==
+         merlin::kMaterialAbiVersion);
+  assert(first.module->logical_module.reflection_schema_version ==
+         merlin::kMaterialReflectionSchemaVersion);
+  assert(first.module->logical_module.requirements.results ==
+         merlin::MaterialResultField::BaseColor);
   if (!first.module->inputs.empty() || first.module->uniforms.size() != 2U ||
       first.module->uniforms[0].block != "PublicUniforms" ||
       first.module->uniforms[0].variable != "tint_in1" ||
@@ -84,7 +95,13 @@ int main(int argc, char** argv) {
   const auto changed =
       merlin::materialx::CompileMaterialFunction(changed_document, options);
   assert(changed);
-  assert(changed.module->cache_key != first.module->cache_key);
+  assert(changed.module->module_key == first.module->module_key);
+  assert(changed.module->cache_key == first.module->cache_key);
+  assert(changed.module->source == first.module->source);
+  assert(changed.module->instance_key != first.module->instance_key);
+  assert(changed.module->resource_key == first.module->resource_key);
+  assert(changed.module->logical_module.parameters.entries.size() == 2U);
+  assert(changed.module->logical_module.resources.entries.empty());
 
   constexpr auto unsupported_document = R"mtlx(<?xml version="1.0"?>
 <materialx version="1.39">
