@@ -104,6 +104,11 @@ node graph is translated outside Core into a generated Slang material module,
 which then produces both SPIR-V and Metal-target artifacts through the common
 compiler pipeline.
 
+The detailed v0.10.0 ownership, ABI, cache-key, diagnostic, fallback, and test
+contract is the
+[MaterialXGenSlang material boundary](materialxgenslang-boundary.md). This
+document records how that boundary participates in the wider backend strategy.
+
 MaterialX owns node-graph evaluation, node implementations, parameter
 expressions, logical texture references, material models, and the generated
 material function. hdMerlin owns geometry/camera/light inputs, transforms,
@@ -111,11 +116,18 @@ tangent frames, primvars, render passes, AOVs, picking, shadows, alpha policy,
 resource tables, pipeline construction, and capability selection.
 
 Generated code is consumed as a material-evaluation function rather than as a
-complete fragment pass. Conceptually:
+complete fragment pass. The semantic contract is conceptually:
 
 ```slang
-MaterialResult evaluateMaterial(MaterialInputs input);
+MaterialResult evaluateMaterial(
+    MaterialInputs inputs,
+    MaterialParameters parameters,
+    MaterialResources resources);
 ```
+
+Generated global/reflected blocks may be adapted by a renderer wrapper; the
+stable requirement is the logical separation and reflection, not a literal
+source signature.
 
 hdMerlin pass modules build `MaterialInputs`, invoke that function, shade, and
 write AOVs. This keeps one generated material usable by Forward, Visibility or
@@ -123,10 +135,24 @@ deferred resolve, shadow/picking variants, Vulkan, and Metal. Raw MaterialX
 graphs never enter the Core scene model, and Gaussian appearance is not forced
 into a MaterialX mesh BSDF.
 
-The first prototype is a diagnosed Standard Surface subset with constants,
-colors, images, texcoords, normals, arithmetic/mix operations, deterministic
-generated-code caching, and Vulkan Forward integration. It must generate both
-SPIR-V and Metal-target artifacts before production MaterialX quality work.
+In the repository, optional `material/merlin-materialx` owns document handling
+and MaterialXGenSlang generation, Core owns `MaterialIR` and neutral module
+semantics, and each backend owns target artifacts and native layouts. The
+existing graph-output prototype and direct SPIR-V/Metal wrappers are only the
+starting evidence: v0.10.0 still requires the minimum Standard Surface result,
+Vulkan Forward execution, and topology/instance/resource identity separation.
+
+Material identity is layered. Canonical graph topology and generator/library
+provenance identify the target-neutral module; compiler, target, profile,
+layout, and capability policy identify a backend artifact; runtime values and
+texture assignment remain instance and binding state. The initial prototype key
+includes the complete canonical document and generated source, so it is
+deterministic but not yet the final topology-only module key.
+
+Production MaterialX quality remains a later milestone. v0.18.0 extends the
+accepted v0.10.0 function and reflection contract with broader Standard Surface,
+normal/UV/opacity/emissive quality, asynchronous compilation, prewarming,
+residency, and Forward/Visibility parity.
 
 ## Metal and HgiMetal presentation
 

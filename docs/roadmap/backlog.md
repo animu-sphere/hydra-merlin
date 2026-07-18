@@ -116,24 +116,26 @@ universal renderer.
 
 ### ⬜ v0.18.0 — MaterialX and Visibility quality
 
-Validate and canonicalize a deliberate Standard Surface subset including base
-color, metallic, roughness, normal, opacity, image, texcoord, UV transform,
-normal map, constant, multiply, and add. Translate supported graphs through the
-accepted MaterialXGenSlang material-function boundary, generate deterministic
-SPIR-V/Metal-target reflection and cache metadata, support parameter-only
-updates, and add asynchronous compilation,
-prewarming, texture/sampler residency, and version-aware graph/shader keys.
-Share the bindless resource ABI between Forward and Visibility resolve; add
-analytic or validated conservative texture gradients, normal mapping, emissive,
-environment lighting, and alpha-mask quality before considering material-class
-pixel lists or specialized resolve dispatches.
+Extend the accepted v0.10.0
+[MaterialX material-function boundary](../design/materialxgenslang-boundary.md)
+rather than redefining it. Broaden Standard Surface coverage with UV transforms,
+tangent-space normal maps, opacity/alpha mask, emissive, and the additional
+material inputs justified by fixtures. Add production environment lighting,
+asynchronous compilation, prewarming, texture/sampler residency, runtime
+parameter-only updates, shader sharing, and cache persistence/recovery while
+preserving the v0.10.0 module/artifact/instance identity split.
 
-Exit requires deterministic shader output, explicit structured fallback for
-unsupported nodes, shader sharing for identical graphs, zero steady-state
-compile/pipeline creation, stable Forward/Visibility image comparisons, and
-acceptable mip and primitive-boundary behavior. Raw MaterialX graphs never enter
-the Core scene model, and Gaussian appearance is not forced into a MaterialX
-BSDF.
+Share the logical bindless resource ABI between Forward and Visibility resolve;
+add analytic or validated conservative texture gradients, mip and
+primitive-boundary quality, and Forward/Visibility material parity before
+considering material-class pixel lists or specialized resolve dispatches.
+
+Exit requires broader supported fixtures to remain deterministic, every
+unsupported input to retain an explicit structured fallback, identical graphs
+to share modules, parameter-only edits and static scenes to perform zero
+steady-state compile/pipeline creation, and Forward/Visibility comparisons to
+meet declared tolerances. Raw MaterialX graphs never enter the Core scene model,
+and Gaussian appearance is not forced into a MaterialX BSDF.
 
 ### ⬜ v0.19.0 — Static meshlet rendering
 

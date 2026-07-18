@@ -320,3 +320,29 @@ repository-scoped GPU runner for continuous execution remains in the
   `merlin.viewport-benchmark/v1` reports.
 - ✅ Added Core-only, installed-package, Vulkan viewport, and OpenUSD/Hydra USD
   viewport coverage plus a forbidden concrete-backend type scan.
+
+## MaterialXGenSlang compiler foundation ✅
+
+- ✅ Added the optional `material/merlin-materialx` component and exported
+  `Merlin::MaterialX` target, privately linked to the pinned MaterialX 1.39.6
+  MaterialXGenSlang implementation and disabled by default.
+- ✅ Kept MaterialX SDK types out of the public compiler API and preserved
+  Core/Vulkan builds with `MERLIN_ENABLE_MATERIALX=OFF`.
+- ✅ Generated a graph-only `evaluateMaterial(MaterialInputs)` Slang function
+  without a vertex stage, renderer entry point, AOV output, or lighting block
+  for the initial constant, convert, add, multiply, and mix-capable slice.
+- ✅ Retained generator/MaterialX provenance, logical input and uniform
+  reflection, deterministic generated source, and a SHA-256 identity over the
+  canonical input and source.
+- ✅ Added actionable invalid-document, missing-library, renderable-selection,
+  unsupported-node/output, and generation diagnostics at the integration
+  boundary.
+- ✅ Compiled one generated module through direct SPIR-V and Metal-target test
+  wrappers with target reflection when `slangc` is available, and verified the
+  optional installed-package consumer.
+
+This completed foundation is not the v0.10.0 release boundary. The accepted
+[MaterialXGenSlang policy](../design/materialxgenslang-boundary.md) retains
+Standard Surface adaptation, topology/instance key separation, Core module
+metadata, common diagnostics/fallback, Vulkan Forward execution, and image
+evidence as active work.

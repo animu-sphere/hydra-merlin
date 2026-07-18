@@ -8,6 +8,17 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Optional `Merlin::MaterialX` package and install target using the official
+  pinned MaterialXGenSlang generator without exposing MaterialX SDK types in
+  its public API or adding MaterialX to Core.
+- Deterministic graph-only `evaluateMaterial` source generation, logical
+  input/uniform reflection, SHA-256 input identity, and structured local
+  diagnostics for the initial constant and add/multiply/mix prototype.
+- SPIR-V and Metal-target compile wrappers and reflection evidence generated
+  from the same MaterialX-produced Slang module when `slangc` is available.
+
 ## [0.9.0] - 2026-07-18
 
 ### Added

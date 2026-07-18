@@ -30,7 +30,9 @@ through persistent draw identity, GPU-driven execution, an experimental opaque
 Visibility Buffer, production MaterialX quality, and static meshlets. Optional
 Mesh Shader, Hi-Z/LOD, and large-scene streaming remain measurement-gated. The
 architecture behind this order is recorded in the [multi-backend shader and
-presentation strategy](../design/multibackend-slang-materialx.md).
+presentation strategy](../design/multibackend-slang-materialx.md); the exact
+v0.10.0 contract is the
+[MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
@@ -68,6 +70,11 @@ Every release must preserve these properties:
   future sources normalize into one host-neutral material boundary before
   shader generation. MaterialXGenSlang produces a material-evaluation function;
   hdMerlin still owns geometry, lighting, render passes, resources, and AOVs.
+- **Separate shader identity from instance state.** Canonical graph topology
+  identifies a generated material module, compiler/target policy identifies a
+  backend artifact, parameter values identify material instance state, and
+  texture assignments identify resource binding state. Value-only edits do not
+  create new shader variants.
 - **Consume standard USD data.** Gaussian support consumes the existing
   OpenUSD representation exposed through Hydra. hdMerlin defines no custom USD
   schema, prim type, or file-format convention and does not parse PLY/SPLAT

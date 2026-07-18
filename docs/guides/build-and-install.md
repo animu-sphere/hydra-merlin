@@ -104,6 +104,33 @@ Debug OpenUSD SDK. Compiler/toolset ABI compatibility still has to match the
 consumer, and the discovery/usdview tests must run against the same runtime
 root used at configure time.
 
+## Optional MaterialX compiler
+
+`MERLIN_ENABLE_MATERIALX=ON` builds the independent `Merlin::MaterialX`
+material-function compiler. It does not require Vulkan and does not add a
+MaterialX dependency to Core. A compatible MaterialX 1.39.6 package providing
+`MaterialXGenSlang` is preferred. Development builds may point at a compatible
+source tree or explicitly fetch the tested revision:
+
+```powershell
+cmake -S . -B build-materialx -G "Visual Studio 17 2022" -A x64 `
+  -DMERLIN_ENABLE_VULKAN=OFF `
+  -DMERLIN_ENABLE_MATERIALX=ON `
+  -DMERLIN_FETCH_MATERIALX=ON
+cmake --build build-materialx --config Debug --parallel
+ctest --test-dir build-materialx -C Debug -R merlin-materialx `
+  --output-on-failure
+```
+
+Set `MERLIN_MATERIALX_SOURCE_DIR` instead of
+`MERLIN_FETCH_MATERIALX=ON` to reuse an existing compatible source tree.
+MaterialX source fallback builds require CMake 3.26 or newer. The build tests
+graph-only generation unconditionally and registers SPIR-V and Metal-target
+compile gates when the required `slangc` is available. Generated modules are
+not yet executed by Vulkan Forward; current and planned coverage is recorded in
+the [support matrix](../reference/support-matrix.md) and
+[v0.10.0 boundary](../design/materialxgenslang-boundary.md).
+
 ## Install
 
 Install a configured build into an isolated prefix:
@@ -116,7 +143,9 @@ Core headers, libraries, and versioned CMake package files are always installed.
 Vulkan-enabled builds also install the Vulkan library, `merlin-headless`,
 `merlin-benchmark`, `merlin-viewport`, and
 `<prefix>/<bindir>/shaders/v1` with SPIR-V, Metal compile-gate source,
-reflection JSON, and the deterministic artifact manifest. Hydra-enabled builds install the `hdMerlin` plugin below
+reflection JSON, and the deterministic artifact manifest. MaterialX-enabled
+builds also install the `Merlin::MaterialX` library, public compiler header, and
+CMake component. Hydra-enabled builds install the `hdMerlin` plugin below
 `<prefix>/<libdir>/usd/hdMerlin` and its smoke fixture below
 `<prefix>/<datadir>/merlin/tests`. Every configuration also installs
 `<prefix>/<datadir>/merlin/VERSION` plus
@@ -134,6 +163,9 @@ contract.
 | `MERLIN_BUILD_TESTS` | `ON` | Build and register the test suite. |
 | `MERLIN_ENABLE_VULKAN` | `ON` | Build Vulkan, shaders, and headless products. |
 | `MERLIN_ENABLE_HYDRA2` | `OFF` | Build the OpenUSD Hydra 2 adapter; requires Vulkan. |
+| `MERLIN_ENABLE_MATERIALX` | `OFF` | Build the optional `Merlin::MaterialX` graph-only compiler. |
+| `MERLIN_FETCH_MATERIALX` | `OFF` | Fetch the pinned MaterialX source when no compatible package/source tree is supplied. |
+| `MERLIN_MATERIALX_SOURCE_DIR` | empty | Use an existing compatible MaterialX source tree. |
 | `MERLIN_BUILD_VIEWPORT` | `ON` | Build the GLFW-hosted native viewport; requires Vulkan. |
 
 Use a new build directory when changing dependency roots or major capability
