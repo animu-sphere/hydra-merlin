@@ -54,13 +54,8 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
 
 #### Remaining implementation focus
 
-- Add image/texcoord/normal generation coverage and adapt the minimum Standard
-  Surface outputs into the common material result. Full tangent-space normal
-  mapping remains later quality work.
-- Add standard-library and transitive-include fingerprints to the topology-only
-  module key, then compose target/compiler/profile/layout/capability policy into
-  a separate artifact key reusable by MaterialX-generated and handwritten
-  Slang.
+- Compose target/compiler/profile/layout/capability policy into a separate
+  artifact key reusable by MaterialX-generated and handwritten Slang.
 - Bridge `Merlin::MaterialX` diagnostics into `merlin-diagnostic/v1`, add the
   required failure categories and context, and record the selected fallback in
   capability and telemetry evidence.
@@ -70,9 +65,13 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
   deterministic build and test evidence, including ABI mismatch and
   render-pass-contamination checks.
 
-The previously merged graph-only compiler, package target, deterministic
-prototype generation, logical reflection, diagnostics, and direct SPIR-V/Metal
-compile wrappers are recorded in the
+The graph-only compiler now covers image/UV0/world-normal generation and adapts
+the minimum Standard Surface fields into a renderer-owned material result;
+full tangent-space normal mapping remains later quality work. Portable loaded
+standard-library and transitive generator-include fingerprints participate in
+the topology-only module key. The previously merged package target,
+deterministic prototype generation, logical reflection, diagnostics, and direct
+SPIR-V/Metal compile wrappers are recorded in the
 [delivery history](../reports/delivery-history.md). Topology-only module
 identity, separate parameter/resource state identities, and the host-neutral
 Core module contract are included in the current capability summary in the

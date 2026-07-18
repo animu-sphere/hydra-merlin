@@ -26,10 +26,23 @@ bool HasDiagnostic(const merlin::materialx::CompileResult& result,
   return false;
 }
 
+bool HasDependency(
+    const std::vector<merlin::materialx::MaterialDependencyFingerprint>&
+        dependencies,
+    const std::string& suffix) {
+  for (const auto& dependency : dependencies) {
+    if (dependency.path.ends_with(suffix) &&
+        dependency.content_sha256.size() == 64U) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  assert(argc == 4);
+  assert(argc == 6);
   const auto document = ReadFile(argv[1]);
   merlin::materialx::CompileOptions options;
   options.renderable_path = "NG_prototype/out";
@@ -62,6 +75,16 @@ int main(int argc, char** argv) {
   assert(!first.module->generator_version.empty());
   assert(first.module->generator_revision ==
          "38368ee04da84ce1f8837ecba7322dd6d81291f8");
+  assert(first.module->standard_library_fingerprint.starts_with("sha256:"));
+  assert(first.module->source_dependency_fingerprint.starts_with("sha256:"));
+  assert(first.module->standard_library_fingerprint ==
+         second.module->standard_library_fingerprint);
+  assert(first.module->source_dependency_fingerprint ==
+         second.module->source_dependency_fingerprint);
+  assert(HasDependency(first.module->standard_library_dependencies,
+                       "libraries/stdlib/stdlib_defs.mtlx"));
+  assert(HasDependency(first.module->source_dependencies,
+                       "libraries/stdlib/genslang/lib/mx_math.slang"));
   assert(first.module->logical_module.key == first.module->module_key);
   assert(first.module->logical_module.entry_point == "evaluateMaterial");
   assert(first.module->logical_module.abi_version ==
@@ -151,6 +174,52 @@ int main(int argc, char** argv) {
   assert(HasDiagnostic(texcoord1,
                        merlin::materialx::DiagnosticCode::UnsupportedInput));
 
+  constexpr auto image_document = R"mtlx(<?xml version="1.0"?>
+<materialx version="1.39">
+  <nodegraph name="NG_image">
+    <texcoord name="uv" type="vector2" />
+    <image name="albedo" type="color3">
+      <input name="file" type="filename" value="checker.png" />
+      <input name="texcoord" type="vector2" nodename="uv" />
+    </image>
+    <output name="out" type="color3" nodename="albedo" />
+  </nodegraph>
+</materialx>)mtlx";
+  options.renderable_path = "NG_image/out";
+  const auto image = merlin::materialx::CompileMaterialFunction(
+      image_document, options);
+  if (!image) {
+    for (const auto& diagnostic : image.diagnostics) {
+      std::cerr << "Image generation failed at " << diagnostic.element_path
+                << ": " << diagnostic.message << '\n';
+    }
+  }
+  assert(image);
+  assert(image.diagnostics.empty());
+  assert(image.module->logical_module.requirements.inputs ==
+         merlin::MaterialInputRequirement::Texcoord0);
+  assert(image.module->logical_module.requirements.results ==
+         merlin::MaterialResultField::BaseColor);
+  assert(image.module->logical_module.resources.entries.size() == 1U);
+  assert(image.module->logical_module.resources.entries[0].type ==
+         merlin::MaterialValueType::CombinedTextureSampler);
+  assert(image.module->resource_defaults.entries.size() == 1U);
+  assert(image.module->resource_defaults.entries[0].values.size() == 1U);
+  assert(image.module->resource_defaults.entries[0].values[0] ==
+         "checker.png");
+
+  auto changed_image_document = std::string(image_document);
+  const auto filename = changed_image_document.find("checker.png");
+  assert(filename != std::string::npos);
+  changed_image_document.replace(filename, 11U, "changed.png");
+  const auto changed_image = merlin::materialx::CompileMaterialFunction(
+      changed_image_document, options);
+  assert(changed_image);
+  assert(changed_image.module->source == image.module->source);
+  assert(changed_image.module->module_key == image.module->module_key);
+  assert(changed_image.module->instance_key == image.module->instance_key);
+  assert(changed_image.module->resource_key != image.module->resource_key);
+
   constexpr auto world_normal_document = R"mtlx(<?xml version="1.0"?>
 <materialx version="1.39">
   <nodegraph name="NG_world_normal">
@@ -166,6 +235,84 @@ int main(int argc, char** argv) {
   assert(world_normal);
   assert(world_normal.module->logical_module.requirements.inputs ==
          merlin::MaterialInputRequirement::NormalWorld);
+
+  const auto standard_surface_document = ReadFile(argv[4]);
+  options.renderable_path = "NG_standard_surface/surface";
+  const auto standard_surface = merlin::materialx::CompileMaterialFunction(
+      standard_surface_document, options);
+  if (!standard_surface) {
+    for (const auto& diagnostic : standard_surface.diagnostics) {
+      std::cerr << "Standard Surface generation failed at "
+                << diagnostic.element_path << ": " << diagnostic.message
+                << '\n';
+    }
+    return 1;
+  }
+  assert(standard_surface.diagnostics.empty());
+  assert(standard_surface.module->output_type == "material_result");
+  assert(standard_surface.module->source.find(
+             "MaterialResult evaluateMaterial(MaterialInputs inputs)") !=
+         std::string::npos);
+  assert(standard_surface.module->source.find("fragmentMain") ==
+         std::string::npos);
+  assert(standard_surface.module->source.find("LightData") ==
+         std::string::npos);
+  assert(standard_surface.module->source.find("SV_Position") ==
+         std::string::npos);
+  assert(standard_surface.module->source.find("tangentWorld") ==
+         std::string::npos);
+  assert(standard_surface.module->source.find("positionWorld") ==
+         std::string::npos);
+  assert(standard_surface.module->logical_module.requirements.inputs ==
+         (merlin::MaterialInputRequirement::Texcoord0 |
+          merlin::MaterialInputRequirement::NormalWorld));
+  assert(standard_surface.module->logical_module.requirements.results ==
+         (merlin::MaterialResultField::BaseColor |
+          merlin::MaterialResultField::Metalness |
+          merlin::MaterialResultField::SpecularRoughness |
+          merlin::MaterialResultField::ShadingNormal));
+  assert(standard_surface.module->logical_module.resources.entries.size() ==
+         1U);
+  assert(standard_surface.module->resource_defaults.entries.size() == 1U);
+  assert(standard_surface.module->resource_defaults.entries[0].values[0] ==
+         "checker.png");
+
+  auto changed_standard_surface_document = standard_surface_document;
+  const auto metalness = changed_standard_surface_document.find("0.35");
+  assert(metalness != std::string::npos);
+  changed_standard_surface_document.replace(metalness, 4U, "0.55");
+  const auto changed_standard_surface =
+      merlin::materialx::CompileMaterialFunction(
+          changed_standard_surface_document, options);
+  assert(changed_standard_surface);
+  assert(changed_standard_surface.module->source ==
+         standard_surface.module->source);
+  assert(changed_standard_surface.module->module_key ==
+         standard_surface.module->module_key);
+  assert(changed_standard_surface.module->instance_key !=
+         standard_surface.module->instance_key);
+  assert(changed_standard_surface.module->resource_key ==
+         standard_surface.module->resource_key);
+  {
+    std::ofstream generated(argv[5], std::ios::binary);
+    assert(generated);
+    generated << standard_surface.module->source;
+  }
+
+  constexpr auto unsupported_standard_surface_document =
+      R"mtlx(<?xml version="1.0"?>
+<materialx version="1.39">
+  <standard_surface name="surface" type="surfaceshader">
+    <input name="coat" type="float" value="0.5" />
+  </standard_surface>
+</materialx>)mtlx";
+  options.renderable_path = "surface";
+  const auto unsupported_standard_surface =
+      merlin::materialx::CompileMaterialFunction(
+          unsupported_standard_surface_document, options);
+  assert(!unsupported_standard_surface);
+  assert(HasDiagnostic(unsupported_standard_surface,
+                       merlin::materialx::DiagnosticCode::UnsupportedInput));
 
   constexpr auto unsupported_document = R"mtlx(<?xml version="1.0"?>
 <materialx version="1.39">

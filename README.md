@@ -216,15 +216,15 @@ Source fallback builds require CMake 3.26 or newer. The generated module owns
 only graph evaluation; geometry, lighting, alpha policy, render passes,
 resources, and AOV writes remain renderer-owned.
 
-The current foundation deterministically generates a graph-only function,
-logical reflection, a topology-only module key separated from parameter and
-resource state, and diagnostics for constants plus add/multiply/mix. Core
-carries the versioned logical module/layout contract together with typed
-instance values, logical resource bindings, and exact input-space requirements;
-the same test wrapper compiles for SPIR-V and Metal targets. v0.10.0 completion
-still requires
-image/texcoord/normal and minimum Standard Surface coverage, complete
-module/artifact provenance, structured fallback, Vulkan Forward execution, and
+The current foundation deterministically generates renderer-owned material
+results for constants, image/UV0/world-normal, add/multiply/mix, and the minimum
+Standard Surface `base`, `base_color`, `metalness`, `specular_roughness`, and
+`normal` slice. Logical reflection, portable standard-library/include
+fingerprints, and a topology-only module key stay separate from typed parameter
+and resource state. Core carries the versioned logical module/layout contract
+and exact input-space requirements; the same generated sources compile for
+SPIR-V and Metal targets. v0.10.0 completion still requires the reusable target
+artifact identity, structured common fallback, Vulkan Forward execution, and
 image evidence. See the authoritative
 [MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
 and [current milestone](docs/roadmap/current.md).
