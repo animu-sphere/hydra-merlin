@@ -82,3 +82,74 @@ compile wrappers are recorded in the
 [delivery history](../reports/delivery-history.md) and summarized as current
 capability in the [support matrix](../reference/support-matrix.md). They are
 foundation evidence, not completion of the gates above.
+
+## Active follow-up
+
+### ⬜ v0.10.x — Development viewport and diagnostic surface
+
+Turn `merlin-viewport` into the primary renderer-development and profiling
+tool without turning it into a USD authoring application. Add a thin
+immediate-mode UI integration, preferably Dear ImGui, behind a host abstraction;
+the UI remains outside Core and renderer backends and consumes host-neutral
+settings, diagnostics, capability, and telemetry contracts.
+
+The initial surface covers:
+
+- backend/device capabilities and the selected path or rejected fallback;
+- CPU/GPU frame timings and AOV selection;
+- geometry, texture, sampler, descriptor, and VRAM residency;
+- material/module compilation state and structured diagnostics;
+- primitive/instance counts, uploads, allocations, camera, and viewport state;
+- screenshot and benchmark controls.
+
+Exit requires the viewport to explain path selection and rejection, make
+material/resource fallback visible without log inspection, and support
+interactive performance-regression inspection. The Vulkan render loop remains
+independent of UI frame rate and widget implementation. A complete stage tree,
+property editor, and authoring workflow remain outside this milestone.
+
+## Phase A foundation gates
+
+These cross-cutting items should land alongside v0.10.0 or v0.10.x, before the
+implementation becomes substantially more backend-specific.
+
+### ⬜ Evidence-tier separation
+
+- **Tier 1 — required hosted checks:** Core Debug/Release on Windows and Linux,
+  shader compilation, SPIR-V validation/reflection, Metal-target compilation,
+  MaterialX generation/ABI tests, install-tree consumers, and Hydra adapter
+  compilation where a reproducible SDK is available.
+- **Tier 2 — required or scheduled capability checks:** Vulkan runtime/image
+  tests, Hydra discovery and first frame, native Vulkan viewport smoke tests,
+  and stable-update/changed-range tests.
+- **Tier 3 — hardware-profile evidence:** timing thresholds, bindless
+  selection, transfer-queue behavior, VRAM pressure/exhaustion, and
+  vendor-specific capability reports.
+
+GPU timing does not become a universal pull-request gate until runner variance
+is controlled; missing hardware evidence remains distinguishable from a product
+failure.
+
+### ⬜ Linux Vulkan validation
+
+Add Linux Vulkan configuration and shader builds, useful headless execution
+through Mesa lavapipe, optional real-GPU capability execution, and GLFW viewport
+smoke coverage for supported window systems.
+
+### ⬜ Versioned renderer settings
+
+Define a host-neutral settings schema before DCC integration expands. The first
+version covers backend, presentation mode, Forward/experimental path, AOV,
+lighting mode, exposure/tone mapping, alpha policy, debug views, validation,
+and telemetry controls.
+
+## Near-term execution order
+
+1. Close v0.10.0 narrowly around the ABI, identity split, diagnostics/fallback,
+   Vulkan Forward execution, deterministic cross-target artifacts, and image
+   evidence; do not broaden node coverage merely to claim general MaterialX.
+2. Add the development viewport surface over existing capability, timing,
+   residency, upload, material, AOV, and fallback contracts.
+3. Strengthen non-GPU and Linux gates before implementation breadth grows.
+4. Begin the native Metal backend and presentation using the v0.9 renderer and
+   viewport boundaries plus the v0.10 material ABI.
