@@ -223,7 +223,12 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
         search_path, library);
 
     auto document = mx::createDocument();
-    mx::readFromXmlString(document, std::string(document_xml), search_path);
+    try {
+      mx::readFromXmlString(document, std::string(document_xml), search_path);
+    } catch (const mx::ExceptionParseError& error) {
+      AddError(result, DiagnosticCode::InvalidDocument, {}, error.what());
+      return result;
+    }
     document->setDataLibrary(library);
 
     std::string validation_message;

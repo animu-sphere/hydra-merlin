@@ -106,4 +106,12 @@ int main(int argc, char** argv) {
   assert(!missing);
   assert(HasDiagnostic(
       missing, merlin::materialx::DiagnosticCode::RenderableNotFound));
+
+  const auto malformed = merlin::materialx::CompileMaterialFunction(
+      "<materialx>", options);
+  assert(!malformed);
+  assert(HasDiagnostic(malformed,
+                       merlin::materialx::DiagnosticCode::InvalidDocument));
+  assert(!HasDiagnostic(
+      malformed, merlin::materialx::DiagnosticCode::GenerationFailure));
 }

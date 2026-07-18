@@ -135,8 +135,19 @@ if(MERLIN_ENABLE_MATERIALX)
       message(FATAL_ERROR
         "MERLIN_ENABLE_MATERIALX requires a MaterialX ${MERLIN_MATERIALX_MIN_VERSION}+ package with MaterialXGenSlang, MERLIN_MATERIALX_SOURCE_DIR, or MERLIN_FETCH_MATERIALX=ON")
     endif()
+    get_target_property(_merlin_materialx_source_version
+      MaterialXCore VERSION)
+    if(NOT _merlin_materialx_source_version)
+      message(FATAL_ERROR
+        "The selected MaterialX source does not report its library version")
+    endif()
+    if(_merlin_materialx_source_version VERSION_LESS
+       MERLIN_MATERIALX_MIN_VERSION)
+      message(FATAL_ERROR
+        "MaterialX ${_merlin_materialx_source_version} is older than the required ${MERLIN_MATERIALX_MIN_VERSION}")
+    endif()
     set(MERLIN_MATERIALX_DETECTED_VERSION
-        "${MERLIN_MATERIALX_MIN_VERSION}")
+        "${_merlin_materialx_source_version}")
   endif()
 
   if(NOT TARGET MaterialXGenSlang)
