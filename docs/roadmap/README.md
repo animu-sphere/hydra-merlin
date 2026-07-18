@@ -7,6 +7,16 @@ the [delivery history](../reports/delivery-history.md), and implementation
 evidence and design rationale belong in [reports](../reports/) and
 [design](../design/).
 
+> hdMerlin is a lightweight, host-neutral, multi-backend Hydra raster renderer
+> whose behavior is explicit, measurable, and recoverable through well-defined
+> fallback paths.
+
+The roadmap prioritizes durable ownership, identity, lifetime, diagnostic, and
+measurement contracts before feature breadth. Version numbers are release
+labels, not permission to violate a dependency gate: scope may move when
+benchmark, capability, or host-integration evidence changes the justified
+order.
+
 Legend: 🚧 in progress · ⬜ not started
 
 | Document | Contents |
@@ -24,11 +34,12 @@ and added the Metal compile gate. v0.9.0 extracts the minimum backend contract
 and delivers the dedicated backend-neutral `merlin-viewport` with Vulkan
 presentation; its completed pre-release detail is retained in the changelog and
 delivery history. The active v0.10.0 milestone proves a MaterialXGenSlang
-material-function slice before Metal residency, native presentation, and an
-HgiMetal host bridge come online. The later Mesh and Gaussian path advances
-through persistent draw identity, GPU-driven execution, an experimental opaque
-Visibility Buffer, production MaterialX quality, and static meshlets. Optional
-Mesh Shader, Hi-Z/LOD, and large-scene streaming remain measurement-gated. The
+material-function slice, followed by a renderer-development diagnostic surface,
+before Metal residency, native presentation, and an HgiMetal host bridge come
+online. The later Mesh and Gaussian paths advance through persistent draw
+identity, GPU-driven execution, an experimental opaque Visibility Buffer,
+production MaterialX and lighting quality, and static meshlets. Optional Mesh
+Shader, Hi-Z/LOD, and large-scene streaming remain measurement-gated. The
 architecture behind this order is recorded in the [multi-backend shader and
 presentation strategy](../design/multibackend-slang-materialx.md); the exact
 v0.10.0 contract is the
@@ -36,6 +47,53 @@ v0.10.0 contract is the
 
 When a version ships, its completed scope is captured in the changelog and
 removed from the roadmap. The roadmap is not a second changelog.
+
+## Product direction
+
+hdMerlin is both a lightweight interactive Hydra renderer and a fast native
+viewport renderer for USD scenes. Its reusable rendering core is independent of
+usdview, Qt, DCC SDKs, Vulkan, and Metal, and the repository serves as an
+OpenStrata renderer unit with reproducible build, validation, packaging, and
+runtime-composition evidence.
+
+The project differentiates itself through persistent GPU resources,
+revision-based updates, explicit submission/completion/readback contracts,
+deterministic images and IDs, Forward as the correctness reference, a
+renderer-owned MaterialX function boundary, standard Hydra Mesh/Gaussian
+ingestion, separate native and host-presentation paths, and capability-selected
+acceleration with reliable fallbacks.
+
+It is deliberately not a USD authoring application, UI framework, asset
+importer, replacement for USD composition or FileFormat plugins, Hgi-based
+internal renderer RHI, or renderer whose correctness depends on Visibility or
+Mesh Shader support. Compilation alone is not accepted as runtime support
+evidence.
+
+The long-term ownership invariants are:
+
+- Core owns host-neutral scene, resource, material, snapshot, renderer,
+  completion, diagnostic, and telemetry contracts and exposes no host, GPU API,
+  window-system, DCC, or MaterialX graph types.
+- Vulkan and Metal implement the same renderer meanings while retaining
+  independent native resource management, synchronization, and presentation.
+- Hydra synchronizes scene data, maps paths to Merlin handles, converts inputs,
+  integrates host RenderBuffers/presentation, and forwards diagnostics; it does
+  not own renderer scheduling, residency, shader ABI, or material evaluation.
+- Conventional Forward remains the universal correctness reference and
+  fallback.
+- Every optional path declares required features/limits, validation evidence,
+  selection policy, fallback, rejection diagnostics, and selected-path
+  telemetry before automatic use.
+
+## Product phases
+
+| Phase | Objective | Planned scope |
+| --- | --- | --- |
+| A — Renderer foundation | Complete material, diagnostics, and renderer-development foundations. | v0.10.0, v0.10.x, and foundation gates |
+| B — Backend parity | Establish cross-platform backend and presentation parity. | v0.11.0–v0.13.0 |
+| C — Scene and lighting breadth | Broaden scene representation and establish the lighting ladder. | v0.14.0–v0.15.0 and lighting tiers |
+| D — GPU scalability | Scale submission and shading through measured GPU-driven paths. | v0.16.0–v0.20.0 |
+| E — Production readiness | Productize large scenes, DCC hosts, runtime composition, and v1.0 contracts. | v0.21.0–v1.0.0 |
 
 ## Quality bar
 
@@ -55,6 +113,22 @@ Every release must preserve these properties:
   is not accepted as the performance contract.
 - Unsupported inputs return an actionable diagnostic or an explicit fallback.
 
+Every milestone defines its release gates in six categories:
+
+1. **Correctness:** reference images, AOV/ID semantics, deterministic identity,
+   update and lifetime behavior, and unsupported-input fallback.
+2. **Performance:** first-frame and steady-state cost, camera and scene edits,
+   CPU/GPU stage distributions, resource activity, and feature-relevant scale
+   fixtures.
+3. **Compatibility:** compiler/SDK versions, OpenUSD runtime, device features
+   and limits, host presentation, and install-tree consumption.
+4. **Diagnostics:** stable codes, source context, named recovery, selected path,
+   and an explanation visible through logs or the development viewport.
+5. **Packaging:** versioned installed targets and artifacts, dependency and
+   OpenStrata metadata, and host discovery metadata where applicable.
+6. **Documentation:** support matrix and milestone updates, completed-work
+   archival, explicit unsupported behavior, and benchmark interpretation.
+
 ## Sequencing principles
 
 - **Share renderer semantics, not GPU commands.** RenderWorld, FrameSnapshot,
@@ -70,6 +144,10 @@ Every release must preserve these properties:
   future sources normalize into one host-neutral material boundary before
   shader generation. MaterialXGenSlang produces a material-evaluation function;
   hdMerlin still owns geometry, lighting, render passes, resources, and AOVs.
+- **Broaden materials and lighting together.** Material evaluation produces
+  renderer-consumable surface properties; the renderer owns illumination,
+  visibility, integration, and presentation. A MaterialX input is not supported
+  until its lighting behavior, fixture, diagnostic, and fallback are defined.
 - **Separate shader identity from instance state.** Canonical graph topology
   identifies a generated material module, compiler/target policy identifies a
   backend artifact, parameter values identify material instance state, and
@@ -106,12 +184,9 @@ Every release must preserve these properties:
   settings UI, package metadata, and host smoke tests; Core owns no DCC SDK
   dependency.
 
-## Priority bands
-
-| Priority | Direction |
-| --- | --- |
-| P0 | Backend contract and dedicated cross-backend `merlin-viewport` with Vulkan presentation |
-| P1 | MaterialXGenSlang prototype, Metal execution/residency, and Metal/Hydra presentation |
-| P2 | Gaussian MVP, persistent draw identity, GPU-driven Mesh/Gaussian execution, opaque Visibility, and MaterialX quality |
-| P3 | Static meshlets, optional Mesh Shader/Hi-Z/LOD, and large-scene streaming |
-| P4 | DCC integration and v1.0 contracts |
+The final ordering rule is: ownership boundaries before feature breadth; stable
+identity and lifetime before GPU-driven execution; Forward correctness before
+alternate shading; material ABI before broad MaterialX; standard Hydra data
+before renderer-specific formats; native presentation before host-specific
+low-copy optimization; and diagnostics, fallbacks, and measured evidence before
+DCC expansion or v1.0 support claims.
