@@ -26,7 +26,7 @@ The policy maps onto the current repository as follows:
 
 | Layer | Repository location | Policy ownership |
 | --- | --- | --- |
-| Host-neutral scene and material semantics | `core/merlin-render-world` | `MaterialIR`, logical parameters and resources, alpha policy, feature requirements, generated-module identity, and revisions |
+| Host-neutral scene and material semantics | `core/merlin-render-world` | `MaterialIR`, typed parameter state, logical texture/sampler bindings, exact input-space requirements, alpha policy, generated-module identity, and revisions |
 | Immutable draw-facing extraction | `core/merlin-render-extraction` | Backend-neutral snapshot records and logical resource identity |
 | MaterialX integration | `material/merlin-materialx` / `Merlin::MaterialX` | Document and library handling, validation, canonicalization, MaterialXGenSlang invocation, logical reflection, module keys, and source diagnostics |
 | Slang target compilation | Existing Slang build/test pipeline, reusable without MaterialX-specific assumptions | Compiler invocation, target/profile options, target reflection, artifact keys, and compiler diagnostics |
@@ -197,6 +197,12 @@ produce separate instance and resource-state keys, so a parameter-only edit
 keeps the module key and source unchanged. Standard-library and transitive
 include fingerprints plus the separate target-artifact key remain required
 before the v0.10.0 identity gate is complete.
+
+Core stores typed generated-parameter values and resolved logical resource
+bindings separately from the module definition. MaterialX filename defaults
+remain integration-side identifiers until a host adapter resolves them to
+RenderWorld texture/sampler handles. Extraction carries both states and their
+independent revisions without consulting the source graph.
 
 ## Diagnostics and fallback
 

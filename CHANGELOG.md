@@ -18,8 +18,9 @@ after its public API and release process are established.
   parameter/resource-state identities, and structured local diagnostics for
   the initial constant and add/multiply/mix prototype.
 - A versioned, host-neutral generated-material contract in Core covering module
-  identity/revision, parameter and resource layouts, feature requirements, and
-  independent extraction revisions without MaterialX or backend-native types.
+  identity/revision, typed parameter state, logical texture/sampler bindings,
+  exact object/world/UV0 input requirements, and independent extraction
+  revisions without MaterialX or backend-native types.
 - SPIR-V and Metal-target compile wrappers and reflection evidence generated
   from the same MaterialX-produced Slang module when `slangc` is available.
 

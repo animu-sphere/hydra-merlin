@@ -284,6 +284,46 @@ int main() {
   assert(material_world.Get(textured_material_handle).base_color_texture->texture ==
          texture_handle);
 
+  merlin::MaterialDescriptor generated_material;
+  merlin::MaterialModule generated_module;
+  generated_module.key = "sha256:render-world-module";
+  generated_module.parameters.entries.push_back(
+      {"tint", merlin::MaterialValueType::Float3, 1});
+  generated_module.resources.entries.push_back(
+      {"image", merlin::MaterialValueType::CombinedTextureSampler, 1});
+  generated_material.module = generated_module;
+  generated_material.generated_parameters.key =
+      "sha256:render-world-instance";
+  generated_material.generated_parameters.entries.push_back(
+      {"tint", merlin::MaterialValueType::Float3,
+       {merlin::Vec3{0.2F, 0.4F, 0.6F}}});
+  generated_material.generated_resources.key =
+      "sha256:render-world-resources";
+  generated_material.generated_resources.entries.push_back(
+      {"image", merlin::MaterialValueType::CombinedTextureSampler,
+       {{texture_handle, sampler_handle}}});
+  const auto generated_material_handle =
+      material_world.CreateMaterial(generated_material);
+  const auto generated_changes = material_world.Commit();
+  assert(generated_changes.changes.size() == 1);
+  assert(generated_changes.changes.front().HasAspect(
+      merlin::ChangeAspect::MaterialResources));
+  assert(material_world.Get(generated_material_handle)
+             .generated_parameters.key ==
+         generated_material.generated_parameters.key);
+
+  auto invalid_generated_material = generated_material;
+  invalid_generated_material.generated_parameters.entries.clear();
+  bool invalid_generated_state_rejected = false;
+  try {
+    material_world.UpdateMaterial(
+        generated_material_handle, invalid_generated_material,
+        merlin::ChangeAspect::MaterialParameters);
+  } catch (const std::invalid_argument&) {
+    invalid_generated_state_rejected = true;
+  }
+  assert(invalid_generated_state_rejected);
+
   texture.pixels[0] = 128;
   material_world.UpdateTexture(texture_handle, texture);
   sampler.mag_filter = merlin::FilterMode::Nearest;

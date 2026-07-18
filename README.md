@@ -219,8 +219,10 @@ resources, and AOV writes remain renderer-owned.
 The current foundation deterministically generates a graph-only function,
 logical reflection, a topology-only module key separated from parameter and
 resource state, and diagnostics for constants plus add/multiply/mix. Core
-carries the versioned logical module/layout contract, and the same test wrapper
-compiles for SPIR-V and Metal targets. v0.10.0 completion still requires
+carries the versioned logical module/layout contract together with typed
+instance values, logical resource bindings, and exact input-space requirements;
+the same test wrapper compiles for SPIR-V and Metal targets. v0.10.0 completion
+still requires
 image/texcoord/normal and minimum Standard Surface coverage, complete
 module/artifact provenance, structured fallback, Vulkan Forward execution, and
 image evidence. See the authoritative

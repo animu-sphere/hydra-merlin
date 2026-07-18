@@ -47,6 +47,7 @@ struct MaterialEntry {
   std::uint64_t parameter_revision{};
   std::uint64_t feature_revision{};
   std::uint64_t module_revision{};
+  std::uint64_t resource_binding_revision{};
   MaterialDescriptor descriptor;
 };
 
@@ -286,11 +287,14 @@ class SceneExtractor::Impl {
     record.parameter_revision = entry.parameter_revision;
     record.feature_revision = entry.feature_revision;
     record.module_revision = entry.module_revision;
+    record.resource_binding_revision = entry.resource_binding_revision;
     record.parameters = material.parameters;
     record.alpha_mode = material.alpha_mode;
     record.double_sided = material.double_sided;
     record.features = material.features;
     record.module = material.module;
+    record.generated_parameters = material.generated_parameters;
+    record.generated_resources = material.generated_resources;
     if (record.alpha_mode == AlphaMode::Blended) {
       record.alpha_mode = AlphaMode::Opaque;
       fallbacks.push_back(
@@ -555,24 +559,42 @@ class SceneExtractor::Impl {
 
   void AddMaterialDependencies(std::uint64_t handle,
                                const MaterialDescriptor& descriptor) {
-    if (!descriptor.base_color_texture) {
-      return;
+    if (descriptor.base_color_texture) {
+      AddDependency(texture_materials,
+                    descriptor.base_color_texture->texture.value(), handle);
+      AddDependency(sampler_materials,
+                    descriptor.base_color_texture->sampler.value(), handle);
     }
-    AddDependency(texture_materials,
-                  descriptor.base_color_texture->texture.value(), handle);
-    AddDependency(sampler_materials,
-                  descriptor.base_color_texture->sampler.value(), handle);
+    for (const auto& entry : descriptor.generated_resources.entries) {
+      for (const auto& value : entry.values) {
+        if (value.texture.valid()) {
+          AddDependency(texture_materials, value.texture.value(), handle);
+        }
+        if (value.sampler.valid()) {
+          AddDependency(sampler_materials, value.sampler.value(), handle);
+        }
+      }
+    }
   }
 
   void RemoveMaterialDependencies(std::uint64_t handle,
                                   const MaterialDescriptor& descriptor) {
-    if (!descriptor.base_color_texture) {
-      return;
+    if (descriptor.base_color_texture) {
+      RemoveDependency(texture_materials,
+                       descriptor.base_color_texture->texture.value(), handle);
+      RemoveDependency(sampler_materials,
+                       descriptor.base_color_texture->sampler.value(), handle);
     }
-    RemoveDependency(texture_materials,
-                     descriptor.base_color_texture->texture.value(), handle);
-    RemoveDependency(sampler_materials,
-                     descriptor.base_color_texture->sampler.value(), handle);
+    for (const auto& entry : descriptor.generated_resources.entries) {
+      for (const auto& value : entry.values) {
+        if (value.texture.valid()) {
+          RemoveDependency(texture_materials, value.texture.value(), handle);
+        }
+        if (value.sampler.valid()) {
+          RemoveDependency(sampler_materials, value.sampler.value(), handle);
+        }
+      }
+    }
   }
 
   void AddInstanceDependencies(std::uint64_t handle,
@@ -888,6 +910,10 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           if (change.change_kind == ChangeKind::Created ||
               change.HasAspect(ChangeAspect::MaterialModule)) {
             entry.module_revision = change.resource_revision;
+          }
+          if (change.change_kind == ChangeKind::Created ||
+              change.HasAspect(ChangeAspect::MaterialResources)) {
+            entry.resource_binding_revision = change.resource_revision;
           }
           entry.descriptor =
               world.Get(MaterialHandle::FromValue(change.handle));

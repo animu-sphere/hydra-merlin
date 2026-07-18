@@ -37,7 +37,8 @@ enum class ChangeAspect : std::uint32_t {
   // after topology edits) without claiming that authored points/primvars did.
   VertexLayout = 1U << 14U,
   MaterialModule = 1U << 15U,
-  All = (1U << 16U) - 1U
+  MaterialResources = 1U << 16U,
+  All = (1U << 17U) - 1U
 };
 
 [[nodiscard]] constexpr ChangeAspect operator|(ChangeAspect lhs,
@@ -72,7 +73,7 @@ constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
              ChangeAspect::VertexLayout;
     case ObjectKind::Material:
       return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures |
-             ChangeAspect::MaterialModule;
+             ChangeAspect::MaterialModule | ChangeAspect::MaterialResources;
     case ObjectKind::Texture:
       return ChangeAspect::TextureData;
     case ObjectKind::Sampler:

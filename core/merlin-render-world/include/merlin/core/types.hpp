@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace merlin {
@@ -204,9 +205,11 @@ struct MaterialResourceLayout {
 
 enum class MaterialInputRequirement : std::uint32_t {
   None = 0,
-  Position = 1U << 0U,
-  ShadingNormal = 1U << 1U,
-  Texcoord0 = 1U << 2U,
+  PositionObject = 1U << 0U,
+  PositionWorld = 1U << 1U,
+  NormalObject = 1U << 2U,
+  NormalWorld = 1U << 3U,
+  Texcoord0 = 1U << 4U,
 };
 
 [[nodiscard]] constexpr MaterialInputRequirement operator|(
@@ -259,6 +262,40 @@ struct MaterialModule {
   MaterialFeatureRequirements requirements;
 };
 
+using MaterialValue =
+    std::variant<float, Vec2, Vec3, Vec4, std::int32_t, bool>;
+
+struct MaterialParameterValueEntry {
+  std::string name;
+  MaterialValueType type{MaterialValueType::Unknown};
+  std::vector<MaterialValue> values;
+};
+
+struct MaterialParameterState {
+  // Identity of runtime values scoped to a module. It remains separate from
+  // the module key so identical graph topology can share generated code.
+  std::string key;
+  std::vector<MaterialParameterValueEntry> entries;
+};
+
+struct MaterialResourceValue {
+  TextureHandle texture;
+  SamplerHandle sampler;
+};
+
+struct MaterialResourceBindingEntry {
+  std::string name;
+  MaterialValueType type{MaterialValueType::Unknown};
+  std::vector<MaterialResourceValue> values;
+};
+
+struct MaterialResourceState {
+  // Identity of module-scoped logical assignments, independent of texture
+  // content revisions.
+  std::string key;
+  std::vector<MaterialResourceBindingEntry> entries;
+};
+
 // MaterialIR is the only material representation accepted by the host-neutral
 // scene model. Source graphs (Hydra, MaterialX, or a future DCC adapter) must be
 // normalized before they cross this boundary.
@@ -273,6 +310,8 @@ struct MaterialIR {
   // Generated module identity and logical reflection are optional. Existing
   // basic materials continue through the handwritten renderer path.
   std::optional<MaterialModule> module;
+  MaterialParameterState generated_parameters;
+  MaterialResourceState generated_resources;
 };
 
 using MaterialDescriptor = MaterialIR;

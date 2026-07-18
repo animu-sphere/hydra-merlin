@@ -19,6 +19,7 @@ enum class DiagnosticCode {
   AmbiguousRenderable,
   UnsupportedRenderable,
   UnsupportedNode,
+  UnsupportedInput,
   GenerationFailure,
 };
 
@@ -35,6 +36,17 @@ struct MaterialFunctionPort {
   std::string variable;
   std::string type;
   std::string default_value;
+};
+
+struct MaterialResourceDefaultEntry {
+  std::string name;
+  merlin::MaterialValueType type{merlin::MaterialValueType::Unknown};
+  std::vector<std::string> values;
+};
+
+struct MaterialResourceDefaultState {
+  std::string key;
+  std::vector<MaterialResourceDefaultEntry> entries;
 };
 
 struct MaterialFunctionModule {
@@ -57,6 +69,10 @@ struct MaterialFunctionModule {
   std::vector<MaterialFunctionPort> inputs;
   std::vector<MaterialFunctionPort> uniforms;
   merlin::MaterialModule logical_module;
+  // Typed runtime defaults can cross directly into MaterialIR. Resource
+  // identifiers remain unresolved until a host adapter maps them to handles.
+  merlin::MaterialParameterState parameter_defaults;
+  MaterialResourceDefaultState resource_defaults;
 };
 
 struct CompileOptions {
