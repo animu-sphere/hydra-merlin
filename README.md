@@ -138,17 +138,20 @@ color/opacity, and UVs, robustly triangulates concave polygonal faces, preserves
 authored material binding identity, and supports native Hydra instancing. The
 adapter translates a basic `UsdPreviewSurface` subset (constant parameters,
 diffuse image texture, wrap mode, opacity mask) and distant lights into the
-same `MaterialIR` used by headless rendering. MaterialX translation,
-subdivision refinement, and zero-copy Vulkan/Hgi interop remain future work;
-usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi upload
-path.
+same `MaterialIR` used by headless rendering. The optional graph-only
+MaterialXGenSlang compiler foundation is present, but Hydra MaterialX ingestion
+and Vulkan Forward execution of generated material modules remain v0.10.0 work.
+Subdivision refinement and zero-copy Vulkan/Hgi interop also remain future
+work; usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi
+upload path.
 
 ## Capability boundaries and roadmap
 
 The current renderer intentionally does not yet provide:
 
-- MaterialX loading or general graph translation beyond the basic
-  `UsdPreviewSurface` subset;
+- Hydra MaterialX loading, Vulkan execution of generated MaterialX modules, or
+  general graph coverage beyond the optional v0.10.0 compiler prototype and
+  the existing `UsdPreviewSurface` subset;
 - the complete GPU Scene tables, GPU-driven indexed submission, an opaque
   Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
 - advanced viewport features such as alpha blending, dome lighting, shadows,
@@ -212,6 +215,16 @@ ctest --test-dir build-materialx -C Debug -R merlin-materialx `
 Source fallback builds require CMake 3.26 or newer. The generated module owns
 only graph evaluation; geometry, lighting, alpha policy, render passes,
 resources, and AOV writes remain renderer-owned.
+
+The current foundation deterministically generates a graph-only function,
+logical reflection, and diagnostics for constants plus add/multiply/mix, and
+compiles the same test wrapper for SPIR-V and Metal targets. v0.10.0 completion
+still requires image/texcoord/normal and minimum Standard Surface coverage,
+topology-only module identity separated from parameter/resource state, the
+versioned material ABI, structured fallback, Vulkan Forward execution, and
+image evidence. See the authoritative
+[MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
+and [current milestone](docs/roadmap/current.md).
 
 ## Supported configurations
 
@@ -284,6 +297,8 @@ and Vulkan owns execution, readback, surface, swapchain, and synchronization.
 - [Delivery history](docs/reports/delivery-history.md)
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
+- [MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
+- [Multi-backend shader and presentation strategy](docs/design/multibackend-slang-materialx.md)
 - [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md)
 - [Execution and render-product lifetime](docs/design/execution-lifetime.md)
 - [OpenStrata project layout](docs/design/openstrata-project.md)

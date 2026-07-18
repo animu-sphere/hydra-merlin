@@ -28,8 +28,8 @@ ctest --test-dir build-core -C Debug --output-on-failure
 
 ## Change guidelines
 
-- Keep Core public APIs independent of OpenUSD, Hydra, Vulkan, Qt, and DCC SDK
-  types.
+- Keep Core public APIs independent of OpenUSD, Hydra, MaterialX, Slang compiler
+  APIs, Vulkan, Metal, Qt, and DCC SDK types.
 - Keep host translation in adapters and GPU execution in the Vulkan backend.
 - Preserve deterministic extraction and render-product metadata.
 - Return an actionable diagnostic or explicit fallback for unsupported input.
@@ -38,6 +38,11 @@ ctest --test-dir build-core -C Debug --output-on-failure
   itself is not a performance contract.
 - Normalize Hydra, MaterialX, and future material sources into host-neutral
   `MaterialIR` rather than coupling a source graph directly to GPU code.
+- Keep generated material modules limited to material evaluation. Geometry,
+  lighting, alpha/depth policy, render passes, resources, and AOVs remain
+  renderer-owned, and graph topology keys remain separate from instance values
+  and texture assignments. See the
+  [MaterialXGenSlang boundary](docs/design/materialxgenslang-boundary.md).
 - Preserve Tier 0 CPU readback as the correctness, headless, CI, and fallback
   path when experimenting with lower-copy presentation.
 - Require measurements that identify the limiting stage before adopting
@@ -53,7 +58,7 @@ code must build without warnings in every configuration it affects.
 Keep pull requests focused and describe:
 
 - the problem and chosen approach;
-- affected configurations (Core, Vulkan/headless, Hydra);
+- affected configurations (Core, Vulkan/headless, Hydra, MaterialX);
 - commands used to verify the change;
 - any capability that could not be exercised locally;
 - public API, package, performance, or compatibility implications.

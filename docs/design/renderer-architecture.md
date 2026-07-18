@@ -199,15 +199,19 @@ their frame context until the single-use token resolves. See the
 
 ## Material and shader variants
 
-The implemented host-neutral material boundary and accepted shader direction
-are:
+The implemented basic host-neutral material boundary and accepted
+generated-material direction are:
 
 ```text
-MaterialX document ─────┐
-Hydra material network ┼─> MaterialIR ─> Slang material/pass modules
-Future material source ┘
-                                      ├─> SPIR-V / Vulkan
-                                      └─> Metal-target artifact / Metal
+MaterialX document -> merlin-materialx -> canonical description
+                                           |-> generated material module
+                                           `-> instance semantics --------┐
+Hydra material network -> Hydra adapter -> instance semantics ------------┼-> MaterialIR
+Headless/future material source ------------------------------------------┘
+
+MaterialIR + generated/built-in material module -> renderer pass module
+                                                   |-> SPIR-V / Vulkan
+                                                   `-> Metal target / Metal
 ```
 
 - `MaterialIR` contains host-neutral parameters, texture/sampler bindings,
@@ -227,8 +231,18 @@ Future material source ┘
 - MaterialX compilation happens before draw time, produces a generated Slang
   material-evaluation module, and emits version-aware backend artifacts,
   reflection, and cache metadata; raw source graphs do not enter Core.
+- The generated-module contract uses host-neutral identity, parameter/resource
+  layouts, feature requirements, ABI version, and revision. Core does not store
+  a MaterialX node path, Vulkan descriptor binding, Metal argument-buffer
+  offset, or native shader handle.
+- Graph topology identifies a reusable module, compiler/target policy identifies
+  an artifact, values remain material instance state, and texture assignment
+  remains resource binding state.
 - Missing/stale texture or sampler bindings and unsupported alpha blending
   produce structured extraction fallbacks rather than silent corruption.
+
+The exact v0.10.0 generated-material contract is documented in the
+[MaterialXGenSlang material boundary](materialxgenslang-boundary.md).
 
 ## Performance contract
 

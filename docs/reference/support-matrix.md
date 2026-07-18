@@ -62,7 +62,7 @@ responsibility.
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Slang shader source and Metal compile gate | Slang is the Forward source of truth; conventional and bindless SPIR-V plus conventional Metal/reflection artifacts are packaged under `shaders/v1`, with Metal non-uniform bindless access explicitly falling back to conventional Forward |
-| MaterialXGenSlang material-function prototype | In progress for v0.10.0: the optional installed compiler emits deterministic graph-only Slang functions/cache keys, logical reflection, diagnostics, and SPIR-V/Metal compile-gate evidence for constants and add/multiply/mix; image/geometry inputs, Standard Surface, Vulkan Forward image parity, and artifact-manifest evidence remain incomplete |
+| MaterialXGenSlang material-function prototype | In progress for v0.10.0: optional `Merlin::MaterialX` emits deterministic graph-only Slang functions, input-derived SHA-256 keys, logical reflection, and local diagnostics for constants and add/multiply/mix; direct wrappers compile the same source for SPIR-V and Metal. The current key still includes parameter values. Image/texcoord/normal, minimum Standard Surface, topology-only module identity, Core material-module metadata, `merlin-diagnostic/v1` fallback, Vulkan Forward execution/image parity, and final artifact evidence remain incomplete |
 | Native Metal backend and residency | Planned for v0.11.0; no current Metal execution support is claimed |
 | Native Metal viewport presentation | Planned for v0.12.0 after the backend-neutral viewport boundary |
 | HgiMetal host presentation bridge | Planned for v0.13.0 with direct-share, GPU-copy, and CPU-readback fallback tiers validated per supported host |
@@ -105,3 +105,5 @@ Unsupported inputs must produce an actionable diagnostic or explicit fallback;
 they are not implied to work by the availability of the surrounding adapter.
 Future capability order and completion criteria are tracked in the
 [current milestone](../roadmap/current.md) and [backlog](../roadmap/backlog.md).
+The v0.10.0 ownership and acceptance contract is the
+[MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
