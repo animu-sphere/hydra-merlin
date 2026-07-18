@@ -18,6 +18,8 @@ target_include_directories(merlin-materialx
 )
 
 target_link_libraries(merlin-materialx
+  PUBLIC
+    Merlin::RenderWorld
   PRIVATE
     MaterialXFormat
     MaterialXGenSlang

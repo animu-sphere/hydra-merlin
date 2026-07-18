@@ -8,7 +8,9 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -64,6 +66,51 @@ void ValidateTexture(const TextureDescriptor& descriptor) {
   }
 }
 
+bool MaterialValueMatchesType(const MaterialValue& value,
+                              MaterialValueType type) {
+  switch (type) {
+    case MaterialValueType::Float:
+      return std::holds_alternative<float>(value);
+    case MaterialValueType::Float2:
+      return std::holds_alternative<Vec2>(value);
+    case MaterialValueType::Float3:
+      return std::holds_alternative<Vec3>(value);
+    case MaterialValueType::Float4:
+      return std::holds_alternative<Vec4>(value);
+    case MaterialValueType::Integer:
+      return std::holds_alternative<std::int32_t>(value);
+    case MaterialValueType::Boolean:
+      return std::holds_alternative<bool>(value);
+    case MaterialValueType::Texture2D:
+    case MaterialValueType::Sampler:
+    case MaterialValueType::CombinedTextureSampler:
+    case MaterialValueType::Unknown:
+      return false;
+  }
+  return false;
+}
+
+bool IsFiniteMaterialValue(const MaterialValue& value) {
+  return std::visit(
+      [](const auto& typed) {
+        using Value = std::decay_t<decltype(typed)>;
+        if constexpr (std::is_same_v<Value, float>) {
+          return std::isfinite(typed);
+        } else if constexpr (std::is_same_v<Value, Vec2>) {
+          return std::isfinite(typed.x) && std::isfinite(typed.y);
+        } else if constexpr (std::is_same_v<Value, Vec3>) {
+          return std::isfinite(typed.x) && std::isfinite(typed.y) &&
+                 std::isfinite(typed.z);
+        } else if constexpr (std::is_same_v<Value, Vec4>) {
+          return std::isfinite(typed.x) && std::isfinite(typed.y) &&
+                 std::isfinite(typed.z) && std::isfinite(typed.w);
+        } else {
+          return true;
+        }
+      },
+      value);
+}
+
 void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
   const auto& p = descriptor.parameters;
   const std::array<float, 7> values{p.base_color.x, p.base_color.y,
@@ -96,6 +143,157 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
       descriptor.base_color_texture->texcoord_set != 0U) {
     throw std::invalid_argument(
         "only texture coordinate set 0 is currently supported");
+  }
+  if (!descriptor.module) {
+    if (!descriptor.generated_parameters.key.empty() ||
+        !descriptor.generated_parameters.entries.empty() ||
+        !descriptor.generated_resources.key.empty() ||
+        !descriptor.generated_resources.entries.empty()) {
+      throw std::invalid_argument(
+          "generated material state requires a material module");
+    }
+    return;
+  }
+
+  const auto& module = *descriptor.module;
+  if (module.key.empty() || module.entry_point.empty() ||
+      module.revision == 0U) {
+    throw std::invalid_argument(
+        "material module requires a key, entry point, and non-zero revision");
+  }
+  if (module.abi_version != kMaterialAbiVersion ||
+      module.reflection_schema_version !=
+          kMaterialReflectionSchemaVersion) {
+    throw std::invalid_argument(
+        "material module ABI or reflection schema is unsupported");
+  }
+  const auto validate_layout = [](const auto& entries, bool resources) {
+    std::unordered_set<std::string> names;
+    for (const auto& entry : entries) {
+      if (entry.name.empty() || entry.array_size == 0U ||
+          entry.type == MaterialValueType::Unknown) {
+        throw std::invalid_argument(
+            "material module layout entries require a name, type, and "
+            "non-zero array size");
+      }
+      const bool resource_type =
+          entry.type == MaterialValueType::Texture2D ||
+          entry.type == MaterialValueType::Sampler ||
+          entry.type == MaterialValueType::CombinedTextureSampler;
+      if (resource_type != resources) {
+        throw std::invalid_argument(
+            "material module parameter/resource layout type mismatch");
+      }
+      if (!names.insert(entry.name).second) {
+        throw std::invalid_argument(
+            "material module layout contains a duplicate name");
+      }
+    }
+  };
+  validate_layout(module.parameters.entries, false);
+  validate_layout(module.resources.entries, true);
+
+  constexpr auto supported_inputs =
+      MaterialInputRequirement::PositionObject |
+      MaterialInputRequirement::PositionWorld |
+      MaterialInputRequirement::NormalObject |
+      MaterialInputRequirement::NormalWorld |
+      MaterialInputRequirement::Texcoord0;
+  constexpr auto supported_results =
+      MaterialResultField::BaseColor | MaterialResultField::Metalness |
+      MaterialResultField::SpecularRoughness |
+      MaterialResultField::ShadingNormal;
+  const auto input_bits = static_cast<std::uint32_t>(
+      module.requirements.inputs);
+  const auto result_bits = static_cast<std::uint32_t>(
+      module.requirements.results);
+  if ((input_bits & ~static_cast<std::uint32_t>(supported_inputs)) != 0U ||
+      (result_bits & ~static_cast<std::uint32_t>(supported_results)) != 0U) {
+    throw std::invalid_argument(
+        "material module requirements contain unknown bits");
+  }
+
+  if (descriptor.generated_parameters.key.empty() ||
+      descriptor.generated_resources.key.empty()) {
+    throw std::invalid_argument(
+        "generated material state requires parameter and resource keys");
+  }
+
+  const auto validate_parameter_state = [&] {
+    if (descriptor.generated_parameters.entries.size() !=
+        module.parameters.entries.size()) {
+      throw std::invalid_argument(
+          "generated parameter state does not match the module layout");
+    }
+    std::unordered_set<std::string> names;
+    for (const auto& value : descriptor.generated_parameters.entries) {
+      if (!names.insert(value.name).second) {
+        throw std::invalid_argument(
+            "generated parameter state contains a duplicate name");
+      }
+      const auto layout = std::find_if(
+          module.parameters.entries.begin(), module.parameters.entries.end(),
+          [&](const MaterialParameterLayoutEntry& candidate) {
+            return candidate.name == value.name;
+          });
+      if (layout == module.parameters.entries.end() ||
+          layout->type != value.type ||
+          value.values.size() != layout->array_size ||
+          std::any_of(value.values.begin(), value.values.end(),
+                      [&](const MaterialValue& element) {
+                        return !MaterialValueMatchesType(element, value.type) ||
+                               !IsFiniteMaterialValue(element);
+                      })) {
+        throw std::invalid_argument(
+            "generated parameter value does not match the module layout");
+      }
+    }
+  };
+  validate_parameter_state();
+
+  if (descriptor.generated_resources.entries.size() !=
+      module.resources.entries.size()) {
+    throw std::invalid_argument(
+        "generated resource state does not match the module layout");
+  }
+  std::unordered_set<std::string> resource_names;
+  for (const auto& binding : descriptor.generated_resources.entries) {
+    if (!resource_names.insert(binding.name).second) {
+      throw std::invalid_argument(
+          "generated resource state contains a duplicate name");
+    }
+    const auto layout = std::find_if(
+        module.resources.entries.begin(), module.resources.entries.end(),
+        [&](const MaterialResourceLayoutEntry& candidate) {
+          return candidate.name == binding.name;
+        });
+    const auto valid_binding = [&](const MaterialResourceValue& value) {
+      switch (binding.type) {
+        case MaterialValueType::Texture2D:
+          return value.texture.valid() && !value.sampler.valid();
+        case MaterialValueType::Sampler:
+          return !value.texture.valid() && value.sampler.valid();
+        case MaterialValueType::CombinedTextureSampler:
+          return value.texture.valid() && value.sampler.valid();
+        case MaterialValueType::Float:
+        case MaterialValueType::Float2:
+        case MaterialValueType::Float3:
+        case MaterialValueType::Float4:
+        case MaterialValueType::Integer:
+        case MaterialValueType::Boolean:
+        case MaterialValueType::Unknown:
+          return false;
+      }
+      return false;
+    };
+    if (layout == module.resources.entries.end() ||
+        layout->type != binding.type ||
+        binding.values.size() != layout->array_size ||
+        !std::all_of(binding.values.begin(), binding.values.end(),
+                     valid_binding)) {
+      throw std::invalid_argument(
+          "generated resource binding does not match the module layout");
+    }
   }
 }
 
@@ -267,6 +465,24 @@ void MergeKnownRanges(std::vector<ElementRange>& destination,
 
 class RenderWorld::Impl {
  public:
+  void ValidateMaterialResourceHandles(
+      const MaterialDescriptor& descriptor) const {
+    if (descriptor.base_color_texture) {
+      (void)textures.Get(descriptor.base_color_texture->texture);
+      (void)samplers.Get(descriptor.base_color_texture->sampler);
+    }
+    for (const auto& entry : descriptor.generated_resources.entries) {
+      for (const auto& value : entry.values) {
+        if (value.texture.valid()) {
+          (void)textures.Get(value.texture);
+        }
+        if (value.sampler.valid()) {
+          (void)samplers.Get(value.sampler);
+        }
+      }
+    }
+  }
+
   template <typename Descriptor, typename HandleType>
   HandleType Create(Store<Descriptor, HandleType>& store, ObjectKind kind,
                     Descriptor descriptor) {
@@ -320,10 +536,7 @@ MeshHandle RenderWorld::CreateMesh(MeshDescriptor descriptor) {
 
 MaterialHandle RenderWorld::CreateMaterial(MaterialDescriptor descriptor) {
   ValidateMaterialParameters(descriptor);
-  if (descriptor.base_color_texture) {
-    (void)impl_->textures.Get(descriptor.base_color_texture->texture);
-    (void)impl_->samplers.Get(descriptor.base_color_texture->sampler);
-  }
+  impl_->ValidateMaterialResourceHandles(descriptor);
   return impl_->Create(impl_->materials, ObjectKind::Material, std::move(descriptor));
 }
 
@@ -408,10 +621,7 @@ void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
 void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d,
                                  ChangeAspect aspects) {
   ValidateMaterialParameters(d);
-  if (d.base_color_texture) {
-    (void)impl_->textures.Get(d.base_color_texture->texture);
-    (void)impl_->samplers.Get(d.base_color_texture->sampler);
-  }
+  impl_->ValidateMaterialResourceHandles(d);
   impl_->Update(impl_->materials, ObjectKind::Material, h, std::move(d),
                 aspects);
 }

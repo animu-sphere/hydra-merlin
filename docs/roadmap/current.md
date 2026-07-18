@@ -54,19 +54,13 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
 
 #### Remaining implementation focus
 
-- Extend the host-neutral material/module contract so `MaterialIR` can refer to
-  generated-module identity, logical parameter/resource layouts, feature
-  requirements, ABI version, and revision without adding MaterialX-specific
-  names to Core.
 - Add image/texcoord/normal generation coverage and adapt the minimum Standard
   Surface outputs into the common material result. Full tangent-space normal
   mapping remains later quality work.
-- Replace or layer the current document-and-source SHA-256 identity. The
-  prototype key is deterministic but still changes when a uniform value in the
-  document changes, so it is not yet the required topology-only module key.
-- Track standard-library/includes and generator options in the module key, then
-  compose target/compiler/profile/layout/capability policy into a separate
-  artifact key reusable by MaterialX-generated and handwritten Slang.
+- Add standard-library and transitive-include fingerprints to the topology-only
+  module key, then compose target/compiler/profile/layout/capability policy into
+  a separate artifact key reusable by MaterialX-generated and handwritten
+  Slang.
 - Bridge `Merlin::MaterialX` diagnostics into `merlin-diagnostic/v1`, add the
   required failure categories and context, and record the selected fallback in
   capability and telemetry evidence.
@@ -76,12 +70,14 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
   deterministic build and test evidence, including ABI mismatch and
   render-pass-contamination checks.
 
-The already merged graph-only compiler, package target, deterministic
+The previously merged graph-only compiler, package target, deterministic
 prototype generation, logical reflection, diagnostics, and direct SPIR-V/Metal
 compile wrappers are recorded in the
-[delivery history](../reports/delivery-history.md) and summarized as current
-capability in the [support matrix](../reference/support-matrix.md). They are
-foundation evidence, not completion of the gates above.
+[delivery history](../reports/delivery-history.md). Topology-only module
+identity, separate parameter/resource state identities, and the host-neutral
+Core module contract are included in the current capability summary in the
+[support matrix](../reference/support-matrix.md). They are foundation evidence,
+not completion of the gates above.
 
 ## Active follow-up
 

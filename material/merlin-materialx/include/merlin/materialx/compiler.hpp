@@ -1,5 +1,7 @@
 #pragma once
 
+#include <merlin/core/types.hpp>
+
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -17,6 +19,7 @@ enum class DiagnosticCode {
   AmbiguousRenderable,
   UnsupportedRenderable,
   UnsupportedNode,
+  UnsupportedInput,
   GenerationFailure,
 };
 
@@ -35,11 +38,29 @@ struct MaterialFunctionPort {
   std::string default_value;
 };
 
+struct MaterialResourceDefaultEntry {
+  std::string name;
+  merlin::MaterialValueType type{merlin::MaterialValueType::Unknown};
+  std::vector<std::string> values;
+};
+
+struct MaterialResourceDefaultState {
+  std::string key;
+  std::vector<MaterialResourceDefaultEntry> entries;
+};
+
 struct MaterialFunctionModule {
   std::string source;
   std::string entry_point{"evaluateMaterial"};
   std::string output_type;
+  // Topology-only, target-neutral identity. `cache_key` remains as a
+  // compatibility alias for this key.
+  std::string module_key;
   std::string cache_key;
+  // Runtime uniform values and texture/resource defaults are deliberately
+  // identified separately from generated shader topology.
+  std::string instance_key;
+  std::string resource_key;
   std::string materialx_version;
   std::string generator_version;
   // Merlin's tested upstream compatibility baseline. The actual dependency
@@ -47,6 +68,11 @@ struct MaterialFunctionModule {
   std::string generator_revision;
   std::vector<MaterialFunctionPort> inputs;
   std::vector<MaterialFunctionPort> uniforms;
+  merlin::MaterialModule logical_module;
+  // Typed runtime defaults can cross directly into MaterialIR. Resource
+  // identifiers remain unresolved until a host adapter maps them to handles.
+  merlin::MaterialParameterState parameter_defaults;
+  MaterialResourceDefaultState resource_defaults;
 };
 
 struct CompileOptions {

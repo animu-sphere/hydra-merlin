@@ -14,8 +14,13 @@ after its public API and release process are established.
   pinned MaterialXGenSlang generator without exposing MaterialX SDK types in
   its public API or adding MaterialX to Core.
 - Deterministic graph-only `evaluateMaterial` source generation, logical
-  input/uniform reflection, SHA-256 input identity, and structured local
-  diagnostics for the initial constant and add/multiply/mix prototype.
+  input/uniform reflection, topology-only SHA-256 module identity, separate
+  parameter/resource-state identities, and structured local diagnostics for
+  the initial constant and add/multiply/mix prototype.
+- A versioned, host-neutral generated-material contract in Core covering module
+  identity/revision, typed parameter state, logical texture/sampler bindings,
+  exact object/world/UV0 input requirements, and independent extraction
+  revisions without MaterialX or backend-native types.
 - SPIR-V and Metal-target compile wrappers and reflection evidence generated
   from the same MaterialX-produced Slang module when `slangc` is available.
 

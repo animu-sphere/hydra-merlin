@@ -3,6 +3,7 @@
 #include "sha256.hpp"
 
 #include <MaterialXCore/Node.h>
+#include <MaterialXCore/Value.h>
 #include <MaterialXCore/Util.h>
 #include <MaterialXFormat/Util.h>
 #include <MaterialXFormat/XmlIo.h>
@@ -13,6 +14,7 @@
 #include <MaterialXGenSlang/SlangShaderGenerator.h>
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <memory>
 #include <set>
@@ -27,8 +29,12 @@ namespace {
 namespace mx = MaterialX;
 
 constexpr std::string_view kEntryPoint = "evaluateMaterial";
-constexpr std::string_view kCacheSchema =
-    "animu-sphere.hdmerlin.material-function-cache.v1";
+constexpr std::string_view kModuleKeySchema =
+    "animu-sphere.hdmerlin.material-module.v1";
+constexpr std::string_view kInstanceKeySchema =
+    "animu-sphere.hdmerlin.material-instance.v1";
+constexpr std::string_view kResourceKeySchema =
+    "animu-sphere.hdmerlin.material-resources.v1";
 
 class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
  public:
@@ -134,6 +140,168 @@ bool IsSupportedOutput(std::string_view type) {
   static const std::set<std::string_view> supported = {
       "float", "color3", "color4", "vector2", "vector3", "vector4"};
   return supported.contains(type);
+}
+
+MaterialValueType ToMaterialValueType(std::string_view type) {
+  if (type == "float") {
+    return MaterialValueType::Float;
+  }
+  if (type == "vector2") {
+    return MaterialValueType::Float2;
+  }
+  if (type == "color3" || type == "vector3") {
+    return MaterialValueType::Float3;
+  }
+  if (type == "color4" || type == "vector4") {
+    return MaterialValueType::Float4;
+  }
+  if (type == "integer") {
+    return MaterialValueType::Integer;
+  }
+  if (type == "boolean") {
+    return MaterialValueType::Boolean;
+  }
+  if (type == "filename") {
+    return MaterialValueType::CombinedTextureSampler;
+  }
+  return MaterialValueType::Unknown;
+}
+
+bool IsResourceType(MaterialValueType type) {
+  return type == MaterialValueType::Texture2D ||
+         type == MaterialValueType::Sampler ||
+         type == MaterialValueType::CombinedTextureSampler;
+}
+
+std::string Lowercase(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](char c) {
+    return static_cast<char>(
+        std::tolower(static_cast<unsigned char>(c)));
+  });
+  return value;
+}
+
+std::optional<MaterialValue> ParseParameterDefault(
+    const MaterialFunctionPort& port, std::string& error) {
+  try {
+    if (port.type == "float") {
+      return mx::fromValueString<float>(port.default_value);
+    }
+    if (port.type == "vector2") {
+      const auto value = mx::fromValueString<mx::Vector2>(port.default_value);
+      return Vec2{value[0], value[1]};
+    }
+    if (port.type == "color3") {
+      const auto value = mx::fromValueString<mx::Color3>(port.default_value);
+      return Vec3{value[0], value[1], value[2]};
+    }
+    if (port.type == "vector3") {
+      const auto value = mx::fromValueString<mx::Vector3>(port.default_value);
+      return Vec3{value[0], value[1], value[2]};
+    }
+    if (port.type == "color4") {
+      const auto value = mx::fromValueString<mx::Color4>(port.default_value);
+      return Vec4{value[0], value[1], value[2], value[3]};
+    }
+    if (port.type == "vector4") {
+      const auto value = mx::fromValueString<mx::Vector4>(port.default_value);
+      return Vec4{value[0], value[1], value[2], value[3]};
+    }
+    if (port.type == "integer") {
+      return static_cast<std::int32_t>(
+          mx::fromValueString<int>(port.default_value));
+    }
+    if (port.type == "boolean") {
+      return mx::fromValueString<bool>(port.default_value);
+    }
+  } catch (const std::exception& exception) {
+    error = "Could not parse default for reflected parameter '" +
+            port.variable + "': " + exception.what();
+    return std::nullopt;
+  }
+  error = "Unsupported reflected parameter type '" + port.type +
+          "' for '" + port.variable + "'";
+  return std::nullopt;
+}
+
+std::optional<std::string> PopulateLogicalModule(
+    MaterialFunctionModule& module) {
+  auto& logical = module.logical_module;
+  logical.entry_point = module.entry_point;
+  for (const auto& input : module.inputs) {
+    const auto semantic = Lowercase(input.name + " " + input.variable);
+    if (semantic.find("texcoord") != std::string::npos) {
+      if (semantic.find("texcoord_0") == std::string::npos) {
+        return "Only texture coordinate set 0 is supported by the material "
+               "contract; reflected input was '" +
+               input.variable + "'";
+      }
+      logical.requirements.inputs |= MaterialInputRequirement::Texcoord0;
+    }
+    if (semantic.find("normalworld") != std::string::npos) {
+      logical.requirements.inputs |= MaterialInputRequirement::NormalWorld;
+    } else if (semantic.find("normalobject") != std::string::npos) {
+      logical.requirements.inputs |= MaterialInputRequirement::NormalObject;
+    } else if (semantic.find("normal") != std::string::npos) {
+      return "Unsupported normal input semantic '" + input.variable + "'";
+    }
+    if (semantic.find("positionworld") != std::string::npos) {
+      logical.requirements.inputs |= MaterialInputRequirement::PositionWorld;
+    } else if (semantic.find("positionobject") != std::string::npos) {
+      logical.requirements.inputs |= MaterialInputRequirement::PositionObject;
+    } else if (semantic.find("position") != std::string::npos) {
+      return "Unsupported position input semantic '" + input.variable + "'";
+    }
+  }
+  for (const auto& uniform : module.uniforms) {
+    const auto type = ToMaterialValueType(uniform.type);
+    const auto name =
+        uniform.variable.empty() ? uniform.name : uniform.variable;
+    if (IsResourceType(type)) {
+      logical.resources.entries.push_back({name, type, 1});
+      module.resource_defaults.entries.push_back(
+          {name, type, {uniform.default_value}});
+    } else {
+      std::string error;
+      auto value = ParseParameterDefault(uniform, error);
+      if (!value) {
+        return error;
+      }
+      logical.parameters.entries.push_back({name, type, 1});
+      module.parameter_defaults.entries.push_back(
+          {name, type, {std::move(*value)}});
+    }
+  }
+  if (module.output_type == "color3" || module.output_type == "color4") {
+    logical.requirements.results = MaterialResultField::BaseColor;
+  }
+  return std::nullopt;
+}
+
+void AppendPortInterface(std::string& record, std::string_view kind,
+                         const MaterialFunctionPort& port) {
+  AppendCacheField(record, std::string(kind) + "-block", port.block);
+  AppendCacheField(record, std::string(kind) + "-name", port.name);
+  AppendCacheField(record, std::string(kind) + "-variable", port.variable);
+  AppendCacheField(record, std::string(kind) + "-type", port.type);
+}
+
+std::string MakeIdentity(std::string_view schema,
+                         const MaterialFunctionModule& module,
+                         bool include_parameters, bool include_resources) {
+  std::string record;
+  AppendCacheField(record, "schema", schema);
+  AppendCacheField(record, "module", module.module_key);
+  for (const auto& uniform : module.uniforms) {
+    const bool resource = IsResourceType(ToMaterialValueType(uniform.type));
+    if ((resource && include_resources) ||
+        (!resource && include_parameters)) {
+      AppendPortInterface(record, resource ? "resource" : "parameter",
+                          uniform);
+      AppendCacheField(record, "value", uniform.default_value);
+    }
+  }
+  return "sha256:" + detail::Sha256(record);
 }
 
 std::map<std::string, std::string> FindUnsupportedNodes(
@@ -306,19 +474,54 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     module.generator_version = generator->getVersion();
     module.generator_revision = MERLIN_MATERIALX_GENSLANG_REVISION;
     CollectReflection(stage, module);
+    if (const auto error = PopulateLogicalModule(module)) {
+      AddError(result, DiagnosticCode::UnsupportedInput,
+               renderable->getNamePath(), *error);
+      return result;
+    }
 
-    const auto canonical_document =
-        NormalizeNewlines(mx::writeToXmlString(document));
-    std::string cache_record;
-    AppendCacheField(cache_record, "schema", kCacheSchema);
-    AppendCacheField(cache_record, "materialx", module.materialx_version);
-    AppendCacheField(cache_record, "generator", module.generator_version);
-    AppendCacheField(cache_record, "revision", module.generator_revision);
-    AppendCacheField(cache_record, "entry", module.entry_point);
-    AppendCacheField(cache_record, "renderable", renderable->getNamePath());
-    AppendCacheField(cache_record, "document", canonical_document);
-    AppendCacheField(cache_record, "source", module.source);
-    module.cache_key = "sha256:" + detail::Sha256(cache_record);
+    // Generated source and its logical interface encode graph topology and
+    // compile-time specialization, while reflected defaults remain runtime
+    // instance/resource state. This keeps parameter-only edits from forcing
+    // shader regeneration.
+    std::string module_record;
+    AppendCacheField(module_record, "schema", kModuleKeySchema);
+    AppendCacheField(module_record, "materialx", module.materialx_version);
+    AppendCacheField(module_record, "generator", module.generator_version);
+    AppendCacheField(module_record, "revision", module.generator_revision);
+    AppendCacheField(module_record, "generator-options",
+                     "max-lights=0;srgb-output=false");
+    AppendCacheField(module_record, "abi",
+                     std::to_string(module.logical_module.abi_version));
+    AppendCacheField(
+        module_record, "reflection",
+        std::to_string(module.logical_module.reflection_schema_version));
+    AppendCacheField(module_record, "entry", module.entry_point);
+    AppendCacheField(module_record, "output", module.output_type);
+    AppendCacheField(
+        module_record, "required-inputs",
+        std::to_string(static_cast<std::uint32_t>(
+            module.logical_module.requirements.inputs)));
+    AppendCacheField(
+        module_record, "required-results",
+        std::to_string(static_cast<std::uint32_t>(
+            module.logical_module.requirements.results)));
+    for (const auto& input : module.inputs) {
+      AppendPortInterface(module_record, "input", input);
+    }
+    for (const auto& uniform : module.uniforms) {
+      AppendPortInterface(module_record, "uniform", uniform);
+    }
+    AppendCacheField(module_record, "source", module.source);
+    module.module_key = "sha256:" + detail::Sha256(module_record);
+    module.cache_key = module.module_key;
+    module.logical_module.key = module.module_key;
+    module.instance_key =
+        MakeIdentity(kInstanceKeySchema, module, true, false);
+    module.resource_key =
+        MakeIdentity(kResourceKeySchema, module, false, true);
+    module.parameter_defaults.key = module.instance_key;
+    module.resource_defaults.key = module.resource_key;
     result.module = std::move(module);
   } catch (const std::exception& error) {
     AddError(result, DiagnosticCode::GenerationFailure,
