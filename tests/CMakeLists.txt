@@ -71,6 +71,8 @@ if(TARGET Merlin::MaterialX)
       "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
       "${_merlin_materialx_data_root}"
       "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.slang"
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface.mtlx"
+      "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.slang"
   )
   set_tests_properties(merlin-materialx-compiler PROPERTIES
     LABELS "materials;materialx;shader"
@@ -122,6 +124,51 @@ if(TARGET Merlin::MaterialX)
     )
     set_tests_properties(merlin-materialx-metal-compile PROPERTIES
       LABELS "materials;materialx;metal;shader"
+      FIXTURES_REQUIRED merlin-materialx-generated-module
+    )
+
+    add_test(
+      NAME merlin-materialx-standard-surface-spirv-compile
+      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface-wrapper.slang"
+        -I "${CMAKE_CURRENT_BINARY_DIR}"
+        -entry merlin_materialx_standard_surface_test_fragment
+        -stage fragment
+        -target spirv
+        -profile sm_6_6
+        -capability spirv_1_5
+        -matrix-layout-column-major
+        -O2
+        -warnings-as-errors all
+        -reflection-json
+          "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.spv.reflection.json"
+        -o "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.spv"
+    )
+    set_tests_properties(
+      merlin-materialx-standard-surface-spirv-compile PROPERTIES
+      LABELS "materials;materialx;shader;spirv;standard-surface"
+      FIXTURES_REQUIRED merlin-materialx-generated-module
+    )
+
+    add_test(
+      NAME merlin-materialx-standard-surface-metal-compile
+      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface-wrapper.slang"
+        -I "${CMAKE_CURRENT_BINARY_DIR}"
+        -entry merlin_materialx_standard_surface_test_fragment
+        -stage fragment
+        -target metal
+        -profile metallib_2_4
+        -matrix-layout-column-major
+        -O2
+        -warnings-as-errors all
+        -reflection-json
+          "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.metal.reflection.json"
+        -o "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.metal"
+    )
+    set_tests_properties(
+      merlin-materialx-standard-surface-metal-compile PROPERTIES
+      LABELS "materials;materialx;metal;shader;standard-surface"
       FIXTURES_REQUIRED merlin-materialx-generated-module
     )
   endif()

@@ -49,6 +49,13 @@ struct MaterialResourceDefaultState {
   std::vector<MaterialResourceDefaultEntry> entries;
 };
 
+struct MaterialDependencyFingerprint {
+  // Logical path below the selected MaterialX data root. Host-specific
+  // absolute paths never participate in portable material identity.
+  std::string path;
+  std::string content_sha256;
+};
+
 struct MaterialFunctionModule {
   std::string source;
   std::string entry_point{"evaluateMaterial"};
@@ -66,6 +73,13 @@ struct MaterialFunctionModule {
   // Merlin's tested upstream compatibility baseline. The actual dependency
   // and generator versions are reported by the two fields above.
   std::string generator_revision;
+  // Standard-library documents and transitive generator source includes are
+  // tracked separately so cache evidence can explain which dependency class
+  // invalidated a topology-only module.
+  std::string standard_library_fingerprint;
+  std::string source_dependency_fingerprint;
+  std::vector<MaterialDependencyFingerprint> standard_library_dependencies;
+  std::vector<MaterialDependencyFingerprint> source_dependencies;
   std::vector<MaterialFunctionPort> inputs;
   std::vector<MaterialFunctionPort> uniforms;
   merlin::MaterialModule logical_module;

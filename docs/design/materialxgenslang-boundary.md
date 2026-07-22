@@ -125,10 +125,12 @@ The following remain backend-owned or deliberately extensible:
 - the complete Standard Surface field set; and
 - MaterialX document paths and node-specific C++ types.
 
-The current prototype returns a raw graph output from
-`evaluateMaterial(MaterialInputs)` and reports logical uniforms. That is useful
-generation evidence, but the Standard Surface result adapter, parameter/resource
-contract, and Core module reference are still v0.10.0 work.
+The current compiler returns raw supported graph outputs or a renderer-owned
+minimum `MaterialResult` from `evaluateMaterial(MaterialInputs)`. The Standard
+Surface adapter evaluates only the accepted upstream graph slice and does not
+invoke MaterialX lighting closures. Typed parameter/resource state and the Core
+module reference cross the host-neutral boundary separately; target artifacts
+and Vulkan execution remain v0.10.0 work.
 
 ## v0.10.0 feature slice
 
@@ -191,12 +193,12 @@ or assignment does not enter the shader key unless it changes the declared
 resource interface.
 
 The compiler hashes generated source, its logical interface, ABI/reflection
-versions, generator version/revision, and fixed generator options into a
-target-neutral module key. Reflected uniform defaults and resource defaults
-produce separate instance and resource-state keys, so a parameter-only edit
-keeps the module key and source unchanged. Standard-library and transitive
-include fingerprints plus the separate target-artifact key remain required
-before the v0.10.0 identity gate is complete.
+versions, generator version/revision, fixed generator options, loaded standard-
+library documents, and transitive generator-source includes into a target-
+neutral module key. Reflected uniform defaults and resource defaults produce
+separate instance and resource-state keys, so parameter-only and texture-
+assignment edits keep the module key and source unchanged. The separate target-
+artifact key remains required before the v0.10.0 identity gate is complete.
 
 Core stores typed generated-parameter values and resolved logical resource
 bindings separately from the module definition. MaterialX filename defaults

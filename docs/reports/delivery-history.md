@@ -340,9 +340,18 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Compiled one generated module through direct SPIR-V and Metal-target test
   wrappers with target reflection when `slangc` is available, and verified the
   optional installed-package consumer.
+- ✅ Added image/UV0/world-normal generation and a renderer-owned minimum
+  Standard Surface result for `base`, `base_color`, `metalness`,
+  `specular_roughness`, and `normal`, while rejecting explicitly authored
+  out-of-scope Standard Surface inputs.
+- ✅ Kept topology, parameter, and texture-default identities separate across
+  the Standard Surface slice and included portable loaded-library and
+  transitive generator-source fingerprints in the module key.
+- ✅ Compiled the textured Standard Surface result wrapper from one generated
+  source through both SPIR-V and Metal targets without allowing resources to
+  leak from the constant-buffer binding.
 
 This completed foundation is not the v0.10.0 release boundary. The accepted
 [MaterialXGenSlang policy](../design/materialxgenslang-boundary.md) retains
-Standard Surface adaptation, topology/instance key separation, Core module
-metadata, common diagnostics/fallback, Vulkan Forward execution, and image
-evidence as active work.
+target-artifact identity, common diagnostics/fallback, Vulkan Forward
+execution, and image evidence as active work.

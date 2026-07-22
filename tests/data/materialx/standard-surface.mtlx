@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<materialx version="1.39">
+  <nodegraph name="NG_standard_surface">
+    <texcoord name="uv" type="vector2" />
+    <image name="albedo" type="color3">
+      <input name="file" type="filename" value="checker.png" />
+      <input name="texcoord" type="vector2" nodename="uv" />
+    </image>
+    <multiply name="tinted_albedo" type="color3">
+      <input name="in1" type="color3" nodename="albedo" />
+      <input name="in2" type="color3" value="0.8, 0.6, 0.4" />
+    </multiply>
+    <normal name="shading_normal" type="vector3">
+      <input name="space" type="string" value="world" />
+    </normal>
+    <standard_surface name="surface" type="surfaceshader">
+      <input name="base" type="float" value="0.9" />
+      <input name="base_color" type="color3" nodename="tinted_albedo" />
+      <input name="metalness" type="float" value="0.35" />
+      <input name="specular_roughness" type="float" value="0.4" />
+      <input name="normal" type="vector3" nodename="shading_normal" />
+    </standard_surface>
+    <output name="out" type="surfaceshader" nodename="surface" />
+  </nodegraph>
+</materialx>

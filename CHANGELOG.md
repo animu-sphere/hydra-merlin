@@ -23,6 +23,12 @@ after its public API and release process are established.
   revisions without MaterialX or backend-native types.
 - SPIR-V and Metal-target compile wrappers and reflection evidence generated
   from the same MaterialX-produced Slang module when `slangc` is available.
+- Image, UV0, world-normal, and minimum Standard Surface material-result
+  generation for `base`, `base_color`, `metalness`, `specular_roughness`, and
+  `normal`, with out-of-scope Standard Surface inputs diagnosed explicitly.
+- Portable SHA-256 evidence for loaded MaterialX standard-library documents
+  and transitive generator source includes, included in topology-only module
+  identity without host-specific absolute paths.
 
 ## [0.9.0] - 2026-07-18
 

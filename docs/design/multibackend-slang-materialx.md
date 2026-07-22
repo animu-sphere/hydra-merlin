@@ -138,17 +138,18 @@ into a MaterialX mesh BSDF.
 In the repository, optional `material/merlin-materialx` owns document handling
 and MaterialXGenSlang generation, Core owns `MaterialIR` and neutral module
 semantics, and each backend owns target artifacts and native layouts. The
-existing graph-output prototype and direct SPIR-V/Metal wrappers are only the
-starting evidence: v0.10.0 still requires the minimum Standard Surface result,
-Vulkan Forward execution, and topology/instance/resource identity separation.
+current graph-output and minimum Standard Surface result adapters compile
+through direct SPIR-V/Metal wrappers while keeping topology, instance, and
+resource identities separate. v0.10.0 still requires Vulkan Forward execution,
+common fallback evidence, and target-artifact identity.
 
 Material identity is layered. Canonical graph topology and generator/library
 provenance identify the target-neutral module; compiler, target, profile,
 layout, and capability policy identify a backend artifact; runtime values and
 texture assignment remain instance and binding state. The current compiler
 separates a generated-source/interface module key from parameter and resource
-default-state keys. Standard-library/include fingerprints and the backend
-artifact-key layer remain incomplete.
+default-state keys, and portable standard-library/include fingerprints feed the
+module key. The backend artifact-key layer remains incomplete.
 
 Production MaterialX quality remains a later milestone. v0.18.0 extends the
 accepted v0.10.0 function and reflection contract with broader Standard Surface,
