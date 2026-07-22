@@ -824,9 +824,9 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     if (typed == nullptr || !IsSupportedOutput(typed->getType())) {
       AddError(result, DiagnosticCode::UnsupportedRenderable,
                renderable->getNamePath(),
-               "The prototype accepts float, color, and vector graph outputs; "
-               "surface and closure outputs remain diagnosed until the "
-               "Standard Surface parameter adapter is connected");
+               "The prototype accepts float, color, vector, and direct "
+               "Standard Surface outputs; this renderable type is not "
+               "supported");
       return result;
     }
 
