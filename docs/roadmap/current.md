@@ -127,7 +127,7 @@ failure.
 
 ### ⬜ Producer-session renderer evidence
 
-`ost 0.18.0` requires a renderer report to record a producer session that ran
+`ost 0.19.0` requires a renderer report to record a producer session that ran
 to completion and succeeded before it will accept a PASS. The generated
 `openstrata.renderer-report/v1alpha1` document emits bare `{id, status}` checks
 with no such field, so `ost validate` reports `renderer-evidence: fail` even
@@ -137,7 +137,7 @@ The report generator must bind each assertion to the outcome of the session
 that produced it, so a failed or partial run cannot leave a stale PASS behind.
 This depends on the upstream schema being published; the gap and the
 corresponding upstream ask are recorded in
-[OST report 7](../reports/ost/07-2026-07-18-v0.18.0-recheck-v0.19.0-asks.md).
+[OST report 9](../reports/ost/09-2026-07-23-v0.20.0-asks.md).
 
 ### ⬜ Linux Vulkan validation
 

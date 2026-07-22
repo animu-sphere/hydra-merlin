@@ -10,6 +10,9 @@ after its public API and release process are established.
 
 ### Added
 
+- OpenStrata 0.19.0 integration: CI pinning, a declared `viewport-usd` build
+  intent, documented USD viewport launch, redacted diagnostics, and
+  producer-session-bound renderer evidence.
 - Optional `Merlin::MaterialX` package and install target using the official
   pinned MaterialXGenSlang generator without exposing MaterialX SDK types in
   its public API or adding MaterialX to Core.
