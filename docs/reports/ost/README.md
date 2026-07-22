@@ -15,11 +15,13 @@ forward note to the superseded report. Open work belongs in the
 
 ## Reading order
 
-The newest report carries the live ask list. Report 7 records the v0.18.0
-recheck and carries the open v0.19.0 asks.
+The newest report carries the live ask list. Report 9 records the v0.19.0
+recheck and carries the asks for v0.20.0.
 
 | # | Date | Report | `ost` | Focus |
 | --- | --- | --- | --- | --- |
+| 9 | 2026-07-23 | [v0.20.0 asks](09-2026-07-23-v0.20.0-asks.md) | 0.19.0 | v0.19.0 integration closure and v0.20.0 renderer-workflow asks |
+| 8 | 2026-07-23 | [v0.19.0 recheck](08-2026-07-23-v0.19.0-recheck.md) | 0.19.0 | External provenance, named build intents, redacted diagnostics, and producer-session evidence rechecked |
 | 7 | 2026-07-18 | [v0.18.0 ask recheck](07-2026-07-18-v0.18.0-recheck-v0.19.0-asks.md) | 0.18.0 | Completion-bound evidence and capability-scoped advice confirmed; `renderer viewport` exercised; external provenance, producer-session schema, and build intents open |
 | 6 | 2026-07-18 | [MaterialX feature-intent dogfooding](06-2026-07-18-v0.17.0-materialx-v0.18.0-asks.md) | 0.17.0 | Optional MaterialXGenSlang build intent, honest external validation, and public-report redaction |
 | 5 | 2026-07-15 | [Renderer dogfooding handoff](05-2026-07-15-v0.17.0-dogfooding-v0.18.0-asks.md) | 0.17.0 | Producer-session completion, target ownership, managed tests, and external provenance |

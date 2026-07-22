@@ -7,6 +7,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -45,6 +46,13 @@ struct RendererCheck {
   std::string detail;
 };
 
+struct ProducerSession {
+  std::string id;
+  std::int64_t started_unix{};
+  std::int64_t completed_unix{};
+  std::string outcome;
+};
+
 enum class ReportPhase {
   Arguments,
   Core,
@@ -72,6 +80,12 @@ std::uint64_t ParseUnsigned64(std::string_view text, std::string_view option) {
                                 " requires a positive integer");
   }
   return value;
+}
+
+std::int64_t CurrentUnixSeconds() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
 }
 
 merlin::vulkan::DescriptorBackendRequest ParseDescriptorBackend(
@@ -328,7 +342,8 @@ void WriteMetadata(const std::filesystem::path& path,
 void WriteRendererReport(
     const std::filesystem::path& path,
     const std::optional<merlin::vulkan::RendererCapabilities>& capabilities,
-    const std::vector<RendererCheck>& checks) {
+    const std::vector<RendererCheck>& checks,
+    const ProducerSession& producer) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -349,7 +364,15 @@ void WriteRendererReport(
     stream << ",\n    \"vendor_id\": " << capabilities->vendor_id
            << ",\n    \"device_id\": " << capabilities->device_id << "\n  }";
   }
-  stream << ",\n  \"checks\": [\n";
+  stream << ",\n  \"producer\": {\n    \"id\": ";
+  WriteJsonString(stream, producer.id);
+  stream << ",\n    \"kind\": \"managed\",\n"
+         << "    \"target\": \"hdMerlin 0.9.0\",\n"
+         << "    \"started_unix\": " << producer.started_unix
+         << ",\n    \"completed_unix\": " << producer.completed_unix
+         << ",\n    \"outcome\": ";
+  WriteJsonString(stream, producer.outcome);
+  stream << "\n  },\n  \"checks\": [\n";
   for (std::size_t index = 0; index < checks.size(); ++index) {
     const auto& check = checks[index];
     stream << "    {\"id\":";
@@ -360,6 +383,8 @@ void WriteRendererReport(
       stream << ",\"detail\":";
       WriteJsonString(stream, check.detail);
     }
+    stream << ",\"producer\":";
+    WriteJsonString(stream, producer.id);
     stream << '}' << (index + 1U == checks.size() ? "\n" : ",\n");
   }
   stream << "  ]\n}\n";
@@ -550,6 +575,12 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  const auto producer_started_unix = CurrentUnixSeconds();
+  const ProducerSession producer{
+      "managed-hdMerlin-" + std::to_string(producer_started_unix),
+      producer_started_unix,
+      0,
+      "failure"};
   Arguments arguments;
   ReportPhase report_phase = ReportPhase::Arguments;
   std::optional<merlin::vulkan::RendererCapabilities> report_capabilities;
@@ -710,7 +741,11 @@ int main(int argc, char** argv) {
       };
       AppendHydraSkips(checks);
       report_phase = ReportPhase::Reporting;
-      WriteRendererReport(arguments.report, report_capabilities, checks);
+      auto completed_producer = producer;
+      completed_producer.completed_unix = CurrentUnixSeconds();
+      completed_producer.outcome = ReportPassed(checks) ? "success" : "failure";
+      WriteRendererReport(arguments.report, report_capabilities, checks,
+                          completed_producer);
       return ReportPassed(checks) ? 0 : 1;
     }
     return 0;
@@ -722,7 +757,11 @@ int main(int argc, char** argv) {
       const auto checks = FailureChecks(report_phase, error.what(), unavailable,
                                         arguments.install_tree);
       try {
-        WriteRendererReport(arguments.report, report_capabilities, checks);
+        auto completed_producer = producer;
+        completed_producer.completed_unix = CurrentUnixSeconds();
+        completed_producer.outcome = ReportPassed(checks) ? "success" : "failure";
+        WriteRendererReport(arguments.report, report_capabilities, checks,
+                            completed_producer);
       } catch (const std::exception& report_error) {
         std::cerr << "merlin-headless: " << report_error.what() << '\n';
         return 1;

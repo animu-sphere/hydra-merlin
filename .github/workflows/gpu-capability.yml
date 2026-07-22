@@ -37,9 +37,9 @@ jobs:
         run: |
           vulkaninfoSDK --summary | Out-File -Encoding utf8 vulkaninfo-summary.txt
 
-      - name: Bootstrap pinned ost 0.17.0
+      - name: Bootstrap pinned ost 0.19.0
         shell: pwsh
-        run: .github/scripts/setup-ost.ps1 -Version 0.17.0
+        run: .github/scripts/setup-ost.ps1 -Version 0.19.0
 
       - name: Configure Vulkan headless
         shell: pwsh
@@ -200,9 +200,9 @@ jobs:
         run: |
           vulkaninfoSDK --summary | Out-Null
 
-      - name: Bootstrap pinned ost 0.17.0
+      - name: Bootstrap pinned ost 0.19.0
         shell: pwsh
-        run: .github/scripts/setup-ost.ps1 -Version 0.17.0
+        run: .github/scripts/setup-ost.ps1 -Version 0.19.0
 
       - name: Restore the pinned runtime cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

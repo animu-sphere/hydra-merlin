@@ -17,7 +17,7 @@ around that core.
 
 ## OpenStrata project
 
-The repository is an OpenStrata renderer project targeting `cy2026`. OST 0.17.0
+The repository is an OpenStrata renderer project targeting `cy2026`. OST 0.19.0
 or newer is required for atomic build evidence and the managed Hydra view loop.
 The default host-neutral lifecycle is:
 
@@ -37,6 +37,16 @@ build intent, incrementally configures/builds a fingerprinted tree, stages the
 install, discovers `hdMerlin`, and launches usdview. `--build-dir` is reserved
 for an already configured and built external CMake tree; OST installs and
 inspects that tree but does not rebuild it or claim managed-build evidence.
+
+To build the Hydra-enabled standalone viewport and open a USD stage:
+
+```powershell
+ost renderer viewport --intent viewport-usd --profile usd -- `
+  --usd C:/path/to/scene.usd --frames 1 --hidden
+```
+
+The `viewport-usd` intent is declared in `openstrata.toml`; use a real `usd`
+runtime when the scene needs OpenUSD and its dependencies.
 
 See the [OpenStrata project layout](docs/design/openstrata-project.md) for the
 composition mapping and adoption decisions.
@@ -253,7 +263,7 @@ headless and Hydra jobs. Both require only a self-hosted Windows x64 runner with
 the `vulkan-1.4` GPU/driver label. They download and checksum-verify LunarG
 Vulkan SDK 1.4.350.0 into a cached workspace prefix. Hydra also obtains the
 Animusphere OpenUSD 26.05/cy2026 runtime from its digest-pinned public GHCR
-package using pinned `ost` 0.17.0. No operator-managed SDK installation is
+package using pinned `ost` 0.19.0. No operator-managed SDK installation is
 required. The jobs run the 64-frame validation loop and install-tree usdview
 stable-update regression, retaining dependency/runtime provenance, images,
 regression logs, and CTest logs as evidence artifacts.
