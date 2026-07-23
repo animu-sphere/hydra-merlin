@@ -15,11 +15,12 @@ forward note to the superseded report. Open work belongs in the
 
 ## Reading order
 
-The newest report carries the live ask list. Report 9 records the v0.19.0
-recheck and carries the asks for v0.20.0.
+The newest report carries the live ask list. Report 10 records the v0.20.0
+recheck and carries the asks for v0.21.0.
 
 | # | Date | Report | `ost` | Focus |
 | --- | --- | --- | --- | --- |
+| 10 | 2026-07-24 | [v0.20.0 recheck and v0.21.0 asks](10-2026-07-24-v0.20.0-recheck-v0.21.0-asks.md) | 0.20.0 | Managed renderer recovery, scene preflight, and `view` / `viewport` launch evidence |
 | 9 | 2026-07-23 | [v0.20.0 asks](09-2026-07-23-v0.20.0-asks.md) | 0.19.0 | v0.19.0 integration closure and v0.20.0 renderer-workflow asks |
 | 8 | 2026-07-23 | [v0.19.0 recheck](08-2026-07-23-v0.19.0-recheck.md) | 0.19.0 | External provenance, named build intents, redacted diagnostics, and producer-session evidence rechecked |
 | 7 | 2026-07-18 | [v0.18.0 ask recheck](07-2026-07-18-v0.18.0-recheck-v0.19.0-asks.md) | 0.18.0 | Completion-bound evidence and capability-scoped advice confirmed; `renderer viewport` exercised; external provenance, producer-session schema, and build intents open |
