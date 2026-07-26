@@ -1,6 +1,5 @@
 add_library(merlin-materialx STATIC
   src/compiler.cpp
-  src/sha256.cpp
 )
 
 add_library(Merlin::MaterialX ALIAS merlin-materialx)

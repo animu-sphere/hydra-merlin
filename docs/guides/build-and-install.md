@@ -142,7 +142,7 @@ cmake --install build --config Release --prefix C:/merlin
 Core headers, libraries, and versioned CMake package files are always installed.
 Vulkan-enabled builds also install the Vulkan library, `merlin-headless`,
 `merlin-benchmark`, `merlin-viewport`, and
-`<prefix>/<bindir>/shaders/v1` with SPIR-V, Metal compile-gate source,
+`<prefix>/<bindir>/shaders/v2` with SPIR-V, Metal compile-gate source,
 reflection JSON, and the deterministic artifact manifest. MaterialX-enabled
 builds also install the `Merlin::MaterialX` library, public compiler header, and
 CMake component. Hydra-enabled builds install the `hdMerlin` plugin below

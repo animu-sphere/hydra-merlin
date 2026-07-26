@@ -1,5 +1,7 @@
 #include <merlin/materialx/compiler.hpp>
+#include <merlin/core/identity.hpp>
 #include <merlin/core/render_world.hpp>
+#include <merlin/core/shader_artifact.hpp>
 
 #include <cassert>
 #include <fstream>
@@ -64,13 +66,13 @@ int main(int argc, char** argv) {
   assert(first.module->source.find("shader(\"fragment\")") ==
          std::string::npos);
   assert(first.module->source.find("SV_Target") == std::string::npos);
-  assert(first.module->cache_key == second.module->cache_key);
-  assert(first.module->module_key == first.module->cache_key);
+  assert(first.module->module_key == second.module->module_key);
   assert(first.module->instance_key == second.module->instance_key);
   assert(first.module->resource_key == second.module->resource_key);
   assert(first.module->source == second.module->source);
-  assert(first.module->cache_key.starts_with("sha256:"));
-  assert(first.module->cache_key.size() == 71U);
+  assert(merlin::IsIdentity(first.module->module_key));
+  assert(merlin::IsIdentity(first.module->instance_key));
+  assert(merlin::IsIdentity(first.module->resource_key));
   assert(!first.module->materialx_version.empty());
   assert(!first.module->generator_version.empty());
   assert(first.module->generator_revision ==
@@ -127,7 +129,6 @@ int main(int argc, char** argv) {
       merlin::materialx::CompileMaterialFunction(changed_document, options);
   assert(changed);
   assert(changed.module->module_key == first.module->module_key);
-  assert(changed.module->cache_key == first.module->cache_key);
   assert(changed.module->source == first.module->source);
   assert(changed.module->instance_key != first.module->instance_key);
   assert(changed.module->resource_key == first.module->resource_key);
@@ -298,6 +299,39 @@ int main(int argc, char** argv) {
     assert(generated);
     generated << standard_surface.module->source;
   }
+
+  // The generated module carries a target-neutral identity, so it enters the
+  // same artifact key contract that keys handwritten Slang. Two targets, one
+  // module: only the artifact key moves.
+  merlin::ShaderArtifactKeyInputs artifact;
+  artifact.module_identity = standard_surface.module->module_key;
+  artifact.entry_point = standard_surface.module->entry_point;
+  artifact.stage = "fragment";
+  artifact.permutation = "materialx-standard-surface";
+  artifact.abi_version = standard_surface.module->logical_module.abi_version;
+  artifact.policy.compiler_version = "2026.8";
+  artifact.policy.matrix_layout = "column-major";
+  artifact.policy.optimization = "O2";
+  artifact.policy.target = "spirv";
+  artifact.policy.profile = "sm_6_6";
+  artifact.policy.capabilities = "spirv_1_5";
+  const auto spirv_key = merlin::MakeShaderArtifactKey(artifact);
+  auto metal_artifact = artifact;
+  metal_artifact.policy.target = "metal";
+  metal_artifact.policy.profile = "metallib_2_4";
+  metal_artifact.policy.capabilities = "none";
+  const auto metal_key = merlin::MakeShaderArtifactKey(metal_artifact);
+  assert(merlin::IsIdentity(spirv_key));
+  assert(merlin::IsIdentity(metal_key));
+  assert(spirv_key != metal_key);
+  assert(merlin::IsIdentity(standard_surface.module->module_key));
+
+  // A parameter-only edit already leaves the module key alone; it must also
+  // leave every target artifact alone, or retinting would recompile.
+  auto reparameterized = artifact;
+  reparameterized.module_identity =
+      changed_standard_surface.module->module_key;
+  assert(merlin::MakeShaderArtifactKey(reparameterized) == spirv_key);
 
   constexpr auto unsupported_standard_surface_document =
       R"mtlx(<?xml version="1.0"?>

@@ -233,9 +233,9 @@ Standard Surface `base`, `base_color`, `metalness`, `specular_roughness`, and
 fingerprints, and a topology-only module key stay separate from typed parameter
 and resource state. Core carries the versioned logical module/layout contract
 and exact input-space requirements; the same generated sources compile for
-SPIR-V and Metal targets. v0.10.0 completion still requires the reusable target
-artifact identity, structured common fallback, Vulkan Forward execution, and
-image evidence. See the authoritative
+SPIR-V and Metal targets, keyed by the same Core target-artifact contract that
+keys handwritten Slang. v0.10.0 completion still requires structured common
+fallback, Vulkan Forward execution, and image evidence. See the authoritative
 [MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
 and [current milestone](docs/roadmap/current.md).
 

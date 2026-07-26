@@ -12,7 +12,7 @@
 namespace merlin::vulkan::shader_abi {
 
 inline constexpr std::uint32_t kVersion = 2;
-inline constexpr std::uint32_t kArtifactSchemaVersion = 1;
+inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
 // loading a directory the build system no longer writes. merlin-vulkan

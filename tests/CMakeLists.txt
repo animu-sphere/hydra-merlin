@@ -22,6 +22,13 @@ target_link_libraries(merlin-shader-contract-tests
   PRIVATE Merlin::RenderWorld)
 add_test(NAME merlin-shader-contract COMMAND merlin-shader-contract-tests)
 
+add_executable(merlin-identity-tests
+  identity_test.cpp
+)
+target_link_libraries(merlin-identity-tests PRIVATE Merlin::RenderWorld)
+add_test(NAME merlin-identity COMMAND merlin-identity-tests)
+set_tests_properties(merlin-identity PROPERTIES LABELS "cache")
+
 add_executable(merlin-render-extraction-tests
   render_extraction_test.cpp
 )
@@ -46,20 +53,6 @@ add_test(
 set_tests_properties(merlin-backend-boundaries PROPERTIES LABELS "architecture")
 
 if(TARGET Merlin::MaterialX)
-  add_executable(merlin-materialx-sha256-tests
-    sha256_test.cpp
-  )
-  target_include_directories(merlin-materialx-sha256-tests PRIVATE
-    "${PROJECT_SOURCE_DIR}/material/merlin-materialx/src"
-  )
-  target_link_libraries(merlin-materialx-sha256-tests
-    PRIVATE Merlin::MaterialX)
-  add_test(NAME merlin-materialx-sha256
-           COMMAND merlin-materialx-sha256-tests)
-  set_tests_properties(merlin-materialx-sha256 PROPERTIES
-    LABELS "materials;materialx;cache"
-  )
-
   add_executable(merlin-materialx-compiler-tests
     materialx_compiler_test.cpp
   )
@@ -203,6 +196,19 @@ if(TARGET Merlin::Vulkan)
       "${MERLIN_SHADER_MANIFEST}"
   )
   set_tests_properties(merlin-shader-abi PROPERTIES LABELS "shader;abi")
+
+  add_executable(merlin-shader-artifact-key-tests
+    shader_artifact_key_test.cpp
+  )
+  target_link_libraries(merlin-shader-artifact-key-tests
+    PRIVATE Merlin::RenderWorld)
+  add_dependencies(merlin-shader-artifact-key-tests merlin-vulkan-shaders)
+  add_test(
+    NAME merlin-shader-artifact-key
+    COMMAND merlin-shader-artifact-key-tests "${MERLIN_SHADER_MANIFEST}"
+  )
+  set_tests_properties(merlin-shader-artifact-key PROPERTIES
+    LABELS "shader;cache")
 
   add_executable(merlin-environment-lighting-tests
     environment_lighting_test.cpp
@@ -389,6 +395,7 @@ add_test(
     "-DMERLIN_INSTALL_BINDIR=${CMAKE_INSTALL_BINDIR}"
     "-DMERLIN_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}"
     "-DMERLIN_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
+    "-DMERLIN_SHADER_ARTIFACT_SCHEMA_VERSION=${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
     "-DMERLIN_EXPECTED_VERSION=${PROJECT_VERSION}"
     "-DMERLIN_GENERATOR=${CMAKE_GENERATOR}"
     "-DMERLIN_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"

@@ -60,10 +60,10 @@ struct MaterialFunctionModule {
   std::string source;
   std::string entry_point{"evaluateMaterial"};
   std::string output_type;
-  // Topology-only, target-neutral identity. `cache_key` remains as a
-  // compatibility alias for this key.
+  // Topology-only, target-neutral identity. What a compiled artifact of this
+  // module is keyed by is a separate question, answered by
+  // merlin::MakeShaderArtifactKey with this key as one of its inputs.
   std::string module_key;
-  std::string cache_key;
   // Runtime uniform values and texture/resource defaults are deliberately
   // identified separately from generated shader topology.
   std::string instance_key;
