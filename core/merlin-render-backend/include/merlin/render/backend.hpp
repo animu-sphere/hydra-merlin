@@ -10,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include <merlin/core/material_diagnostic.hpp>
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
 
@@ -66,6 +67,7 @@ struct RendererCapabilities {
   bool external_presentation{};
   bool cpu_readback{};
   bool validation_enabled{};
+  bool generated_materials{};
   RendererLimits limits;
 };
 
@@ -123,6 +125,9 @@ struct FrameTelemetry {
   std::uint64_t descriptor_update_count{};
   std::uint64_t bindless_sampled_image_descriptor_update_count{};
   std::uint64_t bindless_sampler_descriptor_update_count{};
+  std::uint64_t generated_material_draw_count{};
+  std::uint64_t generated_material_fallback_count{};
+  MaterialFallbackEvidence material_fallbacks;
 };
 
 struct RenderProductRequest {
@@ -208,6 +213,7 @@ struct RenderResult {
   std::uint64_t completion_value{};
   FrameTimings timings;
   FrameTelemetry telemetry;
+  std::vector<MaterialDiagnostic> material_diagnostics;
 };
 
 enum class RendererErrorCode {

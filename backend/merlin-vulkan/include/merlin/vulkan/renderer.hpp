@@ -10,12 +10,33 @@
 #include <string_view>
 #include <vector>
 
+#include <merlin/core/material_abi.hpp>
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
 #include <merlin/vulkan/bindless_resource_table.hpp>
 #include <merlin/vulkan/descriptor_indexing.hpp>
 
 namespace merlin::vulkan {
+
+struct GeneratedMaterialParameterBinding {
+  std::string name;
+  MaterialValueType type{MaterialValueType::Unknown};
+  std::uint32_t array_size{1};
+  std::uint32_t offset{};
+  std::uint32_t array_stride{};
+};
+
+// Backend-owned description of a renderer-composed generated-material
+// artifact. Logical module/reflection data stays in Core; only Vulkan needs the
+// SPIR-V path and the target's concrete uniform offsets.
+struct GeneratedMaterialArtifact {
+  std::string module_key;
+  std::filesystem::path fragment;
+  std::string fragment_entry_point{"main"};
+  std::uint32_t parameter_buffer_size{};
+  std::vector<GeneratedMaterialParameterBinding> parameter_bindings;
+  MaterialTargetReflection reflection;
+};
 
 struct PresentationOptions {
   using CreateSurface = std::int32_t (*)(void* user_data,
@@ -43,6 +64,7 @@ struct RendererOptions {
   std::uint64_t vram_limit_bytes{};
   bool enable_async_transfer{true};
   std::optional<PresentationOptions> presentation;
+  std::vector<GeneratedMaterialArtifact> generated_material_artifacts;
 };
 
 struct RendererCapabilities {
@@ -75,6 +97,7 @@ struct RendererCapabilities {
   // GPU execution durations are zero only when this capability is false.
   bool timestamp_queries{};
   bool external_presentation{};
+  bool generated_materials{};
   DescriptorIndexingFeatures descriptor_indexing_features;
   DescriptorIndexingLimits descriptor_indexing_limits;
   DescriptorIndexingSelection descriptor_indexing_selection;
@@ -269,6 +292,9 @@ struct FrameCounters {
   std::uint64_t queue_ownership_transfer_count{};
   std::uint64_t present_count{};
   std::uint64_t presentation_copy_bytes{};
+  std::uint64_t generated_material_draw_count{};
+  std::uint64_t generated_material_fallback_count{};
+  MaterialFallbackEvidence material_fallbacks;
 
   // Member-wise equality keeps steady-state drift detection in lockstep with
   // this field list; adding a counter cannot silently escape the comparison.
@@ -394,6 +420,7 @@ struct RenderResult {
   std::uint64_t completion_value{};
   FrameCpuTimings cpu_timings;
   FrameCounters counters;
+  std::vector<MaterialDiagnostic> material_diagnostics;
 };
 
 [[nodiscard]] bool HasAov(const std::vector<Aov>& aovs, Aov aov) noexcept;

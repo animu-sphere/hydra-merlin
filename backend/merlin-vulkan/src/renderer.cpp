@@ -14,6 +14,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -978,7 +979,28 @@ class Renderer::Impl {
       }
       presentation_vsync_ = options.presentation->vsync;
     }
+    for (auto& artifact : options.generated_material_artifacts) {
+      if (artifact.module_key.empty() || artifact.fragment.empty() ||
+          artifact.fragment_entry_point.empty() ||
+          artifact.parameter_buffer_size == 0U ||
+          artifact.reflection.target.empty()) {
+        throw RendererError(
+            RendererErrorCode::InvalidRequest, "register material artifact",
+            "generated material artifact metadata is incomplete");
+      }
+      if (!generated_material_artifacts_
+               .emplace(artifact.module_key, std::move(artifact))
+               .second) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "register material artifact",
+                            "generated material module key is duplicated");
+      }
+    }
     CreateDevice(options);
+    capabilities_.generated_materials =
+        !generated_material_artifacts_.empty() &&
+        capabilities_.descriptor_indexing_selection.selected_backend ==
+            DescriptorBackend::Conventional;
     memory_budget_.Initialize(physical_device_, device_,
                               capabilities_.memory_budget_extension,
                               options.vram_limit_bytes);
@@ -1072,6 +1094,7 @@ class Renderer::Impl {
       for (auto& frame : frames_) {
         DestroyTarget(frame.target);
         DestroyBuffer(frame.material_uniforms);
+        DestroyBuffer(frame.generated_parameter_uniforms);
         if (frame.image_available != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, frame.image_available, nullptr);
         }
@@ -1101,6 +1124,10 @@ class Renderer::Impl {
       shader_modules_.clear();
       if (descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device_, descriptor_set_layout_, nullptr);
+      }
+      if (generated_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device_, generated_descriptor_set_layout_,
+                                     nullptr);
       }
       if (bindless_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device_, bindless_descriptor_set_layout_,
@@ -1164,6 +1191,7 @@ class Renderer::Impl {
       EnsureBindlessMaterialDescriptorSetLayout();
     } else {
       EnsureDescriptorSetLayout();
+      EnsureGeneratedDescriptorSetLayout();
     }
     auto& frame = AcquireFrame(request.width, request.height, request.shaders,
                                cpu_readback_aovs);
@@ -1202,6 +1230,7 @@ class Renderer::Impl {
     material_records_.Sync(request.snapshot->materials);
     instance_records_.Sync(request.snapshot->instances);
     draw_records_.Sync(request.snapshot->draws);
+    SelectGeneratedMaterials();
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
       ++frame_counters_.draw_count;
@@ -1302,6 +1331,7 @@ class Renderer::Impl {
           ElapsedNanoseconds(presentation_start);
     }
     frame.counters = frame_counters_;
+    frame.material_diagnostics = frame_material_diagnostics_;
     CommitTextureUploads();
     CommitResourceSnapshot(*request.snapshot);
     resource_residency_dirty_ = false;
@@ -1379,8 +1409,10 @@ class Renderer::Impl {
     ++frame_counters_.wait_count;
     ++frame_counters_.resolve_count;
     result.counters = frame_counters_;
+    result.material_diagnostics = frame.material_diagnostics;
     frame.outstanding = false;
     frame.counters = {};
+    frame.material_diagnostics.clear();
     return result;
   }
 
@@ -1467,6 +1499,9 @@ class Renderer::Impl {
     VkFramebuffer framebuffer{};
     VkPipelineLayout pipeline_layout{};
     std::map<std::uint32_t, VkPipeline> pipelines;
+    VkPipelineLayout generated_pipeline_layout{};
+    std::map<std::pair<std::string, std::uint32_t>, VkPipeline>
+        generated_pipelines;
     Buffer color_readback;
     Buffer depth_readback;
     Buffer prim_id_readback;
@@ -1499,6 +1534,9 @@ class Renderer::Impl {
     VkDescriptorSet bindless_material_descriptor_set{};
     VkDeviceSize material_uniform_stride{};
     Buffer material_uniforms;
+    std::vector<VkDeviceSize> generated_parameter_offsets;
+    Buffer generated_parameter_uniforms;
+    std::vector<MaterialDiagnostic> material_diagnostics;
   };
 
   struct SwapchainState {
@@ -2588,6 +2626,28 @@ class Renderer::Impl {
           "create material descriptor layout");
   }
 
+  void EnsureGeneratedDescriptorSetLayout() {
+    if (generated_material_artifacts_.empty() ||
+        generated_descriptor_set_layout_ != VK_NULL_HANDLE) {
+      return;
+    }
+    ++frame_counters_.descriptor_layout_cache_misses;
+    const std::array<VkDescriptorSetLayoutBinding, 2> bindings{{
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+         VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {shader_abi::kConventionalMaterialConstants.binding,
+         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+    }};
+    VkDescriptorSetLayoutCreateInfo info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    info.pBindings = bindings.data();
+    Check(vkCreateDescriptorSetLayout(device_, &info, nullptr,
+                                      &generated_descriptor_set_layout_),
+          "create generated material descriptor layout");
+  }
+
   struct DirectionalLighting {
     Vec4 direction_intensity{0.0F, 0.0F, 1.0F, 1.0F};
     Vec3 color{1.0F, 1.0F, 1.0F};
@@ -2644,6 +2704,186 @@ class Renderer::Impl {
         material.parameters.alpha_cutoff};
     result.diffuse_environment = environment_lighting_.coefficients;
     return result;
+  }
+
+  void SelectGeneratedMaterials() {
+    selected_material_artifacts_.assign(material_records_.size(), nullptr);
+    frame_material_diagnostics_.clear();
+    const auto reject = [&](const MaterialModule& module,
+                            MaterialDiagnosticCategory category,
+                            std::string message) {
+      MaterialDiagnostic diagnostic;
+      diagnostic.category = category;
+      diagnostic.severity = DiagnosticSeverity::Error;
+      diagnostic.fallback = MaterialFallback::BasicMaterial;
+      diagnostic.message = std::move(message);
+      diagnostic.context.material_identity = module.key;
+      diagnostic.context.backend_target = "spirv";
+      frame_counters_.material_fallbacks.Record(diagnostic.fallback);
+      frame_material_diagnostics_.push_back(std::move(diagnostic));
+    };
+    for (std::size_t index = 0; index < material_records_.size(); ++index) {
+      const auto& material = material_records_[index];
+      if (!material.module) {
+        continue;
+      }
+      const auto& module = *material.module;
+      if (bindless_texture_table_) {
+        reject(module, MaterialDiagnosticCategory::TargetFailure,
+               "generated materials currently require conventional Vulkan "
+               "descriptors");
+        continue;
+      }
+      const auto found = generated_material_artifacts_.find(module.key);
+      if (found == generated_material_artifacts_.end()) {
+        reject(module, MaterialDiagnosticCategory::CacheIncompatible,
+               "no Vulkan artifact is registered for the material module");
+        continue;
+      }
+      const auto& artifact = found->second;
+      if (!std::filesystem::exists(artifact.fragment)) {
+        reject(module, MaterialDiagnosticCategory::CacheCorrupt,
+               "the registered Vulkan material artifact is missing");
+        continue;
+      }
+      if (!module.resources.entries.empty() ||
+          !artifact.reflection.resources.entries.empty()) {
+        reject(module, MaterialDiagnosticCategory::TargetFailure,
+               "the registered Vulkan material artifact requires resource "
+               "bindings that this execution slice does not yet compose");
+        continue;
+      }
+      auto diagnostics = VerifyMaterialAbi(module);
+      auto reflected =
+          VerifyMaterialTargetReflection(module, artifact.reflection);
+      diagnostics.insert(diagnostics.end(),
+                         std::make_move_iterator(reflected.begin()),
+                         std::make_move_iterator(reflected.end()));
+      bool concrete_layout_matches =
+          artifact.parameter_bindings.size() ==
+          module.parameters.entries.size();
+      for (const auto& parameter : module.parameters.entries) {
+        const auto binding = std::find_if(
+            artifact.parameter_bindings.begin(),
+            artifact.parameter_bindings.end(), [&](const auto& candidate) {
+              return candidate.name == parameter.name &&
+                     candidate.type == parameter.type &&
+                     candidate.array_size == parameter.array_size;
+            });
+        concrete_layout_matches =
+            concrete_layout_matches &&
+            binding != artifact.parameter_bindings.end();
+      }
+      if (!concrete_layout_matches) {
+        reject(module, MaterialDiagnosticCategory::ReflectionMismatch,
+               "the Vulkan artifact's concrete parameter layout disagrees "
+               "with the material module");
+        continue;
+      }
+      if (!diagnostics.empty()) {
+        for (auto& diagnostic : diagnostics) {
+          frame_counters_.material_fallbacks.Record(diagnostic.fallback);
+          frame_material_diagnostics_.push_back(std::move(diagnostic));
+        }
+        continue;
+      }
+      selected_material_artifacts_[index] = &artifact;
+    }
+  }
+
+  static std::size_t MaterialValueSize(MaterialValueType type) {
+    switch (type) {
+      case MaterialValueType::Float: return sizeof(float);
+      case MaterialValueType::Float2: return sizeof(Vec2);
+      case MaterialValueType::Float3: return sizeof(Vec3);
+      case MaterialValueType::Float4: return sizeof(Vec4);
+      case MaterialValueType::Integer: return sizeof(std::int32_t);
+      case MaterialValueType::Boolean: return sizeof(std::uint32_t);
+      default:
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "pack generated material parameters",
+                            "unsupported generated material parameter type");
+    }
+  }
+
+  static void CopyMaterialValue(std::byte* destination,
+                                const MaterialValue& value,
+                                MaterialValueType type) {
+    const auto copy = [&](const auto* typed) {
+      if (typed == nullptr) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "pack generated material parameters",
+                            "generated material parameter value has the "
+                            "wrong declared type");
+      }
+      std::memcpy(destination, typed, sizeof(*typed));
+    };
+    switch (type) {
+      case MaterialValueType::Float:
+        copy(std::get_if<float>(&value));
+        break;
+      case MaterialValueType::Float2:
+        copy(std::get_if<Vec2>(&value));
+        break;
+      case MaterialValueType::Float3:
+        copy(std::get_if<Vec3>(&value));
+        break;
+      case MaterialValueType::Float4:
+        copy(std::get_if<Vec4>(&value));
+        break;
+      case MaterialValueType::Integer:
+        copy(std::get_if<std::int32_t>(&value));
+        break;
+      case MaterialValueType::Boolean: {
+        const auto* boolean = std::get_if<bool>(&value);
+        if (boolean == nullptr) {
+          throw RendererError(RendererErrorCode::InvalidRequest,
+                              "pack generated material parameters",
+                              "generated material boolean has the wrong "
+                              "declared type");
+        }
+        const std::uint32_t encoded = *boolean ? 1U : 0U;
+        std::memcpy(destination, &encoded, sizeof(encoded));
+        break;
+      }
+      default:
+        (void)MaterialValueSize(type);
+    }
+  }
+
+  void PackGeneratedMaterialParameters(
+      std::byte* destination, const extraction::MaterialRecord& material,
+      const GeneratedMaterialArtifact& artifact) const {
+    std::memset(destination, 0, artifact.parameter_buffer_size);
+    for (const auto& binding : artifact.parameter_bindings) {
+      const auto state = std::find_if(
+          material.generated_parameters.entries.begin(),
+          material.generated_parameters.entries.end(),
+          [&](const auto& entry) { return entry.name == binding.name; });
+      if (state == material.generated_parameters.entries.end() ||
+          state->type != binding.type ||
+          state->values.size() != binding.array_size) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "pack generated material parameters",
+                            "generated parameter state does not match the "
+                            "registered Vulkan artifact");
+      }
+      const auto value_size = MaterialValueSize(binding.type);
+      const auto stride =
+          binding.array_stride == 0U ? value_size : binding.array_stride;
+      const auto end = static_cast<std::size_t>(binding.offset) +
+                       stride * (binding.array_size - 1U) + value_size;
+      if (end > artifact.parameter_buffer_size) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "pack generated material parameters",
+                            "generated parameter binding exceeds its buffer");
+      }
+      for (std::size_t value_index = 0;
+           value_index < state->values.size(); ++value_index) {
+        CopyMaterialValue(destination + binding.offset + stride * value_index,
+                          state->values[value_index], binding.type);
+      }
+    }
   }
 
   void PrepareBindlessMaterialDescriptors(
@@ -2757,7 +2997,7 @@ class Renderer::Impl {
       }
       const std::array<VkDescriptorPoolSize, 2> sizes{{
           {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count},
-          {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, material_count},
+          {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, material_count * 2U},
       }};
       VkDescriptorPoolCreateInfo info{
           VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -2798,8 +3038,47 @@ class Renderer::Impl {
     }
     vkUnmapMemory(device_, frame.material_uniforms.memory);
 
-    std::vector<VkDescriptorSetLayout> layouts(material_count,
-                                                descriptor_set_layout_);
+    frame.generated_parameter_offsets.assign(material_count, 0);
+    VkDeviceSize generated_uniform_bytes{};
+    for (std::uint32_t i = 0; i < material_count; ++i) {
+      if (const auto* artifact = selected_material_artifacts_[i]) {
+        generated_uniform_bytes =
+            AlignUp(generated_uniform_bytes, uniform_buffer_alignment_);
+        frame.generated_parameter_offsets[i] = generated_uniform_bytes;
+        generated_uniform_bytes += artifact->parameter_buffer_size;
+      }
+    }
+    if (generated_uniform_bytes != 0U) {
+      if (frame.generated_parameter_uniforms.handle == VK_NULL_HANDLE ||
+          frame.generated_parameter_uniforms.size <
+              generated_uniform_bytes) {
+        DestroyBuffer(frame.generated_parameter_uniforms);
+        frame.generated_parameter_uniforms = CreateBuffer(
+            generated_uniform_bytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      }
+      void* generated_mapped{};
+      Check(vkMapMemory(device_, frame.generated_parameter_uniforms.memory, 0,
+                        generated_uniform_bytes, 0, &generated_mapped),
+            "map generated material uniform buffer");
+      for (std::uint32_t i = 0; i < material_count; ++i) {
+        if (const auto* artifact = selected_material_artifacts_[i]) {
+          PackGeneratedMaterialParameters(
+              static_cast<std::byte*>(generated_mapped) +
+                  frame.generated_parameter_offsets[i],
+              material_records_[i], *artifact);
+        }
+      }
+      vkUnmapMemory(device_, frame.generated_parameter_uniforms.memory);
+    }
+
+    std::vector<VkDescriptorSetLayout> layouts(material_count);
+    for (std::uint32_t i = 0; i < material_count; ++i) {
+      layouts[i] = selected_material_artifacts_[i] == nullptr
+                       ? descriptor_set_layout_
+                       : generated_descriptor_set_layout_;
+    }
     frame.material_descriptor_sets.resize(material_count);
     VkDescriptorSetAllocateInfo allocate{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -2813,8 +3092,33 @@ class Renderer::Impl {
 
     std::vector<VkDescriptorImageInfo> image_infos(material_count);
     std::vector<VkDescriptorBufferInfo> buffer_infos(material_count);
+    std::vector<VkDescriptorBufferInfo> generated_buffer_infos(material_count);
     std::vector<VkWriteDescriptorSet> writes(material_count * 2U);
     for (std::uint32_t i = 0; i < material_count; ++i) {
+      buffer_infos[i] = {frame.material_uniforms.handle, uniform_stride * i,
+                         sizeof(MaterialUniforms)};
+      if (const auto* artifact = selected_material_artifacts_[i]) {
+        generated_buffer_infos[i] = {
+            frame.generated_parameter_uniforms.handle,
+            frame.generated_parameter_offsets[i],
+            artifact->parameter_buffer_size};
+        auto& parameter_write = writes[i * 2U];
+        parameter_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        parameter_write.dstSet = frame.material_descriptor_sets[i];
+        parameter_write.dstBinding = 0;
+        parameter_write.descriptorCount = 1;
+        parameter_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        parameter_write.pBufferInfo = &generated_buffer_infos[i];
+        auto& material_write = writes[i * 2U + 1U];
+        material_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        material_write.dstSet = frame.material_descriptor_sets[i];
+        material_write.dstBinding =
+            shader_abi::kConventionalMaterialConstants.binding;
+        material_write.descriptorCount = 1;
+        material_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        material_write.pBufferInfo = &buffer_infos[i];
+        continue;
+      }
       auto image_view = FallbackTextureView();
       auto sampler = fallback_sampler_.sampler;
       const auto& material = material_records_[i];
@@ -2838,8 +3142,6 @@ class Renderer::Impl {
       }
       image_infos[i] =
           {sampler, image_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-      buffer_infos[i] = {frame.material_uniforms.handle, uniform_stride * i,
-                         sizeof(MaterialUniforms)};
       auto& image_write = writes[i * 2U];
       image_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       image_write.dstSet = frame.material_descriptor_sets[i];
@@ -3620,6 +3922,19 @@ class Renderer::Impl {
       Check(vkCreatePipelineLayout(device_, &layout_info, nullptr,
                                    &active_target_->pipeline_layout),
             "create material pipeline layout");
+      if (generated_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        VkPipelineLayoutCreateInfo generated_layout_info{
+            VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        generated_layout_info.setLayoutCount = 1;
+        generated_layout_info.pSetLayouts =
+            &generated_descriptor_set_layout_;
+        generated_layout_info.pushConstantRangeCount = 1;
+        generated_layout_info.pPushConstantRanges = &push_range;
+        Check(vkCreatePipelineLayout(
+                  device_, &generated_layout_info, nullptr,
+                  &active_target_->generated_pipeline_layout),
+              "create generated material pipeline layout");
+      }
     } catch (...) {
       DestroyTarget(*active_target_);
       throw;
@@ -3706,18 +4021,28 @@ class Renderer::Impl {
     return module;
   }
 
-  VkPipeline CreatePipeline(const ShaderPaths& shaders,
-                            std::uint32_t variant_key) {
+  VkPipeline CreatePipeline(
+      const ShaderPaths& shaders, std::uint32_t variant_key,
+      const GeneratedMaterialArtifact* generated_artifact = nullptr) {
     ++frame_counters_.pipeline_creation_count;
     const auto vertex_shader = GetShaderModule(
         bindless_texture_table_ ? shaders.bindless_vertex : shaders.vertex);
-    const auto fragment_shader = GetShaderModule(
-        bindless_texture_table_ ? shaders.bindless_fragment : shaders.fragment);
+    const auto fragment_path =
+        generated_artifact != nullptr
+            ? generated_artifact->fragment
+            : (bindless_texture_table_ ? shaders.bindless_fragment
+                                       : shaders.fragment);
+    const auto fragment_shader = GetShaderModule(fragment_path);
+    const auto* fragment_entry =
+        generated_artifact != nullptr
+            ? generated_artifact->fragment_entry_point.c_str()
+            : "main";
     const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
          VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-         VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, "main", nullptr}}};
+         VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, fragment_entry,
+         nullptr}}};
     const VkVertexInputBindingDescription binding{
         0, sizeof(extraction::DrawVertex), VK_VERTEX_INPUT_RATE_VERTEX};
     const std::array<VkVertexInputAttributeDescription, 4> attributes{{
@@ -3794,7 +4119,10 @@ class Renderer::Impl {
     pipeline_info.pDepthStencilState = &depth;
     pipeline_info.pColorBlendState = &blend;
     pipeline_info.pDynamicState = &dynamic;
-    pipeline_info.layout = active_target_->pipeline_layout;
+    pipeline_info.layout =
+        generated_artifact != nullptr
+            ? active_target_->generated_pipeline_layout
+            : active_target_->pipeline_layout;
     pipeline_info.renderPass = active_target_->render_pass;
     VkPipeline pipeline{};
     Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
@@ -3814,6 +4142,21 @@ class Renderer::Impl {
     return pipeline;
   }
 
+  VkPipeline EnsureGeneratedPipeline(
+      const ShaderPaths& shaders, const GeneratedMaterialArtifact& artifact,
+      std::uint32_t variant_key) {
+    const auto key = std::pair{artifact.module_key, variant_key};
+    const auto found = active_target_->generated_pipelines.find(key);
+    if (found != active_target_->generated_pipelines.end()) {
+      ++frame_counters_.pipeline_cache_hits;
+      return found->second;
+    }
+    ++frame_counters_.pipeline_cache_misses;
+    const auto pipeline = CreatePipeline(shaders, variant_key, &artifact);
+    active_target_->generated_pipelines.emplace(key, pipeline);
+    return pipeline;
+  }
+
   void DestroyTarget(RenderTarget& target) noexcept {
     if (device_ == VK_NULL_HANDLE) {
       return;
@@ -3825,6 +4168,16 @@ class Renderer::Impl {
     for (const auto& [key, pipeline] : target.pipelines) {
       (void)key;
       vkDestroyPipeline(device_, pipeline, nullptr);
+    }
+    for (const auto& [key, pipeline] : target.generated_pipelines) {
+      (void)key;
+      vkDestroyPipeline(device_, pipeline, nullptr);
+    }
+    target.generated_pipelines.clear();
+    if (target.generated_pipeline_layout != VK_NULL_HANDLE) {
+      vkDestroyPipelineLayout(device_, target.generated_pipeline_layout,
+                              nullptr);
+      target.generated_pipeline_layout = VK_NULL_HANDLE;
     }
     if (target.pipeline_layout != VK_NULL_HANDLE) {
       vkDestroyPipelineLayout(device_, target.pipeline_layout, nullptr);
@@ -4256,7 +4609,22 @@ class Renderer::Impl {
       if (snapshot.front_face == FrontFaceWinding::CounterClockwise) {
         variant_key |= kCounterClockwiseFrontFaceFlag;
       }
-      const auto pipeline = EnsurePipeline(active_target_->shaders, variant_key);
+      const auto* generated_artifact =
+          selected_material_artifacts_[draw.material_index];
+      if (generated_artifact != nullptr) {
+        ++frame_counters_.generated_material_draw_count;
+      } else if (material.module) {
+        ++frame_counters_.generated_material_fallback_count;
+      }
+      const auto pipeline =
+          generated_artifact != nullptr
+              ? EnsureGeneratedPipeline(active_target_->shaders,
+                                        *generated_artifact, variant_key)
+              : EnsurePipeline(active_target_->shaders, variant_key);
+      const auto pipeline_layout =
+          generated_artifact != nullptr
+              ? active_target_->generated_pipeline_layout
+              : active_target_->pipeline_layout;
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
       if (bindless_texture_table_) {
         const auto dynamic_offset_value =
@@ -4276,14 +4644,14 @@ class Renderer::Impl {
             frame.bindless_material_descriptor_set;
         vkCmdBindDescriptorSets(
             command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            active_target_->pipeline_layout, 0,
+            pipeline_layout, 0,
             static_cast<std::uint32_t>(descriptor_sets.size()),
             descriptor_sets.data(), 1, &dynamic_offset);
       } else {
         const auto descriptor_set =
             frame.material_descriptor_sets[draw.material_index];
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                active_target_->pipeline_layout, 0, 1,
+                                pipeline_layout, 0, 1,
                                 &descriptor_set, 0, nullptr);
       }
       PushConstants push;
@@ -4316,7 +4684,7 @@ class Renderer::Impl {
       }
       push.prim_id = static_cast<std::uint32_t>(geometry.mesh);
       push.instance_id = static_cast<std::uint32_t>(instance.instance);
-      vkCmdPushConstants(command, active_target_->pipeline_layout,
+      vkCmdPushConstants(command, pipeline_layout,
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(push), &push);
@@ -4632,6 +5000,11 @@ class Renderer::Impl {
   TextureSlot fallback_texture_;
   SamplerSlot fallback_sampler_;
   VkDescriptorSetLayout descriptor_set_layout_{};
+  VkDescriptorSetLayout generated_descriptor_set_layout_{};
+  std::map<std::string, GeneratedMaterialArtifact>
+      generated_material_artifacts_;
+  std::vector<const GeneratedMaterialArtifact*> selected_material_artifacts_;
+  std::vector<MaterialDiagnostic> frame_material_diagnostics_;
   std::map<std::filesystem::path, VkShaderModule> shader_modules_;
   std::uint64_t resident_snapshot_source_{};
   std::uint64_t resident_snapshot_revision_{};

@@ -53,6 +53,7 @@ class VulkanBackend final : public render::Backend {
     capabilities_.asynchronous_upload = source.async_transfer_queue;
     capabilities_.timestamp_queries = source.timestamp_queries;
     capabilities_.external_presentation = source.external_presentation;
+    capabilities_.generated_materials = source.generated_materials;
     capabilities_.cpu_readback = true;
     capabilities_.validation_enabled = source.validation_enabled;
     capabilities_.limits.max_image_dimension_2d =
@@ -226,6 +227,13 @@ class VulkanBackend final : public render::Backend {
         native.counters.bindless_sampled_image_descriptor_update_count;
     result.telemetry.bindless_sampler_descriptor_update_count =
         native.counters.bindless_sampler_descriptor_update_count;
+    result.telemetry.generated_material_draw_count =
+        native.counters.generated_material_draw_count;
+    result.telemetry.generated_material_fallback_count =
+        native.counters.generated_material_fallback_count;
+    result.telemetry.material_fallbacks =
+        native.counters.material_fallbacks;
+    result.material_diagnostics = std::move(native.material_diagnostics);
     readback_bytes_ += result.telemetry.readback_bytes;
     presentation_copy_bytes_ += result.telemetry.presentation_copy_bytes;
     return result;

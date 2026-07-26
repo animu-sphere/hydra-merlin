@@ -122,6 +122,34 @@ if(TARGET Merlin::MaterialX)
       FIXTURES_SETUP merlin-materialx-target-artifacts
     )
 
+    if(TARGET Merlin::Vulkan)
+      set(MERLIN_MATERIALX_FORWARD_SPV
+          "${CMAKE_CURRENT_BINARY_DIR}/materialx-forward-prototype.spv")
+      add_test(
+        NAME merlin-materialx-vulkan-forward-compile
+        COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/vulkan-forward-prototype-wrapper.slang"
+          -I "${CMAKE_CURRENT_BINARY_DIR}"
+          -I "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/shaders"
+          -entry merlin_materialx_forward_fragment
+          -stage fragment
+          -target spirv
+          -profile sm_6_6
+          -capability spirv_1_5
+          -matrix-layout-column-major
+          -O2
+          -warnings-as-errors all
+          -reflection-json
+            "${MERLIN_MATERIALX_FORWARD_SPV}.reflection.json"
+          -o "${MERLIN_MATERIALX_FORWARD_SPV}"
+      )
+      set_tests_properties(merlin-materialx-vulkan-forward-compile PROPERTIES
+        LABELS "materials;materialx;shader;spirv;vulkan"
+        FIXTURES_REQUIRED merlin-materialx-generated-module
+        FIXTURES_SETUP merlin-materialx-vulkan-forward-artifact
+      )
+    endif()
+
     add_test(
       NAME merlin-materialx-metal-compile
       COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
@@ -310,6 +338,30 @@ if(TARGET Merlin::Vulkan)
 endif()
 
 if(TARGET merlin-headless)
+  if(TARGET Merlin::MaterialX AND DEFINED MERLIN_MATERIALX_FORWARD_SPV)
+    add_executable(merlin-generated-material-vulkan-tests
+      generated_material_vulkan_test.cpp
+    )
+    target_link_libraries(merlin-generated-material-vulkan-tests
+      PRIVATE Merlin::RenderWorld Merlin::RenderExtraction
+              Merlin::MaterialX Merlin::Vulkan)
+    add_test(
+      NAME merlin-vulkan-generated-material
+      COMMAND merlin-generated-material-vulkan-tests
+        "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
+        "${_merlin_materialx_data_root}"
+        "${MERLIN_MATERIALX_FORWARD_SPV}"
+        "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/assets/environment.hdr"
+    )
+    set_tests_properties(merlin-vulkan-generated-material PROPERTIES
+      LABELS "gpu;materials;materialx;vulkan"
+      FIXTURES_REQUIRED merlin-materialx-vulkan-forward-artifact
+      SKIP_RETURN_CODE 77
+      TIMEOUT 60
+    )
+  endif()
+
   add_executable(merlin-execution-lifetime-tests
     execution_lifetime_test.cpp
   )

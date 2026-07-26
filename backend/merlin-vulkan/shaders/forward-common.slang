@@ -82,19 +82,16 @@ ForwardVertexOutput EvaluateForwardVertex(
     return output;
 }
 
-float4 ShadeForward(
+float4 ShadeForwardSurface(
     ForwardVertexOutput input,
     MaterialConstants material,
-    float4 texture_sample)
+    float4 base_color,
+    float3 shading_normal)
 {
-    float4 shaded = input.color;
-    if (HasBaseColorTexture())
-    {
-        shaded *= texture_sample;
-    }
+    float4 shaded = base_color;
     if ((draw_constants.feature_mask & kDirectionalLightFlag) != 0u)
     {
-        float3 normal = normalize(input.shading_normal);
+        float3 normal = normalize(shading_normal);
         float x = normal.x;
         float y = normal.y;
         float z = normal.z;
@@ -128,6 +125,20 @@ float4 ShadeForward(
         discard;
     }
     return shaded;
+}
+
+float4 ShadeForward(
+    ForwardVertexOutput input,
+    MaterialConstants material,
+    float4 texture_sample)
+{
+    float4 base_color = input.color;
+    if (HasBaseColorTexture())
+    {
+        base_color *= texture_sample;
+    }
+    return ShadeForwardSurface(
+        input, material, base_color, input.shading_normal);
 }
 
 ForwardFragmentOutput MakeForwardFragmentOutput(float4 color)
