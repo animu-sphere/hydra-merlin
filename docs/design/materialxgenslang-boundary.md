@@ -132,6 +132,41 @@ invoke MaterialX lighting closures. Typed parameter/resource state and the Core
 module reference cross the host-neutral boundary separately; target artifacts
 and Vulkan execution remain v0.10.0 work.
 
+`merlin/core/material_abi.hpp` owns the agreement itself, in Core and without a
+MaterialX, Slang, or backend type. It separates the two questions a consumer of
+a generated module has to ask. Whether the consumer can use the module is
+answered against a `MaterialAbiExpectation`, which is the renderer's own half of
+the ABI: a module producing only a base color is correct for a pass that reads
+only a base color and unusable for one that shades, and stating the consumer's
+side explicitly is what lets one module pass for Forward and fail for a later
+pass without changing the module. Whether the compiler produced what the module
+declared is answered against a `MaterialTargetReflection`, restated from the
+compiler's own reflection by whichever layer invoked it, because Core reads no
+compiler's reflection format. That agreement is semantic and not positional:
+SPIR-V reports a descriptor slot where Metal reports a buffer index for one
+parameter, and neither spelling is part of what is being checked. Two targets
+that agree with one module therefore agree with each other, so there is no
+separate cross-target check.
+
+The same header owns the pass-neutrality rule. A generated module that declares
+an entry point, binds a system value, names a binding slot or a pass mode,
+allocates group-shared storage, or discards a fragment has taken over part of
+the pass, so `Merlin::MaterialX` applies the rule to its own output and refuses
+such a module at generation rather than leaving it for whoever composes it. The
+rule rejects whole families rather than the members of one seen so far — any
+`[[vk::...]]` attribute is a binding decision, and a material function needs
+none of them — because the cost of rejecting a harmless one is a generator fix
+while the cost of missing one is a renderer that silently lost part of its pass.
+For the same reason the scan fails closed on malformed text: an unbalanced quote
+costs the rest of its line rather than the rest of the module, which would
+otherwise leave the scan finding nothing and reporting a contaminated module as
+clean. What the rule proves is structural: the module declares no pass. It does
+not prove the module's arithmetic is free of lighting, which no scan of the text
+can show and which stays the generator's own contract. The compiled artifacts
+are checked for the same property, since a material that reached an artifact as
+one of its entry points was not composed into the renderer's pass but became
+one.
+
 ## v0.10.0 feature slice
 
 Required node and data coverage is intentionally narrow:

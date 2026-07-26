@@ -224,6 +224,19 @@ constexpr MaterialInputRequirement& operator|=(
   return lhs;
 }
 
+// Every input the enum defines, folded once and next to the enum so a flag
+// added above is added here on the following line.
+//
+// A checker that walks the flags one at a time static_asserts its own list
+// against this, because a hand-written list that silently went stale would make
+// the check quietly stop covering the new input rather than fail to build.
+inline constexpr MaterialInputRequirement kAllMaterialInputRequirements =
+    MaterialInputRequirement::PositionObject |
+    MaterialInputRequirement::PositionWorld |
+    MaterialInputRequirement::NormalObject |
+    MaterialInputRequirement::NormalWorld |
+    MaterialInputRequirement::Texcoord0;
+
 enum class MaterialResultField : std::uint32_t {
   None = 0,
   BaseColor = 1U << 0U,
@@ -243,6 +256,12 @@ constexpr MaterialResultField& operator|=(MaterialResultField& lhs,
   lhs = lhs | rhs;
   return lhs;
 }
+
+// Every result field the enum defines, for the same reason as
+// `kAllMaterialInputRequirements`.
+inline constexpr MaterialResultField kAllMaterialResultFields =
+    MaterialResultField::BaseColor | MaterialResultField::Metalness |
+    MaterialResultField::SpecularRoughness | MaterialResultField::ShadingNormal;
 
 struct MaterialFeatureRequirements {
   MaterialInputRequirement inputs{MaterialInputRequirement::None};

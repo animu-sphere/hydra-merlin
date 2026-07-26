@@ -1,6 +1,9 @@
 #include <merlin/materialx/compiler.hpp>
 
 #include <merlin/core/identity.hpp>
+#include <merlin/core/material_abi.hpp>
+
+#include "pass_neutrality.hpp"
 
 #include <MaterialXCore/Node.h>
 #include <MaterialXCore/Value.h>
@@ -798,6 +801,29 @@ bool HasStandardLibraries(const mx::FileSearchPath& search_path) {
 
 }  // namespace
 
+namespace internal {
+
+std::vector<Diagnostic> DiagnosePassDeclarations(
+    std::string_view source, std::string element_path,
+    const merlin::MaterialDiagnosticContext& context) {
+  const auto records =
+      merlin::VerifyMaterialSourcePassNeutral(source, context);
+  std::vector<Diagnostic> diagnostics;
+  diagnostics.reserve(records.size());
+  for (const auto& record : records) {
+    // The generated source is the whole of what was checked, so every record
+    // belongs to the renderable that produced it. No authored node or input can
+    // be named: the construct was emitted by the generator, not written in the
+    // document.
+    diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error,
+                                     DiagnosticCode::GeneratedPassDeclaration,
+                                     element_path, record.message});
+  }
+  return diagnostics;
+}
+
+}  // namespace internal
+
 CompileResult CompileMaterialFunction(std::string_view document_xml,
                                       const CompileOptions& options) {
   CompileResult result;
@@ -924,6 +950,22 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
       module.source =
           PruneUnusedStandardSurfaceInputs(std::move(module.source), stage);
     }
+    // The generator is trusted to evaluate a graph, not to decide what a render
+    // pass looks like. Checking its own output against the Core rule means a
+    // module that declared part of one never reaches a renderer that would
+    // compose it, rather than being noticed later by whoever composed it.
+    merlin::MaterialDiagnosticContext contamination_context;
+    contamination_context.source_document = options.source_document;
+    contamination_context.generator_version = result.generator_version;
+    if (auto contamination = internal::DiagnosePassDeclarations(
+            module.source, renderable->getNamePath(), contamination_context);
+        !contamination.empty()) {
+      result.diagnostics.insert(result.diagnostics.end(),
+                                std::make_move_iterator(contamination.begin()),
+                                std::make_move_iterator(contamination.end()));
+      return result;
+    }
+
     module.output_type =
         standard_surface ? "material_result" : typed->getType();
     module.materialx_version = mx::getVersionString();

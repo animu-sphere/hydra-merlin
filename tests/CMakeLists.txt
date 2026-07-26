@@ -32,6 +32,13 @@ add_test(NAME merlin-material-diagnostic
 set_tests_properties(merlin-material-diagnostic PROPERTIES
   LABELS "materials;diagnostics")
 
+add_executable(merlin-material-abi-tests
+  material_abi_test.cpp
+)
+target_link_libraries(merlin-material-abi-tests PRIVATE Merlin::RenderWorld)
+add_test(NAME merlin-material-abi COMMAND merlin-material-abi-tests)
+set_tests_properties(merlin-material-abi PROPERTIES LABELS "materials;abi")
+
 add_executable(merlin-identity-tests
   identity_test.cpp
 )
@@ -68,6 +75,11 @@ if(TARGET Merlin::MaterialX)
   )
   target_link_libraries(merlin-materialx-compiler-tests
     PRIVATE Merlin::MaterialX)
+  # The pass-neutrality wiring is internal to the integration and unreachable
+  # from any document, so the test reaches it through the private header rather
+  # than through a widened public boundary.
+  target_include_directories(merlin-materialx-compiler-tests
+    PRIVATE "${PROJECT_SOURCE_DIR}/material/merlin-materialx/src")
   add_test(
     NAME merlin-materialx-compiler
     COMMAND merlin-materialx-compiler-tests
@@ -107,6 +119,7 @@ if(TARGET Merlin::MaterialX)
     set_tests_properties(merlin-materialx-spirv-compile PROPERTIES
       LABELS "materials;materialx;shader;spirv"
       FIXTURES_REQUIRED merlin-materialx-generated-module
+      FIXTURES_SETUP merlin-materialx-target-artifacts
     )
 
     add_test(
@@ -128,6 +141,7 @@ if(TARGET Merlin::MaterialX)
     set_tests_properties(merlin-materialx-metal-compile PROPERTIES
       LABELS "materials;materialx;metal;shader"
       FIXTURES_REQUIRED merlin-materialx-generated-module
+      FIXTURES_SETUP merlin-materialx-target-artifacts
     )
 
     add_test(
@@ -151,6 +165,7 @@ if(TARGET Merlin::MaterialX)
       merlin-materialx-standard-surface-spirv-compile PROPERTIES
       LABELS "materials;materialx;shader;spirv;standard-surface"
       FIXTURES_REQUIRED merlin-materialx-generated-module
+      FIXTURES_SETUP merlin-materialx-target-artifacts
     )
 
     add_test(
@@ -173,6 +188,30 @@ if(TARGET Merlin::MaterialX)
       merlin-materialx-standard-surface-metal-compile PROPERTIES
       LABELS "materials;materialx;metal;shader;standard-surface"
       FIXTURES_REQUIRED merlin-materialx-generated-module
+      FIXTURES_SETUP merlin-materialx-target-artifacts
+    )
+
+    # The reflection each of those four compiles emitted, checked back against
+    # the module they were all built from.
+    add_executable(merlin-material-target-reflection-tests
+      material_target_reflection_test.cpp
+    )
+    target_link_libraries(merlin-material-target-reflection-tests
+      PRIVATE Merlin::MaterialX Merlin::RenderWorld)
+    add_test(
+      NAME merlin-material-target-reflection
+      COMMAND merlin-material-target-reflection-tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface.mtlx"
+        "${_merlin_materialx_data_root}"
+        "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.spv.reflection.json"
+        "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.metal.reflection.json"
+        "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.spv.reflection.json"
+        "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.metal.reflection.json"
+    )
+    set_tests_properties(merlin-material-target-reflection PROPERTIES
+      LABELS "materials;materialx;abi;shader;spirv;metal"
+      FIXTURES_REQUIRED merlin-materialx-target-artifacts
     )
   endif()
 endif()
