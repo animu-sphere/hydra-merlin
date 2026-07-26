@@ -24,12 +24,14 @@ int main() {
   assert(!merlin::IsIdentity(merlin::Sha256Hex("record")));
   assert(!merlin::IsIdentity("sha256:" + std::string(64U, 'z')));
 
-  // The length prefix is what stops one field's value from being read as the
-  // next field, which is the only reason two records cannot collide by
-  // rearranging the same characters.
+  static_assert(merlin::kIdentityLength == 71U);
+
+  // The length prefixes are what stop one field from being read as another,
+  // which is the only reason two records cannot collide by rearranging the same
+  // characters.
   std::string separated;
   merlin::AppendIdentityField(separated, "name", "value");
-  assert(separated == "name=5:value\n");
+  assert(separated == "4:name=5:value\n");
 
   std::string first;
   merlin::AppendIdentityField(first, "field", "a");
@@ -40,9 +42,17 @@ int main() {
   assert(merlin::MakeIdentity(first) != merlin::MakeIdentity(second));
 
   std::string embedded;
-  merlin::AppendIdentityField(embedded, "field", "a\nfield=1:b");
+  merlin::AppendIdentityField(embedded, "field", "a\n5:field=1:b");
   std::string genuine;
   merlin::AppendIdentityField(genuine, "field", "a");
   merlin::AppendIdentityField(genuine, "field", "b");
   assert(merlin::MakeIdentity(embedded) != merlin::MakeIdentity(genuine));
+
+  // The name is length-prefixed too, so a name cannot spell a complete field
+  // and hand the remainder to a shorter name as its value.
+  std::string as_name;
+  merlin::AppendIdentityField(as_name, "a=5:x", "y");
+  std::string as_value;
+  merlin::AppendIdentityField(as_value, "a", "x=1:y");
+  assert(merlin::MakeIdentity(as_name) != merlin::MakeIdentity(as_value));
 }

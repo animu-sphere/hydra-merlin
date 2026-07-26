@@ -112,6 +112,8 @@ std::string Sha256Hex(std::string_view input) {
 
 void AppendIdentityField(std::string& record, std::string_view name,
                          std::string_view value) {
+  record.append(std::to_string(name.size()));
+  record.push_back(':');
   record.append(name);
   record.push_back('=');
   record.append(std::to_string(value.size()));

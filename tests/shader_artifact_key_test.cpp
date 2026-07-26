@@ -60,7 +60,9 @@ std::string CompactJson(std::string_view text) {
 }
 
 // The manifest is generated, flat, and fully quoted, so locating a field by
-// name inside a known region is enough; nothing here needs a JSON parser.
+// name inside a known region is enough; nothing here needs a JSON parser. Every
+// caller passes a region no wider than the object it wants, so a missing field
+// is reported rather than answered from the next object.
 std::string Field(std::string_view json, std::string_view name,
                   std::size_t from = 0) {
   const std::string key = "\"" + std::string(name) + "\":\"";
@@ -73,9 +75,23 @@ std::string Field(std::string_view json, std::string_view name,
   return std::string(json.substr(value, end - value));
 }
 
+bool Flag(std::string_view json, std::string_view name) {
+  const std::string key = "\"" + std::string(name) + "\":";
+  const auto start = json.find(key);
+  Require(start != std::string_view::npos,
+          "manifest has no \"" + std::string(name) + "\" field");
+  const auto value = json.substr(start + key.size());
+  if (value.starts_with("true")) {
+    return true;
+  }
+  Require(value.starts_with("false"),
+          "manifest \"" + std::string(name) + "\" is not a boolean");
+  return false;
+}
+
 // "features": ["a", "b"] as the "+"-joined spelling the compile recorded.
 std::string JoinedArray(std::string_view json, std::string_view name,
-                        std::size_t from) {
+                        std::size_t from = 0) {
   const std::string key = "\"" + std::string(name) + "\":[";
   const auto start = json.find(key, from);
   Require(start != std::string_view::npos,
@@ -99,11 +115,14 @@ std::string JoinedArray(std::string_view json, std::string_view name,
   return joined;
 }
 
-std::vector<merlin::ShaderSourceFingerprint> ModuleSources(
-    std::string_view json, std::size_t from) {
-  const auto start = json.find("\"module_sources\":[", from);
+// Either the package-level "sources" inventory or one artifact's
+// "module_sources", which carry the same {path, sha256} shape.
+std::vector<merlin::ShaderSourceFingerprint> SourceArray(
+    std::string_view json, std::string_view name) {
+  const std::string key = "\"" + std::string(name) + "\":[";
+  const auto start = json.find(key);
   Require(start != std::string_view::npos,
-          "manifest artifact has no module_sources array");
+          "manifest has no \"" + std::string(name) + "\" array");
   const auto end = json.find(']', start);
   Require(end != std::string_view::npos, "manifest JSON is truncated");
   const auto body = json.substr(start, end - start);
@@ -117,7 +136,8 @@ std::vector<merlin::ShaderSourceFingerprint> ModuleSources(
     position = body.find('}', position);
     Require(position != std::string_view::npos, "manifest JSON is truncated");
   }
-  Require(!sources.empty(), "manifest artifact lists no module sources");
+  Require(!sources.empty(),
+          "manifest \"" + std::string(name) + "\" array is empty");
   return sources;
 }
 
@@ -241,8 +261,16 @@ int main(int argc, char** argv) {
     policy.compiler_version = Field(manifest, "compiler_version");
     policy.matrix_layout = Field(manifest, "matrix_layout");
     policy.optimization = Field(manifest, "optimization");
-    Require(manifest.find("\"debug_info\":false") != std::string::npos,
-            "manifest does not declare the debug policy the key assumes");
+    // Read rather than asserted: the key has to follow whatever debug policy
+    // the compile declared, not a policy this test pins.
+    policy.debug_info = Flag(manifest, "debug_info");
+
+    // The package inventory and the per-module sources describe the same files,
+    // so a module cannot be keyed on a source the package does not ship.
+    std::set<std::string> inventory;
+    for (const auto& source : SourceArray(manifest, "sources")) {
+      inventory.insert(source.path + '|' + source.content_sha256);
+    }
 
     const std::string abi_field = "\"shader_abi_version\":";
     const auto abi_position = manifest.find(abi_field);
@@ -258,35 +286,48 @@ int main(int argc, char** argv) {
     std::size_t verified{};
     while ((position = manifest.find("{\"path\":\"", position)) !=
            std::string::npos) {
+      // Every artifact object ends with its key, so bounding the region there
+      // keeps one artifact's missing field from being read off the next.
+      const auto key_position = manifest.find("\"artifact_key\":\"", position);
+      Require(key_position != std::string::npos,
+              "manifest artifact has no artifact key");
+      const auto object_end = manifest.find('}', key_position);
+      Require(object_end != std::string::npos, "manifest JSON is truncated");
+      const std::string artifact(manifest, position, object_end - position);
+
+      const auto sources = SourceArray(artifact, "module_sources");
+      for (const auto& source : sources) {
+        Require(inventory.contains(source.path + '|' + source.content_sha256),
+                "module source is absent from the package inventory: " +
+                    source.path);
+      }
+
       merlin::ShaderArtifactKeyInputs inputs;
-      inputs.module_identity =
-          merlin::MakeShaderModuleIdentity(ModuleSources(manifest, position));
-      inputs.entry_point = Field(manifest, "entry_point", position);
-      inputs.stage = Field(manifest, "stage", position);
-      inputs.permutation = Field(manifest, "permutation", position);
-      inputs.features = JoinedArray(manifest, "features", position);
+      inputs.module_identity = merlin::MakeShaderModuleIdentity(sources);
+      inputs.entry_point = Field(artifact, "entry_point");
+      inputs.stage = Field(artifact, "stage");
+      inputs.permutation = Field(artifact, "permutation");
+      inputs.features = JoinedArray(artifact, "features");
       inputs.abi_version = abi;
       inputs.policy = policy;
-      inputs.policy.target = Field(manifest, "target", position);
-      inputs.policy.profile = Field(manifest, "profile", position);
-      inputs.policy.capabilities = Field(manifest, "capabilities", position);
+      inputs.policy.target = Field(artifact, "target");
+      inputs.policy.profile = Field(artifact, "profile");
+      inputs.policy.capabilities = Field(artifact, "capabilities");
 
-      const auto recorded_module = Field(manifest, "module_identity", position);
+      const auto recorded_module = Field(artifact, "module_identity");
       Require(recorded_module == inputs.module_identity,
               "recorded module identity disagrees with the sources it lists: " +
                   recorded_module);
-      const auto recorded_key = Field(manifest, "artifact_key", position);
+      const auto recorded_key = Field(artifact, "artifact_key");
       Require(recorded_key == merlin::MakeShaderArtifactKey(inputs),
               "recorded artifact key disagrees with merlin/core/"
               "shader_artifact.hpp for " +
-                  Field(manifest, "path", position));
+                  Field(artifact, "path"));
 
       artifact_keys.insert(recorded_key);
       module_identities.insert(recorded_module);
       ++verified;
-      position = manifest.find("\"artifact_key\":\"", position);
-      Require(position != std::string::npos, "manifest JSON is truncated");
-      ++position;
+      position = object_end;
     }
 
     Require(verified == 6, "manifest does not describe six artifacts");

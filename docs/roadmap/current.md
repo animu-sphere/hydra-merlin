@@ -70,10 +70,11 @@ standard-library and transitive generator-include fingerprints participate in
 the topology-only module key. Target/compiler/profile/layout/capability policy
 now composes into a Core target-artifact key that keys generated and
 handwritten Slang the same way; the shader package records module and artifact
-identities separately and a test recomputes both from the manifest, so the
-build system cannot drift from the contract. The previously merged package target,
-deterministic prototype generation, logical reflection, diagnostics, and direct
-SPIR-V/Metal compile wrappers are recorded in the
+identities separately, recovers each module's include closure from the depfile
+the compiler emitted, and a test recomputes both identities from the manifest,
+so the build system cannot drift from the contract. The previously merged
+package target, deterministic prototype generation, logical reflection,
+diagnostics, and direct SPIR-V/Metal compile wrappers are recorded in the
 [delivery history](../reports/delivery-history.md). Topology-only module
 identity, separate parameter/resource state identities, and the host-neutral
 Core module contract are included in the current capability summary in the

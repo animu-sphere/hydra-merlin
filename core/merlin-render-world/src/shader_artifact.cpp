@@ -16,8 +16,11 @@ std::string MakeShaderModuleIdentity(
   };
   std::sort(sources.begin(), sources.end(), order);
   // A path repeated with the same content is the same include reached twice.
-  // A path repeated with different content is a real conflict, so both entries
-  // stay in the record and the identity differs from either resolution.
+  // A path repeated with different content is a real conflict the caller was
+  // supposed to reject: both entries stay in the record, so the identity
+  // differs from either resolution and therefore matches no artifact built from
+  // one of them. Resolving it here would instead hand out a key claiming a
+  // content the module never compiled.
   sources.erase(std::unique(sources.begin(), sources.end(),
                             [](const ShaderSourceFingerprint& lhs,
                                const ShaderSourceFingerprint& rhs) {

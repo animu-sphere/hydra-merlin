@@ -1,11 +1,13 @@
 # Every field describing how an artifact was compiled arrives in
 # MERLIN_SHADER_RECORDS_FILE, which _merlin_compile_shader writes from the same
-# values it passes to slangc. Nothing about the compile is restated here, so a
+# values it passes to slangc, and the sources it compiled arrive in the depfile
+# slangc itself emitted. Nothing about the compile is restated here, so a
 # manifest entry cannot describe a compile that did not happen.
 #
-# The module and artifact identities below mirror merlin/core/shader_artifact.hpp,
-# which is the normative definition. merlin-shader-artifact-key recomputes every
-# key in the emitted manifest through that header, so the two cannot drift.
+# The module and artifact identities below mirror
+# merlin/core/shader_artifact.hpp, which is the normative definition.
+# merlin-shader-artifact-key recomputes every key in the emitted manifest
+# through that header, so the two cannot drift.
 
 if(NOT DEFINED MERLIN_SHADER_MANIFEST OR
    NOT DEFINED MERLIN_SHADER_SCHEMA_VERSION OR
@@ -13,28 +15,32 @@ if(NOT DEFINED MERLIN_SHADER_MANIFEST OR
    NOT DEFINED MERLIN_SHADER_ARTIFACT_KEY_SCHEMA OR
    NOT DEFINED MERLIN_SHADER_ABI_VERSION OR
    NOT DEFINED MERLIN_SHADER_RECORDS_FILE OR
+   NOT DEFINED MERLIN_SHADER_SOURCE_DIR OR
    NOT DEFINED MERLIN_SLANG_VERSION OR
    NOT DEFINED MERLIN_SLANG_REQUIRED_SERIES OR
    NOT DEFINED MERLIN_SLANG_MATRIX_LAYOUT OR
    NOT DEFINED MERLIN_SLANG_OPTIMIZATION OR
+   NOT DEFINED MERLIN_SLANG_DEBUG_INFO OR
    NOT DEFINED MERLIN_VULKAN_SDK_VERSION OR
    NOT DEFINED MERLIN_CMAKE_GENERATOR OR
-   NOT DEFINED MERLIN_FORWARD_SOURCE OR
-   NOT DEFINED MERLIN_BINDLESS_SOURCE OR
-   NOT DEFINED MERLIN_COMMON_SOURCE OR
    NOT DEFINED MERLIN_ENVIRONMENT_HDR)
   message(FATAL_ERROR "Missing shader manifest generation argument")
 endif()
 
-foreach(_required_file
-    MERLIN_SHADER_RECORDS_FILE
-    MERLIN_FORWARD_SOURCE MERLIN_BINDLESS_SOURCE MERLIN_COMMON_SOURCE
-    MERLIN_ENVIRONMENT_HDR)
+foreach(_required_file MERLIN_SHADER_RECORDS_FILE MERLIN_ENVIRONMENT_HDR)
   if(NOT EXISTS "${${_required_file}}")
     message(FATAL_ERROR
       "Shader manifest input ${_required_file} is missing: ${${_required_file}}")
   endif()
 endforeach()
+if(NOT IS_DIRECTORY "${MERLIN_SHADER_SOURCE_DIR}")
+  message(FATAL_ERROR
+    "Shader source directory is missing: ${MERLIN_SHADER_SOURCE_DIR}")
+endif()
+if(NOT MERLIN_SLANG_DEBUG_INFO MATCHES "^(true|false)$")
+  message(FATAL_ERROR
+    "Shader debug policy must be true or false: ${MERLIN_SLANG_DEBUG_INFO}")
+endif()
 
 function(_merlin_json_escape _value _output)
   set(_escaped "${_value}")
@@ -44,45 +50,86 @@ function(_merlin_json_escape _value _output)
   set(${_output} "${_escaped}" PARENT_SCOPE)
 endfunction()
 
-# Length-prefixed field, so no value can imitate a separator. This is the CMake
-# spelling of merlin::AppendIdentityField.
+# Length-prefixed name and value, so neither can imitate a separator. This is
+# the CMake spelling of merlin::AppendIdentityField.
 macro(_merlin_identity_field _record_variable _name _value)
-  string(LENGTH "${_value}" _merlin_identity_field_length)
+  string(LENGTH "${_name}" _merlin_identity_name_length)
+  string(LENGTH "${_value}" _merlin_identity_value_length)
   string(APPEND ${_record_variable}
-    "${_name}=${_merlin_identity_field_length}:${_value}\n")
+    "${_merlin_identity_name_length}:${_name}"
+    "=${_merlin_identity_value_length}:${_value}\n")
 endmacro()
 
-file(SHA256 "${MERLIN_COMMON_SOURCE}" _common_hash)
-file(SHA256 "${MERLIN_FORWARD_SOURCE}" _forward_hash)
-file(SHA256 "${MERLIN_BINDLESS_SOURCE}" _bindless_hash)
 file(SHA256 "${MERLIN_ENVIRONMENT_HDR}" _environment_hash)
 
+# The include closure comes from the depfile slangc emitted for the artifact, so
+# an added `#include` reaches the module identity without anyone restating it
+# here. Logical paths are bare filenames: the package resolves every reference
+# relative to itself, and an absolute build path would not be reproducible.
+function(_merlin_depfile_module_paths _depfile _output)
+  if(NOT EXISTS "${_depfile}")
+    message(FATAL_ERROR "Shader depfile is missing: ${_depfile}")
+  endif()
+  file(READ "${_depfile}" _text)
+  # Make escaping, outermost first: a line continuation joins two lines, an
+  # escaped backslash is a path separator, an escaped space belongs to the path,
+  # and an escaped colon is a drive letter.
+  string(ASCII 1 _separator_placeholder)
+  string(ASCII 2 _space_placeholder)
+  string(REGEX REPLACE "\\\\[\r]?\n" " " _text "${_text}")
+  string(REPLACE "\\\\" "${_separator_placeholder}" _text "${_text}")
+  string(REPLACE "\\ " "${_space_placeholder}" _text "${_text}")
+  string(REPLACE "\\:" ":" _text "${_text}")
+  string(REPLACE "${_separator_placeholder}" "/" _text "${_text}")
+  string(REGEX REPLACE "[ \t\r\n]+" ";" _tokens "${_text}")
+
+  set(_paths "")
+  foreach(_token IN LISTS _tokens)
+    string(REPLACE "${_space_placeholder}" " " _token "${_token}")
+    # The compiled artifact is the depfile's target, never one of its sources.
+    if(NOT _token MATCHES "[.]slang$")
+      continue()
+    endif()
+    get_filename_component(_name "${_token}" NAME)
+    if(NOT EXISTS "${MERLIN_SHADER_SOURCE_DIR}/${_name}")
+      message(FATAL_ERROR
+        "Shader depfile ${_depfile} names a source outside "
+        "${MERLIN_SHADER_SOURCE_DIR}: ${_token}")
+    endif()
+    list(APPEND _paths "${_name}")
+  endforeach()
+  if(_paths STREQUAL "")
+    message(FATAL_ERROR "Shader depfile lists no sources: ${_depfile}")
+  endif()
+
+  list(REMOVE_DUPLICATES _paths)
+  # Ordered by logical path, exactly as merlin::MakeShaderModuleIdentity orders
+  # its fingerprints, so the caller's traversal order cannot leak into the key.
+  list(SORT _paths)
+  set(${_output} "${_paths}" PARENT_SCOPE)
+endfunction()
+
 # A handwritten module is identified by its own source plus every include it
-# compiles with, ordered by logical path.
-function(_merlin_module_identity _output)
+# compiles with. One traversal produces both the identity and the evidence the
+# manifest records, so the two cannot disagree about what was hashed.
+function(_merlin_module_identity _paths _identity_output _sources_json_output)
   set(_record "")
   _merlin_identity_field(_record "schema"
     "${MERLIN_SHADER_MODULE_IDENTITY_SCHEMA}")
-  set(_sources ${ARGN})
-  list(SORT _sources)
-  foreach(_source IN LISTS _sources)
-    string(REPLACE ":" ";" _fields "${_source}")
-    list(GET _fields 0 _path)
-    list(GET _fields 1 _hash)
+  set(_json "")
+  foreach(_path IN LISTS _paths)
+    file(SHA256 "${MERLIN_SHADER_SOURCE_DIR}/${_path}" _hash)
     _merlin_identity_field(_record "path" "${_path}")
     _merlin_identity_field(_record "content-sha256" "${_hash}")
+    if(NOT _json STREQUAL "")
+      string(APPEND _json ", ")
+    endif()
+    string(APPEND _json "{\"path\": \"${_path}\", \"sha256\": \"${_hash}\"}")
   endforeach()
   string(SHA256 _identity "${_record}")
-  set(${_output} "sha256:${_identity}" PARENT_SCOPE)
+  set(${_identity_output} "sha256:${_identity}" PARENT_SCOPE)
+  set(${_sources_json_output} "[${_json}]" PARENT_SCOPE)
 endfunction()
-
-set(_forward_module_sources
-  "forward-common.slang:${_common_hash}" "forward.slang:${_forward_hash}")
-set(_bindless_module_sources
-  "forward-bindless.slang:${_bindless_hash}"
-  "forward-common.slang:${_common_hash}")
-_merlin_module_identity(_forward_module_identity ${_forward_module_sources})
-_merlin_module_identity(_bindless_module_identity ${_bindless_module_sources})
 
 function(_merlin_features_json _features _output)
   string(REPLACE "+" ";" _feature_list "${_features}")
@@ -97,42 +144,26 @@ function(_merlin_features_json _features _output)
   set(${_output} "[${_json}]" PARENT_SCOPE)
 endfunction()
 
-# The sources each module identity was built from, so a consumer can recompute
-# the identity from the manifest instead of trusting it.
-function(_merlin_module_sources_json _sources _output)
-  set(_sorted ${_sources})
-  list(SORT _sorted)
-  set(_json "")
-  foreach(_source IN LISTS _sorted)
-    string(REPLACE ":" ";" _fields "${_source}")
-    list(GET _fields 0 _path)
-    list(GET _fields 1 _hash)
-    if(NOT _json STREQUAL "")
-      string(APPEND _json ", ")
-    endif()
-    string(APPEND _json "{\"path\": \"${_path}\", \"sha256\": \"${_hash}\"}")
-  endforeach()
-  set(${_output} "[${_json}]" PARENT_SCOPE)
-endfunction()
-
 set(_artifacts "")
+set(_package_sources "")
 file(STRINGS "${MERLIN_SHADER_RECORDS_FILE}" _records)
 foreach(_record IN LISTS _records)
   string(REPLACE "|" ";" _fields "${_record}")
   list(LENGTH _fields _field_count)
-  if(NOT _field_count EQUAL 10)
+  if(NOT _field_count EQUAL 11)
     message(FATAL_ERROR "Malformed shader record: ${_record}")
   endif()
   list(GET _fields 0 _artifact)
   list(GET _fields 1 _reflection)
-  list(GET _fields 2 _source)
-  list(GET _fields 3 _entry)
-  list(GET _fields 4 _stage)
-  list(GET _fields 5 _target)
-  list(GET _fields 6 _profile)
-  list(GET _fields 7 _capabilities)
-  list(GET _fields 8 _permutation)
-  list(GET _fields 9 _features)
+  list(GET _fields 2 _depfile)
+  list(GET _fields 3 _source)
+  list(GET _fields 4 _entry)
+  list(GET _fields 5 _stage)
+  list(GET _fields 6 _target)
+  list(GET _fields 7 _profile)
+  list(GET _fields 8 _capabilities)
+  list(GET _fields 9 _permutation)
+  list(GET _fields 10 _features)
 
   foreach(_input "${_artifact}" "${_reflection}")
     if(NOT EXISTS "${_input}")
@@ -140,22 +171,35 @@ foreach(_record IN LISTS _records)
     endif()
   endforeach()
 
-  if(_source STREQUAL "forward.slang")
-    set(_module_identity "${_forward_module_identity}")
-    set(_module_sources ${_forward_module_sources})
-  elseif(_source STREQUAL "forward-bindless.slang")
-    set(_module_identity "${_bindless_module_identity}")
-    set(_module_sources ${_bindless_module_sources})
-  else()
-    message(FATAL_ERROR "Shader record names an unknown source: ${_source}")
+  _merlin_depfile_module_paths("${_depfile}" _module_paths)
+  if(NOT "${_source}" IN_LIST _module_paths)
+    message(FATAL_ERROR
+      "Shader depfile for ${_artifact} does not name its own source ${_source}")
   endif()
+  # Every artifact compiled from one source must have compiled one include
+  # closure. A target-conditional include would otherwise let two genuinely
+  # different modules share a module identity.
+  string(MAKE_C_IDENTIFIER "${_source}" _module)
+  if(DEFINED _module_paths_${_module})
+    if(NOT "${_module_paths}" STREQUAL "${_module_paths_${_module}}")
+      message(FATAL_ERROR
+        "${_source} compiled a different include closure per target: "
+        "${_module_paths} after ${_module_paths_${_module}}")
+    endif()
+  else()
+    set(_module_paths_${_module} "${_module_paths}")
+    _merlin_module_identity("${_module_paths}"
+      _module_identity_${_module} _module_sources_json_${_module})
+    list(APPEND _package_sources ${_module_paths})
+  endif()
+  set(_module_identity "${_module_identity_${_module}}")
+  set(_module_sources_json "${_module_sources_json_${_module}}")
 
   file(SHA256 "${_artifact}" _artifact_hash)
   file(SHA256 "${_reflection}" _reflection_hash)
   get_filename_component(_artifact_name "${_artifact}" NAME)
   get_filename_component(_reflection_name "${_reflection}" NAME)
   _merlin_features_json("${_features}" _features_json)
-  _merlin_module_sources_json("${_module_sources}" _module_sources_json)
 
   # merlin/core/shader_artifact.hpp field order and spelling.
   set(_key_record "")
@@ -177,7 +221,7 @@ foreach(_record IN LISTS _records)
     "${MERLIN_SLANG_MATRIX_LAYOUT}")
   _merlin_identity_field(_key_record "optimization"
     "${MERLIN_SLANG_OPTIMIZATION}")
-  _merlin_identity_field(_key_record "debug-info" "false")
+  _merlin_identity_field(_key_record "debug-info" "${MERLIN_SLANG_DEBUG_INFO}")
   string(SHA256 _artifact_key_hash "${_key_record}")
   set(_artifact_key "sha256:${_artifact_key_hash}")
 
@@ -194,11 +238,25 @@ if(_artifacts STREQUAL "")
   message(FATAL_ERROR "Shader manifest would contain no artifacts")
 endif()
 
+# The package inventory is the union of what the modules actually compiled, so
+# it cannot name a source no artifact used or omit one every artifact did.
+list(REMOVE_DUPLICATES _package_sources)
+list(SORT _package_sources)
+set(_sources "")
+foreach(_path IN LISTS _package_sources)
+  file(SHA256 "${MERLIN_SHADER_SOURCE_DIR}/${_path}" _hash)
+  if(NOT _sources STREQUAL "")
+    string(APPEND _sources ",\n")
+  endif()
+  string(APPEND _sources
+    "    {\"path\": \"${_path}\", \"sha256\": \"${_hash}\"}")
+endforeach()
+
 _merlin_json_escape("${MERLIN_CMAKE_GENERATOR}" _generator)
 _merlin_json_escape("${MERLIN_VULKAN_SDK_VERSION}" _sdk_version)
 _merlin_json_escape("${MERLIN_SLANG_VERSION}" _slang_version)
 set(_manifest
-"{\n  \"schema_version\": ${MERLIN_SHADER_SCHEMA_VERSION},\n  \"shader_abi_version\": ${MERLIN_SHADER_ABI_VERSION},\n  \"cache_compatibility\": {\n    \"algorithm\": \"sha256\",\n    \"rule\": \"all cache-key inputs must match exactly\",\n    \"module_identity_schema\": \"${MERLIN_SHADER_MODULE_IDENTITY_SCHEMA}\",\n    \"artifact_key_schema\": \"${MERLIN_SHADER_ARTIFACT_KEY_SCHEMA}\"\n  },\n  \"toolchain\": {\n    \"compiler\": \"slangc\",\n    \"compiler_version\": \"${_slang_version}\",\n    \"required_series\": \"${MERLIN_SLANG_REQUIRED_SERIES}\",\n    \"vulkan_sdk_version\": \"${_sdk_version}\",\n    \"generator\": \"CMake ${CMAKE_VERSION} / ${_generator}\"\n  },\n  \"policy\": {\n    \"matrix_layout\": \"${MERLIN_SLANG_MATRIX_LAYOUT}\",\n    \"optimization\": \"${MERLIN_SLANG_OPTIMIZATION}\",\n    \"debug_info\": false\n  },\n  \"sources\": [\n    {\"path\": \"forward-common.slang\", \"sha256\": \"${_common_hash}\"},\n    {\"path\": \"forward.slang\", \"sha256\": \"${_forward_hash}\"},\n    {\"path\": \"forward-bindless.slang\", \"sha256\": \"${_bindless_hash}\"}\n  ],\n  \"environment\": {\n    \"path\": \"environment.hdr\",\n    \"sha256\": \"${_environment_hash}\",\n    \"representation\": \"diffuse-sh-l2\"\n  },\n  \"artifacts\": [\n${_artifacts}\n  ],\n  \"unsupported_features\": [\n    {\n      \"target\": \"metal\",\n      \"feature\": \"non_uniform_resource_indexing\",\n      \"diagnostic\": \"Slang reports NonUniformResourceIndex unavailable for the Metal fragment target\",\n      \"fallback\": \"forward-conventional\"\n    }\n  ]\n}\n")
+"{\n  \"schema_version\": ${MERLIN_SHADER_SCHEMA_VERSION},\n  \"shader_abi_version\": ${MERLIN_SHADER_ABI_VERSION},\n  \"cache_compatibility\": {\n    \"algorithm\": \"sha256\",\n    \"rule\": \"all artifact-key inputs must match exactly\",\n    \"module_identity_schema\": \"${MERLIN_SHADER_MODULE_IDENTITY_SCHEMA}\",\n    \"artifact_key_schema\": \"${MERLIN_SHADER_ARTIFACT_KEY_SCHEMA}\"\n  },\n  \"toolchain\": {\n    \"compiler\": \"slangc\",\n    \"compiler_version\": \"${_slang_version}\",\n    \"required_series\": \"${MERLIN_SLANG_REQUIRED_SERIES}\",\n    \"vulkan_sdk_version\": \"${_sdk_version}\",\n    \"generator\": \"CMake ${CMAKE_VERSION} / ${_generator}\"\n  },\n  \"policy\": {\n    \"matrix_layout\": \"${MERLIN_SLANG_MATRIX_LAYOUT}\",\n    \"optimization\": \"${MERLIN_SLANG_OPTIMIZATION}\",\n    \"debug_info\": ${MERLIN_SLANG_DEBUG_INFO}\n  },\n  \"sources\": [\n${_sources}\n  ],\n  \"environment\": {\n    \"path\": \"environment.hdr\",\n    \"sha256\": \"${_environment_hash}\",\n    \"representation\": \"diffuse-sh-l2\"\n  },\n  \"artifacts\": [\n${_artifacts}\n  ],\n  \"unsupported_features\": [\n    {\n      \"target\": \"metal\",\n      \"feature\": \"non_uniform_resource_indexing\",\n      \"diagnostic\": \"Slang reports NonUniformResourceIndex unavailable for the Metal fragment target\",\n      \"fallback\": \"forward-conventional\"\n    }\n  ]\n}\n")
 
 get_filename_component(_manifest_dir "${MERLIN_SHADER_MANIFEST}" DIRECTORY)
 file(MAKE_DIRECTORY "${_manifest_dir}")

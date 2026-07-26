@@ -933,7 +933,6 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     }
     AppendIdentityField(module_record, "source", module.source);
     module.module_key = MakeIdentity(module_record);
-    module.cache_key = module.module_key;
     module.logical_module.key = module.module_key;
     module.instance_key =
         MakeStateIdentity(kInstanceKeySchema, module, true, false);

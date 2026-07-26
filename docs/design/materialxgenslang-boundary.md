@@ -205,11 +205,13 @@ covers source and include content; the artifact key adds compiler and version,
 target, profile, capability set, matrix layout, optimization and debug policy,
 target-specific options, ABI version, permutation, and feature set. Handwritten
 Slang supplies the fingerprint of its own sources and generated material
-supplies its module key; nothing else about the two paths differs. The shader
-manifest records both identities together with the sources and policy fields
-they were computed from, and `merlin-shader-artifact-key` recomputes every key
-in the emitted manifest through the header, so the build system and the
-contract cannot drift apart.
+supplies its module key; nothing else about the two paths differs. A handwritten
+module's include closure is recovered from the depfile the compiler emitted, not
+declared by the build system, so an added include reaches the module identity
+without anyone restating it. The shader manifest records both identities
+together with the sources and policy fields they were computed from, and
+`merlin-shader-artifact-key` recomputes every key in the emitted manifest
+through the header, so the build system and the contract cannot drift apart.
 
 Core stores typed generated-parameter values and resolved logical resource
 bindings separately from the module definition. MaterialX filename defaults

@@ -45,7 +45,22 @@ after its public API and release process are established.
 
 - Module, parameter, resource, and artifact identities now share one
   length-prefixed record encoding and SHA-256 implementation in Core rather
-  than a MaterialX-local copy.
+  than a MaterialX-local copy. Field names are length-prefixed alongside field
+  values, so no name or value can imitate a record separator.
+- Shader packages moved from `shaders/v1` to `shaders/v2`. Each artifact now
+  records `module_sources` and `module_identity` in place of
+  `dependency_sha256`, and `artifact_key` in place of `cache_key`; the package
+  `sources` inventory and every module's include closure are recovered from the
+  depfile the compiler emitted rather than declared by the build system.
+- Shader debug policy is a compile input that reaches both the `slangc`
+  invocation and the artifact key, rather than a value the manifest asserted.
+
+### Removed
+
+- `MaterialFunctionModule::cache_key`, the transitional alias for
+  `module_key`. A compiled artifact's identity is now a distinct key built by
+  `merlin::MakeShaderArtifactKey`, so one field named after "cache" no longer
+  stands for two different questions.
 
 ## [0.9.0] - 2026-07-18
 

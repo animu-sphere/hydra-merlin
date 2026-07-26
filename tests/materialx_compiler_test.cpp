@@ -66,13 +66,13 @@ int main(int argc, char** argv) {
   assert(first.module->source.find("shader(\"fragment\")") ==
          std::string::npos);
   assert(first.module->source.find("SV_Target") == std::string::npos);
-  assert(first.module->cache_key == second.module->cache_key);
-  assert(first.module->module_key == first.module->cache_key);
+  assert(first.module->module_key == second.module->module_key);
   assert(first.module->instance_key == second.module->instance_key);
   assert(first.module->resource_key == second.module->resource_key);
   assert(first.module->source == second.module->source);
-  assert(first.module->cache_key.starts_with("sha256:"));
-  assert(first.module->cache_key.size() == 71U);
+  assert(merlin::IsIdentity(first.module->module_key));
+  assert(merlin::IsIdentity(first.module->instance_key));
+  assert(merlin::IsIdentity(first.module->resource_key));
   assert(!first.module->materialx_version.empty());
   assert(!first.module->generator_version.empty());
   assert(first.module->generator_revision ==
@@ -129,7 +129,6 @@ int main(int argc, char** argv) {
       merlin::materialx::CompileMaterialFunction(changed_document, options);
   assert(changed);
   assert(changed.module->module_key == first.module->module_key);
-  assert(changed.module->cache_key == first.module->cache_key);
   assert(changed.module->source == first.module->source);
   assert(changed.module->instance_key != first.module->instance_key);
   assert(changed.module->resource_key == first.module->resource_key);

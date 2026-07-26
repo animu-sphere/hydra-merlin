@@ -115,6 +115,16 @@ set(_merlin_slang_spirv_profile "sm_6_6")
 set(_merlin_slang_metal_profile "metallib_2_4")
 set(_merlin_slang_matrix_layout "column-major")
 set(_merlin_slang_optimization "O2")
+# Recorded in the artifact key, so it has to drive the compile rather than only
+# describe it: packaged artifacts are release builds without debug info.
+set(_merlin_slang_debug_info OFF)
+if(_merlin_slang_debug_info)
+  set(_merlin_slang_debug_arguments -g)
+  set(_merlin_slang_debug_info_json "true")
+else()
+  set(_merlin_slang_debug_arguments "")
+  set(_merlin_slang_debug_info_json "false")
+endif()
 
 set(_merlin_conventional_features "material_constants+base_color_texture")
 set(_merlin_bindless_features
@@ -140,6 +150,7 @@ function(_merlin_compile_shader _output _source _entry _stage _target _profile
             ${_capability_arguments}
             "-matrix-layout-${_merlin_slang_matrix_layout}"
             "-${_merlin_slang_optimization}"
+            ${_merlin_slang_debug_arguments}
             -warnings-as-errors all
             -reflection-json "${_reflection}"
             -depfile "${_depfile}"
@@ -153,7 +164,7 @@ function(_merlin_compile_shader _output _source _entry _stage _target _profile
     VERBATIM
   )
   set_property(GLOBAL APPEND PROPERTY MERLIN_SHADER_RECORDS
-    "${_output}|${_reflection}|${_source}|${_entry}|${_stage}|${_target}|${_profile}|${_capabilities}|${_permutation}|${_features}")
+    "${_output}|${_reflection}|${_depfile}|${_source}|${_entry}|${_stage}|${_target}|${_profile}|${_capabilities}|${_permutation}|${_features}")
 endfunction()
 
 _merlin_compile_shader("${MERLIN_VERTEX_SPV}" forward.slang
@@ -202,15 +213,14 @@ add_custom_command(
     "-DMERLIN_SHADER_ARTIFACT_KEY_SCHEMA:STRING=${MERLIN_SHADER_ARTIFACT_KEY_SCHEMA}"
     "-DMERLIN_SHADER_ABI_VERSION:STRING=${MERLIN_SHADER_ABI_VERSION}"
     "-DMERLIN_SHADER_RECORDS_FILE:FILEPATH=${_merlin_shader_records_file}"
+    "-DMERLIN_SHADER_SOURCE_DIR:PATH=${_merlin_shader_source_dir}"
     "-DMERLIN_SLANG_VERSION:STRING=${_merlin_slang_version}"
     "-DMERLIN_SLANG_REQUIRED_SERIES:STRING=${MERLIN_SLANG_REQUIRED_SERIES}"
     "-DMERLIN_SLANG_MATRIX_LAYOUT:STRING=${_merlin_slang_matrix_layout}"
     "-DMERLIN_SLANG_OPTIMIZATION:STRING=${_merlin_slang_optimization}"
+    "-DMERLIN_SLANG_DEBUG_INFO:STRING=${_merlin_slang_debug_info_json}"
     "-DMERLIN_VULKAN_SDK_VERSION:STRING=${_merlin_vulkan_sdk_version}"
     "-DMERLIN_CMAKE_GENERATOR:STRING=${CMAKE_GENERATOR}"
-    "-DMERLIN_FORWARD_SOURCE:FILEPATH=${_merlin_shader_forward}"
-    "-DMERLIN_BINDLESS_SOURCE:FILEPATH=${_merlin_shader_bindless}"
-    "-DMERLIN_COMMON_SOURCE:FILEPATH=${_merlin_shader_common}"
     "-DMERLIN_ENVIRONMENT_HDR:FILEPATH=${MERLIN_ENVIRONMENT_HDR}"
     -P "${PROJECT_SOURCE_DIR}/cmake/write-shader-manifest.cmake"
   DEPENDS
