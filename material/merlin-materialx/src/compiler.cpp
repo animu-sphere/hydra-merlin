@@ -340,8 +340,10 @@ void AddError(CompileResult& result, DiagnosticCode code,
       std::move(message), std::move(node_category), std::move(input_name)});
 }
 
-// A dependency failure carries its own type so the outer handler can classify
-// it as a missing include instead of a generic generation failure.
+// A dependency that could not be read, or that resolved outside every
+// registered data root, carries its own type so the outer handler can classify
+// it as a missing include instead of a generic generation failure. A dependency
+// that was found and read stays a plain generation failure.
 class DependencyError : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;
@@ -411,16 +413,19 @@ std::string MakeLogicalDependencyPath(
   if (marker_position != std::string::npos) {
     return generic.substr(marker_position + 1U);
   }
+  // Only the filename: the resolved path is host-absolute, and a diagnostic
+  // carrying one is not reproducible between machines. The caller registered
+  // the data roots, so it already knows which roots failed to contain this.
   throw DependencyError(
       "MaterialX dependency is outside every registered data root: " +
-      path.generic_string());
+      path.filename().generic_string());
 }
 
 std::string ReadDependency(const std::filesystem::path& path) {
   std::ifstream stream(path, std::ios::binary);
   if (!stream) {
     throw DependencyError("Could not read MaterialX dependency: " +
-                          path.generic_string());
+                          path.filename().generic_string());
   }
   return {std::istreambuf_iterator<char>(stream),
           std::istreambuf_iterator<char>()};
@@ -438,7 +443,10 @@ std::string FingerprintDependencies(
     const auto [entry, inserted] =
         sorted.emplace(logical_path, content_sha256);
     if (!inserted && entry->second != content_sha256) {
-      throw DependencyError(
+      // Not a missing include: both documents were found and read. Two distinct
+      // files collapsing onto one logical path means the fingerprint cannot
+      // identify the closure, which is a generation failure.
+      throw std::runtime_error(
           "MaterialX dependencies resolve to the same logical path with "
           "different content: " +
           logical_path);
@@ -932,10 +940,12 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
         search_path, module.source_dependencies);
     CollectReflection(stage, *generator, module);
     if (const auto error = PopulateLogicalModule(module)) {
+      // Detected against reflected interface, not against a document element:
+      // the renderable is the most specific element that can be named, and no
+      // authored node can be. Naming the renderable's category here would point
+      // a host at a node that is not the one that failed.
       AddError(result, error->code, renderable->getNamePath(), error->message,
-               renderable_node != nullptr ? renderable_node->getCategory()
-                                          : std::string{},
-               error->input_name);
+               {}, error->input_name);
       return result;
     }
 

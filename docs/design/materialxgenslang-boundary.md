@@ -236,6 +236,14 @@ version, and the selected recovery. Integration-local diagnostics bridge into
 the existing host-neutral `merlin-diagnostic/v1` sink before reaching Hydra or
 another host.
 
+A field is filled only where the producer can attribute the failure that
+precisely. A failure detected against reflected interface rather than against a
+document element can name the renderable and the input but no authored node, so
+it leaves the node category empty instead of naming a node that did not fail.
+No record carries a host-absolute path: a diagnostic that names one is not
+reproducible between machines, so documents are identified logically and an
+unresolvable dependency is reported by filename.
+
 The categories, context, and ladder are owned by Core as
 `merlin.material-diagnostic/v1` in `merlin/core/material_diagnostic.hpp`, not by
 the MaterialX integration, so a MaterialX document, a Hydra network, and a
@@ -258,6 +266,17 @@ that rejected a document outright simplified nothing, so it reports the
 basic-material fallback even for a category whose failure could in principle
 have been simplified. Claiming the simplification would record coverage that
 was never generated.
+
+The converse holds as well: only a failure costs a material. A warning against a
+material that still generated substituted nothing, so it takes no rung, is
+reported to the host as an ignored record rather than a rejection, and is not
+counted as a substitution in fallback evidence.
+
+Within the v0.10.0 slice an image resource must carry an authored filename at
+generation time. Instance-time texture binding against a resource the document
+left unnamed is out of scope, so such a document is rejected at generation
+rather than producing a module carrying a resource identifier no host could
+resolve.
 
 ## Backend integration
 

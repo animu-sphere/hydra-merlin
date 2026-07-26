@@ -50,10 +50,17 @@ merlin::MaterialDiagnostic ToMaterialDiagnostic(
   merlin::MaterialDiagnostic bridged;
   bridged.category = ToMaterialDiagnosticCategory(diagnostic.code);
   bridged.severity = ToDiagnosticSeverity(diagnostic.severity);
-  // A module in hand is the only proof that a usable simplification exists;
-  // every early return in the compiler leaves none.
-  bridged.fallback = merlin::ResolveMaterialFallback(
-      bridged.category, result.module.has_value(), policy);
+  // Only a failure costs a material. A warning leaves the compile intact, so it
+  // claims no rung: descending the ladder for it would report a substitution
+  // the renderer never performed, and would count one in the evidence.
+  //
+  // For a failure, a module in hand is the only proof that a usable
+  // simplification exists; every early return in the compiler leaves none.
+  bridged.fallback =
+      bridged.severity == merlin::DiagnosticSeverity::Error
+          ? merlin::ResolveMaterialFallback(bridged.category,
+                                            result.module.has_value(), policy)
+          : merlin::MaterialFallback::None;
   bridged.message = diagnostic.message;
   bridged.context.material_identity =
       result.module ? result.module->module_key : std::string{};
@@ -61,11 +68,15 @@ merlin::MaterialDiagnostic ToMaterialDiagnostic(
   bridged.context.node_category = diagnostic.node_category;
   bridged.context.input_name = diagnostic.input_name;
   bridged.context.source_document = result.source_document;
-  // Document-level failures happen before any target is chosen, so the target
-  // stays empty rather than guessing one.
-  bridged.context.generator_version = result.generator_version.empty()
-                                          ? result.materialx_version
-                                          : result.generator_version;
+  // The version names what it is a version of: a document rejected before the
+  // generator existed can still report which library read it, and a host must
+  // not have to guess which of the two it is looking at.
+  bridged.context.generator_version =
+      result.generator_version.empty()
+          ? "MaterialX/" + result.materialx_version
+          : "MaterialXGenSlang/" + result.generator_version;
+  // Document-level failures happen before any target is chosen, so
+  // `backend_target` stays empty rather than guessing one.
   return bridged;
 }
 

@@ -417,6 +417,13 @@ int main(int argc, char** argv) {
   assert(!missing_texture);
   assert(HasDiagnostic(missing_texture,
                        merlin::materialx::DiagnosticCode::MissingTexture));
+  const auto& texture_diagnostic = FindDiagnostic(
+      missing_texture, merlin::materialx::DiagnosticCode::MissingTexture);
+  // Detected against reflected interface, so the input can be named but the
+  // authored node cannot. The category stays empty rather than naming the
+  // renderable, which is not the node that failed.
+  assert(!texture_diagnostic.input_name.empty());
+  assert(texture_diagnostic.node_category.empty());
 
   // Integration-local records carry the context a host needs to locate the
   // failure, and the bridge classifies them against the Core contract without
@@ -444,7 +451,11 @@ int main(int argc, char** argv) {
   assert(bridged.severity == merlin::DiagnosticSeverity::Error);
   assert(bridged.context.node_category == "noise3d");
   assert(bridged.context.source_document == "materials/unsupported.mtlx");
-  assert(!bridged.context.generator_version.empty());
+  // This document never reached the generator, so the version reported is the
+  // library that read it, and it says so rather than leaving a bare number a
+  // host would have to guess the origin of.
+  assert(bridged.context.generator_version ==
+         "MaterialX/" + unsupported_with_source.materialx_version);
   // No module survived, so nothing was simplified. Reporting a simplification
   // here would claim MaterialX coverage that was never generated.
   assert(bridged.fallback == merlin::MaterialFallback::BasicMaterial);
@@ -478,6 +489,28 @@ int main(int argc, char** argv) {
   assert(strict_evidence.effective_fallback ==
          merlin::MaterialFallback::ErrorMaterial);
   assert(strict_sink.reported.front().recovery == "error-material");
+
+  // A warning is not a failure. Nothing was substituted, so the record claims
+  // no rung of the ladder and reaches the host as an ignored record rather than
+  // as a rejection or a fallback. The compiler emits only errors today; the
+  // bridge must not turn the first warning it is handed into a recovery the
+  // renderer never performed.
+  const merlin::materialx::Diagnostic advisory{
+      merlin::materialx::DiagnosticSeverity::Warning,
+      merlin::materialx::DiagnosticCode::UnsupportedInput, "NG_prototype/mix",
+      "authored input was ignored"};
+  const auto bridged_advisory =
+      merlin::materialx::ToMaterialDiagnostic(advisory, standard_surface);
+  assert(bridged_advisory.severity == merlin::DiagnosticSeverity::Warning);
+  assert(bridged_advisory.fallback == merlin::MaterialFallback::None);
+  assert(merlin::ToDiagnostic(bridged_advisory).disposition ==
+         merlin::DiagnosticDisposition::Ignored);
+  // A module in hand reports the generator that produced it, told apart from
+  // the library version a pre-generation failure reports.
+  assert(bridged_advisory.context.generator_version ==
+         "MaterialXGenSlang/" + standard_surface.generator_version);
+  assert(bridged_advisory.context.material_identity ==
+         standard_surface.module->module_key);
 
   // A clean compile reports nothing and claims no fallback, so evidence never
   // shows a recovery the renderer did not perform.

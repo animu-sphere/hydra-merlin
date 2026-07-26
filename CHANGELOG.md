@@ -49,6 +49,8 @@ after its public API and release process are established.
   host policy; and an evidence aggregate that summarizes the worst fallback
   reached. The contract belongs to Core, so a MaterialX document, a Hydra
   network, and a future material source classify the same failure identically.
+  A record fills a context field only where it can attribute the failure that
+  precisely, so a host is never pointed at an element or node that did not fail.
 - `Merlin::MaterialX` diagnostics for unsupported type conversions, missing
   generator includes, and image resources the document left without a filename,
   plus the authored node category and input name on every record that is
@@ -57,7 +59,10 @@ after its public API and release process are established.
   against the Core contract and flattens them onto the existing host-neutral
   `merlin-diagnostic/v1` sink, so hosts keep one diagnostic stream while
   evidence consumers keep the structure. A rejected document reports the
-  basic-material fallback rather than a simplification it never generated.
+  basic-material fallback rather than a simplification it never generated, and
+  a warning against a material that still generated takes no rung at all: it
+  reaches the host as an ignored record and is not counted as a substitution in
+  fallback evidence.
 
 ### Changed
 
@@ -85,7 +90,11 @@ after its public API and release process are established.
 - `CompileOptions` accepts a logical `source_document` identifier, and
   `CompileResult` echoes it alongside the MaterialX and generator versions, so
   a failed compile still reports where it came from and which versions produced
-  it without a host-absolute path entering a diagnostic.
+  it without a host-absolute path entering a diagnostic. A dependency that
+  cannot be read or resolved is likewise reported by filename rather than by its
+  resolved host path, and a bridged version names what it is a version of, so a
+  host never has to guess whether it is reading the MaterialX library version or
+  the shader generator's.
 
 ### Removed
 

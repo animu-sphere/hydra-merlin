@@ -134,7 +134,9 @@ MaterialDiagnostic MakeUnsupportedNodeDiagnostic() {
   diagnostic.context.input_name = "amplitude";
   diagnostic.context.source_document = "materials/prototype.mtlx";
   diagnostic.context.backend_target = "spirv";
-  diagnostic.context.generator_version = "1.39.6";
+  // A version names what it is a version of; a bare number would leave a host
+  // guessing which of the producer's versions it is reading.
+  diagnostic.context.generator_version = "MaterialXGenSlang/1.0";
   diagnostic.context.compiler_version = "slangc-2025.10";
   return diagnostic;
 }
@@ -160,16 +162,17 @@ void VerifyBridgeToDiagnosticV1() {
        {"material=sha256:abc", "element=NG_prototype/noise",
         "node=noise2d", "input=amplitude",
         "document=materials/prototype.mtlx", "target=spirv",
-        "generator=1.39.6", "compiler=slangc-2025.10"}) {
+        "generator=MaterialXGenSlang/1.0", "compiler=slangc-2025.10"}) {
     assert(message.find(field) != std::string::npos);
   }
   assert(message.find("material=") < message.find("element="));
   assert(message.find("generator=") < message.find("compiler="));
 
-  // Absent context is omitted rather than reported as empty, and a record that
+  // Absent context is omitted rather than reported as empty, and an error that
   // substituted nothing is a rejection.
   MaterialDiagnostic sparse;
   sparse.category = MaterialDiagnosticCategory::InvalidDocument;
+  sparse.severity = merlin::DiagnosticSeverity::Error;
   sparse.fallback = MaterialFallback::None;
   sparse.message = "document did not parse";
   sparse.context.source_document = "materials/broken.mtlx";
@@ -182,6 +185,30 @@ void VerifyBridgeToDiagnosticV1() {
   assert(sparse_bridged.message.find("node=") == std::string::npos);
   assert(sparse_bridged.message.find("document=materials/broken.mtlx") !=
          std::string::npos);
+
+  // A warning cost the material nothing: it still generated, so the record is
+  // neither a fallback nor a rejection. Calling it a rejection would tell a
+  // host it lost a material it is about to draw.
+  MaterialDiagnostic warning;
+  warning.category = MaterialDiagnosticCategory::UnsupportedInput;
+  warning.severity = merlin::DiagnosticSeverity::Warning;
+  warning.fallback = MaterialFallback::None;
+  warning.message = "authored input was ignored";
+  warning.context.element_path = "NG_prototype/mix";
+  const auto warning_bridged = merlin::ToDiagnostic(warning);
+  assert(warning_bridged.disposition == merlin::DiagnosticDisposition::Ignored);
+  assert(warning_bridged.severity == merlin::DiagnosticSeverity::Warning);
+  assert(warning_bridged.recovery == "none");
+  assert(warning_bridged.source == "NG_prototype/mix");
+
+  // A record that carries context but no message reports the context by
+  // itself, rather than a message that opens with a stray parenthesis.
+  MaterialDiagnostic unnamed;
+  unnamed.category = MaterialDiagnosticCategory::CompileFailure;
+  unnamed.context.backend_target = "spirv";
+  const auto unnamed_bridged = merlin::ToDiagnostic(unnamed);
+  assert(unnamed_bridged.message == "target=spirv");
+  assert(unnamed_bridged.code == "material.compile.failed");
 }
 
 void VerifyEvidence() {

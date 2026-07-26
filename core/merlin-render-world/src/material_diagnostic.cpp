@@ -151,9 +151,17 @@ Diagnostic ToDiagnostic(const MaterialDiagnostic& diagnostic) {
   bridged.schema_version = kDiagnosticSchemaVersion;
   bridged.code = std::string(MaterialDiagnosticCode(diagnostic.category));
   bridged.severity = diagnostic.severity;
-  bridged.disposition = diagnostic.fallback == MaterialFallback::None
-                            ? DiagnosticDisposition::Rejected
-                            : DiagnosticDisposition::Fallback;
+  if (diagnostic.fallback != MaterialFallback::None) {
+    bridged.disposition = DiagnosticDisposition::Fallback;
+  } else if (diagnostic.severity == DiagnosticSeverity::Error) {
+    // Nothing was substituted and the material did not survive.
+    bridged.disposition = DiagnosticDisposition::Rejected;
+  } else {
+    // Nothing was substituted because nothing had to be: the material still
+    // generated. Reporting this as a rejection would tell a host it lost a
+    // material it is about to draw.
+    bridged.disposition = DiagnosticDisposition::Ignored;
+  }
   bridged.source = DiagnosticSource(diagnostic.context);
   bridged.message = diagnostic.message;
   if (auto context = MakeContextRecord(diagnostic.context); !context.empty()) {

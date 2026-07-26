@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace merlin {
 
@@ -82,20 +81,31 @@ struct MaterialFallbackPolicy {
 // Everything a record carries about *where* a failure happened. Every field is
 // optional because producers detect failures at different depths; an empty
 // field is omitted from the bridged diagnostic rather than reported as empty.
+//
+// A producer fills a field only when it can attribute the failure that
+// precisely. Guessing is worse than leaving a field empty: a host that reads a
+// wrong element or node is pointed away from the actual failure.
 struct MaterialDiagnosticContext {
   // Identity of the material or generated module, when one exists. A failure
   // before generation has none.
   std::string material_identity;
-  // Hierarchical path of the offending element within the source document.
+  // Hierarchical path of the offending element within the source document, or
+  // the most specific enclosing element the producer could attribute. A failure
+  // detected after generation, against reflected interface rather than against
+  // a document element, may only be able to name the renderable.
   std::string element_path;
   // Node category (the authored node type) and input name, when the failure is
-  // attributable to one node or one input.
+  // attributable to one node or one input. A failure detected against reflected
+  // interface has no authored node to name and leaves the category empty.
   std::string node_category;
   std::string input_name;
   // Logical identifier of the source document. Never a host-absolute path.
   std::string source_document;
   // Backend target spelling for compile and target failures, e.g. "spirv".
   std::string backend_target;
+  // Producer-spelled versions. A value names what it is a version *of*, because
+  // one producer may report a library version where another reports a code
+  // generator version, e.g. "MaterialX/1.39.6" or "MaterialXGenSlang/1.0".
   std::string generator_version;
   std::string compiler_version;
 };
@@ -106,7 +116,10 @@ struct MaterialDiagnostic {
       MaterialDiagnosticCategory::GenerationFailure};
   DiagnosticSeverity severity{DiagnosticSeverity::Error};
   // The rung actually taken. Producers that cannot substitute a material leave
-  // this at the value `SelectMaterialFallback` returned for their policy.
+  // this at the value `SelectMaterialFallback` returned for their policy. A
+  // record that did not cost the material anything, such as a warning against a
+  // material that still generated, stays at `None`, so evidence never counts a
+  // substitution the renderer never made.
   MaterialFallback fallback{MaterialFallback::ErrorMaterial};
   std::string message;
   MaterialDiagnosticContext context;
@@ -145,10 +158,17 @@ struct MaterialDiagnostic {
 
 // Flatten a material record onto `merlin-diagnostic/v1`. The context survives
 // as `key=value` pairs appended to the message, in declaration order, so a host
-// that only understands v1 still receives the full record.
+// that only understands v1 still sees every field the record carried.
 //
-// `disposition` follows the fallback: any substituted material is a `Fallback`,
-// and only a record that substituted nothing is `Rejected`.
+// That tail is a rendering for a host that has no structured channel, not an
+// encoding: values are written verbatim, so one containing a space is not
+// separable again. A consumer that needs the fields back reads
+// `MaterialDiagnostic` itself, which is why producers bridge rather than parse.
+//
+// `disposition` distinguishes the three outcomes v1 already spells: a
+// substituted material is a `Fallback`, an error that substituted nothing is a
+// `Rejected`, and a record that cost the material nothing, such as a warning on
+// a material that still generated, is `Ignored`.
 [[nodiscard]] Diagnostic ToDiagnostic(const MaterialDiagnostic& diagnostic);
 
 // Aggregated fallback evidence for one material, one frame, or one build,
