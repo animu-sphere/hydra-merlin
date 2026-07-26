@@ -70,6 +70,8 @@ add_test(
 set_tests_properties(merlin-backend-boundaries PROPERTIES LABELS "architecture")
 
 if(TARGET Merlin::MaterialX)
+  set(_merlin_materialx_artifact_source_dir
+      "${PROJECT_SOURCE_DIR}/material/merlin-materialx/artifacts")
   add_executable(merlin-materialx-compiler-tests
     materialx_compiler_test.cpp
   )
@@ -83,10 +85,10 @@ if(TARGET Merlin::MaterialX)
   add_test(
     NAME merlin-materialx-compiler
     COMMAND merlin-materialx-compiler-tests
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
+      "${_merlin_materialx_artifact_source_dir}/prototype.mtlx"
       "${_merlin_materialx_data_root}"
       "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.slang"
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface.mtlx"
+      "${_merlin_materialx_artifact_source_dir}/standard-surface.mtlx"
       "${CMAKE_CURRENT_BINARY_DIR}/materialx-standard-surface.slang"
   )
   set_tests_properties(merlin-materialx-compiler PROPERTIES
@@ -94,15 +96,13 @@ if(TARGET Merlin::MaterialX)
     FIXTURES_SETUP merlin-materialx-generated-module
   )
 
-  find_program(MERLIN_MATERIALX_TEST_SLANGC
-    NAMES slangc
-    HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin"
-  )
+  set(MERLIN_MATERIALX_TEST_SLANGC
+      "${MERLIN_MATERIALX_SLANGC_EXECUTABLE}")
   if(MERLIN_MATERIALX_TEST_SLANGC)
     add_test(
       NAME merlin-materialx-spirv-compile
       COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/compile-wrapper.slang"
+        "${_merlin_materialx_artifact_source_dir}/compile-wrapper.slang"
         -I "${CMAKE_CURRENT_BINARY_DIR}"
         -entry merlin_materialx_test_fragment
         -stage fragment
@@ -181,7 +181,7 @@ if(TARGET Merlin::MaterialX)
     add_test(
       NAME merlin-materialx-metal-compile
       COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/compile-wrapper.slang"
+        "${_merlin_materialx_artifact_source_dir}/compile-wrapper.slang"
         -I "${CMAKE_CURRENT_BINARY_DIR}"
         -entry merlin_materialx_test_fragment
         -stage fragment
@@ -203,7 +203,7 @@ if(TARGET Merlin::MaterialX)
     add_test(
       NAME merlin-materialx-standard-surface-spirv-compile
       COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface-wrapper.slang"
+        "${_merlin_materialx_artifact_source_dir}/standard-surface-wrapper.slang"
         -I "${CMAKE_CURRENT_BINARY_DIR}"
         -entry merlin_materialx_standard_surface_test_fragment
         -stage fragment
@@ -227,7 +227,7 @@ if(TARGET Merlin::MaterialX)
     add_test(
       NAME merlin-materialx-standard-surface-metal-compile
       COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface-wrapper.slang"
+        "${_merlin_materialx_artifact_source_dir}/standard-surface-wrapper.slang"
         -I "${CMAKE_CURRENT_BINARY_DIR}"
         -entry merlin_materialx_standard_surface_test_fragment
         -stage fragment
@@ -257,8 +257,8 @@ if(TARGET Merlin::MaterialX)
     add_test(
       NAME merlin-material-target-reflection
       COMMAND merlin-material-target-reflection-tests
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface.mtlx"
+        "${_merlin_materialx_artifact_source_dir}/prototype.mtlx"
+        "${_merlin_materialx_artifact_source_dir}/standard-surface.mtlx"
         "${_merlin_materialx_data_root}"
         "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.spv.reflection.json"
         "${CMAKE_CURRENT_BINARY_DIR}/materialx-prototype.metal.reflection.json"
@@ -270,127 +270,6 @@ if(TARGET Merlin::MaterialX)
       FIXTURES_REQUIRED merlin-materialx-target-artifacts
     )
 
-    # Retain the accepted cross-target slice as installable build evidence,
-    # instead of leaving the generated sources and compiler reflection only in
-    # CTest's transient fixture paths.
-    set(_merlin_materialx_package
-        "${CMAKE_BINARY_DIR}/generated-material-artifacts/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/materialx")
-    set(_merlin_packaged_prototype
-        "${_merlin_materialx_package}/materialx-prototype.slang")
-    set(_merlin_packaged_standard_surface
-        "${_merlin_materialx_package}/materialx-standard-surface.slang")
-    add_custom_command(
-      OUTPUT
-        "${_merlin_packaged_prototype}"
-        "${_merlin_packaged_standard_surface}"
-      COMMAND "${CMAKE_COMMAND}" -E make_directory
-        "${_merlin_materialx_package}"
-      COMMAND "$<TARGET_FILE:merlin-materialx-compiler-tests>"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
-        "${_merlin_materialx_data_root}"
-        "${_merlin_packaged_prototype}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface.mtlx"
-        "${_merlin_packaged_standard_surface}"
-      DEPENDS
-        merlin-materialx-compiler-tests
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface.mtlx"
-      COMMENT "Generating retained MaterialX material modules"
-      VERBATIM
-    )
-
-    set(_merlin_packaged_prototype_spv
-        "${_merlin_materialx_package}/materialx-prototype.spv")
-    set(_merlin_packaged_prototype_metal
-        "${_merlin_materialx_package}/materialx-prototype.metal")
-    set(_merlin_packaged_standard_spv
-        "${_merlin_materialx_package}/materialx-standard-surface.spv")
-    set(_merlin_packaged_standard_metal
-        "${_merlin_materialx_package}/materialx-standard-surface.metal")
-    add_custom_command(
-      OUTPUT
-        "${_merlin_packaged_prototype_spv}"
-        "${_merlin_packaged_prototype_spv}.reflection.json"
-      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/compile-wrapper.slang"
-        -I "${_merlin_materialx_package}"
-        -entry merlin_materialx_test_fragment -stage fragment
-        -target spirv -profile sm_6_6 -capability spirv_1_5
-        -matrix-layout-column-major -O2 -warnings-as-errors all
-        -reflection-json
-          "${_merlin_packaged_prototype_spv}.reflection.json"
-        -o "${_merlin_packaged_prototype_spv}"
-      DEPENDS "${_merlin_packaged_prototype}"
-      COMMENT "Packaging MaterialX prototype SPIR-V evidence"
-      VERBATIM
-    )
-    add_custom_command(
-      OUTPUT
-        "${_merlin_packaged_prototype_metal}"
-        "${_merlin_packaged_prototype_metal}.reflection.json"
-      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/compile-wrapper.slang"
-        -I "${_merlin_materialx_package}"
-        -entry merlin_materialx_test_fragment -stage fragment
-        -target metal -profile metallib_2_4
-        -matrix-layout-column-major -O2 -warnings-as-errors all
-        -reflection-json
-          "${_merlin_packaged_prototype_metal}.reflection.json"
-        -o "${_merlin_packaged_prototype_metal}"
-      DEPENDS "${_merlin_packaged_prototype}"
-      COMMENT "Packaging MaterialX prototype Metal evidence"
-      VERBATIM
-    )
-    add_custom_command(
-      OUTPUT
-        "${_merlin_packaged_standard_spv}"
-        "${_merlin_packaged_standard_spv}.reflection.json"
-      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface-wrapper.slang"
-        -I "${_merlin_materialx_package}"
-        -entry merlin_materialx_standard_surface_test_fragment
-        -stage fragment -target spirv -profile sm_6_6
-        -capability spirv_1_5
-        -matrix-layout-column-major -O2 -warnings-as-errors all
-        -reflection-json
-          "${_merlin_packaged_standard_spv}.reflection.json"
-        -o "${_merlin_packaged_standard_spv}"
-      DEPENDS "${_merlin_packaged_standard_surface}"
-      COMMENT "Packaging MaterialX Standard Surface SPIR-V evidence"
-      VERBATIM
-    )
-    add_custom_command(
-      OUTPUT
-        "${_merlin_packaged_standard_metal}"
-        "${_merlin_packaged_standard_metal}.reflection.json"
-      COMMAND "${MERLIN_MATERIALX_TEST_SLANGC}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface-wrapper.slang"
-        -I "${_merlin_materialx_package}"
-        -entry merlin_materialx_standard_surface_test_fragment
-        -stage fragment -target metal -profile metallib_2_4
-        -matrix-layout-column-major -O2 -warnings-as-errors all
-        -reflection-json
-          "${_merlin_packaged_standard_metal}.reflection.json"
-        -o "${_merlin_packaged_standard_metal}"
-      DEPENDS "${_merlin_packaged_standard_surface}"
-      COMMENT "Packaging MaterialX Standard Surface Metal evidence"
-      VERBATIM
-    )
-    add_custom_target(merlin-materialx-retained-artifacts ALL
-      DEPENDS
-        "${_merlin_packaged_prototype_spv}"
-        "${_merlin_packaged_prototype_spv}.reflection.json"
-        "${_merlin_packaged_prototype_metal}"
-        "${_merlin_packaged_prototype_metal}.reflection.json"
-        "${_merlin_packaged_standard_spv}"
-        "${_merlin_packaged_standard_spv}.reflection.json"
-        "${_merlin_packaged_standard_metal}"
-        "${_merlin_packaged_standard_metal}.reflection.json"
-    )
-    install(DIRECTORY "${_merlin_materialx_package}/"
-      DESTINATION
-        "${CMAKE_INSTALL_DATADIR}/merlin/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/materialx"
-    )
   endif()
 endif()
 
@@ -499,10 +378,10 @@ if(TARGET merlin-headless)
       NAME merlin-vulkan-generated-material
       COMMAND merlin-generated-material-vulkan-tests
         "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/prototype.mtlx"
+        "${_merlin_materialx_artifact_source_dir}/prototype.mtlx"
         "${_merlin_materialx_data_root}"
         "${MERLIN_MATERIALX_FORWARD_SPV}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/materialx/standard-surface.mtlx"
+        "${_merlin_materialx_artifact_source_dir}/standard-surface.mtlx"
         "${MERLIN_MATERIALX_STANDARD_SURFACE_FORWARD_SPV}"
         "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/assets/environment.hdr"
     )
@@ -649,6 +528,7 @@ add_test(
     "-DMERLIN_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}"
     "-DMERLIN_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
     "-DMERLIN_SHADER_ARTIFACT_SCHEMA_VERSION=${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+    "-DMERLIN_EXPECTED_MATERIALX_ARTIFACTS=${MERLIN_MATERIALX_ARTIFACTS_ENABLED}"
     "-DMERLIN_EXPECTED_VERSION=${PROJECT_VERSION}"
     "-DMERLIN_GENERATOR=${CMAKE_GENERATOR}"
     "-DMERLIN_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"

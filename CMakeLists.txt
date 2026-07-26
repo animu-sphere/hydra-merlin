@@ -178,6 +178,26 @@ if(MERLIN_ENABLE_VULKAN AND MERLIN_BUILD_VIEWPORT)
   add_subdirectory(adapters/merlin-viewport)
 endif()
 
+set(MERLIN_MATERIALX_ARTIFACTS_ENABLED OFF)
+if(MERLIN_ENABLE_MATERIALX)
+  if(MERLIN_SLANGC_EXECUTABLE)
+    set(MERLIN_MATERIALX_SLANGC_EXECUTABLE
+        "${MERLIN_SLANGC_EXECUTABLE}")
+  else()
+    find_program(MERLIN_MATERIALX_SLANGC_EXECUTABLE
+      NAMES slangc
+      HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin"
+      DOC "Slang compiler used for retained MaterialX target artifacts"
+    )
+  endif()
+  if(MERLIN_MATERIALX_SLANGC_EXECUTABLE)
+    include(cmake/package-materialx-artifacts.cmake)
+  else()
+    message(STATUS
+      "slangc was not found; retained MaterialX target artifacts are disabled")
+  endif()
+endif()
+
 if(MERLIN_BUILD_TESTS)
   add_subdirectory(tests)
 endif()

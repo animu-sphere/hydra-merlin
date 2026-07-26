@@ -161,7 +161,8 @@ endif()
 # sibling MaterialX package discovery without requiring a renderer backend.
 set(_materialx_targets
     "${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin/MerlinMaterialXTargets.cmake")
-if(EXISTS "${_materialx_targets}")
+if(EXISTS "${_materialx_targets}" AND
+   MERLIN_EXPECTED_MATERIALX_ARTIFACTS)
   set(_materialx_artifact_dir
       "${_stage_dir}/${MERLIN_INSTALL_DATADIR}/merlin/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/materialx")
   foreach(_materialx_artifact

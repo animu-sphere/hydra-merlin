@@ -160,9 +160,8 @@ upload path.
 
 The current renderer intentionally does not yet provide:
 
-- Hydra MaterialX loading, Vulkan execution of generated MaterialX modules, or
-  general graph coverage beyond the optional v0.10.0 compiler prototype and
-  the existing `UsdPreviewSurface` subset;
+- Hydra MaterialX loading or general graph coverage beyond the optional
+  v0.10.0 compiler prototype and the existing `UsdPreviewSurface` subset;
 - the complete GPU Scene tables, GPU-driven indexed submission, an opaque
   Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
 - advanced viewport features such as alpha blending, dome lighting, shadows,
