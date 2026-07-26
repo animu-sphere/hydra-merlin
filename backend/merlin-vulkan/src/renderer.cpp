@@ -207,6 +207,13 @@ std::vector<std::uint32_t> ReadSpirv(const std::filesystem::path& path) {
                         "load SPIR-V shader",
                         "could not read file: " + path.string());
   }
+  constexpr std::uint32_t kSpirvMagic = 0x07230203U;
+  if (code.size() < 5U || code[0] != kSpirvMagic || code[3] == 0U ||
+      code[4] != 0U) {
+    throw RendererError(RendererErrorCode::InvalidRequest,
+                        "load SPIR-V shader",
+                        "file header is invalid: " + path.string());
+  }
   return code;
 }
 
@@ -1231,6 +1238,7 @@ class Renderer::Impl {
     instance_records_.Sync(request.snapshot->instances);
     draw_records_.Sync(request.snapshot->draws);
     SelectGeneratedMaterials();
+    PreflightGeneratedMaterialPipelines(*request.snapshot);
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
       ++frame_counters_.draw_count;
@@ -2706,22 +2714,65 @@ class Renderer::Impl {
     return result;
   }
 
+  void RejectGeneratedMaterial(std::size_t index,
+                               MaterialDiagnosticCategory category,
+                               std::string message) {
+    const auto& module = *material_records_[index].module;
+    selected_material_artifacts_[index] = nullptr;
+    MaterialDiagnostic diagnostic;
+    diagnostic.category = category;
+    diagnostic.severity = DiagnosticSeverity::Error;
+    diagnostic.fallback = MaterialFallback::BasicMaterial;
+    diagnostic.message = std::move(message);
+    diagnostic.context.material_identity = module.key;
+    diagnostic.context.backend_target = "spirv";
+    frame_counters_.material_fallbacks.Record(diagnostic.fallback);
+    frame_material_diagnostics_.push_back(std::move(diagnostic));
+  }
+
+  static std::optional<std::size_t> PackedMaterialValueSize(
+      MaterialValueType type) noexcept {
+    switch (type) {
+      case MaterialValueType::Float: return sizeof(float);
+      case MaterialValueType::Float2: return sizeof(Vec2);
+      case MaterialValueType::Float3: return sizeof(Vec3);
+      case MaterialValueType::Float4: return sizeof(Vec4);
+      case MaterialValueType::Integer: return sizeof(std::int32_t);
+      case MaterialValueType::Boolean: return sizeof(std::uint32_t);
+      default: return std::nullopt;
+    }
+  }
+
+  static bool GeneratedBindingFits(
+      const GeneratedMaterialParameterBinding& binding,
+      std::uint32_t parameter_buffer_size) noexcept {
+    const auto value_size = PackedMaterialValueSize(binding.type);
+    if (!value_size || binding.array_size == 0U) {
+      return false;
+    }
+    const auto buffer_size = static_cast<std::size_t>(parameter_buffer_size);
+    const auto offset = static_cast<std::size_t>(binding.offset);
+    if (offset > buffer_size || *value_size > buffer_size - offset) {
+      return false;
+    }
+    if (binding.array_size == 1U) {
+      return true;
+    }
+    const auto stride =
+        binding.array_stride == 0U
+            ? *value_size
+            : static_cast<std::size_t>(binding.array_stride);
+    if (stride < *value_size) {
+      return false;
+    }
+    const auto remaining = buffer_size - offset - *value_size;
+    return static_cast<std::size_t>(binding.array_size - 1U) <=
+           remaining / stride;
+  }
+
   void SelectGeneratedMaterials() {
     selected_material_artifacts_.assign(material_records_.size(), nullptr);
     frame_material_diagnostics_.clear();
-    const auto reject = [&](const MaterialModule& module,
-                            MaterialDiagnosticCategory category,
-                            std::string message) {
-      MaterialDiagnostic diagnostic;
-      diagnostic.category = category;
-      diagnostic.severity = DiagnosticSeverity::Error;
-      diagnostic.fallback = MaterialFallback::BasicMaterial;
-      diagnostic.message = std::move(message);
-      diagnostic.context.material_identity = module.key;
-      diagnostic.context.backend_target = "spirv";
-      frame_counters_.material_fallbacks.Record(diagnostic.fallback);
-      frame_material_diagnostics_.push_back(std::move(diagnostic));
-    };
     for (std::size_t index = 0; index < material_records_.size(); ++index) {
       const auto& material = material_records_[index];
       if (!material.module) {
@@ -2729,28 +2780,26 @@ class Renderer::Impl {
       }
       const auto& module = *material.module;
       if (bindless_texture_table_) {
-        reject(module, MaterialDiagnosticCategory::TargetFailure,
-               "generated materials currently require conventional Vulkan "
-               "descriptors");
+        RejectGeneratedMaterial(
+            index, MaterialDiagnosticCategory::TargetFailure,
+            "generated materials currently require conventional Vulkan "
+            "descriptors");
         continue;
       }
       const auto found = generated_material_artifacts_.find(module.key);
       if (found == generated_material_artifacts_.end()) {
-        reject(module, MaterialDiagnosticCategory::CacheIncompatible,
-               "no Vulkan artifact is registered for the material module");
+        RejectGeneratedMaterial(
+            index, MaterialDiagnosticCategory::CacheIncompatible,
+            "no Vulkan artifact is registered for the material module");
         continue;
       }
       const auto& artifact = found->second;
-      if (!std::filesystem::exists(artifact.fragment)) {
-        reject(module, MaterialDiagnosticCategory::CacheCorrupt,
-               "the registered Vulkan material artifact is missing");
-        continue;
-      }
       if (!module.resources.entries.empty() ||
           !artifact.reflection.resources.entries.empty()) {
-        reject(module, MaterialDiagnosticCategory::TargetFailure,
-               "the registered Vulkan material artifact requires resource "
-               "bindings that this execution slice does not yet compose");
+        RejectGeneratedMaterial(
+            index, MaterialDiagnosticCategory::TargetFailure,
+            "the registered Vulkan material artifact requires resource "
+            "bindings that this execution slice does not yet compose");
         continue;
       }
       auto diagnostics = VerifyMaterialAbi(module);
@@ -2768,16 +2817,19 @@ class Renderer::Impl {
             artifact.parameter_bindings.end(), [&](const auto& candidate) {
               return candidate.name == parameter.name &&
                      candidate.type == parameter.type &&
-                     candidate.array_size == parameter.array_size;
+                     candidate.array_size == parameter.array_size &&
+                     GeneratedBindingFits(
+                         candidate, artifact.parameter_buffer_size);
             });
         concrete_layout_matches =
             concrete_layout_matches &&
             binding != artifact.parameter_bindings.end();
       }
       if (!concrete_layout_matches) {
-        reject(module, MaterialDiagnosticCategory::ReflectionMismatch,
-               "the Vulkan artifact's concrete parameter layout disagrees "
-               "with the material module");
+        RejectGeneratedMaterial(
+            index, MaterialDiagnosticCategory::ReflectionMismatch,
+            "the Vulkan artifact's concrete parameter layout disagrees "
+            "with the material module");
         continue;
       }
       if (!diagnostics.empty()) {
@@ -2787,23 +2839,30 @@ class Renderer::Impl {
         }
         continue;
       }
+      try {
+        (void)GetShaderModule(artifact.fragment);
+      } catch (const RendererError& error) {
+        if (error.code() == RendererErrorCode::DeviceLost ||
+            error.code() == RendererErrorCode::ResourceExhausted) {
+          throw;
+        }
+        RejectGeneratedMaterial(
+            index, MaterialDiagnosticCategory::CacheCorrupt,
+            "the registered Vulkan material artifact could not be loaded as "
+            "SPIR-V");
+        continue;
+      }
       selected_material_artifacts_[index] = &artifact;
     }
   }
 
   static std::size_t MaterialValueSize(MaterialValueType type) {
-    switch (type) {
-      case MaterialValueType::Float: return sizeof(float);
-      case MaterialValueType::Float2: return sizeof(Vec2);
-      case MaterialValueType::Float3: return sizeof(Vec3);
-      case MaterialValueType::Float4: return sizeof(Vec4);
-      case MaterialValueType::Integer: return sizeof(std::int32_t);
-      case MaterialValueType::Boolean: return sizeof(std::uint32_t);
-      default:
-        throw RendererError(RendererErrorCode::Unsupported,
-                            "pack generated material parameters",
-                            "unsupported generated material parameter type");
+    if (const auto size = PackedMaterialValueSize(type)) {
+      return *size;
     }
+    throw RendererError(RendererErrorCode::Unsupported,
+                        "pack generated material parameters",
+                        "unsupported generated material parameter type");
   }
 
   static void CopyMaterialValue(std::byte* destination,
@@ -4555,6 +4614,74 @@ class Renderer::Impl {
     }
   }
 
+  struct DrawPipelineVariant {
+    std::uint32_t feature_mask{};
+    std::uint32_t variant_key{};
+  };
+
+  DrawPipelineVariant MakeDrawPipelineVariant(
+      const extraction::DrawRecord& draw,
+      const extraction::FrameSnapshot& snapshot) const {
+    const auto& geometry = geometry_records_[draw.geometry_index];
+    const auto& material = material_records_[draw.material_index];
+    auto feature_mask = static_cast<std::uint32_t>(material.features);
+    if (!geometry.has_colors) {
+      feature_mask &=
+          ~static_cast<std::uint32_t>(MaterialFeature::VertexColor);
+    }
+    if (!geometry.has_texcoords) {
+      feature_mask &=
+          ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture);
+    }
+    auto variant_key = feature_mask;
+    if (material.alpha_mode == AlphaMode::Masked) {
+      variant_key |= kMaskedAlphaFlag;
+    }
+    if (material.double_sided) {
+      variant_key |= kDoubleSidedFlag;
+    }
+    if (snapshot.front_face == FrontFaceWinding::CounterClockwise) {
+      variant_key |= kCounterClockwiseFrontFaceFlag;
+    }
+    return {feature_mask, variant_key};
+  }
+
+  void PreflightGeneratedMaterialPipelines(
+      const extraction::FrameSnapshot& snapshot) {
+    std::set<std::string> failed_modules;
+    for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+      const auto& draw = draw_records_[i];
+      const auto* artifact =
+          selected_material_artifacts_[draw.material_index];
+      if (artifact == nullptr) {
+        continue;
+      }
+      if (failed_modules.contains(artifact->module_key)) {
+        RejectGeneratedMaterial(
+            draw.material_index, MaterialDiagnosticCategory::TargetFailure,
+            "the registered Vulkan material artifact could not create a "
+            "Forward pipeline");
+        continue;
+      }
+      const auto variant = MakeDrawPipelineVariant(draw, snapshot);
+      try {
+        (void)EnsureGeneratedPipeline(active_target_->shaders, *artifact,
+                                      variant.variant_key);
+      } catch (const RendererError& error) {
+        if (error.code() == RendererErrorCode::DeviceLost ||
+            error.code() == RendererErrorCode::ResourceExhausted ||
+            error.code() == RendererErrorCode::Timeout) {
+          throw;
+        }
+        failed_modules.insert(artifact->module_key);
+        RejectGeneratedMaterial(
+            draw.material_index, MaterialDiagnosticCategory::TargetFailure,
+            "the registered Vulkan material artifact could not create a "
+            "Forward pipeline");
+      }
+    }
+  }
+
   void RecordFrame(VkCommandBuffer command,
                    const FrameContext& frame,
                    const extraction::FrameSnapshot& snapshot,
@@ -4590,25 +4717,8 @@ class Renderer::Impl {
                            slot.indices.offset, VK_INDEX_TYPE_UINT32);
       const auto& instance = instance_records_[draw.instance_index];
       const auto& material = material_records_[draw.material_index];
-      auto feature_mask = static_cast<std::uint32_t>(material.features);
-      if (!geometry.has_colors) {
-        feature_mask &=
-            ~static_cast<std::uint32_t>(MaterialFeature::VertexColor);
-      }
-      if (!geometry.has_texcoords) {
-        feature_mask &=
-            ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture);
-      }
-      auto variant_key = feature_mask;
-      if (material.alpha_mode == AlphaMode::Masked) {
-        variant_key |= kMaskedAlphaFlag;
-      }
-      if (material.double_sided) {
-        variant_key |= kDoubleSidedFlag;
-      }
-      if (snapshot.front_face == FrontFaceWinding::CounterClockwise) {
-        variant_key |= kCounterClockwiseFrontFaceFlag;
-      }
+      const auto variant = MakeDrawPipelineVariant(draw, snapshot);
+      auto feature_mask = variant.feature_mask;
       const auto* generated_artifact =
           selected_material_artifacts_[draw.material_index];
       if (generated_artifact != nullptr) {
@@ -4619,8 +4729,10 @@ class Renderer::Impl {
       const auto pipeline =
           generated_artifact != nullptr
               ? EnsureGeneratedPipeline(active_target_->shaders,
-                                        *generated_artifact, variant_key)
-              : EnsurePipeline(active_target_->shaders, variant_key);
+                                        *generated_artifact,
+                                        variant.variant_key)
+              : EnsurePipeline(active_target_->shaders,
+                               variant.variant_key);
       const auto pipeline_layout =
           generated_artifact != nullptr
               ? active_target_->generated_pipeline_layout

@@ -7,12 +7,14 @@
 #include <merlin/vulkan/renderer.hpp>
 
 #include <cassert>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -38,6 +40,12 @@ bool Near(std::uint8_t value, std::uint8_t expected,
   const auto difference =
       value > expected ? value - expected : expected - value;
   return difference <= tolerance;
+}
+
+void Require(bool condition, const char* message) {
+  if (!condition) {
+    throw std::runtime_error(message);
+  }
 }
 
 }  // namespace
@@ -142,6 +150,72 @@ int main(int argc, char** argv) {
   assert(Near(CenterChannel(edited, 0), 51));
   assert(Near(CenterChannel(edited, 1), 32));
   assert(Near(CenterChannel(edited, 2), 13));
+
+  const auto render_with_artifact =
+      [&](merlin::vulkan::GeneratedMaterialArtifact candidate) {
+        merlin::vulkan::RendererOptions options;
+        options.descriptor_backend =
+            merlin::vulkan::DescriptorBackendRequest::Conventional;
+        options.generated_material_artifacts.push_back(std::move(candidate));
+        merlin::vulkan::Renderer candidate_renderer(std::move(options));
+        return candidate_renderer.Render(*extractor.snapshot(), 64, 64,
+                                         shaders);
+      };
+
+  auto invalid_layout_artifact = artifact;
+  invalid_layout_artifact.parameter_bindings.front().offset =
+      invalid_layout_artifact.parameter_buffer_size;
+  const auto invalid_layout =
+      render_with_artifact(std::move(invalid_layout_artifact));
+  Require(invalid_layout.counters.generated_material_draw_count == 0,
+          "invalid concrete layout selected a generated pipeline");
+  Require(invalid_layout.counters.generated_material_fallback_count == 1,
+          "invalid concrete layout did not record a draw fallback");
+  Require(invalid_layout.material_diagnostics.size() == 1,
+          "invalid concrete layout did not emit one diagnostic");
+  Require(invalid_layout.material_diagnostics.front().category ==
+              merlin::MaterialDiagnosticCategory::ReflectionMismatch,
+          "invalid concrete layout used the wrong diagnostic category");
+
+  const auto corrupt_path =
+      std::filesystem::path(argv[4]).parent_path() /
+      "materialx-forward-prototype.corrupt.spv";
+  {
+    const std::array<std::uint32_t, 5> corrupt_code{};
+    std::ofstream stream(corrupt_path, std::ios::binary);
+    stream.write(reinterpret_cast<const char*>(corrupt_code.data()),
+                 static_cast<std::streamsize>(sizeof(corrupt_code)));
+    Require(static_cast<bool>(stream), "could not write corrupt SPIR-V fixture");
+  }
+  auto corrupt_artifact = artifact;
+  corrupt_artifact.fragment = corrupt_path;
+  const auto corrupt = render_with_artifact(std::move(corrupt_artifact));
+  std::error_code remove_error;
+  std::filesystem::remove(corrupt_path, remove_error);
+  Require(corrupt.counters.generated_material_draw_count == 0,
+          "corrupt SPIR-V selected a generated pipeline");
+  Require(corrupt.counters.generated_material_fallback_count == 1,
+          "corrupt SPIR-V did not record a draw fallback");
+  Require(corrupt.material_diagnostics.size() == 1,
+          "corrupt SPIR-V did not emit one diagnostic");
+  Require(corrupt.material_diagnostics.front().category ==
+              merlin::MaterialDiagnosticCategory::CacheCorrupt,
+          "corrupt SPIR-V used the wrong diagnostic category");
+
+  auto incompatible_artifact = artifact;
+  incompatible_artifact.fragment_entry_point =
+      "missing_generated_material_entry_point";
+  const auto incompatible =
+      render_with_artifact(std::move(incompatible_artifact));
+  Require(incompatible.counters.generated_material_draw_count == 0,
+          "incompatible SPIR-V selected a generated pipeline");
+  Require(incompatible.counters.generated_material_fallback_count == 1,
+          "incompatible SPIR-V did not record a draw fallback");
+  Require(incompatible.material_diagnostics.size() == 1,
+          "incompatible SPIR-V did not emit one diagnostic");
+  Require(incompatible.material_diagnostics.front().category ==
+              merlin::MaterialDiagnosticCategory::TargetFailure,
+          "incompatible SPIR-V used the wrong diagnostic category");
 
   material.module->key = "sha256:missing-vulkan-artifact";
   world.UpdateMaterial(material_handle, material,
