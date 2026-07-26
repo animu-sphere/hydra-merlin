@@ -1,5 +1,6 @@
 add_library(merlin-materialx STATIC
   src/compiler.cpp
+  src/diagnostic_bridge.cpp
 )
 
 add_library(Merlin::MaterialX ALIAS merlin-materialx)

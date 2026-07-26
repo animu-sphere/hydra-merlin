@@ -1,5 +1,7 @@
 #include <merlin/materialx/compiler.hpp>
+#include <merlin/materialx/diagnostic_bridge.hpp>
 #include <merlin/core/identity.hpp>
+#include <merlin/core/material_diagnostic.hpp>
 #include <merlin/core/render_world.hpp>
 #include <merlin/core/shader_artifact.hpp>
 
@@ -8,6 +10,7 @@
 #include <iostream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -26,6 +29,27 @@ bool HasDiagnostic(const merlin::materialx::CompileResult& result,
     }
   }
   return false;
+}
+
+class CollectingDiagnosticSink final : public merlin::DiagnosticSink {
+ public:
+  void Report(const merlin::Diagnostic& diagnostic) override {
+    reported.push_back(diagnostic);
+  }
+
+  std::vector<merlin::Diagnostic> reported;
+};
+
+const merlin::materialx::Diagnostic& FindDiagnostic(
+    const merlin::materialx::CompileResult& result,
+    merlin::materialx::DiagnosticCode code) {
+  for (const auto& diagnostic : result.diagnostics) {
+    if (diagnostic.code == code) {
+      return diagnostic;
+    }
+  }
+  assert(false && "expected diagnostic code was not reported");
+  return result.diagnostics.front();
 }
 
 bool HasDependency(
@@ -376,4 +400,92 @@ int main(int argc, char** argv) {
                        merlin::materialx::DiagnosticCode::InvalidDocument));
   assert(!HasDiagnostic(
       malformed, merlin::materialx::DiagnosticCode::GenerationFailure));
+
+  // An image node the document never gave a filename produces a resource no
+  // host adapter could resolve, so it is diagnosed here rather than surfacing
+  // later as an unexplained missing texture.
+  constexpr auto missing_texture_document = R"mtlx(<?xml version="1.0"?>
+<materialx version="1.39">
+  <nodegraph name="NG_missing_texture">
+    <image name="albedo" type="color3" />
+    <output name="out" type="color3" nodename="albedo" />
+  </nodegraph>
+</materialx>)mtlx";
+  options.renderable_path = "NG_missing_texture/out";
+  const auto missing_texture = merlin::materialx::CompileMaterialFunction(
+      missing_texture_document, options);
+  assert(!missing_texture);
+  assert(HasDiagnostic(missing_texture,
+                       merlin::materialx::DiagnosticCode::MissingTexture));
+
+  // Integration-local records carry the context a host needs to locate the
+  // failure, and the bridge classifies them against the Core contract without
+  // either side learning the other's types.
+  options.renderable_path = "NG_unsupported/out";
+  options.source_document = "materials/unsupported.mtlx";
+  const auto unsupported_with_source =
+      merlin::materialx::CompileMaterialFunction(unsupported_document, options);
+  assert(!unsupported_with_source);
+  assert(unsupported_with_source.source_document ==
+         "materials/unsupported.mtlx");
+  // The MaterialX version is known before anything is generated, so even a
+  // document that never reached the generator reports which library read it.
+  assert(!unsupported_with_source.materialx_version.empty());
+  const auto& node_diagnostic = FindDiagnostic(
+      unsupported_with_source,
+      merlin::materialx::DiagnosticCode::UnsupportedNode);
+  assert(node_diagnostic.node_category == "noise3d");
+  assert(node_diagnostic.element_path.find("noise") != std::string::npos);
+
+  const auto bridged = merlin::materialx::ToMaterialDiagnostic(
+      node_diagnostic, unsupported_with_source);
+  assert(bridged.category ==
+         merlin::MaterialDiagnosticCategory::UnsupportedNode);
+  assert(bridged.severity == merlin::DiagnosticSeverity::Error);
+  assert(bridged.context.node_category == "noise3d");
+  assert(bridged.context.source_document == "materials/unsupported.mtlx");
+  assert(!bridged.context.generator_version.empty());
+  // No module survived, so nothing was simplified. Reporting a simplification
+  // here would claim MaterialX coverage that was never generated.
+  assert(bridged.fallback == merlin::MaterialFallback::BasicMaterial);
+
+  CollectingDiagnosticSink sink;
+  const auto evidence = merlin::materialx::ReportCompileDiagnostics(
+      unsupported_with_source, sink);
+  assert(sink.reported.size() == unsupported_with_source.diagnostics.size());
+  assert(!sink.reported.empty());
+  assert(sink.reported.front().schema_version ==
+         merlin::kDiagnosticSchemaVersion);
+  assert(sink.reported.front().code == "material.node.unsupported");
+  assert(sink.reported.front().recovery == "basic-material");
+  assert(sink.reported.front().disposition ==
+         merlin::DiagnosticDisposition::Fallback);
+  assert(sink.reported.front().message.find("node=noise3d") !=
+         std::string::npos);
+  assert(sink.reported.front().message.find(
+             "document=materials/unsupported.mtlx") != std::string::npos);
+  assert(evidence.fallback_taken());
+  assert(evidence.effective_fallback ==
+         merlin::MaterialFallback::BasicMaterial);
+  assert(evidence.basic_material_count == sink.reported.size());
+
+  // A host that forbids substituting materials still gets a classified record,
+  // and the explicit error material instead of a silent approximation.
+  CollectingDiagnosticSink strict_sink;
+  const merlin::MaterialFallbackPolicy strict{false, false};
+  const auto strict_evidence = merlin::materialx::ReportCompileDiagnostics(
+      unsupported_with_source, strict_sink, strict);
+  assert(strict_evidence.effective_fallback ==
+         merlin::MaterialFallback::ErrorMaterial);
+  assert(strict_sink.reported.front().recovery == "error-material");
+
+  // A clean compile reports nothing and claims no fallback, so evidence never
+  // shows a recovery the renderer did not perform.
+  CollectingDiagnosticSink clean_sink;
+  const auto clean_evidence =
+      merlin::materialx::ReportCompileDiagnostics(standard_surface, clean_sink);
+  assert(clean_sink.reported.empty());
+  assert(!clean_evidence.fallback_taken());
+  assert(clean_evidence.effective_fallback == merlin::MaterialFallback::None);
+  assert(clean_evidence.recorded_count == 0U);
 }

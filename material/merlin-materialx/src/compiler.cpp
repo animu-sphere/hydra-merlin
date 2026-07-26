@@ -333,11 +333,27 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
 };
 
 void AddError(CompileResult& result, DiagnosticCode code,
-              std::string element_path, std::string message) {
-  result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, code,
-                                          std::move(element_path),
-                                          std::move(message)});
+              std::string element_path, std::string message,
+              std::string node_category = {}, std::string input_name = {}) {
+  result.diagnostics.push_back(Diagnostic{
+      DiagnosticSeverity::Error, code, std::move(element_path),
+      std::move(message), std::move(node_category), std::move(input_name)});
 }
+
+// A dependency failure carries its own type so the outer handler can classify
+// it as a missing include instead of a generic generation failure.
+class DependencyError : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
+
+// A boundary-crossing failure that already knows its category and the input it
+// is attributable to.
+struct LogicalModuleError {
+  DiagnosticCode code{DiagnosticCode::UnsupportedInput};
+  std::string input_name;
+  std::string message;
+};
 
 std::string NormalizeNewlines(std::string text) {
   text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
@@ -395,7 +411,7 @@ std::string MakeLogicalDependencyPath(
   if (marker_position != std::string::npos) {
     return generic.substr(marker_position + 1U);
   }
-  throw std::runtime_error(
+  throw DependencyError(
       "MaterialX dependency is outside every registered data root: " +
       path.generic_string());
 }
@@ -403,8 +419,8 @@ std::string MakeLogicalDependencyPath(
 std::string ReadDependency(const std::filesystem::path& path) {
   std::ifstream stream(path, std::ios::binary);
   if (!stream) {
-    throw std::runtime_error("Could not read MaterialX dependency: " +
-                             path.generic_string());
+    throw DependencyError("Could not read MaterialX dependency: " +
+                          path.generic_string());
   }
   return {std::istreambuf_iterator<char>(stream),
           std::istreambuf_iterator<char>()};
@@ -422,7 +438,7 @@ std::string FingerprintDependencies(
     const auto [entry, inserted] =
         sorted.emplace(logical_path, content_sha256);
     if (!inserted && entry->second != content_sha256) {
-      throw std::runtime_error(
+      throw DependencyError(
           "MaterialX dependencies resolve to the same logical path with "
           "different content: " +
           logical_path);
@@ -536,7 +552,7 @@ std::optional<MaterialValue> ParseParameterDefault(
   return std::nullopt;
 }
 
-std::optional<std::string> PopulateLogicalModule(
+std::optional<LogicalModuleError> PopulateLogicalModule(
     MaterialFunctionModule& module) {
   auto& logical = module.logical_module;
   logical.entry_point = module.entry_point;
@@ -544,9 +560,11 @@ std::optional<std::string> PopulateLogicalModule(
     const auto semantic = Lowercase(input.name + " " + input.variable);
     if (semantic.find("texcoord") != std::string::npos) {
       if (semantic.find("texcoord_0") == std::string::npos) {
-        return "Only texture coordinate set 0 is supported by the material "
-               "contract; reflected input was '" +
-               input.variable + "'";
+        return LogicalModuleError{
+            DiagnosticCode::UnsupportedInput, input.variable,
+            "Only texture coordinate set 0 is supported by the material "
+            "contract; reflected input was '" +
+                input.variable + "'"};
       }
       logical.requirements.inputs |= MaterialInputRequirement::Texcoord0;
     }
@@ -555,14 +573,18 @@ std::optional<std::string> PopulateLogicalModule(
     } else if (semantic.find("normalobject") != std::string::npos) {
       logical.requirements.inputs |= MaterialInputRequirement::NormalObject;
     } else if (semantic.find("normal") != std::string::npos) {
-      return "Unsupported normal input semantic '" + input.variable + "'";
+      return LogicalModuleError{
+          DiagnosticCode::UnsupportedInput, input.variable,
+          "Unsupported normal input semantic '" + input.variable + "'"};
     }
     if (semantic.find("positionworld") != std::string::npos) {
       logical.requirements.inputs |= MaterialInputRequirement::PositionWorld;
     } else if (semantic.find("positionobject") != std::string::npos) {
       logical.requirements.inputs |= MaterialInputRequirement::PositionObject;
     } else if (semantic.find("position") != std::string::npos) {
-      return "Unsupported position input semantic '" + input.variable + "'";
+      return LogicalModuleError{
+          DiagnosticCode::UnsupportedInput, input.variable,
+          "Unsupported position input semantic '" + input.variable + "'"};
     }
   }
   for (const auto& uniform : module.uniforms) {
@@ -570,6 +592,16 @@ std::optional<std::string> PopulateLogicalModule(
     const auto name =
         uniform.variable.empty() ? uniform.name : uniform.variable;
     if (IsResourceType(type)) {
+      // Resource identifiers are opaque here and stay unresolved until a host
+      // adapter maps them to handles. That mapping has only the authored
+      // identifier to work from, so an empty one names no image a host could
+      // resolve, and the failure belongs at generation rather than as an
+      // unexplained missing texture later.
+      if (uniform.default_value.empty()) {
+        return LogicalModuleError{
+            DiagnosticCode::MissingTexture, name,
+            "Image resource '" + name + "' has no filename to resolve"};
+      }
       logical.resources.entries.push_back({name, type, 1});
       module.resource_defaults.entries.push_back(
           {name, type, {uniform.default_value}});
@@ -577,7 +609,11 @@ std::optional<std::string> PopulateLogicalModule(
       std::string error;
       auto value = ParseParameterDefault(uniform, error);
       if (!value) {
-        return error;
+        // The graph is supported; the reflected value simply has no
+        // MaterialIR equivalent, which is a conversion failure at the
+        // boundary rather than an unsupported authored input.
+        return LogicalModuleError{DiagnosticCode::UnsupportedConversion, name,
+                                  std::move(error)};
       }
       logical.parameters.entries.push_back({name, type, 1});
       module.parameter_defaults.entries.push_back(
@@ -716,15 +752,17 @@ std::string PruneUnusedStandardSurfaceInputs(
   return source;
 }
 
-std::optional<std::string> ValidateStandardSurfaceInputs(
+std::optional<LogicalModuleError> ValidateStandardSurfaceInputs(
     const mx::NodePtr& node) {
   static const std::set<std::string_view> supported = {
       "base", "base_color", "metalness", "specular_roughness", "normal"};
   for (const auto& input : node->getInputs()) {
     if (!supported.contains(input->getName())) {
-      return "Unsupported Standard Surface input '" + input->getName() +
-             "'; v0.10.0 supports base, base_color, metalness, "
-             "specular_roughness, and normal";
+      return LogicalModuleError{
+          DiagnosticCode::UnsupportedInput, input->getName(),
+          "Unsupported Standard Surface input '" + input->getName() +
+              "'; v0.10.0 supports base, base_color, metalness, "
+              "specular_roughness, and normal"};
     }
   }
   return std::nullopt;
@@ -755,6 +793,8 @@ bool HasStandardLibraries(const mx::FileSearchPath& search_path) {
 CompileResult CompileMaterialFunction(std::string_view document_xml,
                                       const CompileOptions& options) {
   CompileResult result;
+  result.source_document = options.source_document;
+  result.materialx_version = mx::getVersionString();
   const auto search_path = MakeSearchPath(options);
   if (!HasStandardLibraries(search_path)) {
     AddError(result, DiagnosticCode::MissingStandardLibrary, {},
@@ -835,8 +875,9 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     if (standard_surface) {
       if (const auto error =
               ValidateStandardSurfaceInputs(renderable_node)) {
-        AddError(result, DiagnosticCode::UnsupportedInput,
-                 renderable->getNamePath(), *error);
+        AddError(result, error->code, renderable->getNamePath(),
+                 error->message, renderable_node->getCategory(),
+                 error->input_name);
         return result;
       }
     }
@@ -845,13 +886,14 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
         FindUnsupportedNodes(renderable, standard_surface);
     for (const auto& [path, category] : unsupported) {
       AddError(result, DiagnosticCode::UnsupportedNode, path,
-               "Unsupported MaterialX node category: " + category);
+               "Unsupported MaterialX node category: " + category, category);
     }
     if (!unsupported.empty()) {
       return result;
     }
 
     auto generator = MaterialFunctionGenerator::Create(standard_surface);
+    result.generator_version = generator->getVersion();
     mx::GenContext context(generator);
     context.registerSourceCodeSearchPath(search_path);
     generator->registerTypeDefs(document);
@@ -890,8 +932,10 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
         search_path, module.source_dependencies);
     CollectReflection(stage, *generator, module);
     if (const auto error = PopulateLogicalModule(module)) {
-      AddError(result, DiagnosticCode::UnsupportedInput,
-               renderable->getNamePath(), *error);
+      AddError(result, error->code, renderable->getNamePath(), error->message,
+               renderable_node != nullptr ? renderable_node->getCategory()
+                                          : std::string{},
+               error->input_name);
       return result;
     }
 
@@ -941,6 +985,9 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     module.parameter_defaults.key = module.instance_key;
     module.resource_defaults.key = module.resource_key;
     result.module = std::move(module);
+  } catch (const DependencyError& error) {
+    AddError(result, DiagnosticCode::MissingInclude, options.renderable_path,
+             error.what());
   } catch (const std::exception& error) {
     AddError(result, DiagnosticCode::GenerationFailure,
              options.renderable_path, error.what());
