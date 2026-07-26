@@ -54,11 +54,13 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
 
 #### Remaining implementation focus
 
-- Bridge `Merlin::MaterialX` diagnostics into `merlin-diagnostic/v1`, add the
-  required failure categories and context, and record the selected fallback in
-  capability and telemetry evidence.
 - Compose the generated function with the existing Vulkan Forward shader and
   resource paths; add pipeline/module reuse and image/fallback validation.
+- Emit the selected fallback into frame telemetry and the renderer capability
+  report. The categories, context, ladder, and evidence aggregate now exist in
+  Core, but the component that performs a render-time fallback is the Vulkan
+  Forward composition above, so emission lands with it rather than as unwired
+  counters.
 - Retain SPIR-V and Metal-target outputs plus logical/target reflection as
   deterministic build and test evidence, including ABI mismatch and
   render-pass-contamination checks.
@@ -72,7 +74,12 @@ now composes into a Core target-artifact key that keys generated and
 handwritten Slang the same way; the shader package records module and artifact
 identities separately, recovers each module's include closure from the depfile
 the compiler emitted, and a test recomputes both identities from the manifest,
-so the build system cannot drift from the contract. The previously merged
+so the build system cannot drift from the contract. Material failures are
+classified by a Core-owned category, context, and fallback contract that
+`Merlin::MaterialX` bridges onto `merlin-diagnostic/v1`; a producer that
+rejected a document reports the basic-material fallback rather than a
+simplification it never generated, so evidence cannot record a recovery the
+renderer did not perform. The previously merged
 package target, deterministic prototype generation, logical reflection,
 diagnostics, and direct SPIR-V/Metal compile wrappers are recorded in the
 [delivery history](../reports/delivery-history.md). Topology-only module

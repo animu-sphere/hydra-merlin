@@ -40,6 +40,29 @@ after its public API and release process are established.
 - `shaders/v2` artifact packages recording module sources, module identity, and
   artifact key per artifact, plus a test that recomputes every recorded
   identity through the Core contract so the build system cannot drift from it.
+- A host-neutral material diagnostic and fallback contract in Core covering the
+  required document, unsupported-node/input/conversion, missing
+  library/include/texture, generation, compile, target, reflection, ABI, and
+  cache failure categories; the material/element/node/input/document/target and
+  generator/compiler context each record carries; the declared
+  simplification, basic-material, and error-material fallback ladder with its
+  host policy; and an evidence aggregate that summarizes the worst fallback
+  reached. The contract belongs to Core, so a MaterialX document, a Hydra
+  network, and a future material source classify the same failure identically.
+  A record fills a context field only where it can attribute the failure that
+  precisely, so a host is never pointed at an element or node that did not fail.
+- `Merlin::MaterialX` diagnostics for unsupported type conversions, missing
+  generator includes, and image resources the document left without a filename,
+  plus the authored node category and input name on every record that is
+  attributable to one.
+- A `Merlin::MaterialX` bridge that classifies integration-local diagnostics
+  against the Core contract and flattens them onto the existing host-neutral
+  `merlin-diagnostic/v1` sink, so hosts keep one diagnostic stream while
+  evidence consumers keep the structure. A rejected document reports the
+  basic-material fallback rather than a simplification it never generated, and
+  a warning against a material that still generated takes no rung at all: it
+  reaches the host as an ignored record and is not counted as a substitution in
+  fallback evidence.
 
 ### Changed
 
@@ -54,6 +77,24 @@ after its public API and release process are established.
   depfile the compiler emitted rather than declared by the build system.
 - Shader debug policy is a compile input that reaches both the `slangc`
   invocation and the artifact key, rather than a value the manifest asserted.
+- A reflected value whose MaterialX type has no MaterialIR equivalent, or whose
+  authored default cannot be read as its declared type, is diagnosed as an
+  unsupported conversion rather than an unsupported input. The graph is
+  supported in those cases; only the boundary crossing is not. A generator
+  include or standard-library document that cannot be read, or that resolves
+  outside every registered data root, is likewise diagnosed as a missing
+  include rather than a generic generation failure.
+- An image node the document left without a filename is now rejected at
+  generation instead of producing a module carrying a resource identifier no
+  host could resolve.
+- `CompileOptions` accepts a logical `source_document` identifier, and
+  `CompileResult` echoes it alongside the MaterialX and generator versions, so
+  a failed compile still reports where it came from and which versions produced
+  it without a host-absolute path entering a diagnostic. A dependency that
+  cannot be read or resolved is likewise reported by filename rather than by its
+  resolved host path, and a bridged version names what it is a version of, so a
+  host never has to guess whether it is reading the MaterialX library version or
+  the shader generator's.
 
 ### Removed
 

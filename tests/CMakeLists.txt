@@ -22,6 +22,16 @@ target_link_libraries(merlin-shader-contract-tests
   PRIVATE Merlin::RenderWorld)
 add_test(NAME merlin-shader-contract COMMAND merlin-shader-contract-tests)
 
+add_executable(merlin-material-diagnostic-tests
+  material_diagnostic_test.cpp
+)
+target_link_libraries(merlin-material-diagnostic-tests
+  PRIVATE Merlin::RenderWorld)
+add_test(NAME merlin-material-diagnostic
+  COMMAND merlin-material-diagnostic-tests)
+set_tests_properties(merlin-material-diagnostic PROPERTIES
+  LABELS "materials;diagnostics")
+
 add_executable(merlin-identity-tests
   identity_test.cpp
 )

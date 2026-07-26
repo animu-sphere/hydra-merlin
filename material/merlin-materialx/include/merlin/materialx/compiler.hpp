@@ -12,6 +12,10 @@ namespace merlin::materialx {
 
 enum class DiagnosticSeverity { Warning, Error };
 
+// Failures this integration can actually detect. Compile, target, reflection
+// agreement, and cache failures are detected by the Slang compilation and
+// artifact layers, so they are classified by the Core material contract rather
+// than duplicated here.
 enum class DiagnosticCode {
   InvalidDocument,
   MissingStandardLibrary,
@@ -20,6 +24,17 @@ enum class DiagnosticCode {
   UnsupportedRenderable,
   UnsupportedNode,
   UnsupportedInput,
+  // A reflected value whose MaterialX type has no MaterialIR equivalent, or
+  // whose authored default cannot be read as its declared type. Distinct from
+  // UnsupportedInput because the graph is fine and the boundary crossing is
+  // not.
+  UnsupportedConversion,
+  // A generator source include or standard-library document that could not be
+  // read, or that resolved outside every registered data root.
+  MissingInclude,
+  // An image resource the host can never resolve, because the document left it
+  // without a filename.
+  MissingTexture,
   GenerationFailure,
 };
 
@@ -28,6 +43,10 @@ struct Diagnostic {
   DiagnosticCode code{DiagnosticCode::GenerationFailure};
   std::string element_path;
   std::string message;
+  // Authored node type, when the failure is attributable to one node.
+  std::string node_category;
+  // Input or reflected variable name, when it is attributable to one input.
+  std::string input_name;
 };
 
 struct MaterialFunctionPort {
@@ -97,11 +116,24 @@ struct CompileOptions {
   // Each path is a MaterialX data root containing libraries/targets,
   // libraries/stdlib, and libraries/pbrlib.
   std::vector<std::filesystem::path> library_search_paths;
+
+  // Logical identifier for the compiled document, used only to give
+  // diagnostics a source. A host-absolute path would make the diagnostic
+  // unreproducible, so callers pass an asset-relative or logical name.
+  std::string source_document;
 };
 
 struct CompileResult {
   std::optional<MaterialFunctionModule> module;
   std::vector<Diagnostic> diagnostics;
+
+  // Echoed so a failed compile still reports where it came from and which
+  // versions produced it; a caller holding only diagnostics has no module to
+  // read them from.
+  std::string source_document;
+  std::string materialx_version;
+  // Empty when the failure occurred before the generator was constructed.
+  std::string generator_version;
 
   [[nodiscard]] explicit operator bool() const noexcept {
     return module.has_value();

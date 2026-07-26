@@ -236,6 +236,21 @@ version, and the selected recovery. Integration-local diagnostics bridge into
 the existing host-neutral `merlin-diagnostic/v1` sink before reaching Hydra or
 another host.
 
+A field is filled only where the producer can attribute the failure that
+precisely. A failure detected against reflected interface rather than against a
+document element can name the renderable and the input but no authored node, so
+it leaves the node category empty instead of naming a node that did not fail.
+No record carries a host-absolute path: a diagnostic that names one is not
+reproducible between machines, so documents are identified logically and an
+unresolvable dependency is reported by filename.
+
+The categories, context, and ladder are owned by Core as
+`merlin.material-diagnostic/v1` in `merlin/core/material_diagnostic.hpp`, not by
+the MaterialX integration, so a MaterialX document, a Hydra network, and a
+future material source classify the same failure identically. Each producer
+keeps its own local diagnostic shape and bridges onto that contract;
+`merlin/materialx/diagnostic_bridge.hpp` is the MaterialX side.
+
 Fallback keeps rendering alive in this order when the declared policy permits:
 
 1. evaluate a diagnosed supported simplification;
@@ -244,6 +259,24 @@ Fallback keeps rendering alive in this order when the declared policy permits:
 
 The chosen fallback is visible in diagnostics, capability evidence, and
 telemetry. A fallback is never reported as successful MaterialX coverage.
+
+That last rule constrains the contract, not just its reporting: what a category
+*permits* and what a producer *performed* are separate questions. A producer
+that rejected a document outright simplified nothing, so it reports the
+basic-material fallback even for a category whose failure could in principle
+have been simplified. Claiming the simplification would record coverage that
+was never generated.
+
+The converse holds as well: only a failure costs a material. A warning against a
+material that still generated substituted nothing, so it takes no rung, is
+reported to the host as an ignored record rather than a rejection, and is not
+counted as a substitution in fallback evidence.
+
+Within the v0.10.0 slice an image resource must carry an authored filename at
+generation time. Instance-time texture binding against a resource the document
+left unnamed is out of scope, so such a document is rejected at generation
+rather than producing a module carrying a resource identifier no host could
+resolve.
 
 ## Backend integration
 
@@ -276,6 +309,8 @@ Unit and generation tests cover:
 - topology versus instance-parameter separation;
 - include dependency tracking;
 - supported and unsupported node diagnostics;
+- diagnostic classification, record context, the fallback ladder under each
+  host policy, and the flattening onto `merlin-diagnostic/v1`;
 - logical reflection serialization and ABI mismatch detection;
 - identical generated Slang for identical canonical input;
 - SPIR-V and Metal-target compilation from the same module; and
