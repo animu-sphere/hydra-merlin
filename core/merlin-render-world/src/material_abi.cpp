@@ -18,6 +18,11 @@ std::uint32_t Bits(MaterialInputRequirement value) noexcept {
   return static_cast<std::uint32_t>(value);
 }
 
+// The flags walked one at a time, so a message can name the single one that is
+// missing. Each list is static_asserted against the mask `types.hpp` folds next
+// to the enum: a flag added there and forgotten here would otherwise make this
+// check silently stop covering it, which is the one failure mode a checker must
+// not have.
 constexpr std::array<MaterialResultField, 4> kResultFields{
     MaterialResultField::BaseColor, MaterialResultField::Metalness,
     MaterialResultField::SpecularRoughness,
@@ -29,6 +34,22 @@ constexpr std::array<MaterialInputRequirement, 5> kInputRequirements{
     MaterialInputRequirement::NormalObject,
     MaterialInputRequirement::NormalWorld,
     MaterialInputRequirement::Texcoord0};
+
+template <typename Flag, std::size_t Count>
+constexpr Flag FoldFlags(const std::array<Flag, Count>& flags) noexcept {
+  auto folded = static_cast<std::uint32_t>(Flag::None);
+  for (const auto flag : flags) {
+    folded |= static_cast<std::uint32_t>(flag);
+  }
+  return static_cast<Flag>(folded);
+}
+
+static_assert(FoldFlags(kResultFields) == kAllMaterialResultFields,
+              "a material result field was added without extending the ABI "
+              "check that walks them");
+static_assert(FoldFlags(kInputRequirements) == kAllMaterialInputRequirements,
+              "a material geometry input was added without extending the ABI "
+              "check that walks them");
 
 MaterialDiagnostic MakeRecord(MaterialDiagnosticCategory category,
                               std::string message,
@@ -43,6 +64,38 @@ MaterialDiagnostic MakeRecord(MaterialDiagnosticCategory category,
   record.message = std::move(message);
   record.context = std::move(context);
   return record;
+}
+
+// A name the module declared twice cannot be bound: nothing downstream can say
+// which of the two a consumer would get. That is the module's own fault rather
+// than any consumer's or any target's, so it is an `AbiMismatch` wherever it is
+// found, and both entry points into this contract look for it.
+template <typename Entry>
+void VerifyDeclaredNamesUnique(const std::vector<Entry>& declared,
+                               std::string_view noun,
+                               const MaterialDiagnosticContext& base,
+                               const MaterialFallbackPolicy& policy,
+                               std::vector<MaterialDiagnostic>& records) {
+  for (auto index = std::size_t{}; index < declared.size(); ++index) {
+    const auto begin = declared.begin();
+    const auto here = begin + static_cast<std::ptrdiff_t>(index);
+    const auto same_name = [&](const Entry& other) {
+      return other.name == here->name;
+    };
+    // Reported at the first of the duplicates, so one repeated name costs one
+    // record however many times the module declared it.
+    if (std::any_of(begin, here, same_name) ||
+        std::none_of(here + 1, declared.end(), same_name)) {
+      continue;
+    }
+    auto context = base;
+    context.input_name = here->name;
+    records.push_back(MakeRecord(
+        MaterialDiagnosticCategory::AbiMismatch,
+        "Module declares " + std::string(noun) + " '" + here->name +
+            "' more than once; which one a consumer would bind is not knowable",
+        std::move(context), policy));
+  }
 }
 
 // Parameter and resource layout entries carry the same three fields and are
@@ -67,6 +120,16 @@ void VerifyLayout(const std::vector<Entry>& declared,
   const std::string quoted_target = "Target '" + target + "' ";
 
   for (const auto& expected : declared) {
+    if (std::count_if(declared.begin(), declared.end(),
+                      [&](const Entry& other) {
+                        return other.name == expected.name;
+                      }) > 1) {
+      // `VerifyDeclaredNamesUnique` has already reported this name. Nothing the
+      // target reported can be attributed to one of two declarations, so
+      // comparing would blame the target for disagreeing with whichever
+      // declaration happened to be listed last.
+      continue;
+    }
     const Entry* found{};
     std::size_t matches{};
     for (const auto& actual : reported) {
@@ -106,17 +169,30 @@ void VerifyLayout(const std::vector<Entry>& declared,
     }
   }
 
-  for (const auto& actual : reported) {
+  for (auto index = std::size_t{}; index < reported.size(); ++index) {
+    const auto& actual = reported[index];
     const bool declared_here = std::any_of(
         declared.begin(), declared.end(),
         [&](const Entry& expected) { return expected.name == actual.name; });
-    if (!declared_here) {
-      // A renderer-owned uniform that landed in the material block reaches the
-      // consumer as material state it never agreed to own.
-      record(quoted_target + "reports " + std::string(noun) + " '" +
-                 actual.name + "', which the module does not declare",
-             actual.name);
+    if (declared_here) {
+      continue;
     }
+    // A name the target reported more than once is still one entry the module
+    // does not declare; a second identical record would tell a host nothing the
+    // first did not.
+    const auto reported_before =
+        reported.begin() + static_cast<std::ptrdiff_t>(index);
+    if (std::any_of(reported.begin(), reported_before,
+                    [&](const Entry& earlier) {
+                      return earlier.name == actual.name;
+                    })) {
+      continue;
+    }
+    // A renderer-owned uniform that landed in the material block reaches the
+    // consumer as material state it never agreed to own.
+    record(quoted_target + "reports " + std::string(noun) + " '" + actual.name +
+               "', which the module does not declare",
+           actual.name);
   }
 }
 
@@ -157,12 +233,25 @@ std::string StripCommentsAndStrings(std::string_view source) {
     }
     // Only double quotes: Slang has no character literal, so treating a stray
     // apostrophe as one would blank real declarations after it.
+    //
+    // The run also stops at a newline, because Slang has no multi-line string
+    // literal. An unbalanced quote then costs the rest of one line instead of
+    // blanking every declaration after it, which would leave the scan below
+    // finding nothing and this whole check passing by seeing no source at all.
     if (character == '"') {
       auto end = index + 1;
-      while (end < stripped.size() && stripped[end] != character) {
-        end += stripped[end] == '\\' ? 2 : 1;
+      while (end < stripped.size() && stripped[end] != character &&
+             stripped[end] != '\n') {
+        // An escape consumes the next character, but never the newline that
+        // ends the run.
+        if (stripped[end] == '\\' && end + 1 < stripped.size() &&
+            stripped[end + 1] != '\n') {
+          ++end;
+        }
+        ++end;
       }
-      end = std::min(end + 1, stripped.size());
+      const bool closed = end < stripped.size() && stripped[end] == '"';
+      end = closed ? end + 1 : end;
       blank(index, end);
       index = end;
       continue;
@@ -187,13 +276,19 @@ struct PassDeclaration {
 
 // Declaration forms that make a module part of a render pass. Slang spellings,
 // because Slang is the one shading language every backend here compiles.
-constexpr std::array<PassDeclaration, 7> kPassDeclarations{{
+//
+// `[[vk::` is matched as a whole family rather than as the three attributes
+// seen so far. Every member of it decides a binding, and a material function
+// needs none of them, so matching the prefix costs nothing a correct generator
+// would have emitted and closes the gap that listing members leaves open.
+constexpr std::array<PassDeclaration, 8> kPassDeclarations{{
     {"[shader(", "a shader entry point"},
     {"[numthreads(", "a compute entry point"},
-    {"[[vk::binding", "an explicit descriptor binding"},
-    {"[[vk::push_constant", "a push-constant block"},
-    {"[[vk::location", "an explicit varying location"},
+    {"[earlydepthstencil", "a depth-stencil pass mode"},
+    {"[[vk::", "an explicit Vulkan binding attribute"},
     {"register(", "an explicit register binding"},
+    {"packoffset(", "an explicit constant-buffer packing offset"},
+    {"groupshared", "a group-shared allocation"},
     {"discard", "a fragment discard"},
 }};
 
@@ -227,12 +322,36 @@ void FindPassDeclarations(const std::string& source,
 // or writes one is participating in a stage it does not own, whichever one it
 // picked. Only the semantic form counts, so a generated struct field merely
 // *named* after one is left alone.
+//
+// A `:` also closes a conditional expression, and `c ? a : sv_scale` binds
+// nothing. The two are told apart by what precedes the colon within the same
+// statement: a declarator never contains a `?`, and a conditional operator
+// always does. One forward pass carries that as a depth count, which nests
+// correctly and costs no second scan per colon.
 void FindSystemValueSemantics(const std::string& source,
                               std::vector<Finding>& findings) {
-  for (std::size_t position = source.find(':'); position != std::string::npos;
-       position = source.find(':', position + 1)) {
+  std::size_t conditional_depth{};
+  for (std::size_t position = 0; position < source.size(); ++position) {
+    const char character = source[position];
+    if (character == ';' || character == '{' || character == '}') {
+      conditional_depth = 0;
+      continue;
+    }
+    if (character == '?') {
+      ++conditional_depth;
+      continue;
+    }
+    if (character != ':') {
+      continue;
+    }
+    // A qualified name is neither a semantic nor a conditional, so it leaves
+    // the depth alone; both of its colons are skipped by this same test.
     if ((position > 0 && source[position - 1] == ':') ||
         (position + 1 < source.size() && source[position + 1] == ':')) {
+      continue;
+    }
+    if (conditional_depth > 0) {
+      --conditional_depth;
       continue;
     }
     auto start = position + 1;
@@ -358,6 +477,12 @@ std::vector<MaterialDiagnostic> VerifyMaterialAbi(
                  "'",
              base);
   }
+  // Checked here as well as against a reflection, because a consumer deciding
+  // whether it may draw with a module has no artifact in hand yet.
+  VerifyDeclaredNamesUnique(module.parameters.entries, "parameter", base, policy,
+                            records);
+  VerifyDeclaredNamesUnique(module.resources.entries, "resource", base, policy,
+                            records);
   for (const auto field : kResultFields) {
     const bool required = (Bits(expectation.required_results) & Bits(field)) != 0U;
     const bool produced =
@@ -412,6 +537,10 @@ std::vector<MaterialDiagnostic> VerifyMaterialTargetReflection(
             "renderer-owned one rather than becoming the pass",
         base, policy));
   }
+  VerifyDeclaredNamesUnique(module.parameters.entries, "parameter", base, policy,
+                            records);
+  VerifyDeclaredNamesUnique(module.resources.entries, "resource", base, policy,
+                            records);
   VerifyLayout(module.parameters.entries, reflection.parameters.entries,
                "parameter", reflection.target, base, policy, records);
   VerifyLayout(module.resources.entries, reflection.resources.entries,

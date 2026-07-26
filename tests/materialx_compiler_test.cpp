@@ -5,6 +5,11 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/core/shader_artifact.hpp>
 
+// No document can make the generator emit a pass declaration, so the step that
+// turns the Core rule into this integration's diagnostics is reached through
+// its internal header rather than through a compile.
+#include "pass_neutrality.hpp"
+
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -512,17 +517,45 @@ int main(int argc, char** argv) {
   assert(bridged_advisory.context.material_identity ==
          standard_surface.module->module_key);
 
+  // The generated source this compiler hands out is checked against the Core
+  // rule, and the step that restates a Core record as one of this integration's
+  // diagnostics is what a compile would run. No document can reach it, so it is
+  // driven here with a generated source of its own: the clean one the compiler
+  // just produced, and that same source with a pass declaration appended.
+  merlin::MaterialDiagnosticContext contamination_context;
+  contamination_context.source_document = "standard-surface.mtlx";
+  assert(merlin::materialx::internal::DiagnosePassDeclarations(
+             standard_surface.module->source, "NG_standard_surface/surface",
+             contamination_context)
+             .empty());
+  const auto contamination_diagnostics =
+      merlin::materialx::internal::DiagnosePassDeclarations(
+          standard_surface.module->source +
+              "\n[shader(\"fragment\")]\nfloat4 main() : SV_Target "
+              "{ discard; }\n",
+          "NG_standard_surface/surface", contamination_context);
+  assert(contamination_diagnostics.size() == 3U);
+  for (const auto& diagnostic : contamination_diagnostics) {
+    assert(diagnostic.severity ==
+           merlin::materialx::DiagnosticSeverity::Error);
+    assert(diagnostic.code ==
+           merlin::materialx::DiagnosticCode::GeneratedPassDeclaration);
+    // The construct was emitted by the generator, not authored, so the
+    // renderable is the most specific thing a record can name.
+    assert(diagnostic.element_path == "NG_standard_surface/surface");
+    assert(diagnostic.node_category.empty());
+    assert(diagnostic.input_name.empty());
+    assert(diagnostic.message.find("the renderer owns the pass") !=
+           std::string::npos);
+  }
+
   // A generator that emitted part of a render pass produced a module no
   // renderer may compose, so the record is a generation failure and costs the
-  // whole material. The compiler checks its own output for this against the
-  // Core rule; the case cannot be reached from a document, so what is pinned
-  // here is that the code classifies and bridges like the failure it is.
+  // whole material.
   const merlin::materialx::Diagnostic contaminated{
       merlin::materialx::DiagnosticSeverity::Error,
       merlin::materialx::DiagnosticCode::GeneratedPassDeclaration,
-      "NG_prototype/out",
-      "Generated material source declares a shader entry point at line 1; "
-      "the renderer owns the pass"};
+      "NG_prototype/out", contamination_diagnostics.front().message};
   assert(merlin::materialx::ToMaterialDiagnosticCategory(
              contaminated.code) ==
          merlin::MaterialDiagnosticCategory::GenerationFailure);

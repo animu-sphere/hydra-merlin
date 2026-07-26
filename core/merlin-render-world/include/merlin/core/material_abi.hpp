@@ -66,15 +66,13 @@ struct MaterialAbiExpectation {
   // Geometry inputs the consumer can construct. A module needing one the
   // consumer cannot build has no way to be evaluated at all.
   //
-  // The default is the complete v0.10.0 input slice, because hdMerlin owns
+  // The default is every input the contract defines, because hdMerlin owns
   // geometry construction and supplies all of it; a consumer that cannot should
-  // narrow this rather than discover the gap at draw time.
-  MaterialInputRequirement available_inputs{
-      MaterialInputRequirement::PositionObject |
-      MaterialInputRequirement::PositionWorld |
-      MaterialInputRequirement::NormalObject |
-      MaterialInputRequirement::NormalWorld |
-      MaterialInputRequirement::Texcoord0};
+  // narrow this rather than discover the gap at draw time. It is spelled as the
+  // shared mask so an input added to the enum widens this default with it,
+  // rather than leaving a consumer that supplies everything looking as though
+  // it does not.
+  MaterialInputRequirement available_inputs{kAllMaterialInputRequirements};
 };
 
 // A compiled artifact's interface, as its target compiler reported it, restated
@@ -111,9 +109,11 @@ struct MaterialTargetReflection {
 
 // Can this consumer use this module?
 //
-// Every returned record is an `AbiMismatch`: the module is internally
-// consistent, and the disagreement is with the consumer. An empty result means
-// the module satisfies the expectation.
+// Every returned record is an `AbiMismatch`. Most describe a disagreement with
+// the consumer; a module that declares one parameter or resource name twice is
+// reported here as well, because a name nothing downstream can resolve to a
+// single declaration is unusable for every consumer rather than for this one.
+// An empty result means the module satisfies the expectation.
 [[nodiscard]] std::vector<MaterialDiagnostic> VerifyMaterialAbi(
     const MaterialModule& module,
     const MaterialAbiExpectation& expectation = {},
@@ -130,6 +130,11 @@ struct MaterialTargetReflection {
 // reports the module's own, is an `AbiMismatch`: that is about which code owns
 // the pass rather than about the interface.
 //
+// A name the *module* declared twice is also an `AbiMismatch`, and the entries
+// under it are then not compared against the target at all: no reported entry
+// can be attributed to one of two declarations, so comparing would report the
+// target as disagreeing with whichever declaration happened to be listed last.
+//
 // Two targets that both agree with one module therefore agree with each other;
 // there is no separate cross-target check to run.
 [[nodiscard]] std::vector<MaterialDiagnostic> VerifyMaterialTargetReflection(
@@ -140,14 +145,20 @@ struct MaterialTargetReflection {
 //
 // MaterialXGenSlang owns graph evaluation; hdMerlin owns the render pass. A
 // generated module that declares an entry point, binds a system value, names a
-// descriptor slot, or discards a fragment has taken over part of the pass, and
-// composing it into a renderer-owned shader would silently hand pass ownership
-// across the boundary. Every such record is a `GenerationFailure`: the generator
-// produced something outside the boundary it was given.
+// binding slot or a pass mode, allocates group-shared storage, or discards a
+// fragment has taken over part of the pass, and composing it into a
+// renderer-owned shader would silently hand pass ownership across the boundary.
+// Every such record is a `GenerationFailure`: the generator produced something
+// outside the boundary it was given.
 //
 // The scan names Slang/HLSL declaration forms because Slang is this
 // repository's one shading language across backends; nothing about it is
 // MaterialX-shaped, and a handwritten generated module is checked identically.
+// Whole families are rejected rather than the members of one seen so far: any
+// `[[vk::...]]` attribute is a binding decision, so the prefix is what the scan
+// matches. A material function needs none of them, so the cost of rejecting one
+// that would have been harmless is a generator fix, while the cost of missing
+// one is a renderer that silently lost part of its pass.
 //
 // What this proves is structural: the module declares no pass. It does not
 // prove the module's arithmetic is free of lighting, which no text scan can

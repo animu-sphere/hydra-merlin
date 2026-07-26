@@ -75,6 +75,11 @@ if(TARGET Merlin::MaterialX)
   )
   target_link_libraries(merlin-materialx-compiler-tests
     PRIVATE Merlin::MaterialX)
+  # The pass-neutrality wiring is internal to the integration and unreachable
+  # from any document, so the test reaches it through the private header rather
+  # than through a widened public boundary.
+  target_include_directories(merlin-materialx-compiler-tests
+    PRIVATE "${PROJECT_SOURCE_DIR}/material/merlin-materialx/src")
   add_test(
     NAME merlin-materialx-compiler
     COMMAND merlin-materialx-compiler-tests

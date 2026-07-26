@@ -115,6 +115,24 @@ void VerifyNamesAreStableAndDistinct() {
     assert(names.insert(merlin::MaterialInputRequirementName(input)).second);
   }
 
+  // This file keeps its own lists, so they are pinned to the same masks the
+  // contract folds next to the enums. A flag added there without a name here
+  // would otherwise leave a result field or an input that no message can spell.
+  MaterialResultField folded_results{};
+  for (const auto field : kResults) {
+    folded_results |= field;
+  }
+  assert(folded_results == merlin::kAllMaterialResultFields);
+  MaterialInputRequirement folded_inputs{};
+  for (const auto input : kInputs) {
+    folded_inputs |= input;
+  }
+  assert(folded_inputs == merlin::kAllMaterialInputRequirements);
+  // The default consumer supplies every input the contract defines, so a module
+  // is never rejected for needing one that simply postdates the default.
+  assert(MaterialAbiExpectation{}.available_inputs ==
+         merlin::kAllMaterialInputRequirements);
+
   // A combination names no single thing, so it is reported as unknown rather
   // than as whichever flag happened to be listed first.
   assert(merlin::MaterialResultFieldName(MaterialResultField::BaseColor |
@@ -160,6 +178,35 @@ void VerifyModuleAgainstConsumer() {
   assert(missing_input.size() == 1U);
   assert(missing_input[0].category == MaterialDiagnosticCategory::AbiMismatch);
   assert(missing_input[0].context.input_name == "texcoord-0");
+
+  // A module that declares one name twice is unusable for every consumer, not
+  // just for this one, so the module-side gate reports it without needing an
+  // artifact in hand.
+  auto ambiguous = module;
+  ambiguous.parameters.entries.push_back(
+      {"base", MaterialValueType::Float4, 1});
+  const auto ambiguous_records = merlin::VerifyMaterialAbi(ambiguous);
+  assert(ambiguous_records.size() == 1U);
+  assert(ambiguous_records[0].category ==
+         MaterialDiagnosticCategory::AbiMismatch);
+  assert(Mentions(ambiguous_records, "Module declares parameter 'base'"));
+  assert(Mentions(ambiguous_records, "more than once"));
+  assert(ambiguous_records[0].context.input_name == "base");
+
+  // Three declarations of one name are still one record: a host learns nothing
+  // from being told twice.
+  auto thrice = ambiguous;
+  thrice.parameters.entries.push_back({"base", MaterialValueType::Float, 1});
+  assert(merlin::VerifyMaterialAbi(thrice).size() == 1U);
+
+  auto ambiguous_resource = module;
+  ambiguous_resource.resources.entries.push_back(
+      ambiguous_resource.resources.entries[0]);
+  const auto ambiguous_resource_records =
+      merlin::VerifyMaterialAbi(ambiguous_resource);
+  assert(ambiguous_resource_records.size() == 1U);
+  assert(Mentions(ambiguous_resource_records,
+                  "Module declares resource 'albedo_file'"));
 
   auto stale = module;
   stale.abi_version = merlin::kMaterialAbiVersion + 1;
@@ -240,7 +287,35 @@ void VerifyTargetReflectionAgreement() {
   const auto duplicated_records =
       merlin::VerifyMaterialTargetReflection(module, duplicated);
   assert(duplicated_records.size() == 1U);
+  assert(Mentions(duplicated_records, "Target 'spirv'"));
   assert(Mentions(duplicated_records, "more than once"));
+
+  // An undeclared name the target happened to report twice is one entry the
+  // module does not declare, so it costs one record rather than two.
+  auto leaked_twice = MakeReflection(module, "spirv");
+  leaked_twice.parameters.entries.push_back(
+      {"light_direction", MaterialValueType::Float4, 1});
+  leaked_twice.parameters.entries.push_back(
+      {"light_direction", MaterialValueType::Float4, 1});
+  const auto leaked_twice_records =
+      merlin::VerifyMaterialTargetReflection(module, leaked_twice);
+  assert(leaked_twice_records.size() == 1U);
+  assert(Mentions(leaked_twice_records, "does not declare"));
+
+  // When the *module* declared a name twice, the fault is the module's. The
+  // target reported one perfectly good entry, and blaming it for disagreeing
+  // with whichever declaration was listed last would point a host at the wrong
+  // side of the boundary entirely.
+  auto ambiguous_module = module;
+  ambiguous_module.parameters.entries.push_back(
+      {"base", MaterialValueType::Float4, 1});
+  const auto ambiguous_records = merlin::VerifyMaterialTargetReflection(
+      ambiguous_module, MakeReflection(module, "metal"));
+  assert(ambiguous_records.size() == 1U);
+  assert(ambiguous_records[0].category ==
+         MaterialDiagnosticCategory::AbiMismatch);
+  assert(Mentions(ambiguous_records, "Module declares parameter 'base'"));
+  assert(!Mentions(ambiguous_records, "Target 'metal'"));
 
   auto missing_resource = MakeReflection(module, "metal");
   missing_resource.resources.entries.clear();
@@ -320,11 +395,61 @@ MaterialResult evaluateMaterial(MaterialInputs inputs)
                       "void f() { if (a < b) { discard; } }\n"),
                   "a fragment discard"));
 
+  // The whole `[[vk::...]]` family is a binding decision, not the three
+  // attributes that happened to be listed first.
+  assert(merlin::VerifyMaterialSourcePassNeutral(
+             "[[vk::input_attachment_index(0)]]\nSubpassInput s;\n")
+             .size() == 1U);
+  assert(merlin::VerifyMaterialSourcePassNeutral(
+             "[[vk::push_constant]]\nConstantBuffer<P> p;\n")
+             .size() == 1U);
+
+  // A pass mode, a packing decision, and group-shared storage each hand the
+  // renderer's pass to the module as surely as an entry point does.
+  assert(Mentions(merlin::VerifyMaterialSourcePassNeutral(
+                      "[earlydepthstencil]\nvoid f() {}\n"),
+                  "a depth-stencil pass mode"));
+  assert(Mentions(merlin::VerifyMaterialSourcePassNeutral(
+                      "cbuffer C { float4 a : packoffset(c0); };\n"),
+                  "packing offset"));
+  assert(Mentions(merlin::VerifyMaterialSourcePassNeutral(
+                      "groupshared float tile[64];\n"),
+                  "a group-shared allocation"));
+
   // A qualified name is not a semantic binding, and an identifier that merely
-  // ends in one of the forbidden words is not that word.
+  // ends in or begins with one of the forbidden words is not that word.
   assert(merlin::VerifyMaterialSourcePassNeutral(
              "float v = merlin::scale;\nint discarded = 0;\n"
-             "int my_register(int x) { return x; }\n")
+             "int my_register(int x) { return x; }\n"
+             "float groupshared_scale = 1.0f;\n")
+             .empty());
+
+  // A `:` that closes a conditional expression binds nothing, however the
+  // branch it selects happens to be spelled.
+  assert(merlin::VerifyMaterialSourcePassNeutral(
+             "float v = c ? a : sv_scale;\n"
+             "float w = c ? (d ? sv_a : sv_b) : sv_c;\n")
+             .empty());
+  // ... and a declaration in the same file is still found, so carrying that
+  // state forward never swallows a real semantic.
+  assert(merlin::VerifyMaterialSourcePassNeutral(
+             "float v = c ? a : sv_scale;\nfloat4 o : SV_Target;\n")
+             .size() == 1U);
+
+  // An unbalanced quote costs the rest of its line, never the rest of the
+  // module: blanking everything after it would leave this scan finding nothing
+  // and reporting a contaminated module as clean.
+  const auto after_stray_quote = merlin::VerifyMaterialSourcePassNeutral(
+      "float a = 1.0f; // fine\nfloat b = \"unterminated;\n"
+      "void f() { discard; }\n");
+  assert(after_stray_quote.size() == 1U);
+  assert(Mentions(after_stray_quote, "a fragment discard"));
+  assert(Mentions(after_stray_quote, "at line 3"));
+
+  // A closed literal is still blanked, so a construct named inside one is not
+  // one that was declared.
+  assert(merlin::VerifyMaterialSourcePassNeutral(
+             "const static string kNote = \"discard and register(t0)\";\n")
              .empty());
 
   // Findings are reported in source order, whichever pattern found them.

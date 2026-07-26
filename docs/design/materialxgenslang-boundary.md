@@ -149,15 +149,23 @@ that agree with one module therefore agree with each other, so there is no
 separate cross-target check.
 
 The same header owns the pass-neutrality rule. A generated module that declares
-an entry point, binds a system value, names a descriptor slot, or discards a
-fragment has taken over part of the pass, so `Merlin::MaterialX` applies the
-rule to its own output and refuses such a module at generation rather than
-leaving it for whoever composes it. What the rule proves is structural: the
-module declares no pass. It does not prove the module's arithmetic is free of
-lighting, which no scan of the text can show and which stays the generator's own
-contract. The compiled artifacts are checked for the same property, since a
-material that reached an artifact as one of its entry points was not composed
-into the renderer's pass but became one.
+an entry point, binds a system value, names a binding slot or a pass mode,
+allocates group-shared storage, or discards a fragment has taken over part of
+the pass, so `Merlin::MaterialX` applies the rule to its own output and refuses
+such a module at generation rather than leaving it for whoever composes it. The
+rule rejects whole families rather than the members of one seen so far — any
+`[[vk::...]]` attribute is a binding decision, and a material function needs
+none of them — because the cost of rejecting a harmless one is a generator fix
+while the cost of missing one is a renderer that silently lost part of its pass.
+For the same reason the scan fails closed on malformed text: an unbalanced quote
+costs the rest of its line rather than the rest of the module, which would
+otherwise leave the scan finding nothing and reporting a contaminated module as
+clean. What the rule proves is structural: the module declares no pass. It does
+not prove the module's arithmetic is free of lighting, which no scan of the text
+can show and which stays the generator's own contract. The compiled artifacts
+are checked for the same property, since a material that reached an artifact as
+one of its entry points was not composed into the renderer's pass but became
+one.
 
 ## v0.10.0 feature slice
 

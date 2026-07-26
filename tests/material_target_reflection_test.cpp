@@ -85,7 +85,7 @@ void SkipSpace(std::string_view text, std::size_t& at) {
 }
 
 std::string ParseString(std::string_view text, std::size_t& at) {
-  assert(text[at] == '"');
+  assert(at < text.size() && text[at] == '"');
   ++at;
   std::string value;
   while (at < text.size() && text[at] != '"') {
@@ -94,6 +94,9 @@ std::string ParseString(std::string_view text, std::size_t& at) {
       continue;
     }
     ++at;
+    // A backslash at the very end is a truncated document, not an escape; the
+    // assert below reports that rather than reading past the buffer to find out.
+    assert(at < text.size() && "reflection JSON ends inside a string escape");
     switch (text[at]) {
       case 'n': value.push_back('\n'); break;
       case 't': value.push_back('\t'); break;
@@ -129,7 +132,7 @@ Json ParseValue(std::string_view text, std::size_t& at) {
       SkipSpace(text, at);
       auto name = ParseString(text, at);
       SkipSpace(text, at);
-      assert(text[at] == ':');
+      assert(at < text.size() && text[at] == ':');
       ++at;
       value.members.emplace_back(std::move(name), ParseValue(text, at));
       SkipSpace(text, at);

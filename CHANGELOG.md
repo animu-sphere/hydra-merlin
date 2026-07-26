@@ -64,6 +64,8 @@ after its public API and release process are established.
   bindings; two targets that agree with one module therefore agree with each
   other. A consumer states its own half of the ABI, so the same module can be
   usable by a pass that reads only a base color and rejected by one that shades.
+  A name the module itself declared twice is reported against the module rather
+  than as a target disagreeing with whichever declaration was listed last.
 - Cross-target ABI evidence recomputed from the reflection the Slang compiler
   emitted for every generated-material artifact: SPIR-V and Metal reflection for
   both the graph-only prototype and the minimum Standard Surface module is
@@ -104,11 +106,15 @@ after its public API and release process are established.
   host could resolve.
 - `Merlin::MaterialX` checks its own generated source against the Core
   pass-neutrality rule and rejects a module that declared an entry point, bound
-  a system value, named a descriptor slot, or discarded a fragment. hdMerlin
-  owns the render pass, so such a module would take part of it over once a
-  renderer composed it; it is now refused at generation rather than noticed by
-  whoever composed it. A struct field merely *named* after a system value is
-  left alone, and a construct named in a comment is not one that was declared.
+  a system value, named a binding slot or a pass mode, allocated group-shared
+  storage, or discarded a fragment. hdMerlin owns the render pass, so such a
+  module would take part of it over once a renderer composed it; it is now
+  refused at generation rather than noticed by whoever composed it. Whole
+  families are rejected rather than their members seen so far, so any
+  `[[vk::...]]` attribute counts. A struct field merely *named* after a system
+  value is left alone, a `:` that closes a conditional expression binds nothing,
+  and a construct named in a comment or a string literal is not one that was
+  declared.
 - `CompileOptions` accepts a logical `source_document` identifier, and
   `CompileResult` echoes it alongside the MaterialX and generator versions, so
   a failed compile still reports where it came from and which versions produced
