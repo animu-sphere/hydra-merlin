@@ -739,6 +739,25 @@ int main(int argc, char** argv) {
            arguments.install_tree ? ""
                                   : "install-tree validation was not exercised"},
       };
+      if (arguments.probe_only) {
+        checks.push_back(
+            {"renderer.material.fallback", "skip",
+             "probe-only mode did not render material evidence"});
+      } else {
+        const auto material_detail =
+            merlin::MakeMaterialFallbackEvidenceRecord(
+                result.counters.material_fallbacks) +
+            " generated-draws=" +
+            std::to_string(result.counters.generated_material_draw_count) +
+            " generated-fallbacks=" +
+            std::to_string(
+                result.counters.generated_material_fallback_count);
+        checks.push_back(
+            {"renderer.material.fallback",
+             result.counters.material_fallbacks.fallback_taken() ? "fail"
+                                                                 : "pass",
+             material_detail});
+      }
       AppendHydraSkips(checks);
       report_phase = ReportPhase::Reporting;
       auto completed_producer = producer;

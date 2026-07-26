@@ -11,6 +11,25 @@ Legend: ✅ done
 
 ---
 
+## v0.10.0 MaterialX shader-generation boundary ✅
+
+- ✅ Generated the accepted constants, image/UV0/world-normal,
+  add/multiply/mix, and minimum Standard Surface slice as deterministic,
+  pass-neutral Slang material functions.
+- ✅ Kept topology, parameter state, resource assignments, and target artifacts
+  separately identified and verified the common ABI against SPIR-V and Metal
+  reflection.
+- ✅ Executed parameter and texture/sampler modules in renderer-owned Vulkan
+  Forward with per-module descriptor/pipeline layouts, pipeline reuse across
+  value and texture-content edits, and structured artifact/resource fallback.
+- ✅ Added GPU image evidence for textured Standard Surface execution and
+  missing-resource recovery without changing depth, picking, lighting, or AOV
+  ownership.
+- ✅ Serialized generated draw/fallback evidence through benchmark,
+  renderer-report, native viewport, and Hydra regression reports.
+- ✅ Retained and installed the accepted generated Slang, SPIR-V, Metal-target,
+  and reflection artifacts under `shaders/v2/materialx`.
+
 ## Renderer foundation ✅
 
 - ✅ Added the handle-based, host-neutral `RenderWorld` scene model.

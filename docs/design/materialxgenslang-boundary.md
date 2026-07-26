@@ -1,6 +1,6 @@
 # MaterialXGenSlang material boundary
 
-**Status:** Accepted for v0.10.0; implementation in progress
+**Status:** Accepted and implemented for v0.10.0
 
 **Date:** 2026-07-18
 
@@ -130,10 +130,13 @@ minimum `MaterialResult` from `evaluateMaterial(MaterialInputs)`. The Standard
 Surface adapter evaluates only the accepted upstream graph slice and does not
 invoke MaterialX lighting closures. Typed parameter/resource state and the Core
 module reference cross the host-neutral boundary separately. Registered
-parameter-only SPIR-V artifacts now execute through Vulkan Forward after the
+parameter-only and resource-bearing SPIR-V artifacts execute through Vulkan
+Forward after the
 backend checks the consumer ABI and target reflection and packs typed instance
-values into concrete target offsets. Generated texture/sampler composition and
-retained packaged artifacts remain v0.10.0 work.
+values into concrete target offsets. Generated texture/sampler composition
+derives backend-owned descriptor layouts from the logical resource contract,
+and the accepted SPIR-V/Metal artifacts and reflection are retained as
+installed build evidence.
 
 `merlin/core/material_abi.hpp` owns the agreement itself, in Core and without a
 MaterialX, Slang, or backend type. It separates the two questions a consumer of
@@ -333,12 +336,11 @@ Vulkan Forward fragment pipeline
 `backend/merlin-vulkan` owns every Vulkan handle and concrete layout. Neither
 Core nor `material/merlin-materialx` stores a Vulkan object or binding number.
 
-The first execution slice accepts registered parameter-only artifacts under
-conventional descriptors. A missing/corrupt artifact, ABI/reflection mismatch,
-bindless selection, or resource-bearing module falls back to the basic material
-with a structured diagnostic and frame evidence rather than being rendered
-through an incompatible layout. Texture/sampler composition is the next
-extension of this path, not an implicit support claim.
+The accepted execution slice supports registered parameter blocks and
+texture/sampler resources under conventional descriptors. A missing/corrupt
+artifact or resource, ABI/reflection/concrete-layout mismatch, or bindless
+selection falls back to the basic material with a structured diagnostic and
+frame evidence rather than being rendered through an incompatible layout.
 
 Metal execution is not required in v0.10.0. The compile gate does require the
 same canonical module and ABI version to produce SPIR-V and Metal-target output,

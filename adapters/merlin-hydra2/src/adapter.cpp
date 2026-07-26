@@ -1517,6 +1517,15 @@ class SceneBridge {
                << " missing_texcoord_geometries="
                << missing_texcoord_geometries
                << " material_fallbacks=" << snapshot->material_fallbacks.size()
+               << " generated_material_draw_count="
+               << result.telemetry.generated_material_draw_count
+               << " generated_material_fallback_count="
+               << result.telemetry.generated_material_fallback_count
+               << " material_fallback_recorded_count="
+               << result.telemetry.material_fallbacks.recorded_count
+               << " material_effective_fallback="
+               << merlin::MaterialFallbackName(
+                      result.telemetry.material_fallbacks.effective_fallback)
                << " texture_cache_hits="
                << result.telemetry.texture_cache_hits
                << " texture_cache_misses="

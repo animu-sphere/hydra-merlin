@@ -145,7 +145,11 @@ Vulkan-enabled builds also install the Vulkan library, `merlin-headless`,
 `<prefix>/<bindir>/shaders/v2` with SPIR-V, Metal compile-gate source,
 reflection JSON, and the deterministic artifact manifest. MaterialX-enabled
 builds also install the `Merlin::MaterialX` library, public compiler header, and
-CMake component. Hydra-enabled builds install the `hdMerlin` plugin below
+CMake component. When `slangc` is available, they also install the retained
+v0.10.0 prototype and Standard Surface Slang, SPIR-V, Metal-target, and
+reflection evidence below
+`<prefix>/<datadir>/merlin/shaders/v2/materialx`. Hydra-enabled builds install
+the `hdMerlin` plugin below
 `<prefix>/<libdir>/usd/hdMerlin` and its smoke fixture below
 `<prefix>/<datadir>/merlin/tests`. Every configuration also installs
 `<prefix>/<datadir>/merlin/VERSION` plus

@@ -19,6 +19,17 @@ if(NOT benchmark_result EQUAL 0)
 endif()
 
 file(READ "${MERLIN_BENCHMARK_OUTPUT}" json)
+foreach(required_counter
+    generated_material_draw_count
+    generated_material_fallback_count
+    material_fallback_recorded_count
+    material_effective_fallback)
+  string(FIND "${json}" "\"${required_counter}\"" counter_position)
+  if(counter_position EQUAL -1)
+    message(FATAL_ERROR
+      "benchmark omitted generated-material evidence: ${required_counter}")
+  endif()
+endforeach()
 string(JSON schema GET "${json}" schema)
 if(NOT schema STREQUAL "merlin-benchmark/v3")
   message(FATAL_ERROR "unexpected benchmark schema: ${schema}")

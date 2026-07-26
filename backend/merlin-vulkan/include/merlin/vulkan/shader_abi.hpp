@@ -11,7 +11,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 2;
+inline constexpr std::uint32_t kVersion = 3;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -73,7 +73,7 @@ struct ResourceBinding {
 inline constexpr ResourceBinding kConventionalBaseColorTexture{
     0, 0, ResourceClass::CombinedImageSampler};
 inline constexpr ResourceBinding kConventionalMaterialConstants{
-    0, 1, ResourceClass::UniformBuffer};
+    0, 31, ResourceClass::UniformBuffer};
 inline constexpr ResourceBinding kBindlessSamplers{
     0, 0, ResourceClass::Sampler};
 inline constexpr ResourceBinding kBindlessTextures{

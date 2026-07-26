@@ -1,7 +1,7 @@
 #include "materialx-prototype.slang"
 #include "forward-common.slang"
 
-[[vk::binding(1, 0)]]
+[[vk::binding(31, 0)]]
 ConstantBuffer<MaterialConstants> material_constants;
 
 [shader("fragment")]

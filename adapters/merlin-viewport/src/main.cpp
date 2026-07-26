@@ -219,7 +219,10 @@ void WriteBenchmark(const std::filesystem::path& path,
                     std::uint64_t gpu_ns,
                     std::uint64_t presented_readback_bytes,
                     std::uint64_t presentation_copy_bytes,
-                    std::uint64_t zero_readback_frames) {
+                    std::uint64_t zero_readback_frames,
+                    std::uint64_t generated_material_draws,
+                    std::uint64_t generated_material_fallbacks,
+                    merlin::MaterialFallback effective_material_fallback) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -244,6 +247,13 @@ void WriteBenchmark(const std::filesystem::path& path,
          << "  \"presentation_copy_bytes\": " << presentation_copy_bytes
          << ",\n"
          << "  \"zero_readback_frames\": " << zero_readback_frames << ",\n"
+         << "  \"generated_material_draws\": "
+         << generated_material_draws << ",\n"
+         << "  \"generated_material_fallbacks\": "
+         << generated_material_fallbacks << ",\n"
+         << "  \"material_effective_fallback\": \""
+         << merlin::MaterialFallbackName(effective_material_fallback)
+         << "\",\n"
          << "  \"frames_presented\": " << statistics.frames_presented
          << ",\n"
          << "  \"presentation_recreates\": "
@@ -337,6 +347,10 @@ int main(int argc, char** argv) {
     std::uint64_t presented_readback_bytes{};
     std::uint64_t presentation_copy_bytes{};
     std::uint64_t zero_readback_frames{};
+    std::uint64_t generated_material_draws{};
+    std::uint64_t generated_material_fallbacks{};
+    merlin::MaterialFallback effective_material_fallback{
+        merlin::MaterialFallback::None};
     std::uint64_t latest_frame_ns{};
     bool resized_for_test{};
     bool reference_checked{};
@@ -440,6 +454,13 @@ int main(int argc, char** argv) {
       gpu_ns += result.timings.gpu_execution_ns;
       presented_readback_bytes += result.telemetry.readback_bytes;
       presentation_copy_bytes += result.telemetry.presentation_copy_bytes;
+      generated_material_draws +=
+          result.telemetry.generated_material_draw_count;
+      generated_material_fallbacks +=
+          result.telemetry.generated_material_fallback_count;
+      effective_material_fallback =
+          std::max(effective_material_fallback,
+                   result.telemetry.material_fallbacks.effective_fallback);
       if (result.telemetry.cpu_readback_aov_count == 0 &&
           result.telemetry.readback_bytes == 0) {
         ++zero_readback_frames;
@@ -499,7 +520,10 @@ int main(int argc, char** argv) {
     if (!arguments.benchmark.empty()) {
       WriteBenchmark(arguments.benchmark, selection, statistics, frames,
                      elapsed_ns, gpu_ns, presented_readback_bytes,
-                     presentation_copy_bytes, zero_readback_frames);
+                     presentation_copy_bytes, zero_readback_frames,
+                     generated_material_draws,
+                     generated_material_fallbacks,
+                     effective_material_fallback);
       std::cout << "Benchmark: " << arguments.benchmark.string() << '\n';
     }
     if (arguments.reference_check &&

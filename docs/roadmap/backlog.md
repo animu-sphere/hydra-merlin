@@ -1,6 +1,7 @@
 # Backlog
 
-Ordered work after the active v0.10.0 milestone in [current.md](current.md).
+Ordered work after the completed v0.10.0 implementation in
+[current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
 Legend: ⬜ not started

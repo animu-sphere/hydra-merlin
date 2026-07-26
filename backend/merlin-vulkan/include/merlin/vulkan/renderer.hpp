@@ -26,15 +26,29 @@ struct GeneratedMaterialParameterBinding {
   std::uint32_t array_stride{};
 };
 
+struct GeneratedMaterialResourceBinding {
+  std::string name;
+  MaterialValueType type{MaterialValueType::Unknown};
+  std::uint32_t array_size{1};
+  // Texture2D uses `texture_binding`, Sampler uses `sampler_binding`, and a
+  // CombinedTextureSampler uses both. These are target reflection results,
+  // not part of the host-neutral material ABI.
+  std::uint32_t texture_binding{};
+  std::uint32_t sampler_binding{};
+};
+
 // Backend-owned description of a renderer-composed generated-material
 // artifact. Logical module/reflection data stays in Core; only Vulkan needs the
-// SPIR-V path and the target's concrete uniform offsets.
+// SPIR-V path and the target's concrete descriptor/offset layout.
 struct GeneratedMaterialArtifact {
   std::string module_key;
   std::filesystem::path fragment;
   std::string fragment_entry_point{"main"};
+  std::uint32_t parameter_binding{};
+  std::uint32_t material_constants_binding{31};
   std::uint32_t parameter_buffer_size{};
   std::vector<GeneratedMaterialParameterBinding> parameter_bindings;
+  std::vector<GeneratedMaterialResourceBinding> resource_bindings;
   MaterialTargetReflection reflection;
 };
 

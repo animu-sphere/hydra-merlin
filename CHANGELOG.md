@@ -88,8 +88,20 @@ after its public API and release process are established.
 - Runtime generated-material capability, draw, fallback, and worst-rung
   telemetry on both the Vulkan-native and backend-neutral result contracts,
   together with structured diagnostics for missing/corrupt artifacts,
-  ABI/reflection disagreement, unsupported bindless composition, and the
-  resource-bearing slice that has not yet been connected.
+  ABI/reflection disagreement, and unsupported bindless composition.
+- Vulkan Forward texture/sampler execution for generated MaterialX modules,
+  with per-module concrete descriptor and pipeline layouts, logical-resource
+  validation, reuse of existing texture/sampler residency, and explicit
+  missing-resource fallback.
+- GPU image evidence for the MaterialX image, multiply, world-normal, and
+  minimum Standard Surface path, including texture-content edits that reuse
+  the generated pipeline.
+- Retained and installed MaterialX prototype and Standard Surface Slang,
+  SPIR-V, Metal-target, and reflection artifacts under
+  `shaders/v2/materialx`.
+- Generated-material draw/fallback/worst-rung evidence in benchmark, headless
+  renderer-report, native viewport benchmark, and Hydra regression
+  serialization.
 
 ### Changed
 
@@ -102,6 +114,10 @@ after its public API and release process are established.
   `dependency_sha256`, and `artifact_key` in place of `cache_key`; the package
   `sources` inventory and every module's include closure are recovered from the
   depfile the compiler emitted rather than declared by the build system.
+- The Forward shader ABI is version 3: conventional material constants moved
+  to descriptor binding 31, reserving bindings 1 through 30 for generated
+  material resources while keeping renderer-owned vertex and fragment stages
+  on one layout.
 - Shader debug policy is a compile input that reaches both the `slangc`
   invocation and the artifact key, rather than a value the manifest asserted.
 - A reflected value whose MaterialX type has no MaterialIR equivalent, or whose

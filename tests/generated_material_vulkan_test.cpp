@@ -51,9 +51,10 @@ void Require(bool condition, const char* message) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 6) {
+  if (argc != 8) {
     std::cerr << "usage: generated_material_vulkan_test "
-                 "SHADER_DIR DOCUMENT DATA_ROOT ARTIFACT_SPV ENVIRONMENT\n";
+                 "SHADER_DIR DOCUMENT DATA_ROOT ARTIFACT_SPV "
+                 "STANDARD_DOCUMENT STANDARD_ARTIFACT_SPV ENVIRONMENT\n";
     return 1;
   }
 
@@ -65,10 +66,19 @@ int main(int argc, char** argv) {
       ReadFile(argv[2]), compile_options);
   assert(compiled);
   assert(compiled.diagnostics.empty());
+  merlin::materialx::CompileOptions standard_options;
+  standard_options.renderable_path = "NG_standard_surface/surface";
+  standard_options.library_search_paths.emplace_back(argv[3]);
+  standard_options.source_document = "standard-surface.mtlx";
+  const auto standard = merlin::materialx::CompileMaterialFunction(
+      ReadFile(argv[5]), standard_options);
+  assert(standard);
+  assert(standard.diagnostics.empty());
 
   merlin::vulkan::GeneratedMaterialArtifact artifact;
   artifact.module_key = compiled.module->module_key;
   artifact.fragment = argv[4];
+  artifact.fragment_entry_point = "merlin_materialx_forward_fragment";
   artifact.parameter_buffer_size = 32;
   artifact.parameter_bindings = {
       {"tint_in1", merlin::MaterialValueType::Float3, 1, 0, 0},
@@ -80,11 +90,49 @@ int main(int argc, char** argv) {
   artifact.reflection.parameters =
       compiled.module->logical_module.parameters;
 
+  merlin::vulkan::GeneratedMaterialArtifact standard_artifact;
+  standard_artifact.module_key = standard.module->module_key;
+  standard_artifact.fragment = argv[6];
+  standard_artifact.fragment_entry_point =
+      "merlin_materialx_standard_surface_forward_fragment";
+  standard_artifact.parameter_binding = 0;
+  standard_artifact.material_constants_binding = 31;
+  standard_artifact.parameter_buffer_size = 112;
+  standard_artifact.parameter_bindings = {
+      {"base", merlin::MaterialValueType::Float, 1, 0, 0},
+      {"metalness", merlin::MaterialValueType::Float, 1, 4, 0},
+      {"specular_roughness", merlin::MaterialValueType::Float, 1, 8, 0},
+      {"uv_index", merlin::MaterialValueType::Integer, 1, 12, 0},
+      {"albedo_layer", merlin::MaterialValueType::Integer, 1, 16, 0},
+      {"albedo_default", merlin::MaterialValueType::Float3, 1, 32, 0},
+      {"albedo_uaddressmode", merlin::MaterialValueType::Integer, 1, 44, 0},
+      {"albedo_vaddressmode", merlin::MaterialValueType::Integer, 1, 48, 0},
+      {"albedo_filtertype", merlin::MaterialValueType::Integer, 1, 52, 0},
+      {"albedo_framerange", merlin::MaterialValueType::Integer, 1, 56, 0},
+      {"albedo_frameoffset", merlin::MaterialValueType::Integer, 1, 60, 0},
+      {"albedo_frameendaction", merlin::MaterialValueType::Integer, 1, 64, 0},
+      {"albedo_uv_scale", merlin::MaterialValueType::Float2, 1, 72, 0},
+      {"albedo_uv_offset", merlin::MaterialValueType::Float2, 1, 80, 0},
+      {"tinted_albedo_in2", merlin::MaterialValueType::Float3, 1, 96, 0},
+  };
+  standard_artifact.resource_bindings = {
+      {"albedo_file", merlin::MaterialValueType::CombinedTextureSampler,
+       1, 1, 2},
+  };
+  standard_artifact.reflection.target = "spirv";
+  standard_artifact.reflection.entry_points = {
+      standard_artifact.fragment_entry_point};
+  standard_artifact.reflection.parameters =
+      standard.module->logical_module.parameters;
+  standard_artifact.reflection.resources =
+      standard.module->logical_module.resources;
+
   merlin::vulkan::RendererOptions renderer_options;
   renderer_options.enable_validation = true;
   renderer_options.descriptor_backend =
       merlin::vulkan::DescriptorBackendRequest::Conventional;
   renderer_options.generated_material_artifacts.push_back(artifact);
+  renderer_options.generated_material_artifacts.push_back(standard_artifact);
   std::optional<merlin::vulkan::Renderer> renderer;
   try {
     renderer.emplace(std::move(renderer_options));
@@ -98,7 +146,7 @@ int main(int argc, char** argv) {
   const merlin::vulkan::ShaderPaths shaders{
       shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
       shader_dir / "triangle.bindless.vert.spv",
-      shader_dir / "triangle.bindless.frag.spv", argv[5]};
+      shader_dir / "triangle.bindless.frag.spv", argv[7]};
 
   merlin::RenderWorld world;
   merlin::extraction::SceneExtractor extractor;
@@ -121,7 +169,7 @@ int main(int argc, char** argv) {
   merlin::InstanceDescriptor instance;
   instance.mesh = mesh_handle;
   instance.material = material_handle;
-  world.CreateInstance(instance);
+  const auto instance_handle = world.CreateInstance(instance);
 
   const auto render = [&] {
     extractor.Apply(world, world.Commit());
@@ -217,6 +265,66 @@ int main(int argc, char** argv) {
               merlin::MaterialDiagnosticCategory::TargetFailure,
           "incompatible SPIR-V used the wrong diagnostic category");
 
+  merlin::TextureDescriptor generated_texture;
+  generated_texture.label = "generated-checker";
+  generated_texture.width = 1;
+  generated_texture.height = 1;
+  generated_texture.pixels = {128, 64, 255, 255};
+  const auto generated_texture_handle =
+      world.CreateTexture(generated_texture);
+  merlin::SamplerDescriptor generated_sampler;
+  generated_sampler.label = "generated-nearest";
+  generated_sampler.min_filter = merlin::FilterMode::Nearest;
+  generated_sampler.mag_filter = merlin::FilterMode::Nearest;
+  const auto generated_sampler_handle =
+      world.CreateSampler(generated_sampler);
+  merlin::MaterialDescriptor standard_material;
+  standard_material.label = "generated-standard-surface";
+  standard_material.features = merlin::MaterialFeature::None;
+  standard_material.module = standard.module->logical_module;
+  standard_material.generated_parameters = standard.module->parameter_defaults;
+  standard_material.generated_resources.key = standard.module->resource_key;
+  standard_material.generated_resources.entries = {
+      {"albedo_file", merlin::MaterialValueType::CombinedTextureSampler,
+       {{generated_texture_handle, generated_sampler_handle}}},
+  };
+  const auto standard_material_handle =
+      world.CreateMaterial(standard_material);
+  instance.material = standard_material_handle;
+  world.UpdateInstance(instance_handle, instance,
+                       merlin::ChangeAspect::MaterialBinding);
+  const auto textured = render();
+  assert(textured.counters.generated_material_draw_count == 1);
+  assert(textured.counters.generated_material_fallback_count == 0);
+  assert(textured.material_diagnostics.empty());
+  // texture * tint * Standard Surface base:
+  // (128/255, 64/255, 1) * (0.8, 0.6, 0.4) * 0.9.
+  assert(Near(CenterChannel(textured, 0), 92));
+  assert(Near(CenterChannel(textured, 1), 35));
+  assert(Near(CenterChannel(textured, 2), 92));
+
+  generated_texture.pixels = {255, 128, 64, 255};
+  world.UpdateTexture(generated_texture_handle, generated_texture);
+  const auto texture_edited = render();
+  assert(texture_edited.counters.pipeline_creation_count == 0);
+  assert(texture_edited.counters.generated_material_draw_count == 1);
+  assert(Near(CenterChannel(texture_edited, 0), 184));
+  assert(Near(CenterChannel(texture_edited, 1), 69));
+  assert(Near(CenterChannel(texture_edited, 2), 23));
+
+  world.Remove(generated_texture_handle);
+  const auto missing_resource = render();
+  assert(missing_resource.counters.generated_material_draw_count == 0);
+  assert(missing_resource.counters.generated_material_fallback_count == 1);
+  assert(missing_resource.counters.material_fallbacks.effective_fallback ==
+         merlin::MaterialFallback::BasicMaterial);
+  assert(missing_resource.material_diagnostics.size() == 1);
+  assert(missing_resource.material_diagnostics.front().category ==
+         merlin::MaterialDiagnosticCategory::MissingTexture);
+
+  instance.material = material_handle;
+  world.UpdateInstance(instance_handle, instance,
+                       merlin::ChangeAspect::MaterialBinding);
   material.module->key = "sha256:missing-vulkan-artifact";
   world.UpdateMaterial(material_handle, material,
                        merlin::ChangeAspect::MaterialModule);
