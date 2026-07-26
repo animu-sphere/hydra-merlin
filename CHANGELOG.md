@@ -80,6 +80,16 @@ after its public API and release process are established.
   a warning against a material that still generated takes no rung at all: it
   reaches the host as an ignored record and is not counted as a substitution in
   fallback evidence.
+- Vulkan Forward execution for registered parameter-only generated-material
+  artifacts. The backend verifies the Core consumer ABI and target reflection,
+  packs typed instance values into target-specific uniform offsets, reuses the
+  module pipeline across value-only edits, and retains renderer ownership of
+  lighting, depth, picking, AOV writes, and the render pass.
+- Runtime generated-material capability, draw, fallback, and worst-rung
+  telemetry on both the Vulkan-native and backend-neutral result contracts,
+  together with structured diagnostics for missing/corrupt artifacts,
+  ABI/reflection disagreement, unsupported bindless composition, and the
+  resource-bearing slice that has not yet been connected.
 
 ### Changed
 
@@ -115,6 +125,9 @@ after its public API and release process are established.
   value is left alone, a `:` that closes a conditional expression binds nothing,
   and a construct named in a comment or a string literal is not one that was
   declared.
+- Forward lighting now accepts renderer-composed surface color and shading
+  normal inputs through a pass-owned helper; the existing handwritten
+  base-color/texture path remains an adapter over that same function.
 - `CompileOptions` accepts a logical `source_document` identifier, and
   `CompileResult` echoes it alongside the MaterialX and generator versions, so
   a failed compile still reports where it came from and which versions produced

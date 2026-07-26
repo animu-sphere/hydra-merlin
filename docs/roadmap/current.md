@@ -54,13 +54,19 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
 
 #### Remaining implementation focus
 
-- Compose the generated function with the existing Vulkan Forward shader and
-  resource paths; add pipeline/module reuse and image/fallback validation.
-- Emit the selected fallback into frame telemetry and the renderer capability
-  report. The categories, context, ladder, and evidence aggregate now exist in
-  Core, but the component that performs a render-time fallback is the Vulkan
-  Forward composition above, so emission lands with it rather than as unwired
-  counters.
+- Extend the now-proven parameter-only Vulkan Forward composition to generated
+  texture/sampler resources, then complete the constant dielectric, constant
+  metal, textured dielectric, arithmetic/mix, normal, multiple-material, and
+  unsupported-node image/fallback matrix. Registered parameter-only artifacts
+  already pass the Core consumer ABI and target-reflection checks, select a
+  module-specific pipeline, reuse it across value-only edits, and execute the
+  generated function without taking over lighting, depth, picking, or AOV
+  writes.
+- Carry runtime fallback evidence through remaining hosts and reports. Vulkan
+  and the backend-neutral frame result now expose generated draw/fallback
+  counts, the worst fallback rung, structured target/cache/ABI diagnostics, and
+  a generated-material capability bit; benchmark, Hydra, and retained renderer
+  report serialization still need to consume the new fields.
 - Package the SPIR-V and Metal-target outputs and their reflection as retained
   build evidence. The ABI-mismatch and render-pass-contamination checks now run
   over every generated-material artifact as test evidence, but those artifacts

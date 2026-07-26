@@ -150,7 +150,8 @@ adapter translates a basic `UsdPreviewSurface` subset (constant parameters,
 diffuse image texture, wrap mode, opacity mask) and distant lights into the
 same `MaterialIR` used by headless rendering. The optional graph-only
 MaterialXGenSlang compiler foundation is present, but Hydra MaterialX ingestion
-and Vulkan Forward execution of generated material modules remain v0.10.0 work.
+and Vulkan Forward binding of generated texture/resource modules remain
+v0.10.0 work; registered parameter-only modules now execute in Forward.
 Subdivision refinement and zero-copy Vulkan/Hgi interop also remain future
 work; usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi
 upload path.
@@ -234,8 +235,12 @@ fingerprints, and a topology-only module key stay separate from typed parameter
 and resource state. Core carries the versioned logical module/layout contract
 and exact input-space requirements; the same generated sources compile for
 SPIR-V and Metal targets, keyed by the same Core target-artifact contract that
-keys handwritten Slang. v0.10.0 completion still requires structured common
-fallback, Vulkan Forward execution, and image evidence. See the authoritative
+keys handwritten Slang. v0.10.0 completion still requires generated resource
+binding, the remaining Vulkan Forward image/fallback matrix, and retained
+artifact evidence. Registered parameter-only artifacts already execute through
+a renderer-owned Forward fragment pipeline with ABI/reflection checks, pipeline
+reuse across value-only edits, and structured runtime fallback telemetry. See
+the authoritative
 [MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
 and [current milestone](docs/roadmap/current.md).
 
