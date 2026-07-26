@@ -55,6 +55,21 @@ after its public API and release process are established.
   generator includes, and image resources the document left without a filename,
   plus the authored node category and input name on every record that is
   attributable to one.
+- A host-neutral material ABI contract in Core covering what a consumer of a
+  generated module declares it can supply and will read, whether a module
+  satisfies it, whether a compiled artifact's reflected interface agrees with
+  the module's logical one, and whether generated source declared any part of a
+  render pass. Agreement between a module and a target is semantic rather than
+  positional, so SPIR-V and Metal describe one material through their own native
+  bindings; two targets that agree with one module therefore agree with each
+  other. A consumer states its own half of the ABI, so the same module can be
+  usable by a pass that reads only a base color and rejected by one that shades.
+- Cross-target ABI evidence recomputed from the reflection the Slang compiler
+  emitted for every generated-material artifact: SPIR-V and Metal reflection for
+  both the graph-only prototype and the minimum Standard Surface module is
+  restated in the Core vocabulary and checked back against the module they were
+  built from, together with the negative cases that prove a dropped, retyped, or
+  undeclared parameter is caught.
 - A `Merlin::MaterialX` bridge that classifies integration-local diagnostics
   against the Core contract and flattens them onto the existing host-neutral
   `merlin-diagnostic/v1` sink, so hosts keep one diagnostic stream while
@@ -87,6 +102,13 @@ after its public API and release process are established.
 - An image node the document left without a filename is now rejected at
   generation instead of producing a module carrying a resource identifier no
   host could resolve.
+- `Merlin::MaterialX` checks its own generated source against the Core
+  pass-neutrality rule and rejects a module that declared an entry point, bound
+  a system value, named a descriptor slot, or discarded a fragment. hdMerlin
+  owns the render pass, so such a module would take part of it over once a
+  renderer composed it; it is now refused at generation rather than noticed by
+  whoever composed it. A struct field merely *named* after a system value is
+  left alone, and a construct named in a comment is not one that was declared.
 - `CompileOptions` accepts a logical `source_document` identifier, and
   `CompileResult` echoes it alongside the MaterialX and generator versions, so
   a failed compile still reports where it came from and which versions produced

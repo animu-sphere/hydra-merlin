@@ -61,9 +61,11 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
   Core, but the component that performs a render-time fallback is the Vulkan
   Forward composition above, so emission lands with it rather than as unwired
   counters.
-- Retain SPIR-V and Metal-target outputs plus logical/target reflection as
-  deterministic build and test evidence, including ABI mismatch and
-  render-pass-contamination checks.
+- Package the SPIR-V and Metal-target outputs and their reflection as retained
+  build evidence. The ABI-mismatch and render-pass-contamination checks now run
+  over every generated-material artifact as test evidence, but those artifacts
+  are produced into the test tree rather than into a `shaders/v2` package, so
+  nothing outside a test run keeps them.
 
 The graph-only compiler now covers image/UV0/world-normal generation and adapts
 the minimum Standard Surface fields into a renderer-owned material result;
@@ -82,7 +84,16 @@ simplification it never generated, so evidence cannot record a recovery the
 renderer did not perform. The previously merged
 package target, deterministic prototype generation, logical reflection,
 diagnostics, and direct SPIR-V/Metal compile wrappers are recorded in the
-[delivery history](../reports/delivery-history.md). Topology-only module
+[delivery history](../reports/delivery-history.md). A Core-owned material ABI
+contract now answers both halves of the agreement: whether a module produces
+what a consumer reads and needs only what it can supply, and whether a compiled
+artifact's reflected interface still describes the module it was built from.
+Agreement is semantic, so SPIR-V and Metal describe one material through their
+own native bindings, and both agreeing with the module is what makes them agree
+with each other. The same contract owns the pass-neutrality rule, which the
+MaterialX compiler now applies to its own output, so a generated module that
+declared part of a render pass is refused at generation rather than found by
+whoever composed it. Topology-only module
 identity, separate parameter/resource state identities, and the host-neutral
 Core module contract are included in the current capability summary in the
 [support matrix](../reference/support-matrix.md). They are foundation evidence,

@@ -27,6 +27,10 @@ merlin::MaterialDiagnosticCategory ToMaterialDiagnosticCategory(
       return merlin::MaterialDiagnosticCategory::MissingInclude;
     case DiagnosticCode::MissingTexture:
       return merlin::MaterialDiagnosticCategory::MissingTexture;
+    // The document is fine and the graph is supported; the generator emitted
+    // something outside the boundary it was given, which is a failure of
+    // generation rather than of the material that was authored.
+    case DiagnosticCode::GeneratedPassDeclaration:
     case DiagnosticCode::GenerationFailure:
       return merlin::MaterialDiagnosticCategory::GenerationFailure;
   }

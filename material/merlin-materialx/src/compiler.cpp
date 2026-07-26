@@ -1,6 +1,7 @@
 #include <merlin/materialx/compiler.hpp>
 
 #include <merlin/core/identity.hpp>
+#include <merlin/core/material_abi.hpp>
 
 #include <MaterialXCore/Node.h>
 #include <MaterialXCore/Value.h>
@@ -924,6 +925,20 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
       module.source =
           PruneUnusedStandardSurfaceInputs(std::move(module.source), stage);
     }
+    // The generator is trusted to evaluate a graph, not to decide what a render
+    // pass looks like. Checking its own output against the Core rule means a
+    // module that declared part of one never reaches a renderer that would
+    // compose it, rather than being noticed later by whoever composed it.
+    if (const auto contamination =
+            merlin::VerifyMaterialSourcePassNeutral(module.source);
+        !contamination.empty()) {
+      for (const auto& record : contamination) {
+        AddError(result, DiagnosticCode::GeneratedPassDeclaration,
+                 renderable->getNamePath(), record.message);
+      }
+      return result;
+    }
+
     module.output_type =
         standard_surface ? "material_result" : typed->getType();
     module.materialx_version = mx::getVersionString();

@@ -512,6 +512,28 @@ int main(int argc, char** argv) {
   assert(bridged_advisory.context.material_identity ==
          standard_surface.module->module_key);
 
+  // A generator that emitted part of a render pass produced a module no
+  // renderer may compose, so the record is a generation failure and costs the
+  // whole material. The compiler checks its own output for this against the
+  // Core rule; the case cannot be reached from a document, so what is pinned
+  // here is that the code classifies and bridges like the failure it is.
+  const merlin::materialx::Diagnostic contaminated{
+      merlin::materialx::DiagnosticSeverity::Error,
+      merlin::materialx::DiagnosticCode::GeneratedPassDeclaration,
+      "NG_prototype/out",
+      "Generated material source declares a shader entry point at line 1; "
+      "the renderer owns the pass"};
+  assert(merlin::materialx::ToMaterialDiagnosticCategory(
+             contaminated.code) ==
+         merlin::MaterialDiagnosticCategory::GenerationFailure);
+  const auto bridged_contamination =
+      merlin::materialx::ToMaterialDiagnostic(contaminated,
+                                              unsupported_with_source);
+  assert(merlin::ToDiagnostic(bridged_contamination).code ==
+         "material.generation.failed");
+  assert(bridged_contamination.fallback ==
+         merlin::MaterialFallback::BasicMaterial);
+
   // A clean compile reports nothing and claims no fallback, so evidence never
   // shows a recovery the renderer did not perform.
   CollectingDiagnosticSink clean_sink;

@@ -35,6 +35,12 @@ enum class DiagnosticCode {
   // An image resource the host can never resolve, because the document left it
   // without a filename.
   MissingTexture,
+  // Generated source that declared part of a render pass -- an entry point, a
+  // bound system value, an explicit descriptor slot, or a fragment discard.
+  // hdMerlin owns the pass; a module carrying one of these would take it over
+  // when a renderer composed it, so the module is rejected instead of handed
+  // out. The rule is `merlin::VerifyMaterialSourcePassNeutral`, not a local one.
+  GeneratedPassDeclaration,
   GenerationFailure,
 };
 
