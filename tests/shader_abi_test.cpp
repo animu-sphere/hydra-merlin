@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
     RequireContains(conventional_fragment, "\"combined\":true",
                     "base color texture is not a combined image sampler");
     RequireBinding(conventional_fragment, "material_constants",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":31}");
     RequireBinding(bindless_fragment, "bindless_samplers",
                    "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
     RequireBinding(bindless_fragment, "bindless_textures",
@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
                     "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":2",
+    RequireContains(manifest, "\"shader_abi_version\":3",
                     "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
                     "Slang toolchain series is not pinned");
@@ -219,11 +219,11 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 2);
+    static_assert(kVersion == 3);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
-    static_assert(kConventionalMaterialConstants.binding == 1);
+    static_assert(kConventionalMaterialConstants.binding == 31);
     static_assert(kBindlessSamplers.binding == 0);
     static_assert(kBindlessTextures.binding == 1);
     static_assert(kBindlessMaterialConstants.set == 1);

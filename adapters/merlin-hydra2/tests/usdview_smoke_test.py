@@ -149,6 +149,10 @@ def testUsdviewInputFunction(appController):
     assert baseline["texcoord_geometries"] == 1
     assert baseline["missing_texcoord_geometries"] == 4
     assert baseline["material_fallbacks"] == 0
+    assert baseline["generated_material_draw_count"] == 0
+    assert baseline["generated_material_fallback_count"] == 0
+    assert baseline["material_fallback_recorded_count"] == 0
+    assert baseline["material_effective_fallback"] == "none"
     assert baseline["texture_cache_hits"] >= 1
     assert baseline["schema_version"] == 4
     assert baseline["upload_bytes"] == 0

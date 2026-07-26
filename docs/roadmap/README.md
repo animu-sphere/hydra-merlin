@@ -17,7 +17,7 @@ labels, not permission to violate a dependency gate: scope may move when
 benchmark, capability, or host-integration evidence changes the justified
 order.
 
-Legend: 🚧 in progress · ⬜ not started
+Legend: ✅ complete pending release · 🚧 in progress · ⬜ not started
 
 | Document | Contents |
 | --- | --- |
@@ -33,8 +33,9 @@ shader source of truth to Slang, established reflected shader ABI validation,
 and added the Metal compile gate. v0.9.0 extracts the minimum backend contract
 and delivers the dedicated backend-neutral `merlin-viewport` with Vulkan
 presentation; its completed pre-release detail is retained in the changelog and
-delivery history. The active v0.10.0 milestone proves a MaterialXGenSlang
-material-function slice, followed by a renderer-development diagnostic surface,
+delivery history. The completed v0.10.0 implementation proves a
+MaterialXGenSlang material-function slice; the next v0.10.x milestone adds a
+renderer-development diagnostic surface,
 before Metal residency, native presentation, and an HgiMetal host bridge come
 online. The later Mesh and Gaussian paths advance through persistent draw
 identity, GPU-driven execution, an experimental opaque Visibility Buffer,

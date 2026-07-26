@@ -551,6 +551,22 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.descriptor_allocation_count);
   WriteCounter(stream, counter_indent, "descriptor_update_count",
                count.descriptor_update_count);
+  WriteCounter(stream, counter_indent, "generated_material_draw_count",
+               count.generated_material_draw_count);
+  WriteCounter(stream, counter_indent, "generated_material_fallback_count",
+               count.generated_material_fallback_count);
+  WriteCounter(stream, counter_indent, "material_fallback_recorded_count",
+               count.material_fallbacks.recorded_count);
+  WriteCounter(stream, counter_indent, "material_simplification_count",
+               count.material_fallbacks.simplification_count);
+  WriteCounter(stream, counter_indent, "material_basic_fallback_count",
+               count.material_fallbacks.basic_material_count);
+  WriteCounter(stream, counter_indent, "material_error_fallback_count",
+               count.material_fallbacks.error_material_count);
+  stream << counter_indent << "\"material_effective_fallback\": ";
+  JsonString(stream, merlin::MaterialFallbackName(
+                         count.material_fallbacks.effective_fallback));
+  stream << ",\n";
   WriteCounter(stream, counter_indent,
                "bindless_sampled_image_descriptor_update_count",
                count.bindless_sampled_image_descriptor_update_count);
@@ -595,6 +611,8 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   JsonString(stream, VersionString(capabilities.api_version));
   stream << ",\n    \"timestamp_queries\": "
          << (capabilities.timestamp_queries ? "true" : "false")
+         << ",\n    \"generated_materials\": "
+         << (capabilities.generated_materials ? "true" : "false")
          << ",\n    \"async_transfer_queue\": "
          << (capabilities.async_transfer_queue ? "true" : "false")
          << ",\n    \"memory_budget_extension\": "

@@ -1,13 +1,14 @@
 # Current
 
-Only incomplete work for the next release milestone and active carry-over is
-listed here. Completed pre-release detail is retained in the
+Incomplete work for the next release milestone and active carry-over is listed
+here. A completed milestone may remain until its release metadata is prepared;
+its detailed pre-release history is retained in the
 [delivery history](../reports/delivery-history.md); shipped versions are
 recorded in the [changelog](../../CHANGELOG.md).
 
 ## Next milestone
 
-### 🚧 v0.10.0 — MaterialX shader-generation boundary
+### ✅ v0.10.0 — MaterialX shader-generation boundary
 
 Use the official MaterialX Slang Shader Generator to establish a durable,
 optional material-function boundary. v0.10.0 is not a production MaterialX
@@ -52,26 +53,20 @@ are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-bou
   asynchronous compilation, prewarming, Visibility integration, and complete
   OpenChess Set fidelity are not claimed by this release.
 
-#### Remaining implementation focus
+#### Completion evidence
 
-- Extend the now-proven parameter-only Vulkan Forward composition to generated
-  texture/sampler resources, then complete the constant dielectric, constant
-  metal, textured dielectric, arithmetic/mix, normal, multiple-material, and
-  unsupported-node image/fallback matrix. Registered parameter-only artifacts
-  already pass the Core consumer ABI and target-reflection checks, select a
-  module-specific pipeline, reuse it across value-only edits, and execute the
-  generated function without taking over lighting, depth, picking, or AOV
-  writes.
-- Carry runtime fallback evidence through remaining hosts and reports. Vulkan
-  and the backend-neutral frame result now expose generated draw/fallback
-  counts, the worst fallback rung, structured target/cache/ABI diagnostics, and
-  a generated-material capability bit; benchmark, Hydra, and retained renderer
-  report serialization still need to consume the new fields.
-- Package the SPIR-V and Metal-target outputs and their reflection as retained
-  build evidence. The ABI-mismatch and render-pass-contamination checks now run
-  over every generated-material artifact as test evidence, but those artifacts
-  are produced into the test tree rather than into a `shaders/v2` package, so
-  nothing outside a test run keeps them.
+- Vulkan Forward composes generated parameter blocks and texture/sampler
+  resources through per-module backend-owned descriptor and pipeline layouts.
+  The image test exercises image, multiply, UV0, world normal, minimum Standard
+  Surface, texture-content edits, and explicit missing-resource fallback
+  without handing lighting, depth, picking, or AOV ownership to MaterialX.
+- Vulkan-native and backend-neutral results expose generated draw/fallback
+  counts and worst-rung evidence; benchmark, headless renderer-report, native
+  viewport benchmark, and Hydra regression serialization consume those fields.
+- The accepted prototype and Standard Surface Slang modules, SPIR-V,
+  Metal-target outputs, and reflection are retained and installed beneath
+  `shaders/v2/materialx`; install-consumer validation requires the complete
+  evidence set.
 
 The graph-only compiler now covers image/UV0/world-normal generation and adapts
 the minimum Standard Surface fields into a renderer-owned material result;
@@ -181,9 +176,8 @@ and telemetry controls.
 
 ## Near-term execution order
 
-1. Close v0.10.0 narrowly around the ABI, identity split, diagnostics/fallback,
-   Vulkan Forward execution, deterministic cross-target artifacts, and image
-   evidence; do not broaden node coverage merely to claim general MaterialX.
+1. Keep the completed v0.10.0 boundary narrow; do not broaden node coverage
+   merely to claim general MaterialX.
 2. Add the development viewport surface over existing capability, timing,
    residency, upload, material, AOV, and fallback contracts.
 3. Strengthen non-GPU and Linux gates before implementation breadth grows.

@@ -3,7 +3,9 @@
 [[vk::binding(0, 0)]]
 Sampler2D base_color_texture;
 
-[[vk::binding(1, 0)]]
+// Bindings below this are reserved for generated material resources. The
+// conventional and generated Forward variants share this vertex ABI.
+[[vk::binding(31, 0)]]
 ConstantBuffer<MaterialConstants> material_constants;
 
 [shader("vertex")]

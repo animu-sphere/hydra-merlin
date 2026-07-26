@@ -78,7 +78,7 @@ if(NOT _packaging_contract STREQUAL "runtime-only")
   message(FATAL_ERROR "unexpected runtime product packaging contract")
 endif()
 if(NOT _slang_required STREQUAL "2026.8" OR
-   NOT _shader_abi_version EQUAL 2)
+   NOT _shader_abi_version EQUAL 3)
   message(FATAL_ERROR "unexpected Slang/shader ABI metadata contract")
 endif()
 string(LENGTH "${_materialx_revision}" _materialx_revision_length)
