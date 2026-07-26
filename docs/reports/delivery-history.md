@@ -350,8 +350,13 @@ repository-scoped GPU runner for continuous execution remains in the
 - ✅ Compiled the textured Standard Surface result wrapper from one generated
   source through both SPIR-V and Metal targets without allowing resources to
   leak from the constant-buffer binding.
+- ✅ Composed compiler, target, profile, capability, layout, optimization,
+  debug, and target-option policy into a Core target-artifact key that keys
+  generated and handwritten Slang identically, and made the `shaders/v2`
+  manifest record the module sources, module identity, and artifact key that a
+  test recomputes through that contract.
 
 This completed foundation is not the v0.10.0 release boundary. The accepted
 [MaterialXGenSlang policy](../design/materialxgenslang-boundary.md) retains
-target-artifact identity, common diagnostics/fallback, Vulkan Forward
-execution, and image evidence as active work.
+common diagnostics/fallback, Vulkan Forward execution, and image evidence as
+active work.

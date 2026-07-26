@@ -197,8 +197,19 @@ versions, generator version/revision, fixed generator options, loaded standard-
 library documents, and transitive generator-source includes into a target-
 neutral module key. Reflected uniform defaults and resource defaults produce
 separate instance and resource-state keys, so parameter-only and texture-
-assignment edits keep the module key and source unchanged. The separate target-
-artifact key remains required before the v0.10.0 identity gate is complete.
+assignment edits keep the module key and source unchanged.
+
+`merlin/core/shader_artifact.hpp` adds the target-artifact key as a Core
+contract with no MaterialX, Slang, or backend types in it. A module identity
+covers source and include content; the artifact key adds compiler and version,
+target, profile, capability set, matrix layout, optimization and debug policy,
+target-specific options, ABI version, permutation, and feature set. Handwritten
+Slang supplies the fingerprint of its own sources and generated material
+supplies its module key; nothing else about the two paths differs. The shader
+manifest records both identities together with the sources and policy fields
+they were computed from, and `merlin-shader-artifact-key` recomputes every key
+in the emitted manifest through the header, so the build system and the
+contract cannot drift apart.
 
 Core stores typed generated-parameter values and resolved logical resource
 bindings separately from the module definition. MaterialX filename defaults

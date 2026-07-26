@@ -1,4 +1,4 @@
-#include "sha256.hpp"
+#include <merlin/core/identity.hpp>
 
 #include <array>
 #include <bit>
@@ -8,7 +8,7 @@
 #include <sstream>
 #include <vector>
 
-namespace merlin::materialx::detail {
+namespace merlin {
 namespace {
 
 constexpr std::array<std::uint32_t, 64> kRoundConstants = {
@@ -37,7 +37,7 @@ constexpr std::array<std::uint32_t, 8> kInitialState = {
 
 }  // namespace
 
-std::string Sha256(std::string_view input) {
+std::string Sha256Hex(std::string_view input) {
   std::vector<std::uint8_t> bytes(input.begin(), input.end());
   const auto bit_length = static_cast<std::uint64_t>(bytes.size()) * 8U;
   bytes.push_back(0x80U);
@@ -110,4 +110,28 @@ std::string Sha256(std::string_view input) {
   return output.str();
 }
 
-}  // namespace merlin::materialx::detail
+void AppendIdentityField(std::string& record, std::string_view name,
+                         std::string_view value) {
+  record.append(name);
+  record.push_back('=');
+  record.append(std::to_string(value.size()));
+  record.push_back(':');
+  record.append(value);
+  record.push_back('\n');
+}
+
+std::string MakeIdentity(std::string_view record) {
+  return std::string(kIdentityPrefix) + Sha256Hex(record);
+}
+
+bool IsIdentity(std::string_view value) noexcept {
+  if (value.size() != kIdentityLength ||
+      !value.starts_with(kIdentityPrefix)) {
+    return false;
+  }
+  return value.find_first_not_of("0123456789abcdef",
+                                 kIdentityPrefix.size()) ==
+         std::string_view::npos;
+}
+
+}  // namespace merlin

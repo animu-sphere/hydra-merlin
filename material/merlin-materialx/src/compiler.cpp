@@ -1,6 +1,6 @@
 #include <merlin/materialx/compiler.hpp>
 
-#include "sha256.hpp"
+#include <merlin/core/identity.hpp>
 
 #include <MaterialXCore/Node.h>
 #include <MaterialXCore/Value.h>
@@ -344,16 +344,6 @@ std::string NormalizeNewlines(std::string text) {
   return text;
 }
 
-void AppendCacheField(std::string& record, std::string_view name,
-                      std::string_view value) {
-  record.append(name);
-  record.push_back('=');
-  record.append(std::to_string(value.size()));
-  record.push_back(':');
-  record.append(value);
-  record.push_back('\n');
-}
-
 std::filesystem::path NormalizedAbsolutePath(
     const std::filesystem::path& path) {
   std::error_code error;
@@ -428,7 +418,7 @@ std::string FingerprintDependencies(
   for (const auto& dependency_path : dependency_paths) {
     const std::filesystem::path path(dependency_path);
     const auto logical_path = MakeLogicalDependencyPath(path, search_path);
-    const auto content_sha256 = detail::Sha256(ReadDependency(path));
+    const auto content_sha256 = Sha256Hex(ReadDependency(path));
     const auto [entry, inserted] =
         sorted.emplace(logical_path, content_sha256);
     if (!inserted && entry->second != content_sha256) {
@@ -440,14 +430,14 @@ std::string FingerprintDependencies(
   }
 
   std::string record;
-  AppendCacheField(record, "schema", schema);
+  AppendIdentityField(record, "schema", schema);
   dependencies.reserve(sorted.size());
   for (const auto& [path, content_sha256] : sorted) {
-    AppendCacheField(record, "path", path);
-    AppendCacheField(record, "content-sha256", content_sha256);
+    AppendIdentityField(record, "path", path);
+    AppendIdentityField(record, "content-sha256", content_sha256);
     dependencies.push_back({path, content_sha256});
   }
-  return "sha256:" + detail::Sha256(record);
+  return MakeIdentity(record);
 }
 
 bool IsSupportedOutput(std::string_view type) {
@@ -607,28 +597,29 @@ std::optional<std::string> PopulateLogicalModule(
 
 void AppendPortInterface(std::string& record, std::string_view kind,
                          const MaterialFunctionPort& port) {
-  AppendCacheField(record, std::string(kind) + "-block", port.block);
-  AppendCacheField(record, std::string(kind) + "-name", port.name);
-  AppendCacheField(record, std::string(kind) + "-variable", port.variable);
-  AppendCacheField(record, std::string(kind) + "-type", port.type);
+  AppendIdentityField(record, std::string(kind) + "-block", port.block);
+  AppendIdentityField(record, std::string(kind) + "-name", port.name);
+  AppendIdentityField(record, std::string(kind) + "-variable", port.variable);
+  AppendIdentityField(record, std::string(kind) + "-type", port.type);
 }
 
-std::string MakeIdentity(std::string_view schema,
-                         const MaterialFunctionModule& module,
-                         bool include_parameters, bool include_resources) {
+std::string MakeStateIdentity(std::string_view schema,
+                              const MaterialFunctionModule& module,
+                              bool include_parameters,
+                              bool include_resources) {
   std::string record;
-  AppendCacheField(record, "schema", schema);
-  AppendCacheField(record, "module", module.module_key);
+  AppendIdentityField(record, "schema", schema);
+  AppendIdentityField(record, "module", module.module_key);
   for (const auto& uniform : module.uniforms) {
     const bool resource = IsResourceType(ToMaterialValueType(uniform.type));
     if ((resource && include_resources) ||
         (!resource && include_parameters)) {
       AppendPortInterface(record, resource ? "resource" : "parameter",
                           uniform);
-      AppendCacheField(record, "value", uniform.default_value);
+      AppendIdentityField(record, "value", uniform.default_value);
     }
   }
-  return "sha256:" + detail::Sha256(record);
+  return MakeIdentity(record);
 }
 
 std::map<std::string, std::string> FindUnsupportedNodes(
@@ -909,28 +900,28 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     // instance/resource state. This keeps parameter-only edits from forcing
     // shader regeneration.
     std::string module_record;
-    AppendCacheField(module_record, "schema", kModuleKeySchema);
-    AppendCacheField(module_record, "materialx", module.materialx_version);
-    AppendCacheField(module_record, "generator", module.generator_version);
-    AppendCacheField(module_record, "revision", module.generator_revision);
-    AppendCacheField(module_record, "standard-library",
+    AppendIdentityField(module_record, "schema", kModuleKeySchema);
+    AppendIdentityField(module_record, "materialx", module.materialx_version);
+    AppendIdentityField(module_record, "generator", module.generator_version);
+    AppendIdentityField(module_record, "revision", module.generator_revision);
+    AppendIdentityField(module_record, "standard-library",
                      module.standard_library_fingerprint);
-    AppendCacheField(module_record, "source-dependencies",
+    AppendIdentityField(module_record, "source-dependencies",
                      module.source_dependency_fingerprint);
-    AppendCacheField(module_record, "generator-options",
+    AppendIdentityField(module_record, "generator-options",
                      "max-lights=0;srgb-output=false");
-    AppendCacheField(module_record, "abi",
+    AppendIdentityField(module_record, "abi",
                      std::to_string(module.logical_module.abi_version));
-    AppendCacheField(
+    AppendIdentityField(
         module_record, "reflection",
         std::to_string(module.logical_module.reflection_schema_version));
-    AppendCacheField(module_record, "entry", module.entry_point);
-    AppendCacheField(module_record, "output", module.output_type);
-    AppendCacheField(
+    AppendIdentityField(module_record, "entry", module.entry_point);
+    AppendIdentityField(module_record, "output", module.output_type);
+    AppendIdentityField(
         module_record, "required-inputs",
         std::to_string(static_cast<std::uint32_t>(
             module.logical_module.requirements.inputs)));
-    AppendCacheField(
+    AppendIdentityField(
         module_record, "required-results",
         std::to_string(static_cast<std::uint32_t>(
             module.logical_module.requirements.results)));
@@ -940,14 +931,14 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     for (const auto& uniform : module.uniforms) {
       AppendPortInterface(module_record, "uniform", uniform);
     }
-    AppendCacheField(module_record, "source", module.source);
-    module.module_key = "sha256:" + detail::Sha256(module_record);
+    AppendIdentityField(module_record, "source", module.source);
+    module.module_key = MakeIdentity(module_record);
     module.cache_key = module.module_key;
     module.logical_module.key = module.module_key;
     module.instance_key =
-        MakeIdentity(kInstanceKeySchema, module, true, false);
+        MakeStateIdentity(kInstanceKeySchema, module, true, false);
     module.resource_key =
-        MakeIdentity(kResourceKeySchema, module, false, true);
+        MakeStateIdentity(kResourceKeySchema, module, false, true);
     module.parameter_defaults.key = module.instance_key;
     module.resource_defaults.key = module.resource_key;
     result.module = std::move(module);

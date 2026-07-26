@@ -38,7 +38,7 @@ set(_headless
     "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/merlin-headless${MERLIN_EXECUTABLE_SUFFIX}")
 if(EXISTS "${_headless}")
   set(_shader_dir
-      "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/shaders/v1")
+      "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
   foreach(_shader_file
       triangle.vert.spv triangle.frag.spv
       triangle.bindless.vert.spv triangle.bindless.frag.spv
@@ -56,7 +56,8 @@ if(EXISTS "${_headless}")
   file(READ "${_shader_dir}/manifest.json" _shader_manifest)
   string(JSON _shader_schema ERROR_VARIABLE _shader_json_error
          GET "${_shader_manifest}" schema_version)
-  if(_shader_json_error OR NOT _shader_schema EQUAL 1)
+  if(_shader_json_error OR
+     NOT _shader_schema EQUAL MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION)
     message(FATAL_ERROR
       "installed shader manifest is invalid: ${_shader_json_error}")
   endif()

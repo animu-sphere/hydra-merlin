@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
                     "\"name\":\"forward_fragment\",\"stage\":\"fragment\"",
                     "Metal fragment compile gate reflection mismatch");
 
-    RequireContains(manifest, "\"schema_version\":1",
+    RequireContains(manifest, "\"schema_version\":2",
                     "shader artifact manifest schema mismatch");
     RequireContains(manifest, "\"shader_abi_version\":2",
                     "shader ABI manifest version mismatch");
@@ -209,8 +209,10 @@ int main(int argc, char** argv) {
                     "Metal unsupported feature diagnostic is absent");
     RequireContains(manifest, "\"fallback\":\"forward-conventional\"",
                     "Metal fallback declaration is absent");
-    Require(CountRegex(manifest,
-                       std::regex("\\\"cache_key\\\":\\\"[0-9a-f]{64}\\\"")) == 6,
+    // merlin-shader-artifact-key recomputes these; here they only have to be
+    // present, canonical, and one per artifact.
+    Require(CountRegex(manifest, std::regex(
+                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 6,
             "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
@@ -218,7 +220,7 @@ int main(int argc, char** argv) {
 
     using namespace merlin::vulkan::shader_abi;
     static_assert(kVersion == 2);
-    static_assert(kArtifactSchemaVersion == 1);
+    static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
     static_assert(kConventionalMaterialConstants.binding == 1);

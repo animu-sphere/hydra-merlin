@@ -100,9 +100,9 @@ if(MERLIN_EXPECTED_VULKAN)
   string(JSON _shader_artifact_schema GET "${_merlin_metadata}"
     requirements slang artifact_schema_version)
   if(NOT _slang_detected MATCHES "^2026[.]8([.][0-9]+)?$" OR
-     NOT _shader_artifact_schema EQUAL 1)
+     NOT _shader_artifact_schema EQUAL 2)
     message(FATAL_ERROR
-      "Vulkan metadata requires Slang 2026.8.x and shader artifacts v1")
+      "Vulkan metadata requires Slang 2026.8.x and shader artifacts v2")
   endif()
   set(_expected_exported_target_count 4)
   if(MERLIN_EXPECTED_MATERIALX)
