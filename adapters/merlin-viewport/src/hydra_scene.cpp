@@ -1,6 +1,7 @@
 #include "hydra_scene.hpp"
 
 #include "adapter.hpp"
+#include "developer_ui.hpp"
 #include "presentation_glfw.hpp"
 #include "window.hpp"
 
@@ -346,14 +347,16 @@ void WriteBenchmark(const std::filesystem::path& path,
 
 std::shared_ptr<render::Backend> CreateRenderer(
     const HydraViewportOptions& options, Window& window,
-    render::BackendSelection& selection) {
+    DeveloperUi& developer_ui, render::BackendSelection& selection) {
   const auto executable_dir =
       std::filesystem::absolute(options.executable).parent_path();
   const auto shader_dir =
       executable_dir / vulkan::shader_abi::ArtifactDirectory();
   vulkan::BackendFactoryOptions vulkan_options;
-  vulkan_options.renderer.presentation =
+  auto presentation =
       MakeGlfwVulkanPresentation(window, options.vsync);
+  developer_ui.ConfigurePresentation(presentation);
+  vulkan_options.renderer.presentation = std::move(presentation);
   vulkan_options.shaders = {
       shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
       shader_dir / "triangle.bindless.vert.spv",
@@ -386,8 +389,9 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   }
   auto window = Window::Create("merlin-viewport | Hydra", options.width,
                                options.height, options.visible);
+  auto developer_ui = DeveloperUi::Create(*window);
   render::BackendSelection selection;
-  auto backend = CreateRenderer(options, *window, selection);
+  auto backend = CreateRenderer(options, *window, *developer_ui, selection);
   const auto presentation = backend->default_presentation_target();
   if (!presentation) {
     throw std::runtime_error(
@@ -421,6 +425,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   state->SetViewport(GfVec4d(0.0, 0.0, width, height));
   bool running = true;
   bool screenshot_pending = !options.screenshot.empty();
+  bool benchmark_snapshot_pending{};
   bool reference_pending = options.reference_check;
   bool reference_checked{};
   bool readback_requested = screenshot_pending || reference_pending;
@@ -430,6 +435,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   std::int32_t last_pointer_y{};
   bool resized_for_test{};
   std::uint64_t frames{};
+  HdMerlinViewportFrame latest_viewport_frame;
   const auto start = Clock::now();
 
   std::cout << "USD stage: " << options.stage.string() << '\n'
@@ -444,6 +450,8 @@ int RunHydraViewport(const HydraViewportOptions& options) {
          (options.frame_limit == 0 || frames < options.frame_limit)) {
     Event event;
     while (window->PollEvent(event)) {
+      const bool wants_keyboard = developer_ui->WantsKeyboard();
+      const bool wants_mouse = developer_ui->WantsMouse();
       switch (event.type) {
         case EventType::Close:
           running = false;
@@ -460,22 +468,26 @@ int RunHydraViewport(const HydraViewportOptions& options) {
         case EventType::KeyDown:
           if (event.key == Key::Escape) {
             running = false;
-          } else if (event.key == Key::Screenshot) {
+          } else if (!wants_keyboard && event.key == Key::Screenshot) {
             screenshot_pending = true;
             readback_requested = true;
-          } else if (event.key == Key::Frame && width != 0 && height != 0) {
+          } else if (!wants_keyboard && event.key == Key::Frame &&
+                     width != 0 && height != 0) {
             state->FrameStage(stage, width, height);
-          } else if (event.key == Key::Left) {
+          } else if (!wants_keyboard && event.key == Key::Left) {
             state->Pan(-0.05, 0.0);
-          } else if (event.key == Key::Right) {
+          } else if (!wants_keyboard && event.key == Key::Right) {
             state->Pan(0.05, 0.0);
-          } else if (event.key == Key::Up) {
+          } else if (!wants_keyboard && event.key == Key::Up) {
             state->Pan(0.0, 0.05);
-          } else if (event.key == Key::Down) {
+          } else if (!wants_keyboard && event.key == Key::Down) {
             state->Pan(0.0, -0.05);
           }
           break;
         case EventType::PointerDown: {
+          if (wants_mouse) {
+            break;
+          }
           const bool camera_modifier =
               event.modifiers.alt || event.modifiers.super;
           if (camera_modifier) {
@@ -499,6 +511,9 @@ int RunHydraViewport(const HydraViewportOptions& options) {
           camera_mode = CameraMode::None;
           break;
         case EventType::PointerMove: {
+          if (wants_mouse) {
+            break;
+          }
           const auto delta_x = event.x - last_pointer_x;
           const auto delta_y = event.y - last_pointer_y;
           if (camera_mode == CameraMode::Tumble) {
@@ -515,7 +530,9 @@ int RunHydraViewport(const HydraViewportOptions& options) {
           break;
         }
         case EventType::Scroll:
-          state->DollyWheel(event.scroll_y);
+          if (!wants_mouse) {
+            state->DollyWheel(event.scroll_y);
+          }
           break;
       }
     }
@@ -526,6 +543,35 @@ int RunHydraViewport(const HydraViewportOptions& options) {
       window->WaitForEvent();
       continue;
     }
+
+    DeveloperUiSnapshot ui_snapshot;
+    ui_snapshot.scene_source = "Hydra";
+    ui_snapshot.selection = &selection;
+    ui_snapshot.capabilities = &backend->capabilities();
+    ui_snapshot.statistics = backend->statistics();
+    ui_snapshot.timings = latest_viewport_frame.timings;
+    ui_snapshot.telemetry = latest_viewport_frame.telemetry;
+    ui_snapshot.material_diagnostics =
+        &latest_viewport_frame.material_diagnostics;
+    ui_snapshot.scene = {
+        latest_viewport_frame.available,
+        latest_viewport_frame.geometries,
+        latest_viewport_frame.textures,
+        latest_viewport_frame.samplers,
+        latest_viewport_frame.materials,
+        latest_viewport_frame.instances,
+        latest_viewport_frame.lights,
+    };
+    ui_snapshot.frame_index = frames;
+    ui_snapshot.width = width;
+    ui_snapshot.height = height;
+    const auto ui_actions = developer_ui->DrawFrame(ui_snapshot);
+    if (ui_actions.capture_screenshot) {
+      screenshot_pending = true;
+      readback_requested = true;
+    }
+    benchmark_snapshot_pending =
+        benchmark_snapshot_pending || ui_actions.save_benchmark;
 
     std::unique_ptr<HdMerlinRenderBuffer> color;
     std::unique_ptr<HdMerlinRenderBuffer> prim_id;
@@ -556,7 +602,21 @@ int RunHydraViewport(const HydraViewportOptions& options) {
     }
     state->SetAovBindings(bindings);
     engine.Execute(render_index.get(), &tasks);
+    latest_viewport_frame = render_delegate.GetLatestViewportFrame();
     ++frames;
+    if (benchmark_snapshot_pending) {
+      const auto elapsed_ns = static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              Clock::now() - start)
+              .count());
+      const auto path =
+          std::filesystem::absolute(options.executable).parent_path() /
+          "merlin-viewport-benchmark.json";
+      WriteBenchmark(path, selection, backend->statistics(), frames,
+                     elapsed_ns);
+      std::cout << "Benchmark snapshot: " << path.string() << '\n';
+      benchmark_snapshot_pending = false;
+    }
 
     if (color) {
       const auto bytes = static_cast<std::size_t>(width) * height * 4U;

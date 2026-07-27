@@ -985,6 +985,9 @@ class Renderer::Impl {
                             "presentation surface callback is null");
       }
       presentation_vsync_ = options.presentation->vsync;
+      presentation_overlay_user_data_ =
+          options.presentation->overlay_user_data;
+      presentation_overlay_ = options.presentation->render_overlay;
     }
     for (auto& artifact : options.generated_material_artifacts) {
       if (artifact.module_key.empty() || artifact.fragment.empty() ||
@@ -1044,6 +1047,7 @@ class Renderer::Impl {
   ~Impl() {
     if (device_ != VK_NULL_HANDLE) {
       (void)vkDeviceWaitIdle(device_);
+      ShutdownPresentationOverlay();
       for (auto& retired : deferred_) {
         DestroyBuffer(retired.buffer);
       }
@@ -1557,8 +1561,11 @@ class Renderer::Impl {
     std::uint32_t requested_width{};
     std::uint32_t requested_height{};
     std::vector<VkImage> images;
+    std::vector<VkImageView> image_views;
+    std::vector<VkFramebuffer> overlay_framebuffers;
     std::vector<VkSemaphore> render_finished;
     std::vector<bool> initialized;
+    VkRenderPass overlay_render_pass{};
     bool dirty{};
   };
 
@@ -4487,6 +4494,15 @@ class Renderer::Impl {
 
   void DestroySwapchain() noexcept {
     if (device_ != VK_NULL_HANDLE) {
+      for (const auto framebuffer : swapchain_.overlay_framebuffers) {
+        vkDestroyFramebuffer(device_, framebuffer, nullptr);
+      }
+      if (swapchain_.overlay_render_pass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device_, swapchain_.overlay_render_pass, nullptr);
+      }
+      for (const auto view : swapchain_.image_views) {
+        vkDestroyImageView(device_, view, nullptr);
+      }
       for (const auto semaphore : swapchain_.render_finished) {
         vkDestroySemaphore(device_, semaphore, nullptr);
       }
@@ -4495,6 +4511,52 @@ class Renderer::Impl {
       vkDestroySwapchainKHR(device_, swapchain_.handle, nullptr);
     }
     swapchain_ = {};
+  }
+
+  PresentationOverlayContext MakePresentationOverlayContext(
+      PresentationOverlayPhase phase,
+      VkCommandBuffer command = VK_NULL_HANDLE) const noexcept {
+    PresentationOverlayContext context;
+    context.phase = phase;
+    context.instance = EncodeHandle(instance_);
+    context.physical_device = EncodeHandle(physical_device_);
+    context.device = EncodeHandle(device_);
+    context.queue = EncodeHandle(queue_);
+    context.render_pass = EncodeHandle(swapchain_.overlay_render_pass);
+    context.command_buffer = EncodeHandle(command);
+    context.api_version = kMinimumVulkanApiVersion;
+    context.queue_family = queue_family_;
+    context.image_count =
+        static_cast<std::uint32_t>(swapchain_.images.size());
+    context.width = swapchain_.extent.width;
+    context.height = swapchain_.extent.height;
+    context.color_format = static_cast<std::uint32_t>(swapchain_.format);
+    return context;
+  }
+
+  void InitializePresentationOverlay() {
+    if (presentation_overlay_ == nullptr) {
+      return;
+    }
+    presentation_overlay_(
+        presentation_overlay_user_data_,
+        MakePresentationOverlayContext(PresentationOverlayPhase::Initialize));
+    presentation_overlay_initialized_ = true;
+  }
+
+  void ShutdownPresentationOverlay() noexcept {
+    if (!presentation_overlay_initialized_ ||
+        presentation_overlay_ == nullptr) {
+      return;
+    }
+    try {
+      presentation_overlay_(
+          presentation_overlay_user_data_,
+          MakePresentationOverlayContext(PresentationOverlayPhase::Shutdown));
+    } catch (...) {
+      // Destruction and swapchain retirement cannot surface host exceptions.
+    }
+    presentation_overlay_initialized_ = false;
   }
 
   VkSurfaceFormatKHR SelectSurfaceFormat() const {
@@ -4553,11 +4615,17 @@ class Renderer::Impl {
     Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
               physical_device_, surface_, &surface_capabilities),
           "query presentation surface capabilities");
-    if ((surface_capabilities.supportedUsageFlags &
-         VK_IMAGE_USAGE_TRANSFER_DST_BIT) == 0U) {
+    VkImageUsageFlags image_usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if (presentation_overlay_ != nullptr) {
+      image_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
+    if ((surface_capabilities.supportedUsageFlags & image_usage) !=
+        image_usage) {
       throw RendererError(
           RendererErrorCode::Unsupported, "create Vulkan swapchain",
-          "presentation images do not support GPU transfer destinations");
+          presentation_overlay_ == nullptr
+              ? "presentation images do not support GPU transfer destinations"
+              : "presentation images do not support transfer and overlay color attachment usage");
     }
 
     const auto surface_format = SelectSurfaceFormat();
@@ -4627,7 +4695,7 @@ class Renderer::Impl {
     info.imageColorSpace = surface_format.colorSpace;
     info.imageExtent = extent;
     info.imageArrayLayers = 1;
-    info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    info.imageUsage = image_usage;
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     info.preTransform = surface_capabilities.currentTransform;
     info.compositeAlpha = composite_alpha;
@@ -4645,8 +4713,66 @@ class Renderer::Impl {
     Check(vkGetSwapchainImagesKHR(device_, replacement, &actual_count,
                                   images.data()),
           "query Vulkan swapchain images");
+    std::vector<VkImageView> image_views;
+    std::vector<VkFramebuffer> overlay_framebuffers;
+    VkRenderPass overlay_render_pass{};
     std::vector<VkSemaphore> render_finished(actual_count);
     try {
+      image_views.resize(actual_count);
+      for (std::uint32_t index = 0; index < actual_count; ++index) {
+        VkImageViewCreateInfo view_info{
+            VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        view_info.image = images[index];
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = surface_format.format;
+        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.layerCount = 1;
+        Check(vkCreateImageView(device_, &view_info, nullptr,
+                                &image_views[index]),
+              "create presentation image view");
+      }
+      if (presentation_overlay_ != nullptr) {
+        VkAttachmentDescription attachment{};
+        attachment.format = surface_format.format;
+        attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        VkAttachmentReference color_reference{
+            0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &color_reference;
+        VkRenderPassCreateInfo render_pass_info{
+            VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+        render_pass_info.attachmentCount = 1;
+        render_pass_info.pAttachments = &attachment;
+        render_pass_info.subpassCount = 1;
+        render_pass_info.pSubpasses = &subpass;
+        Check(vkCreateRenderPass(device_, &render_pass_info, nullptr,
+                                 &overlay_render_pass),
+              "create presentation overlay render pass");
+
+        overlay_framebuffers.resize(actual_count);
+        for (std::uint32_t index = 0; index < actual_count; ++index) {
+          VkFramebufferCreateInfo framebuffer_info{
+              VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+          framebuffer_info.renderPass = overlay_render_pass;
+          framebuffer_info.attachmentCount = 1;
+          framebuffer_info.pAttachments = &image_views[index];
+          framebuffer_info.width = extent.width;
+          framebuffer_info.height = extent.height;
+          framebuffer_info.layers = 1;
+          Check(vkCreateFramebuffer(device_, &framebuffer_info, nullptr,
+                                    &overlay_framebuffers[index]),
+                "create presentation overlay framebuffer");
+        }
+      }
       VkSemaphoreCreateInfo semaphore_info{
           VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       for (auto& semaphore : render_finished) {
@@ -4654,6 +4780,19 @@ class Renderer::Impl {
               "create per-image presentation completion semaphore");
       }
     } catch (...) {
+      for (const auto framebuffer : overlay_framebuffers) {
+        if (framebuffer != VK_NULL_HANDLE) {
+          vkDestroyFramebuffer(device_, framebuffer, nullptr);
+        }
+      }
+      if (overlay_render_pass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device_, overlay_render_pass, nullptr);
+      }
+      for (const auto view : image_views) {
+        if (view != VK_NULL_HANDLE) {
+          vkDestroyImageView(device_, view, nullptr);
+        }
+      }
       for (const auto semaphore : render_finished) {
         if (semaphore != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, semaphore, nullptr);
@@ -4665,6 +4804,16 @@ class Renderer::Impl {
 
     const bool replacing = swapchain_.handle != VK_NULL_HANDLE;
     if (replacing) {
+      ShutdownPresentationOverlay();
+      for (const auto framebuffer : swapchain_.overlay_framebuffers) {
+        vkDestroyFramebuffer(device_, framebuffer, nullptr);
+      }
+      if (swapchain_.overlay_render_pass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(device_, swapchain_.overlay_render_pass, nullptr);
+      }
+      for (const auto view : swapchain_.image_views) {
+        vkDestroyImageView(device_, view, nullptr);
+      }
       for (const auto semaphore : swapchain_.render_finished) {
         vkDestroySemaphore(device_, semaphore, nullptr);
       }
@@ -4679,9 +4828,13 @@ class Renderer::Impl {
     swapchain_.requested_width = requested_width;
     swapchain_.requested_height = requested_height;
     swapchain_.images = std::move(images);
+    swapchain_.image_views = std::move(image_views);
+    swapchain_.overlay_framebuffers = std::move(overlay_framebuffers);
     swapchain_.render_finished = std::move(render_finished);
     swapchain_.initialized.assign(actual_count, false);
+    swapchain_.overlay_render_pass = overlay_render_pass;
     swapchain_.dirty = false;
+    InitializePresentationOverlay();
   }
 
   void EnsureSwapchain(std::uint32_t width, std::uint32_t height) {
@@ -4756,14 +4909,39 @@ class Renderer::Impl {
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
                    VK_FILTER_NEAREST);
 
-    VkImageMemoryBarrier to_present = to_transfer;
-    to_present.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    to_present.dstAccessMask = 0;
-    to_present.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    to_present.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
-                         0, nullptr, 1, &to_present);
+    if (presentation_overlay_ != nullptr) {
+      VkImageMemoryBarrier to_overlay = to_transfer;
+      to_overlay.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      to_overlay.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                                 VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+      to_overlay.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      to_overlay.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0,
+                           nullptr, 0, nullptr, 1, &to_overlay);
+
+      VkRenderPassBeginInfo begin_info{
+          VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+      begin_info.renderPass = swapchain_.overlay_render_pass;
+      begin_info.framebuffer =
+          swapchain_.overlay_framebuffers.at(frame.present_image_index);
+      begin_info.renderArea.extent = swapchain_.extent;
+      vkCmdBeginRenderPass(command, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+      presentation_overlay_(
+          presentation_overlay_user_data_,
+          MakePresentationOverlayContext(PresentationOverlayPhase::Render,
+                                         command));
+      vkCmdEndRenderPass(command);
+    } else {
+      VkImageMemoryBarrier to_present = to_transfer;
+      to_present.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      to_present.dstAccessMask = 0;
+      to_present.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      to_present.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+      vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
+                           0, nullptr, 1, &to_present);
+    }
     frame_counters_.present_count = 1;
     frame_counters_.presentation_copy_bytes =
         static_cast<std::uint64_t>(swapchain_.extent.width) *
@@ -5323,6 +5501,9 @@ class Renderer::Impl {
   std::uint64_t resident_snapshot_revision_{};
   bool resource_residency_dirty_{};
   bool presentation_vsync_{true};
+  void* presentation_overlay_user_data_{};
+  PresentationOptions::RenderOverlay presentation_overlay_{};
+  bool presentation_overlay_initialized_{};
   SwapchainState swapchain_;
   RenderTarget* active_target_{};
   std::atomic<std::uint64_t> validation_messages_{};

@@ -79,6 +79,15 @@ same offscreen attachment used for reference output. Normal frames allocate no
 readback buffer and transfer no image data to the CPU; screenshots, picking,
 and differential checks opt into selected AOV readback.
 
+The development UI is hidden behind the viewport's `DeveloperUi` host
+abstraction. Its Dear ImGui implementation consumes only backend-neutral
+selection, capability, timing, telemetry, and material-diagnostic snapshots.
+For composition, the Vulkan presentation adapter supplies an optional opaque
+overlay callback: Vulkan still owns the swapchain images, image views,
+framebuffers, render pass, and command buffers, and invokes the callback only
+inside a load-preserving presentation render pass. Core and Hydra public
+boundaries remain free of Vulkan, GLFW, and Dear ImGui types.
+
 The target scene-to-GPU path is:
 
 ```text

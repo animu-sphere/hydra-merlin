@@ -1,5 +1,17 @@
 # Third-Party Notices
 
+## Dear ImGui
+
+`merlin-viewport` privately embeds Dear ImGui and its official GLFW/Vulkan
+backends for the renderer-development diagnostic surface.
+
+- Upstream repository: ocornut/imgui
+- Upstream revision: `8936b58fe26e8c3da834b8f60b06511d537b4c63`
+- Version at the pinned revision: 1.92.8
+- Copyright: Copyright (c) 2014-2026 Omar Cornut
+- License: MIT; viewport builds install the upstream `LICENSE.txt` under
+  `share/merlin/licenses/imgui`
+
 ## MaterialX
 
 The optional `Merlin::MaterialX` compiler links the official MaterialX Slang

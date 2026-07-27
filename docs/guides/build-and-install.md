@@ -21,6 +21,9 @@ OpenUSD 26.05 is the currently validated version.
 The viewport uses GLFW 3.4. CMake first accepts an installed `glfw3` package;
 otherwise it fetches the commit pinned in the top-level build and release
 metadata. GLFW is private to the viewport and never becomes a Core dependency.
+The viewport also fetches the pinned Dear ImGui 1.92.8 revision and compiles
+only its core plus official GLFW/Vulkan backends. Dear ImGui stays private to
+the executable and does not enter an installed Merlin target.
 
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
 Core-only Debug and Release builds with Ninja. See the

@@ -251,7 +251,7 @@ Hydra are optional dependency layers:
 |---|---|---|
 | Core-only | `MERLIN_ENABLE_VULKAN=OFF` | C++20 compiler |
 | Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
-| Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback |
+| Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback; pinned Dear ImGui 1.92.8 |
 | Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
 | MaterialX compiler | `MERLIN_ENABLE_MATERIALX=ON` | MaterialX 1.39.6 with MaterialXGenSlang; CMake 3.26+ for source fallback |
 
@@ -304,7 +304,9 @@ Dependencies flow from adapters into the host-neutral scene model, deterministic
 draw extraction, backend-neutral execution contract, and concrete backend.
 Public Core APIs do not expose OpenUSD, Hydra, Vulkan, GLFW, Qt, or DCC types.
 Hydra owns host path/dirty-bit translation; the GLFW adapter owns the window;
-and Vulkan owns execution, readback, surface, swapchain, and synchronization.
+the private Dear ImGui host surface owns development widgets; and Vulkan owns
+execution, readback, surface, swapchain, overlay render pass, and
+synchronization.
 
 ## Project documentation
 

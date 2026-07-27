@@ -41,6 +41,10 @@
     "glfw": {
       "minimum": "@MERLIN_GLFW_MIN_VERSION@",
       "fallback_commit": "@MERLIN_GLFW_PINNED_COMMIT@"
+    },
+    "imgui": {
+      "version": "@MERLIN_IMGUI_VERSION@",
+      "commit": "@MERLIN_IMGUI_PINNED_COMMIT@"
     }
   },
   "packaging": {

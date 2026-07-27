@@ -962,6 +962,11 @@ class SceneBridge {
     camera_front_face_ = winding;
   }
 
+  [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const {
+    std::scoped_lock lock(mutex_);
+    return latest_viewport_frame_;
+  }
+
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
                 const SdfPath& material_path,
                 const std::vector<merlin::Mat4>& transforms, bool visible,
@@ -1406,6 +1411,17 @@ class SceneBridge {
       request_product(merlin::Aov::Depth);
     }
     const auto result = renderer_->Resolve(renderer_->Submit(request));
+    latest_viewport_frame_.timings = result.timings;
+    latest_viewport_frame_.telemetry = result.telemetry;
+    latest_viewport_frame_.material_diagnostics =
+        result.material_diagnostics;
+    latest_viewport_frame_.geometries = snapshot->geometries.size();
+    latest_viewport_frame_.textures = snapshot->textures.size();
+    latest_viewport_frame_.samplers = snapshot->samplers.size();
+    latest_viewport_frame_.materials = snapshot->materials.size();
+    latest_viewport_frame_.instances = snapshot->instances.size();
+    latest_viewport_frame_.lights = snapshot->lights.size();
+    latest_viewport_frame_.available = true;
     const auto renderer_statistics = renderer_->statistics();
     if (ValidationRequested() &&
         renderer_statistics.validation_messages != 0) {
@@ -1748,7 +1764,7 @@ class SceneBridge {
     return handle;
   }
 
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   merlin::RenderWorld world_;
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};
@@ -1761,6 +1777,7 @@ class SceneBridge {
   std::unordered_map<std::string, MaterialEntry> materials_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
   std::unordered_map<std::string, merlin::LightHandle> lights_;
+  HdMerlinViewportFrame latest_viewport_frame_;
 };
 
 class HdMerlinInstancer final : public HdInstancer {
@@ -2907,6 +2924,11 @@ void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
   impl_->bridge->SetCameraFrontFaceWinding(
       counter_clockwise ? merlin::FrontFaceWinding::CounterClockwise
                         : merlin::FrontFaceWinding::Clockwise);
+}
+
+HdMerlinViewportFrame
+HdMerlinRenderDelegate::GetLatestViewportFrame() const {
+  return impl_->bridge->GetLatestViewportFrame();
 }
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {

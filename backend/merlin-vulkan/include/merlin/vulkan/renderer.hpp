@@ -52,16 +52,48 @@ struct GeneratedMaterialArtifact {
   MaterialTargetReflection reflection;
 };
 
+enum class PresentationOverlayPhase {
+  Initialize,
+  Render,
+  Shutdown,
+};
+
+// Opaque native state offered only to a presentation-host callback. Keeping
+// the handles integer-encoded lets the Vulkan backend retain ownership while a
+// private host integration (Dear ImGui in merlin-viewport) records overlay
+// draws into the backend's active swapchain render pass.
+struct PresentationOverlayContext {
+  PresentationOverlayPhase phase{PresentationOverlayPhase::Render};
+  std::uintptr_t instance{};
+  std::uintptr_t physical_device{};
+  std::uintptr_t device{};
+  std::uintptr_t queue{};
+  std::uintptr_t render_pass{};
+  std::uintptr_t command_buffer{};
+  std::uint32_t api_version{};
+  std::uint32_t queue_family{};
+  std::uint32_t image_count{};
+  std::uint32_t width{};
+  std::uint32_t height{};
+  std::uint32_t color_format{};
+};
+
 struct PresentationOptions {
   using CreateSurface = std::int32_t (*)(void* user_data,
                                          std::uintptr_t instance,
                                          std::uintptr_t* surface);
+  using RenderOverlay = void (*)(void* user_data,
+                                 const PresentationOverlayContext& context);
 
   // Supplied by a backend presentation adapter (GLFW in merlin-viewport).
   // Core and the viewport host never own or inspect the resulting surface.
   std::vector<std::string> required_instance_extensions;
   void* user_data{};
   CreateSurface create_surface{};
+  // Optional host overlay. Initialize and Shutdown run while the device is
+  // idle; Render runs inside a load-preserving swapchain render pass.
+  void* overlay_user_data{};
+  RenderOverlay render_overlay{};
   bool vsync{true};
 };
 

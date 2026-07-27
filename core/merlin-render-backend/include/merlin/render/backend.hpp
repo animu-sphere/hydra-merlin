@@ -79,6 +79,33 @@ struct RendererStatistics {
   std::uint64_t uploaded_bytes{};
   std::uint64_t readback_bytes{};
   std::uint64_t presentation_copy_bytes{};
+  struct Residency {
+    bool memory_budget_available{};
+    bool bindless_tables{};
+    std::uint64_t vram_heap_capacity_bytes{};
+    std::uint64_t vram_heap_budget_bytes{};
+    std::uint64_t vram_heap_usage_bytes{};
+    std::uint64_t vram_heap_available_bytes{};
+    std::uint64_t configured_vram_limit_bytes{};
+    std::uint64_t effective_vram_limit_bytes{};
+    std::uint64_t renderer_allocated_bytes{};
+    std::uint64_t renderer_peak_allocated_bytes{};
+    std::uint64_t geometry_capacity_bytes{};
+    std::uint64_t geometry_resident_bytes{};
+    std::uint64_t geometry_peak_resident_bytes{};
+    std::uint64_t geometry_retiring_bytes{};
+    std::uint64_t upload_ring_capacity_bytes{};
+    std::uint64_t upload_ring_in_flight_bytes{};
+    std::uint64_t upload_ring_peak_in_flight_bytes{};
+    std::uint32_t geometry_blocks{};
+    std::uint32_t texture_slots_capacity{};
+    std::uint32_t texture_slots_in_use{};
+    std::uint32_t texture_slots_retiring{};
+    std::uint32_t sampler_slots_capacity{};
+    std::uint32_t sampler_slots_in_use{};
+    std::uint32_t sampler_slots_retiring{};
+    std::uint32_t unique_sampler_count{};
+  } residency;
 };
 
 struct FrameTimings {
