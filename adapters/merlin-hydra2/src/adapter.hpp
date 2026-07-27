@@ -5,6 +5,8 @@
 #include <pxr/imaging/hd/renderBuffer.h>
 #include <pxr/imaging/hd/renderDelegate.h>
 
+#include <merlin/render/backend.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -16,6 +18,19 @@ class Backend;
 }
 
 PXR_NAMESPACE_OPEN_SCOPE
+
+struct HdMerlinViewportFrame {
+  merlin::render::FrameTimings timings;
+  merlin::render::FrameTelemetry telemetry;
+  std::vector<merlin::MaterialDiagnostic> material_diagnostics;
+  std::uint64_t geometries{};
+  std::uint64_t textures{};
+  std::uint64_t samplers{};
+  std::uint64_t materials{};
+  std::uint64_t instances{};
+  std::uint64_t lights{};
+  bool available{};
+};
 
 class HdMerlinRenderBuffer final : public HdRenderBuffer {
  public:
@@ -92,6 +107,7 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
   // its positive-height framebuffer viewport. Other Hydra hosts keep the
   // renderer's conventional clockwise default.
   void SetCameraFrontFaceCounterClockwise(bool counter_clockwise);
+  [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const;
 
  private:
   class Impl;

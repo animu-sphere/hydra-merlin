@@ -40,6 +40,10 @@ string(JSON _glfw_minimum GET "${_merlin_metadata}"
   requirements glfw minimum)
 string(JSON _glfw_fallback_commit GET "${_merlin_metadata}"
   requirements glfw fallback_commit)
+string(JSON _imgui_version GET "${_merlin_metadata}"
+  requirements imgui version)
+string(JSON _imgui_commit GET "${_merlin_metadata}"
+  requirements imgui commit)
 
 if(NOT _schema STREQUAL "animu-sphere.hdmerlin.release-metadata" OR
    NOT _schema_version EQUAL 1)
@@ -92,6 +96,12 @@ if(NOT _glfw_minimum STREQUAL "3.4" OR
    NOT _glfw_fallback_commit MATCHES "^[0-9a-f]+$" OR
    NOT _glfw_commit_length EQUAL 40)
   message(FATAL_ERROR "unexpected GLFW dependency metadata")
+endif()
+string(LENGTH "${_imgui_commit}" _imgui_commit_length)
+if(NOT _imgui_version STREQUAL "1.92.8" OR
+   NOT _imgui_commit MATCHES "^[0-9a-f]+$" OR
+   NOT _imgui_commit_length EQUAL 40)
+  message(FATAL_ERROR "unexpected Dear ImGui dependency metadata")
 endif()
 
 if(MERLIN_EXPECTED_VULKAN)

@@ -15,7 +15,38 @@ if(NOT TARGET glfw)
   FetchContent_MakeAvailable(glfw)
 endif()
 
+FetchContent_Declare(imgui
+  GIT_REPOSITORY https://github.com/ocornut/imgui.git
+  GIT_TAG ${MERLIN_IMGUI_PINNED_COMMIT}
+  GIT_SHALLOW FALSE
+)
+FetchContent_MakeAvailable(imgui)
+
+add_library(merlin-viewport-imgui STATIC
+  "${imgui_SOURCE_DIR}/imgui.cpp"
+  "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+  "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+  "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+  "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
+  "${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp"
+)
+target_include_directories(merlin-viewport-imgui
+  SYSTEM PUBLIC
+    "${imgui_SOURCE_DIR}"
+    "${imgui_SOURCE_DIR}/backends"
+)
+target_link_libraries(merlin-viewport-imgui
+  PUBLIC glfw Merlin::Vulkan
+)
+target_compile_features(merlin-viewport-imgui PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(merlin-viewport-imgui PRIVATE /W0)
+else()
+  target_compile_options(merlin-viewport-imgui PRIVATE -w)
+endif()
+
 add_executable(merlin-viewport
+  src/developer_ui.cpp
   src/main.cpp
   src/presentation_glfw.cpp
   src/window_glfw.cpp
@@ -41,6 +72,7 @@ target_link_libraries(merlin-viewport
     Merlin::RenderBackend
     Merlin::Vulkan
     glfw
+    merlin-viewport-imgui
 )
 target_compile_features(merlin-viewport PRIVATE cxx_std_20)
 
@@ -59,6 +91,9 @@ add_dependencies(merlin-viewport merlin-viewport-shader-package)
 
 install(TARGETS merlin-viewport
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+)
+install(FILES "${imgui_SOURCE_DIR}/LICENSE.txt"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/licenses/imgui"
 )
 install(FILES ${MERLIN_SHADER_PACKAGE_FILES}
   DESTINATION

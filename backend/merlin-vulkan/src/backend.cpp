@@ -82,6 +82,55 @@ class VulkanBackend final : public render::Backend {
     result.uploaded_bytes = source.transfer_queue.uploaded_bytes;
     result.readback_bytes = readback_bytes_;
     result.presentation_copy_bytes = presentation_copy_bytes_;
+    result.residency.memory_budget_available =
+        source.memory_budget.extension_available;
+    result.residency.bindless_tables = source.bindless_resource_tables;
+    result.residency.vram_heap_capacity_bytes =
+        source.memory_budget.heap_capacity_bytes;
+    result.residency.vram_heap_budget_bytes =
+        source.memory_budget.heap_budget_bytes;
+    result.residency.vram_heap_usage_bytes =
+        source.memory_budget.heap_usage_bytes;
+    result.residency.vram_heap_available_bytes =
+        source.memory_budget.heap_available_bytes;
+    result.residency.configured_vram_limit_bytes =
+        source.memory_budget.configured_limit_bytes;
+    result.residency.effective_vram_limit_bytes =
+        source.memory_budget.effective_limit_bytes;
+    result.residency.renderer_allocated_bytes =
+        source.memory_budget.renderer_allocated_bytes;
+    result.residency.renderer_peak_allocated_bytes =
+        source.memory_budget.renderer_peak_allocated_bytes;
+    result.residency.geometry_capacity_bytes =
+        source.vertex_arena.capacity_bytes + source.index_arena.capacity_bytes;
+    result.residency.geometry_resident_bytes =
+        source.vertex_arena.resident_bytes + source.index_arena.resident_bytes;
+    result.residency.geometry_peak_resident_bytes =
+        source.vertex_arena.peak_resident_bytes +
+        source.index_arena.peak_resident_bytes;
+    result.residency.geometry_retiring_bytes =
+        source.vertex_arena.retiring_bytes + source.index_arena.retiring_bytes;
+    result.residency.upload_ring_capacity_bytes =
+        source.upload_ring.capacity_bytes;
+    result.residency.upload_ring_in_flight_bytes =
+        source.upload_ring.in_flight_bytes;
+    result.residency.upload_ring_peak_in_flight_bytes =
+        source.upload_ring.peak_in_flight_bytes;
+    result.residency.geometry_blocks = source.geometry_arena_blocks;
+    result.residency.texture_slots_capacity =
+        source.bindless_texture_slots.capacity;
+    result.residency.texture_slots_in_use =
+        source.bindless_texture_slots.current_use;
+    result.residency.texture_slots_retiring =
+        source.bindless_texture_slots.retiring_slots;
+    result.residency.sampler_slots_capacity =
+        source.bindless_samplers.slots.capacity;
+    result.residency.sampler_slots_in_use =
+        source.bindless_samplers.slots.current_use;
+    result.residency.sampler_slots_retiring =
+        source.bindless_samplers.slots.retiring_slots;
+    result.residency.unique_sampler_count =
+        source.bindless_samplers.unique_sampler_count;
     return result;
   }
 

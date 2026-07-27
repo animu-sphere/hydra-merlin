@@ -1,3 +1,4 @@
+#include "developer_ui.hpp"
 #include "window.hpp"
 #include "presentation_glfw.hpp"
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
@@ -306,14 +307,17 @@ int main(int argc, char** argv) {
     auto window = merlin::viewport::Window::Create(
         "merlin-viewport", arguments.width, arguments.height,
         arguments.visible);
+    auto developer_ui = merlin::viewport::DeveloperUi::Create(*window);
     const auto executable_dir =
         std::filesystem::absolute(argv[0]).parent_path();
     const auto shader_dir =
         executable_dir / merlin::vulkan::shader_abi::ArtifactDirectory();
     merlin::vulkan::BackendFactoryOptions vulkan_options;
-    vulkan_options.renderer.presentation =
+    auto presentation_options =
         merlin::viewport::MakeGlfwVulkanPresentation(*window,
                                                      arguments.vsync);
+    developer_ui->ConfigurePresentation(presentation_options);
+    vulkan_options.renderer.presentation = std::move(presentation_options);
     vulkan_options.shaders = {
         shader_dir / "triangle.vert.spv",
         shader_dir / "triangle.frag.spv",
@@ -338,6 +342,7 @@ int main(int argc, char** argv) {
     auto scene = BuildScene();
     bool running = true;
     bool screenshot_pending = !arguments.screenshot.empty();
+    bool benchmark_snapshot_pending{};
     std::filesystem::path screenshot_path = arguments.screenshot;
     std::optional<std::pair<std::int32_t, std::int32_t>> pick;
     std::uint32_t width = window->width();
@@ -352,6 +357,9 @@ int main(int argc, char** argv) {
     merlin::MaterialFallback effective_material_fallback{
         merlin::MaterialFallback::None};
     std::uint64_t latest_frame_ns{};
+    merlin::render::FrameTimings latest_timings;
+    merlin::render::FrameTelemetry latest_telemetry;
+    std::vector<merlin::MaterialDiagnostic> latest_material_diagnostics;
     bool resized_for_test{};
     bool reference_checked{};
     const auto benchmark_start = Clock::now();
@@ -368,6 +376,8 @@ int main(int argc, char** argv) {
       merlin::viewport::Event event;
       bool camera_changed{};
       while (window->PollEvent(event)) {
+        const bool wants_keyboard = developer_ui->WantsKeyboard();
+        const bool wants_mouse = developer_ui->WantsMouse();
         switch (event.type) {
           case merlin::viewport::EventType::Close:
             running = false;
@@ -382,25 +392,31 @@ int main(int argc, char** argv) {
           case merlin::viewport::EventType::KeyDown:
             if (event.key == merlin::viewport::Key::Escape) {
               running = false;
-            } else if (event.key == merlin::viewport::Key::Screenshot) {
+            } else if (!wants_keyboard &&
+                       event.key == merlin::viewport::Key::Screenshot) {
               screenshot_pending = true;
               screenshot_path = "merlin-viewport.ppm";
-            } else if (event.key == merlin::viewport::Key::Left) {
+            } else if (!wants_keyboard &&
+                       event.key == merlin::viewport::Key::Left) {
               scene.camera_descriptor.view.values[12] -= 0.05F;
               camera_changed = true;
-            } else if (event.key == merlin::viewport::Key::Right) {
+            } else if (!wants_keyboard &&
+                       event.key == merlin::viewport::Key::Right) {
               scene.camera_descriptor.view.values[12] += 0.05F;
               camera_changed = true;
-            } else if (event.key == merlin::viewport::Key::Up) {
+            } else if (!wants_keyboard &&
+                       event.key == merlin::viewport::Key::Up) {
               scene.camera_descriptor.view.values[13] += 0.05F;
               camera_changed = true;
-            } else if (event.key == merlin::viewport::Key::Down) {
+            } else if (!wants_keyboard &&
+                       event.key == merlin::viewport::Key::Down) {
               scene.camera_descriptor.view.values[13] -= 0.05F;
               camera_changed = true;
             }
             break;
           case merlin::viewport::EventType::PointerDown:
-            if (event.button == merlin::viewport::MouseButton::Left &&
+            if (!wants_mouse &&
+                event.button == merlin::viewport::MouseButton::Left &&
                 !event.modifiers.alt && !event.modifiers.super) {
               pick = std::pair{event.x, event.y};
             }
@@ -429,8 +445,38 @@ int main(int argc, char** argv) {
         }
       }
 
+      const auto scene_snapshot = scene.extractor.snapshot();
+      merlin::viewport::DeveloperUiSnapshot ui_snapshot;
+      ui_snapshot.scene_source = "native";
+      ui_snapshot.selection = &selection;
+      ui_snapshot.capabilities = &backend->capabilities();
+      ui_snapshot.statistics = backend->statistics();
+      ui_snapshot.timings = latest_timings;
+      ui_snapshot.telemetry = latest_telemetry;
+      ui_snapshot.material_diagnostics = &latest_material_diagnostics;
+      ui_snapshot.scene = {
+          true,
+          scene_snapshot->geometries.size(),
+          scene_snapshot->textures.size(),
+          scene_snapshot->samplers.size(),
+          scene_snapshot->materials.size(),
+          scene_snapshot->instances.size(),
+          scene_snapshot->lights.size(),
+      };
+      ui_snapshot.frame_index = frames;
+      ui_snapshot.host_frame_ns = latest_frame_ns;
+      ui_snapshot.width = width;
+      ui_snapshot.height = height;
+      const auto ui_actions = developer_ui->DrawFrame(ui_snapshot);
+      if (ui_actions.capture_screenshot) {
+        screenshot_pending = true;
+        screenshot_path = "merlin-viewport.ppm";
+      }
+      benchmark_snapshot_pending =
+          benchmark_snapshot_pending || ui_actions.save_benchmark;
+
       merlin::render::RenderRequest request;
-      request.snapshot = scene.extractor.snapshot();
+      request.snapshot = scene_snapshot;
       request.width = width;
       request.height = height;
       request.presentation = *presentation;
@@ -451,6 +497,9 @@ int main(int argc, char** argv) {
           std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
                                                                frame_start)
               .count());
+      latest_timings = result.timings;
+      latest_telemetry = result.telemetry;
+      latest_material_diagnostics = result.material_diagnostics;
       gpu_ns += result.timings.gpu_execution_ns;
       presented_readback_bytes += result.telemetry.readback_bytes;
       presentation_copy_bytes += result.telemetry.presentation_copy_bytes;
@@ -501,6 +550,21 @@ int main(int argc, char** argv) {
       if (arguments.resize_test && !resized_for_test && frames == 2) {
         window->SetSize(width + 64U, height + 32U);
         resized_for_test = true;
+      }
+      if (benchmark_snapshot_pending) {
+        const auto elapsed_ns = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                Clock::now() - benchmark_start)
+                .count());
+        const std::filesystem::path path = "merlin-viewport-benchmark.json";
+        WriteBenchmark(path, selection, backend->statistics(), frames,
+                       elapsed_ns, gpu_ns, presented_readback_bytes,
+                       presentation_copy_bytes, zero_readback_frames,
+                       generated_material_draws,
+                       generated_material_fallbacks,
+                       effective_material_fallback);
+        std::cout << "Benchmark snapshot: " << path.string() << '\n';
+        benchmark_snapshot_pending = false;
       }
 
       const auto now = Clock::now();
