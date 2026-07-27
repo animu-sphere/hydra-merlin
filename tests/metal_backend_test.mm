@@ -119,6 +119,39 @@ int main() {
   assert(result.instance_id.pixels[center] ==
          static_cast<std::uint32_t>(instance_handle.value()));
 
+  // Keep a pair of independently changing revisions whose old XOR cache key
+  // collides. Metal must compare both revisions instead of treating the
+  // collision as a geometry cache hit.
+  for (int update = 0; update < 3; ++update) {
+    mesh.positions[0].x += 0.01F;
+    world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points);
+  }
+  extractor.Apply(world, world.Commit());
+  const auto collision_baseline = extractor.snapshot()->geometries.front();
+  const auto collision_baseline_result =
+      Render(*backend, extractor.snapshot());
+  assert(collision_baseline_result.telemetry.geometry_cache_misses == 1);
+
+  for (int update = 0; update < 2; ++update) {
+    mesh.positions[0].x += 0.01F;
+    world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points);
+  }
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Topology);
+  mesh.positions[0].x += 0.01F;
+  world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points);
+  extractor.Apply(world, world.Commit());
+  const auto collision_update = extractor.snapshot()->geometries.front();
+  assert(collision_baseline.vertex_revision == 4);
+  assert(collision_baseline.index_revision == 1);
+  assert(collision_update.vertex_revision == 8);
+  assert(collision_update.index_revision == 7);
+  assert((collision_baseline.vertex_revision ^
+          (collision_baseline.index_revision << 1U)) ==
+         (collision_update.vertex_revision ^
+          (collision_update.index_revision << 1U)));
+  const auto collision_result = Render(*backend, extractor.snapshot());
+  assert(collision_result.telemetry.geometry_cache_misses == 1);
+
   const auto submit = [&] {
     merlin::render::RenderRequest request;
     request.snapshot = extractor.snapshot();

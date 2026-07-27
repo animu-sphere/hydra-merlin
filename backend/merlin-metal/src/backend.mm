@@ -300,6 +300,15 @@ MTLSamplerAddressMode Address(AddressMode value) {
   return MTLSamplerAddressModeClampToEdge;
 }
 
+MTLHeapDescriptor *SceneHeapDescriptor(std::uint64_t capacity_bytes) {
+  MTLHeapDescriptor *descriptor = [MTLHeapDescriptor new];
+  descriptor.size = capacity_bytes;
+  descriptor.storageMode = MTLStorageModeShared;
+  descriptor.cpuCacheMode = MTLCPUCacheModeWriteCombined;
+  descriptor.hazardTrackingMode = MTLHazardTrackingModeTracked;
+  return descriptor;
+}
+
 } // namespace
 
 class Backend::Impl {
@@ -608,7 +617,8 @@ public:
 
 private:
   struct Geometry {
-    std::uint64_t revision{};
+    std::uint64_t vertex_revision{};
+    std::uint64_t index_revision{};
     id<MTLBuffer> vertices;
     id<MTLBuffer> indices;
     std::uint32_t index_count{};
@@ -754,11 +764,8 @@ private:
   }
 
   void CreateHeap() {
-    MTLHeapDescriptor *descriptor = [MTLHeapDescriptor new];
-    descriptor.size = options_.heap_capacity_bytes;
-    descriptor.storageMode = MTLStorageModeShared;
-    descriptor.cpuCacheMode = MTLCPUCacheModeWriteCombined;
-    descriptor.hazardTrackingMode = MTLHazardTrackingModeTracked;
+    MTLHeapDescriptor *descriptor =
+        SceneHeapDescriptor(options_.heap_capacity_bytes);
     heap_ = [device_ newHeapWithDescriptor:descriptor];
     if (heap_ == nil) {
       throw render::RendererError(
@@ -876,9 +883,9 @@ private:
     CollectRetirements();
     for (const auto &record : snapshot.geometries) {
       const auto found = geometries_.find(record.mesh);
-      const auto revision =
-          record.vertex_revision ^ (record.index_revision << 1U);
-      if (found != geometries_.end() && found->second.revision == revision) {
+      if (found != geometries_.end() &&
+          found->second.vertex_revision == record.vertex_revision &&
+          found->second.index_revision == record.index_revision) {
         continue;
       }
       if (!record.vertices || !record.indices) {
@@ -887,7 +894,8 @@ private:
                                     "geometry payload is null");
       }
       Geometry replacement;
-      replacement.revision = revision;
+      replacement.vertex_revision = record.vertex_revision;
+      replacement.index_revision = record.index_revision;
       replacement.index_count =
           static_cast<std::uint32_t>(record.indices->size());
       const auto vertex_bytes =
@@ -1653,6 +1661,14 @@ render::BackendAvailability BackendFactory::availability() const {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (device == nil) {
       return {false, "no Metal device is available"};
+    }
+    id<MTLHeap> heap = [device
+        newHeapWithDescriptor:SceneHeapDescriptor(options_.heap_capacity_bytes)];
+    if (heap == nil) {
+      return {false,
+              "Metal resource heaps are unavailable for the configured " +
+                  std::to_string(options_.heap_capacity_bytes) +
+                  "-byte scene residency budget"};
     }
     return {true, String(device.name)};
   }
