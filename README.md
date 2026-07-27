@@ -2,14 +2,15 @@
 
 [![Core CI](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml)
 
-hdMerlin is an OST-oriented, host-neutral Vulkan raster renderer. The current
-implementation provides a handle-based `RenderWorld`, deterministic extraction
-into an immutable resource-granular `FrameSnapshot`, a backend-neutral render
-contract, and a persistent Vulkan renderer with offscreen and GLFW-hosted
-swapchain presentation. Submission/completion lifetime and selectable
-color/depth/primId/instanceId CPU readback remain explicit. Its host-neutral `MaterialIR`
-supports revisioned texture/sampler bindings and basic directional-lit,
-textured, vertex-colored, opaque or alpha-masked shading.
+hdMerlin is an OST-oriented, host-neutral raster renderer with Vulkan and native
+Metal backends. The current implementation provides a handle-based
+`RenderWorld`, deterministic extraction into an immutable resource-granular
+`FrameSnapshot`, a backend-neutral render contract, persistent Vulkan offscreen
+and GLFW-hosted swapchain presentation, and native Metal offscreen execution.
+Submission/completion lifetime and selectable color/depth/primId/instanceId CPU
+readback remain explicit. Its host-neutral `MaterialIR` supports revisioned
+texture/sampler bindings and basic directional-lit, textured, vertex-colored,
+opaque or alpha-masked shading.
 
 The core library intentionally has no OpenUSD, Hydra, DCC, Qt, Vulkan, or Metal
 types in its public API. Hydra and host integrations remain thin adapters
@@ -180,13 +181,15 @@ released the persistent Mesh/future-Gaussian resource foundation, and v0.8.0
 moved the Forward shader source of truth to Slang with reflected artifacts and
 a Metal compile gate. The completed v0.9.0 work adds the minimum backend-neutral
 render contract and dedicated cross-backend `merlin-viewport` with validated
-Vulkan swapchain presentation and Hydra USD loading. The completed v0.10.0
-implementation proves a MaterialXGenSlang material-function slice before native
-Metal and an HgiMetal host presentation bridge. The later path
-advances through Gaussian rendering, persistent draw identity, GPU-driven
-Mesh/Gaussian execution, experimental opaque Visibility, production MaterialX
-quality, static meshlets, and only then optional Mesh Shader/Hi-Z/LOD. Forward
-and Tier 0 CPU readback remain reference fallbacks. See the [current
+Vulkan swapchain presentation and Hydra USD loading. v0.10.0 proved a
+MaterialXGenSlang material-function slice, and v0.11.0 released native Metal
+offscreen execution, heap residency, argument-buffer tables, and the matching
+backend-neutral AOV/readback contract. Native Metal presentation and an HgiMetal
+host bridge follow. The later path advances through Gaussian rendering,
+persistent draw identity, GPU-driven Mesh/Gaussian execution, experimental
+opaque Visibility, production MaterialX quality, static meshlets, and only then
+optional Mesh Shader/Hi-Z/LOD. Forward and Tier 0 CPU readback remain reference
+fallbacks. See the [current
 milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
 [multi-backend shader and presentation
 strategy](docs/design/multibackend-slang-materialx.md), and [GPU-driven

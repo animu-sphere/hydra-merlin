@@ -10,6 +10,7 @@ lives in the [roadmap](../roadmap/).
 
 | Version | Record | Theme |
 | --- | --- | --- |
+| v0.11.0 | [v0.11.0](v0.11.0.md) | Native Metal offscreen backend and residency |
 | v0.10.0 | [v0.10.0](v0.10.0.md) | MaterialX shader-generation boundary |
 | v0.9.0 | [v0.9.0](v0.9.0.md) | Native Vulkan viewport and environment lighting |
 | v0.8.0 | [v0.8.0](v0.8.0.md) | Slang shader foundation and Vulkan parity |

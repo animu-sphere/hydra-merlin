@@ -33,11 +33,11 @@ shader source of truth to Slang, established reflected shader ABI validation,
 and added the Metal compile gate. v0.9.0 extracts the minimum backend contract
 and delivers the dedicated backend-neutral `merlin-viewport` with Vulkan
 presentation; its completed pre-release detail is retained in the changelog and
-delivery history. The completed v0.10.0 implementation proves a
-MaterialXGenSlang material-function slice; the v0.11.0 implementation adds
-native Metal offscreen execution and residency while the active v0.10.x work
-finishes the renderer-development diagnostic surface. Native Metal presentation
-and an HgiMetal host bridge follow. The later Mesh and Gaussian paths advance
+delivery history. v0.10.0 released a MaterialXGenSlang material-function slice,
+and v0.11.0 released native Metal offscreen execution and residency while the
+active v0.10.x work finishes the renderer-development diagnostic surface.
+Native Metal presentation and an HgiMetal host bridge follow. The later Mesh and
+Gaussian paths advance
 through persistent draw
 identity, GPU-driven execution, an experimental opaque Visibility Buffer,
 production MaterialX and lighting quality, and static meshlets. Optional Mesh

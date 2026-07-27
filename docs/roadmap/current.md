@@ -6,15 +6,13 @@ its detailed pre-release history is retained in the
 [delivery history](../reports/delivery-history.md); shipped versions are
 recorded in the [changelog](../../CHANGELOG.md).
 
-v0.10.0 shipped the MaterialX shader-generation boundary; its objective,
-compatibility, and limitation record is in
-[docs/releases/v0.10.0.md](../releases/v0.10.0.md). The ownership rules it
-established remain authoritative in the
+v0.10.0 shipped the MaterialX shader-generation boundary; its ownership rules
+remain authoritative in the
 [MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
-The completed native Metal offscreen/residency implementation for v0.11.0 is
-retained in the [delivery history](../reports/delivery-history.md); native
-presentation remains ordered as v0.12.0 in the
-[backlog](backlog.md).
+v0.11.0 shipped the native Metal offscreen/residency backend; its objective,
+compatibility, limitations, and evidence are recorded in
+[docs/releases/v0.11.0.md](../releases/v0.11.0.md). Native presentation remains
+ordered as v0.12.0 in the [backlog](backlog.md).
 
 ## Next milestone
 
