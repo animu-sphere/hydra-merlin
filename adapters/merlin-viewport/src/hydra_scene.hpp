@@ -15,6 +15,7 @@ struct HydraViewportOptions {
   std::uint32_t width{1280};
   std::uint32_t height{720};
   std::uint64_t frame_limit{};
+  std::uint64_t metal_heap_capacity_bytes{64ULL * 1024ULL * 1024ULL};
   render::BackendRequest backend{render::BackendRequest::Automatic};
   bool validation{};
   bool vsync{true};

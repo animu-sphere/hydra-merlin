@@ -2,16 +2,59 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include <merlin/metal/resource_table.hpp>
 #include <merlin/render/backend.hpp>
 
 namespace merlin::metal {
 
+enum class PresentationColorSpace {
+  Srgb,
+  DisplayP3,
+};
+
+// SDR is the v1 presentation contract. The explicit dynamic-range policy keeps
+// future HDR support additive instead of inferring it from a layer format.
+enum class PresentationDynamicRange {
+  Standard,
+  Extended,
+};
+
+enum class PresentationOverlayPhase {
+  Initialize,
+  Render,
+  Shutdown,
+};
+
+struct PresentationOverlayContext {
+  PresentationOverlayPhase phase{PresentationOverlayPhase::Initialize};
+  std::uintptr_t device{};
+  std::uintptr_t command_buffer{};
+  std::uintptr_t render_encoder{};
+  std::uintptr_t render_pass_descriptor{};
+};
+
+struct PresentationOptions {
+  using RenderOverlay = void (*)(void *, const PresentationOverlayContext &);
+
+  // Encoded CAMetalLayer*. Native Objective-C types remain private to the
+  // Apple presentation adapter and Metal implementation.
+  std::uintptr_t layer{};
+  bool vsync{true};
+  PresentationColorSpace color_space{PresentationColorSpace::Srgb};
+  PresentationDynamicRange dynamic_range{
+      PresentationDynamicRange::Standard};
+  std::uint32_t drawable_count{3};
+  void *overlay_user_data{};
+  RenderOverlay render_overlay{};
+};
+
 struct BackendOptions {
   std::uint32_t texture_capacity{128};
   std::uint32_t sampler_capacity{32};
   std::uint64_t heap_capacity_bytes{64ULL * 1024ULL * 1024ULL};
+  std::optional<PresentationOptions> presentation;
 };
 
 struct MetalStatistics {

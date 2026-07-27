@@ -38,8 +38,12 @@
 #include <merlin/core/diagnostic.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
+#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
 #include <merlin/vulkan/backend.hpp>
 #include <merlin/vulkan/shader_abi.hpp>
+#elif defined(MERLIN_HYDRA2_ENABLE_METAL)
+#include <merlin/metal/backend.hpp>
+#endif
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -1346,6 +1350,7 @@ class SceneBridge {
 
     if (!renderer_) {
       const bool validation_requested = ValidationRequested();
+#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
       const auto shader_dir =
           PluginDirectory() / merlin::vulkan::shader_abi::ArtifactDirectory();
       merlin::vulkan::BackendFactoryOptions factory_options;
@@ -1361,10 +1366,19 @@ class SceneBridge {
       create_info.enable_validation = validation_requested;
       renderer_ = std::shared_ptr<merlin::render::Backend>(
           merlin::render::CreateBackend(create_info, factories));
+#elif defined(MERLIN_HYDRA2_ENABLE_METAL)
+      merlin::metal::BackendFactory factory;
+      std::vector<merlin::render::BackendFactory*> factories{&factory};
+      merlin::render::BackendCreateInfo create_info;
+      create_info.backend = merlin::render::BackendRequest::Metal;
+      create_info.enable_validation = validation_requested;
+      renderer_ = std::shared_ptr<merlin::render::Backend>(
+          merlin::render::CreateBackend(create_info, factories));
+#endif
       if (validation_requested &&
           !renderer_->capabilities().validation_enabled) {
         throw std::runtime_error(
-            "Hydra regression requested unavailable Vulkan validation");
+            "Hydra regression requested unavailable backend validation");
       }
     }
     const auto snapshot = extractor_.snapshot();
@@ -1425,7 +1439,7 @@ class SceneBridge {
     const auto renderer_statistics = renderer_->statistics();
     if (ValidationRequested() &&
         renderer_statistics.validation_messages != 0) {
-      throw std::runtime_error("Vulkan validation reported Hydra warnings");
+      throw std::runtime_error("backend validation reported Hydra warnings");
     }
 
     std::size_t buffers_written{};

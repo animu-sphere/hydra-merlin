@@ -122,7 +122,8 @@ update.
 ## Hydra 2 adapter
 
 The OpenUSD adapter is opt-in so Hydra never becomes a transitive dependency of
-the normal Core/Vulkan build. Point `CMAKE_PREFIX_PATH` at an OpenUSD 26.05 SDK:
+normal Core or native-backend builds. Point `CMAKE_PREFIX_PATH` at an OpenUSD
+26.05 or 26.08 SDK:
 
 ```powershell
 cmake -S . -B build-hydra2 -G "Visual Studio 17 2022" -A x64 `
@@ -134,7 +135,7 @@ ctest --test-dir build-hydra2 -C Release --output-on-failure
 
 The Hydra slice provides mesh topology/transform/visibility and camera sync,
 an adapter-owned USD path to Merlin handle map, color/depth CPU render buffers,
-and a Vulkan-backed render pass. The test suite separately verifies plugin
+and a Vulkan- or Metal-backed render pass. The test suite separately verifies plugin
 discovery and delegate creation, RenderBuffer resize/map lifetime, and an
 install-tree `testusdview` first frame with rendered geometry.
 
@@ -184,8 +185,9 @@ render contract and dedicated cross-backend `merlin-viewport` with validated
 Vulkan swapchain presentation and Hydra USD loading. v0.10.0 proved a
 MaterialXGenSlang material-function slice, and v0.11.0 released native Metal
 offscreen execution, heap residency, argument-buffer tables, and the matching
-backend-neutral AOV/readback contract. Native Metal presentation and an HgiMetal
-host bridge follow. The later path advances through Gaussian rendering,
+backend-neutral AOV/readback contract. v0.12.0 native Metal presentation is
+complete pending release; an HgiMetal host bridge follows. The later path
+advances through Gaussian rendering,
 persistent draw identity, GPU-driven Mesh/Gaussian execution, experimental
 opaque Visibility, production MaterialX quality, static meshlets, and only then
 optional Mesh Shader/Hi-Z/LOD. Forward and Tier 0 CPU readback remain reference
@@ -256,7 +258,7 @@ Hydra are optional dependency layers:
 | Native Metal | `MERLIN_ENABLE_VULKAN=OFF`, `MERLIN_ENABLE_METAL=ON` | macOS, Apple Metal framework, and a Metal-capable device |
 | Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
 | Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback; pinned Dear ImGui 1.92.8 |
-| Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
+| Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | A native GPU backend and a compatible OpenUSD SDK |
 | MaterialX compiler | `MERLIN_ENABLE_MATERIALX=ON` | MaterialX 1.39.6 with MaterialXGenSlang; CMake 3.26+ for source fallback |
 
 Windows with Visual Studio 2022 and AppleClang on macOS are validated

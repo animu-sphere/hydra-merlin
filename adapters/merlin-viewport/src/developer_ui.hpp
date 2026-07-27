@@ -6,7 +6,12 @@
 #include <vector>
 
 #include <merlin/render/backend.hpp>
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include <merlin/vulkan/renderer.hpp>
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+#include <merlin/metal/backend.hpp>
+#endif
 
 namespace merlin::viewport {
 
@@ -49,8 +54,14 @@ class DeveloperUi {
   static std::unique_ptr<DeveloperUi> Create(Window& window);
   virtual ~DeveloperUi() = default;
 
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
   virtual void ConfigurePresentation(
       vulkan::PresentationOptions& presentation) = 0;
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+  virtual void ConfigurePresentation(
+      metal::PresentationOptions& presentation) = 0;
+#endif
   [[nodiscard]] virtual DeveloperUiActions DrawFrame(
       const DeveloperUiSnapshot& snapshot) = 0;
   [[nodiscard]] virtual bool WantsKeyboard() const noexcept = 0;

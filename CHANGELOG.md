@@ -8,6 +8,30 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Native Metal presentation for `merlin-viewport` through an adapter-owned
+  `CAMetalLayer`, completion-safe drawables, a renderer-owned GPU presentation
+  pass, vsync/frame-pacing policy, resize handling, presentation timing/copy
+  telemetry, and explicit SDR color-space plus future HDR extension contracts.
+- Dear ImGui Metal rendering in the existing development viewport UI, with the
+  same camera, input, AOV, screenshot, benchmark, picking, and diagnostic
+  behavior as the Vulkan viewport.
+- Metal-only viewport builds and an Apple GPU smoke test covering hidden
+  compositor-backed presentation, resize, zero-readback frames, and exact
+  offscreen reference-product parity.
+- Hydra USD loading through the Metal viewport, including configurable Metal
+  scene-heap capacity and OpenUSD 26.08 shared-SDK compatibility alongside the
+  existing 26.05 contract.
+
+### Changed
+
+- `merlin-viewport --backend automatic` now selects native Metal presentation
+  on Apple platforms while explicit Vulkan selection retains the existing GLFW
+  surface path.
+- Hydra viewport projection conversion now follows the selected native backend,
+  preserving Vulkan's reflected Y convention without inverting Metal scenes.
+
 ## [0.11.0] - 2026-07-27
 
 ### Added

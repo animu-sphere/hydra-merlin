@@ -36,14 +36,19 @@ set(_merlin_openusd_detected_version
 set(MERLIN_OPENUSD_DETECTED_VERSION
   "${_merlin_openusd_detected_version}" PARENT_SCOPE)
 
-if(NOT _merlin_openusd_detected_version STREQUAL
-   MERLIN_OPENUSD_VALIDATED_VERSION)
+if(NOT _merlin_openusd_detected_version IN_LIST
+   MERLIN_OPENUSD_VALIDATED_VERSIONS)
+  string(JOIN ", " _merlin_openusd_supported_versions
+    ${MERLIN_OPENUSD_VALIDATED_VERSIONS})
   message(FATAL_ERROR
-    "hdMerlin validates OpenUSD ${MERLIN_OPENUSD_VALIDATED_VERSION}, but "
+    "hdMerlin validates OpenUSD ${_merlin_openusd_supported_versions}, but "
     "${_merlin_openusd_detected_version} was found at "
     "${_merlin_pxr_include_dir_selected}. Use the validated SDK or disable "
-    "MERLIN_ENABLE_HYDRA2; Core and Vulkan remain OpenUSD-independent.")
+    "MERLIN_ENABLE_HYDRA2; Core and native GPU backends remain "
+    "OpenUSD-independent.")
 endif()
+set(MERLIN_OPENUSD_VALIDATED_VERSION
+  "${_merlin_openusd_detected_version}" PARENT_SCOPE)
 
 get_target_property(_merlin_hd_target_type hd TYPE)
 if(NOT _merlin_hd_target_type STREQUAL "SHARED_LIBRARY")
@@ -69,8 +74,10 @@ if(MSVC)
   endif()
 endif()
 
-if(NOT TARGET Merlin::Vulkan)
-  message(FATAL_ERROR "MERLIN_ENABLE_HYDRA2 requires MERLIN_ENABLE_VULKAN=ON")
+if(NOT TARGET Merlin::Vulkan AND NOT TARGET Merlin::Metal)
+  message(FATAL_ERROR
+    "MERLIN_ENABLE_HYDRA2 requires MERLIN_ENABLE_VULKAN=ON or "
+    "MERLIN_ENABLE_METAL=ON")
 endif()
 
 add_library(merlin-hydra2-runtime STATIC
@@ -91,14 +98,26 @@ target_include_directories(merlin-hydra2-runtime PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 target_link_libraries(merlin-hydra2-runtime
-  PUBLIC hd
+  PUBLIC
+    hd
+    Merlin::RenderBackend
   PRIVATE
     hio
     Merlin::RenderWorld
     Merlin::RenderExtraction
-    Merlin::Vulkan
     ${CMAKE_DL_LIBS}
 )
+if(TARGET Merlin::Vulkan)
+  target_link_libraries(merlin-hydra2-runtime PRIVATE Merlin::Vulkan)
+  target_compile_definitions(merlin-hydra2-runtime PRIVATE
+    MERLIN_HYDRA2_ENABLE_VULKAN=1
+  )
+elseif(TARGET Merlin::Metal)
+  target_link_libraries(merlin-hydra2-runtime PRIVATE Merlin::Metal)
+  target_compile_definitions(merlin-hydra2-runtime PRIVATE
+    MERLIN_HYDRA2_ENABLE_METAL=1
+  )
+endif()
 target_compile_features(merlin-hydra2-runtime PUBLIC cxx_std_20)
 target_compile_definitions(merlin-hydra2-runtime PRIVATE
   NOMINMAX
@@ -110,9 +129,17 @@ if(_merlin_openusd_release_only)
     "$<$<CONFIG:Debug>:MERLIN_OPENUSD_RELEASE_ONLY=1>")
 endif()
 
+set(_merlin_hydra_plugin_info
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/plugInfo.json")
+configure_file(
+  resources/plugInfo.json.in
+  "${_merlin_hydra_plugin_info}"
+  @ONLY
+)
+
 add_library(hdMerlin MODULE
   src/renderer_plugin.cpp
-  resources/plugInfo.json
+  "${_merlin_hydra_plugin_info}"
 )
 
 target_link_libraries(hdMerlin
@@ -132,21 +159,23 @@ add_custom_command(TARGET hdMerlin POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory
           "$<TARGET_FILE_DIR:hdMerlin>/resources"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${CMAKE_CURRENT_SOURCE_DIR}/resources/plugInfo.json"
+          "${_merlin_hydra_plugin_info}"
           "$<TARGET_FILE_DIR:hdMerlin>/resources/plugInfo.json"
   VERBATIM
 )
-add_custom_target(merlin-hydra2-shader-package
-  COMMAND ${CMAKE_COMMAND} -E make_directory
-          "$<TARGET_FILE_DIR:hdMerlin>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          ${MERLIN_SHADER_PACKAGE_FILES}
-          "$<TARGET_FILE_DIR:hdMerlin>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
-  DEPENDS ${MERLIN_SHADER_PACKAGE_FILES}
-  VERBATIM
-)
-add_dependencies(merlin-hydra2-shader-package merlin-vulkan-shaders)
-add_dependencies(hdMerlin merlin-hydra2-shader-package)
+if(TARGET Merlin::Vulkan)
+  add_custom_target(merlin-hydra2-shader-package
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:hdMerlin>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${MERLIN_SHADER_PACKAGE_FILES}
+            "$<TARGET_FILE_DIR:hdMerlin>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+    DEPENDS ${MERLIN_SHADER_PACKAGE_FILES}
+    VERBATIM
+  )
+  add_dependencies(merlin-hydra2-shader-package merlin-vulkan-shaders)
+  add_dependencies(hdMerlin merlin-hydra2-shader-package)
+endif()
 
 set(_merlin_hydra_install_dir
     "${CMAKE_INSTALL_LIBDIR}/usd/hdMerlin")
@@ -154,11 +183,13 @@ install(TARGETS hdMerlin
   RUNTIME DESTINATION "${_merlin_hydra_install_dir}"
   LIBRARY DESTINATION "${_merlin_hydra_install_dir}"
 )
-install(FILES resources/plugInfo.json
+install(FILES "${_merlin_hydra_plugin_info}"
   DESTINATION "${_merlin_hydra_install_dir}/resources")
-install(FILES ${MERLIN_SHADER_PACKAGE_FILES}
-  DESTINATION
-    "${_merlin_hydra_install_dir}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
+if(TARGET Merlin::Vulkan)
+  install(FILES ${MERLIN_SHADER_PACKAGE_FILES}
+    DESTINATION
+      "${_merlin_hydra_install_dir}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
+endif()
 install(FILES tests/usdview-smoke.usda tests/checker.ppm
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/tests")
 
@@ -207,6 +238,11 @@ if(MERLIN_BUILD_TESTS)
   find_program(MERLIN_TESTUSDVIEW_SCRIPT testusdview
     PATHS "${_merlin_pxr_root}/bin" NO_DEFAULT_PATH)
   if(Python3_Interpreter_FOUND AND MERLIN_TESTUSDVIEW_SCRIPT)
+    if(TARGET Merlin::Vulkan)
+      set(_merlin_hydra2_test_backend vulkan)
+    else()
+      set(_merlin_hydra2_test_backend metal)
+    endif()
     add_test(
       NAME merlin-hydra2-usdview-smoke
       COMMAND ${CMAKE_COMMAND}
@@ -219,6 +255,7 @@ if(MERLIN_BUILD_TESTS)
         "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
         "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
         "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+        "-DMERLIN_HYDRA2_TEST_BACKEND=${_merlin_hydra2_test_backend}"
         "-DMERLIN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/usdview_smoke_test.py"
         "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake"

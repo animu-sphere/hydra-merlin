@@ -88,7 +88,7 @@ if(TARGET Merlin::Metal)
     PRIVATE Merlin::Metal)
   add_test(NAME merlin-metal-backend COMMAND merlin-metal-backend-tests)
   set_tests_properties(merlin-metal-backend PROPERTIES
-    LABELS "metal;runtime;aov;residency"
+    LABELS "metal;runtime;aov;residency;presentation"
     SKIP_RETURN_CODE 77)
 endif()
 

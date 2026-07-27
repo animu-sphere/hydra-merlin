@@ -5,6 +5,7 @@ endif()
 find_library(MERLIN_METAL_FRAMEWORK Metal REQUIRED)
 find_library(MERLIN_FOUNDATION_FRAMEWORK Foundation REQUIRED)
 find_library(MERLIN_QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+find_library(MERLIN_COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
 
 add_library(merlin-metal STATIC
   src/backend.mm
@@ -32,6 +33,7 @@ target_link_libraries(merlin-metal
     "${MERLIN_METAL_FRAMEWORK}"
     "${MERLIN_FOUNDATION_FRAMEWORK}"
     "${MERLIN_QUARTZCORE_FRAMEWORK}"
+    "${MERLIN_COREGRAPHICS_FRAMEWORK}"
 )
 target_compile_features(merlin-metal PUBLIC cxx_std_20)
 target_compile_options(merlin-metal PRIVATE

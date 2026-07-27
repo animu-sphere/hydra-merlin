@@ -7,13 +7,14 @@ def _read_events():
     marker = os.environ["MERLIN_HYDRA2_REGRESSION_LOG"]
     if not os.path.exists(marker):
         return []
+    string_fields = {"phase", "material_effective_fallback"}
     events = []
     with open(marker, encoding="utf-8") as stream:
         for line in stream:
             event = {}
             for field in line.split():
                 key, value = field.split("=", 1)
-                event[key] = value if key == "phase" else int(value)
+                event[key] = value if key in string_fields else int(value)
             events.append(event)
     return events
 
@@ -223,9 +224,18 @@ def testUsdviewInputFunction(appController):
                for event in primvar_changes)
     assert all(0 < event["changed_vertex_count"] < 9
                for event in primvar_changes)
-    assert all(event["upload_bytes"] ==
-               event["changed_vertex_count"] * 48
-               for event in primvar_changes)
+    if os.environ.get("MERLIN_HYDRA2_TEST_BACKEND", "vulkan") == "vulkan":
+        assert all(event["upload_bytes"] ==
+                   event["changed_vertex_count"] * 48
+                   for event in primvar_changes)
+    else:
+        # Metal currently replaces the changed geometry's retained vertex and
+        # index buffers together; it must still avoid unrelated resources.
+        assert all(event["upload_bytes"] >=
+                   event["changed_vertex_count"] * 48
+                   for event in primvar_changes)
+        assert all(event["geometry_reconcile_count"] == 1
+                   for event in primvar_changes)
 
     assert transformed["draw_count"] == 7
     assert transformed["scene_revision"] > primvar["scene_revision"]

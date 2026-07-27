@@ -109,9 +109,6 @@ class GlfwWindow final : public Window {
  private:
   void Initialize(std::string_view title, std::uint32_t width,
                   std::uint32_t height, bool visible) {
-    if (glfwVulkanSupported() != GLFW_TRUE) {
-      throw GlfwError("query GLFW Vulkan support");
-    }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_VISIBLE, visible ? GLFW_TRUE : GLFW_FALSE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
