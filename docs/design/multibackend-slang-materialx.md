@@ -1,8 +1,8 @@
-# Multi-backend, Slang, MaterialX, and HgiMetal strategy
+# Multi-backend, Slang, MaterialX, and Hgi host-presentation strategy
 
 **Status:** v0.9 backend/viewport boundary implemented; later stages accepted
 
-**Date:** 2026-07-16
+**Date:** 2026-07-27
 
 hdMerlin evolves from its Vulkan first implementation into a backend-neutral
 renderer with independently optimized Vulkan and Metal execution. The shared
@@ -157,7 +157,25 @@ accepted v0.10.0 function and reflection contract with broader Standard Surface,
 normal/UV/opacity/emissive quality, asynchronous compilation, prewarming,
 residency, and Forward/Visibility parity.
 
-## Metal and HgiMetal presentation
+## Hgi host presentation
+
+Hgi remains a Hydra-host presentation boundary rather than a renderer RHI. The
+shared bridge contract covers AOV semantics, transfer selection, completion,
+fallback reasons, resize generation, and telemetry; Vulkan and Metal keep their
+native handles, resource ownership, barriers, queues, and synchronization
+separate. Tier 0 CPU RenderBuffers are permanent. The full delivery and
+verification policy is [Hgi host presentation](hgi-host-presentation.md).
+
+### HgiVulkan first
+
+v0.13.0 establishes Hgi-owned targets and selected-AOV Vulkan GPU copy. It
+must avoid CPU readback/upload and coarse device waits while preserving Tier 0
+image parity, frames-in-flight safety, and explicit renderer -> bridge -> host
+completion. Same-device direct sharing is deferred to a separate v0.13.1
+capability/evidence gate; external memory/semaphore interop is not an initial
+requirement.
+
+### HgiMetal follow-up
 
 `merlin-metal` renders directly with Metal. HgiMetal is not the rendering RHI;
 it is a Hydra-host presentation and interop boundary for passing AOVs to usdview
@@ -194,9 +212,8 @@ it, preserves AOV identity and resize/lifetime safety, shares one
 `FrameSnapshot` path with the native viewport, and reports presentation cost
 separately. Immediate zero-copy support in every DCC is not a requirement.
 
-The same presentation-adapter boundary can contain an independently measured
-HgiVulkan bridge. Vulkan and Metal interop details remain separate even when
-their fallback and telemetry meanings are shared.
+Vulkan and Metal interop details remain separate even when their fallback and
+telemetry meanings are shared.
 
 ## Validation and telemetry
 
@@ -227,15 +244,17 @@ command-buffer, and counter-sample diagnostics.
 The Vulkan persistent-residency milestone, Slang migration/Metal compile gate,
 backend contract/native Vulkan viewport boundary, MaterialXGenSlang prototype,
 Metal residency, and native Metal presentation are complete. Ordered delivery
-continues with HgiMetal presentation, then Gaussian and the later GPU-driven,
-Visibility, production MaterialX, and meshlet work. The detailed release gates
-are in the [roadmap](../roadmap/backlog.md).
+continues with HgiVulkan GPU copy, optional direct-path hardening, HgiMetal,
+then the Gaussian MVP and measured Gaussian scalability roadmap. Mesh Visibility,
+production MaterialX, and meshlets remain independent tracks. The detailed
+release gates are in the [roadmap](../roadmap/backlog.md), [Hgi policy](hgi-host-presentation.md),
+and [Gaussian roadmap](gaussian-rendering-roadmap.md).
 
 The initial effort does not attempt to support every GPU API, build a universal
 RHI, make Vulkan and Metal internals identical, require a runtime compiler in
 shipping packages, implement all MaterialX nodes, build a shader-graph editor,
-guarantee bit-exact floating-point color across backends, or make HgiMetal the
-renderer implementation.
+guarantee bit-exact floating-point color across backends, or make either Hgi
+bridge the renderer implementation.
 
 New work must preserve these checks:
 

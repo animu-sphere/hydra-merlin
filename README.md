@@ -154,9 +154,10 @@ same `MaterialIR` used by headless rendering. The optional graph-only
 MaterialXGenSlang compiler and generated Vulkan Forward parameter/resource
 execution are present. Hydra MaterialX ingestion remains later integration
 work.
-Subdivision refinement and zero-copy Vulkan/Hgi interop also remain future
-work; usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi
-upload path.
+Subdivision refinement and Vulkan/Hgi host bridging remain future work;
+usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi upload
+path. v0.13.0 starts with a Vulkan GPU-copy bridge while preserving that path
+as the universal reference and fallback.
 
 ## Capability boundaries and roadmap
 
@@ -168,8 +169,10 @@ The current renderer intentionally does not yet provide:
   Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
 - advanced viewport features such as alpha blending, dome lighting, shadows,
   selection, or production culling;
-- Vulkan/Hgi external-memory or other zero-copy GPU presentation; Hydra uses
-  CPU RenderBuffer readback followed by the host's Hgi upload path.
+- Vulkan/Hgi GPU-copy, direct-share, and external-interop presentation; Hydra
+  currently uses CPU RenderBuffer readback followed by the host's Hgi upload
+  path. These paths are capability- and evidence-gated rather than implied by
+  the Vulkan backend.
 
 These are roadmap boundaries, not implicit compatibility claims. See the
 [support matrix](docs/reference/support-matrix.md) for current platform and
@@ -187,17 +190,18 @@ MaterialXGenSlang material-function slice, and v0.11.0 released native Metal
 offscreen execution, heap residency, argument-buffer tables, and the matching
 backend-neutral AOV/readback contract. v0.12.0 released native Metal viewport
 presentation with GPU-only drawable output, resize-safe pacing, and the matching
-developer UI path. An HgiMetal host bridge follows. The later path
-advances through Gaussian rendering,
-persistent draw identity, GPU-driven Mesh/Gaussian execution, experimental
-opaque Visibility, production MaterialX quality, static meshlets, and only then
-optional Mesh Shader/Hi-Z/LOD. Forward and Tier 0 CPU readback remain reference
-fallbacks. See the [current
+developer UI path. v0.13.0 starts HgiVulkan with safe GPU copy; optional direct
+sharing is a separate evidence gate, and v0.14.0 brings the equivalent HgiMetal
+bridge. v0.14.1 establishes the CPU-sorted Gaussian MVP, then v0.15.0–v0.22.0
+advance persistent resources, GPU projection/sorting, contribution-aware and
+hierarchical tiling, temporal reuse, LOD/streaming, and Vulkan/Metal production
+hardening. Forward and Tier 0 CPU readback remain reference fallbacks. See the [current
 milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
 [multi-backend shader and presentation
-strategy](docs/design/multibackend-slang-materialx.md), and [GPU-driven
-rendering policy](docs/design/gpu-driven-rendering.md) for scope, dependencies,
-and exit criteria.
+strategy](docs/design/multibackend-slang-materialx.md), [Hgi host presentation
+policy](docs/design/hgi-host-presentation.md), [Gaussian rendering roadmap](docs/design/gaussian-rendering-roadmap.md),
+and [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md) for
+scope, dependencies, and exit criteria.
 
 Gaussian support will consume the standard Gaussian representation exposed by
 OpenUSD through Hydra. hdMerlin will not define a renderer-specific USD schema

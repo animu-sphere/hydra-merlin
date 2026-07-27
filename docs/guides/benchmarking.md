@@ -11,6 +11,11 @@ hdMerlin keeps two complementary performance records:
   presented frames, swapchain recreation, validation, GPU presentation-copy
   bytes, and zero-CPU-readback frames; the Hydra variant records cumulative
   readback bytes for the USD scene path.
+- The planned host-bridge report extends the Hydra record with transfer mode,
+  device-relationship capability, selected AOVs, source/destination metadata,
+  bridge copy bytes/time, completion wait, target recreations, CPU fallback
+  count, and structured rejection/fallback reasons. Tier 0, GPU-copy, and any
+  direct-share path are compared as separate presentation modes.
 
 ## Native viewport benchmark
 
@@ -205,9 +210,9 @@ The install-tree usdview test retains three related artifacts:
 - `merlin-usdview-trace.json`: the raw OpenUSD Chrome trace.
 
 The JSON report separates Hydra Sync, RenderWorld update, extraction, GPU scene
-update, command recording, queue submission, GPU execution, completion wait,
-readback, RenderBuffer resolve/map, CPU-to-Hgi upload, host composite, and
-presentation. Renderer/delegate stages use per-frame samples. Host-owned scopes
+update, command recording, queue submission, GPU execution, renderer completion,
+bridge encode/copy/wait, RenderBuffer resolve/map, CPU-to-Hgi upload, host
+composite, host consumption, and presentation. Renderer/delegate stages use per-frame samples. Host-owned scopes
 are summed per presented host frame and marked with
 `sample_kind: trace_scope` so they cannot be mistaken for renderer-frame
 samples. Every stage also carries an `available` flag; an unavailable host
