@@ -185,8 +185,9 @@ render contract and dedicated cross-backend `merlin-viewport` with validated
 Vulkan swapchain presentation and Hydra USD loading. v0.10.0 proved a
 MaterialXGenSlang material-function slice, and v0.11.0 released native Metal
 offscreen execution, heap residency, argument-buffer tables, and the matching
-backend-neutral AOV/readback contract. v0.12.0 native Metal presentation is
-complete pending release; an HgiMetal host bridge follows. The later path
+backend-neutral AOV/readback contract. v0.12.0 released native Metal viewport
+presentation with GPU-only drawable output, resize-safe pacing, and the matching
+developer UI path. An HgiMetal host bridge follows. The later path
 advances through Gaussian rendering,
 persistent draw identity, GPU-driven Mesh/Gaussian execution, experimental
 opaque Visibility, production MaterialX quality, static meshlets, and only then

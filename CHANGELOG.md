@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-27
+
 ### Added
 
 - Native Metal presentation for `merlin-viewport` through an adapter-owned
@@ -501,7 +503,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.11.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.12.0...main
+[0.12.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.8.0...v0.9.0

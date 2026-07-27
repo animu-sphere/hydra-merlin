@@ -1,7 +1,7 @@
 # Backlog
 
-Ordered work after the released v0.11.0 native Metal backend, alongside active
-foundation work in
+Ordered work after the released v0.12.0 native Metal viewport presentation,
+alongside active foundation work in
 [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
