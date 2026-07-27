@@ -1,0 +1,142 @@
+#pragma once
+
+#include <pxr/pxr.h>
+
+#include <pxr/imaging/hd/driver.h>
+#include <pxr/imaging/hd/renderDelegate.h>
+#include <pxr/imaging/hd/types.h>
+#include <pxr/imaging/hgi/texture.h>
+#include <pxr/imaging/hgi/types.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <mutex>
+#include <string_view>
+
+PXR_NAMESPACE_OPEN_SCOPE
+
+enum class HdMerlinHgiVulkanTransferMode {
+  CpuReadback,
+  GpuCopy,
+};
+
+enum class HdMerlinHgiVulkanFallbackReason {
+  None,
+  BridgeDisabled,
+  MissingRenderDriver,
+  NonVulkanRenderDriver,
+  UnsupportedOpenUsd,
+  GpuCopyUnavailable,
+  DriverSwapRejected,
+  InvalidTarget,
+  TargetCreationFailed,
+  TargetUploadFailed,
+};
+
+[[nodiscard]] std::string_view HdMerlinHgiVulkanTransferModeName(
+    HdMerlinHgiVulkanTransferMode mode) noexcept;
+[[nodiscard]] std::string_view HdMerlinHgiVulkanFallbackReasonName(
+    HdMerlinHgiVulkanFallbackReason reason) noexcept;
+
+struct HdMerlinHgiVulkanBridgeStatus {
+  std::uint32_t openusd_version{};
+  bool enabled{};
+  bool render_driver_available{};
+  bool vulkan_render_driver{};
+  bool hgi_owned_targets{};
+  bool gpu_copy{};
+  HdMerlinHgiVulkanTransferMode selected_mode{
+      HdMerlinHgiVulkanTransferMode::CpuReadback};
+  HdMerlinHgiVulkanFallbackReason fallback_reason{
+      HdMerlinHgiVulkanFallbackReason::BridgeDisabled};
+};
+
+struct HdMerlinHgiVulkanBridgeTelemetry {
+  std::uint64_t target_generation{};
+  std::uint64_t target_creations{};
+  std::uint64_t target_recreations{};
+  std::uint64_t target_retirements{};
+  // Targets dropped without their creating Hgi being available to retire them.
+  // SetDrivers refuses the driver swap that would produce these, so a non-zero
+  // count means an ownership assumption broke rather than a texture merely
+  // going away.
+  std::uint64_t target_orphans{};
+  std::uint64_t cpu_upload_count{};
+  std::uint64_t cpu_upload_bytes{};
+  std::uint64_t cpu_upload_encode_ns{};
+  std::uint64_t gpu_copy_count{};
+  std::uint64_t gpu_copy_bytes{};
+  std::uint64_t gpu_copy_encode_ns{};
+  std::uint64_t coarse_wait_count{};
+};
+
+// Kept separately testable so OpenUSD package composition (not merely its
+// version number) remains part of bridge capability selection.
+[[nodiscard]] HdMerlinHgiVulkanBridgeStatus
+HdMerlinEvaluateHgiVulkanBridgeSupport(bool enabled,
+                                       std::uint32_t openusd_version,
+                                       bool render_driver_available,
+                                       bool vulkan_render_driver) noexcept;
+
+// The one table mapping the RenderBuffer formats this adapter implements onto
+// their Hgi equivalents. HgiFormatInvalid means "no Hgi target for this
+// format", so a format the CPU path grows later cannot silently acquire a
+// texture whose texel size disagrees with the byte size of the buffer feeding
+// it.
+[[nodiscard]] HgiFormat HdMerlinHgiFormatForRenderBuffer(
+    HdFormat format) noexcept;
+
+class Hgi;
+
+// Hydra-adapter-owned Hgi target manager. This first v0.13.0 slice moves the
+// Tier 0 CPU upload into an Hgi-owned texture and exposes that texture through
+// HdRenderBuffer::GetResource. The selected mode remains CpuReadback until the
+// renderer image export and distinct GPU-copy completion path are connected.
+//
+// Threading: the internal mutex only serialises this bridge's own state. Hgi
+// itself is not thread-safe and is shared with the host, so CreateTarget,
+// DestroyTarget, and Upload must be reached from the Hydra execution thread:
+// the thread that runs HdEngine::Execute and on which the host drives the same
+// Hgi. Every current caller sits on the render-pass execution path, which
+// satisfies that.
+class HdMerlinHgiVulkanBridge final {
+ public:
+  explicit HdMerlinHgiVulkanBridge(bool enabled);
+  ~HdMerlinHgiVulkanBridge();
+
+  HdMerlinHgiVulkanBridge(const HdMerlinHgiVulkanBridge&) = delete;
+  HdMerlinHgiVulkanBridge& operator=(const HdMerlinHgiVulkanBridge&) = delete;
+
+  // Binds the bridge to the application-owned Hgi. A driver declaration is
+  // also the one point at which an operational rejection is re-evaluated, so
+  // re-declaring the same driver clears a latched failure. A swap away from an
+  // Hgi that still owns published targets is refused instead, because those
+  // targets can only be retired by the Hgi that created them.
+  void SetDrivers(const HdDriverVector& drivers);
+
+  [[nodiscard]] HdMerlinHgiVulkanBridgeStatus status() const;
+  [[nodiscard]] HdMerlinHgiVulkanBridgeTelemetry telemetry() const;
+
+  [[nodiscard]] HgiTextureHandle CreateTarget(const HgiTextureDesc& descriptor,
+                                              bool recreation);
+  void DestroyTarget(HgiTextureHandle* target);
+  [[nodiscard]] bool Upload(HgiTextureHandle target, const void* data,
+                            std::size_t byte_size);
+
+ private:
+  // A one-way latch for the delegate's lifetime, cleared only by a fresh
+  // SetDrivers: an operational failure disables Hgi-owned targets for every
+  // buffer, not just the one that failed. Retrying per frame would mean
+  // re-entering a path the driver has already rejected once.
+  void SetOperationalFallbackLocked(
+      HdMerlinHgiVulkanFallbackReason reason) noexcept;
+
+  const bool enabled_;
+  mutable std::mutex mutex_;
+  Hgi* hgi_{};
+  std::uint64_t outstanding_targets_{};
+  HdMerlinHgiVulkanBridgeStatus status_;
+  HdMerlinHgiVulkanBridgeTelemetry telemetry_;
+};
+
+PXR_NAMESPACE_CLOSE_SCOPE

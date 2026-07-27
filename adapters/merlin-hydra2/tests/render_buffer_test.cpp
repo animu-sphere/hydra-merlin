@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -27,6 +28,10 @@ int main() {
                  color.GetDepth() == 1,
              "color dimensions are incorrect") ||
       !Check(!color.IsConverged(), "new color buffer is converged")) {
+    return 1;
+  }
+  if (!Check(color.GetResource(false).IsEmpty(),
+             "CPU fallback unexpectedly exposed an Hgi resource")) {
     return 1;
   }
 
@@ -86,5 +91,29 @@ int main() {
     return 1;
   }
   ids.Unmap();
+
+  // A bridge that never receives an Hgi driver has to leave the buffer on the
+  // CPU path without disturbing it: writes still land, no resource is
+  // published, and no target is charged to telemetry.
+  auto bridge = std::make_shared<HdMerlinHgiVulkanBridge>(true);
+  bridge->SetDrivers({});
+  HdMerlinRenderBuffer bridged(SdfPath("/bridgedColor"), bridge);
+  if (!Check(bridged.Allocate(GfVec3i(2, 2, 1), HdFormatUNorm8Vec4, false),
+             "bridged color allocation failed") ||
+      !Check(bridged.WriteColor(pixels, 2, 2), "bridged color write failed") ||
+      !Check(bridged.GetResource(false).IsEmpty(),
+             "driverless bridge exposed an Hgi resource") ||
+      !Check(bridge->telemetry().target_creations == 0,
+             "driverless bridge created a target")) {
+    return 1;
+  }
+  const auto* mapped_bridged =
+      static_cast<const std::uint8_t*>(bridged.Map());
+  if (!Check(mapped_bridged != nullptr && mapped_bridged[0] == 1 &&
+                 mapped_bridged[15] == 16,
+             "bridged color data did not reach the CPU buffer")) {
+    return 1;
+  }
+  bridged.Unmap();
   return 0;
 }

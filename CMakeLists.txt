@@ -63,6 +63,14 @@ option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
+# Hydra 2 is also satisfied by Metal alone, so this cannot be a plain option
+# defaulting to MERLIN_ENABLE_HYDRA2: a Metal-only Hydra build would then turn
+# the bridge on implicitly and fail its own dependency rule. A dependent option
+# also keeps the cached value from outliving a later MERLIN_ENABLE_HYDRA2=OFF.
+include(CMakeDependentOption)
+cmake_dependent_option(MERLIN_ENABLE_HGI_VULKAN_BRIDGE
+  "Build the Hydra-owned HgiVulkan presentation bridge" ON
+  "MERLIN_ENABLE_HYDRA2;MERLIN_ENABLE_VULKAN" OFF)
 option(MERLIN_ENABLE_MATERIALX
   "Build the MaterialXGenSlang material-function compiler" OFF)
 option(MERLIN_FETCH_MATERIALX
@@ -398,6 +406,11 @@ else()
   set(_merlin_metadata_hydra2_enabled false)
   set(_merlin_metadata_openusd_version "null")
 endif()
+if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
+  set(_merlin_metadata_hgi_vulkan_bridge_enabled true)
+else()
+  set(_merlin_metadata_hgi_vulkan_bridge_enabled false)
+endif()
 
 if(_merlin_metadata_runtime_products)
   set(_merlin_metadata_runtime_products
@@ -448,6 +461,7 @@ if(MERLIN_BUILD_TESTS)
       "-DMERLIN_EXPECTED_VULKAN:BOOL=${MERLIN_ENABLE_VULKAN}"
       "-DMERLIN_EXPECTED_METAL:BOOL=${MERLIN_ENABLE_METAL}"
       "-DMERLIN_EXPECTED_HYDRA2:BOOL=${MERLIN_ENABLE_HYDRA2}"
+      "-DMERLIN_EXPECTED_HGI_VULKAN_BRIDGE:BOOL=${MERLIN_ENABLE_HGI_VULKAN_BRIDGE}"
       "-DMERLIN_EXPECTED_MATERIALX:BOOL=${MERLIN_ENABLE_MATERIALX}"
       "-DMERLIN_EXPECTED_VIEWPORT:BOOL=${_merlin_metadata_viewport_enabled}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify-release-metadata.cmake"

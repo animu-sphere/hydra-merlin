@@ -82,6 +82,7 @@ endif()
 
 add_library(merlin-hydra2-runtime STATIC
   src/adapter.cpp
+  src/hgi_vulkan_bridge.cpp
 )
 
 # Keeps OpenUSD imported-target lookup in the directory where find_package(pxr)
@@ -100,6 +101,8 @@ target_include_directories(merlin-hydra2-runtime PUBLIC
 target_link_libraries(merlin-hydra2-runtime
   PUBLIC
     hd
+    # HgiTextureHandle reaches the public boundary through adapter.hpp.
+    hgi
     Merlin::RenderBackend
   PRIVATE
     hio
@@ -116,6 +119,11 @@ elseif(TARGET Merlin::Metal)
   target_link_libraries(merlin-hydra2-runtime PRIVATE Merlin::Metal)
   target_compile_definitions(merlin-hydra2-runtime PRIVATE
     MERLIN_HYDRA2_ENABLE_METAL=1
+  )
+endif()
+if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
+  target_compile_definitions(merlin-hydra2-runtime PRIVATE
+    MERLIN_HYDRA2_ENABLE_HGI_VULKAN_BRIDGE=1
   )
 endif()
 target_compile_features(merlin-hydra2-runtime PUBLIC cxx_std_20)
@@ -230,6 +238,25 @@ if(MERLIN_BUILD_TESTS)
   add_test(NAME merlin-hydra2-render-buffer
            COMMAND merlin-hydra2-render-buffer-test)
   set_tests_properties(merlin-hydra2-render-buffer PROPERTIES
+    ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
+  )
+
+  add_executable(merlin-hydra2-hgi-vulkan-bridge-test
+    tests/hgi_vulkan_bridge_test.cpp
+  )
+  target_link_libraries(merlin-hydra2-hgi-vulkan-bridge-test
+    PRIVATE merlin-hydra2-runtime)
+  target_compile_features(merlin-hydra2-hgi-vulkan-bridge-test
+    PRIVATE cxx_std_20)
+  target_compile_definitions(merlin-hydra2-hgi-vulkan-bridge-test PRIVATE
+    NOMINMAX
+    _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING
+  )
+  add_test(NAME merlin-hydra2-hgi-vulkan-bridge
+           COMMAND merlin-hydra2-hgi-vulkan-bridge-test)
+  set_tests_properties(merlin-hydra2-hgi-vulkan-bridge PROPERTIES
+    LABELS "hydra;hgi;vulkan;presentation"
     ENVIRONMENT_MODIFICATION
       "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
   )
