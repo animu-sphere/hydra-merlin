@@ -2,6 +2,8 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/metal/backend.hpp>
 
+#import <QuartzCore/CAMetalLayer.h>
+
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -137,6 +139,7 @@ int main() {
     world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points);
   }
   world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Topology);
+  extractor.Apply(world, world.Commit());
   mesh.positions[0].x += 0.01F;
   world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points);
   extractor.Apply(world, world.Commit());
@@ -255,5 +258,50 @@ int main() {
   assert(replacement_stats.sampler_slots.in_use == 1);
   assert(replacement_stats.sampler_slots.reuses >= 1);
   assert(backend->statistics().validation_messages == 0);
+
+  CAMetalLayer *layer = [CAMetalLayer layer];
+  merlin::metal::BackendOptions presentation_options;
+  merlin::metal::PresentationOptions presentation;
+  presentation.layer =
+      reinterpret_cast<std::uintptr_t>((__bridge void *)layer);
+  presentation.color_space =
+      merlin::metal::PresentationColorSpace::DisplayP3;
+  presentation_options.presentation = presentation;
+  merlin::metal::Backend presentation_backend(create_info,
+                                               presentation_options);
+  assert(presentation_backend.capabilities().external_presentation);
+  const auto presentation_target =
+      presentation_backend.default_presentation_target();
+  assert(presentation_target);
+  presentation_backend.ResizePresentationTarget(*presentation_target, 64, 64);
+  presentation_backend.ResizePresentationTarget(*presentation_target, 128, 64);
+  assert(presentation_backend.statistics().presentation_recreates == 1);
+
+  bool foreign_target_rejected{};
+  try {
+    presentation_backend.ResizePresentationTarget(
+        merlin::render::PresentationTarget(presentation_target->owner() + 1,
+                                           presentation_target->value()),
+        64, 64);
+  } catch (const merlin::render::RendererError &error) {
+    foreign_target_rejected =
+        error.code() == merlin::render::RendererErrorCode::InvalidRequest &&
+        error.operation() == "resize Metal presentation";
+  }
+  assert(foreign_target_rejected);
+
+  presentation.dynamic_range =
+      merlin::metal::PresentationDynamicRange::Extended;
+  presentation_options.presentation = presentation;
+  bool hdr_rejected{};
+  try {
+    merlin::metal::Backend unsupported_hdr(create_info,
+                                           presentation_options);
+  } catch (const merlin::render::RendererError &error) {
+    hdr_rejected =
+        error.code() == merlin::render::RendererErrorCode::Unsupported &&
+        error.operation() == "create Metal presentation";
+  }
+  assert(hdr_rejected);
   return 0;
 }

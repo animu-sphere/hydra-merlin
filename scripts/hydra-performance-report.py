@@ -97,6 +97,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_events(path: Path) -> list[dict]:
+    string_fields = {"phase", "material_effective_fallback"}
     events = []
     for line_number, line in enumerate(
         path.read_text(encoding="utf-8").splitlines(), 1
@@ -106,7 +107,7 @@ def parse_events(path: Path) -> list[dict]:
             key, separator, value = field.partition("=")
             if not separator:
                 raise ValueError(f"{path}:{line_number}: malformed field")
-            event[key] = value if key == "phase" else int(value)
+            event[key] = value if key in string_fields else int(value)
         if event.get("schema_version") != 4:
             raise ValueError(f"{path}:{line_number}: unsupported event schema")
         events.append(event)
@@ -188,6 +189,10 @@ TRACE_STAGE_NAMES = {
     "render_buffer_resolve_ns": ("HdMerlinRenderBuffer::Resolve",),
     "render_buffer_map_ns": ("HdMerlinRenderBuffer::Map",),
 }
+TRACE_STAGE_FALLBACK_NAMES = {
+    # HgiMetal 26.08 does not emit the lower-level HgiGLOps copy scope.
+    "host_upload_ns": ("HdxAovInputTask::_UpdateTexture",),
+}
 
 
 def trace_stage_samples(
@@ -223,6 +228,16 @@ def trace_stage_samples(
             for interval in phase_events
             if any(interval["name"].endswith(suffix) for suffix in suffixes)
         ]
+        if not matches:
+            fallback_suffixes = TRACE_STAGE_FALLBACK_NAMES.get(stage, ())
+            matches = [
+                interval
+                for interval in phase_events
+                if any(
+                    interval["name"].endswith(suffix)
+                    for suffix in fallback_suffixes
+                )
+            ]
         if windows and matches:
             # Sum all scopes belonging to a presented host frame. This keeps
             # four AOV uploads comparable with one renderer-frame stage rather

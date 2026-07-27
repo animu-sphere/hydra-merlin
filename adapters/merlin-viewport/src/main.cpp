@@ -1,6 +1,11 @@
 #include "developer_ui.hpp"
 #include "window.hpp"
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include "presentation_glfw.hpp"
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+#include "presentation_metal.hpp"
+#endif
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
 #include "hydra_scene.hpp"
 #endif
@@ -8,8 +13,13 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+#include <merlin/metal/backend.hpp>
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include <merlin/vulkan/backend.hpp>
 #include <merlin/vulkan/shader_abi.hpp>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -31,9 +41,13 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 struct Arguments {
+  static constexpr std::uint64_t kDefaultMetalHeapBytes =
+      64ULL * 1024ULL * 1024ULL;
+
   std::uint32_t width{1280};
   std::uint32_t height{720};
   std::uint64_t frame_limit{};
+  std::uint64_t metal_heap_capacity_bytes{kDefaultMetalHeapBytes};
   merlin::render::BackendRequest backend{
       merlin::render::BackendRequest::Automatic};
   bool validation{};
@@ -41,6 +55,7 @@ struct Arguments {
   bool visible{true};
   bool reference_check{};
   bool resize_test{};
+  bool allow_unavailable{};
   std::filesystem::path screenshot;
   std::filesystem::path benchmark;
   std::filesystem::path usd;
@@ -105,6 +120,16 @@ Arguments ParseArguments(int argc, char** argv) {
       result.height = ReadUnsigned32(next(), option);
     } else if (option == "--frames") {
       result.frame_limit = ReadUnsigned(next(), option);
+    } else if (option == "--metal-heap-mib") {
+      constexpr std::uint64_t bytes_per_mib = 1024ULL * 1024ULL;
+      const auto capacity_mib = ReadUnsigned(next(), option);
+      if (capacity_mib == 0 ||
+          capacity_mib >
+              std::numeric_limits<std::uint64_t>::max() / bytes_per_mib) {
+        throw std::invalid_argument(
+            "--metal-heap-mib must be a positive in-range integer");
+      }
+      result.metal_heap_capacity_bytes = capacity_mib * bytes_per_mib;
     } else if (option == "--backend") {
       result.backend = ReadBackend(next());
     } else if (option == "--validate") {
@@ -121,6 +146,8 @@ Arguments ParseArguments(int argc, char** argv) {
       result.reference_check = true;
     } else if (option == "--resize-test") {
       result.resize_test = true;
+    } else if (option == "--allow-unavailable") {
+      result.allow_unavailable = true;
     } else if (option == "--screenshot") {
       result.screenshot = next();
     } else if (option == "--benchmark") {
@@ -132,8 +159,10 @@ Arguments ParseArguments(int argc, char** argv) {
           << "Usage: merlin-viewport [options]\n"
              "  --backend automatic|vulkan|metal\n"
              "  --width N --height N --vsync on|off --validate\n"
+             "  --metal-heap-mib N (default 64)\n"
              "  --frames N --benchmark report.json --screenshot image.ppm\n"
              "  --usd scene.usd --hidden --reference-check --resize-test\n"
+             "  --allow-unavailable (capability-test skip)\n"
              "USD controls: Alt+LMB tumble, Alt+MMB track, Alt+RMB dolly, "
              "wheel dolly, F frame all.\n"
              "Other controls: arrows pan, left click picks, S captures, Esc exits.\n";
@@ -278,8 +307,10 @@ std::string WindowTitle(std::string_view backend, std::uint32_t width,
 }  // namespace
 
 int main(int argc, char** argv) {
+  bool allow_unavailable{};
   try {
     const auto arguments = ParseArguments(argc, argv);
+    allow_unavailable = arguments.allow_unavailable;
     if (!arguments.usd.empty()) {
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
       merlin::viewport::HydraViewportOptions options;
@@ -290,6 +321,8 @@ int main(int argc, char** argv) {
       options.width = arguments.width;
       options.height = arguments.height;
       options.frame_limit = arguments.frame_limit;
+      options.metal_heap_capacity_bytes =
+          arguments.metal_heap_capacity_bytes;
       options.backend = arguments.backend;
       options.validation = arguments.validation;
       options.vsync = arguments.vsync;
@@ -308,25 +341,49 @@ int main(int argc, char** argv) {
         "merlin-viewport", arguments.width, arguments.height,
         arguments.visible);
     auto developer_ui = merlin::viewport::DeveloperUi::Create(*window);
-    const auto executable_dir =
-        std::filesystem::absolute(argv[0]).parent_path();
-    const auto shader_dir =
-        executable_dir / merlin::vulkan::shader_abi::ArtifactDirectory();
-    merlin::vulkan::BackendFactoryOptions vulkan_options;
-    auto presentation_options =
-        merlin::viewport::MakeGlfwVulkanPresentation(*window,
-                                                     arguments.vsync);
-    developer_ui->ConfigurePresentation(presentation_options);
-    vulkan_options.renderer.presentation = std::move(presentation_options);
-    vulkan_options.shaders = {
-        shader_dir / "triangle.vert.spv",
-        shader_dir / "triangle.frag.spv",
-        shader_dir / "triangle.bindless.vert.spv",
-        shader_dir / "triangle.bindless.frag.spv",
-        shader_dir / "environment.hdr"};
-    merlin::vulkan::BackendFactory vulkan_factory(
-        std::move(vulkan_options));
-    std::vector<merlin::render::BackendFactory*> factories{&vulkan_factory};
+    std::vector<merlin::render::BackendFactory*> factories;
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
+    std::unique_ptr<merlin::vulkan::BackendFactory> vulkan_factory;
+    if (arguments.backend != merlin::render::BackendRequest::Metal) {
+      const auto executable_dir =
+          std::filesystem::absolute(argv[0]).parent_path();
+      const auto shader_dir =
+          executable_dir / merlin::vulkan::shader_abi::ArtifactDirectory();
+      merlin::vulkan::BackendFactoryOptions vulkan_options;
+      auto presentation_options =
+          merlin::viewport::MakeGlfwVulkanPresentation(*window,
+                                                       arguments.vsync);
+      developer_ui->ConfigurePresentation(presentation_options);
+      vulkan_options.renderer.presentation =
+          std::move(presentation_options);
+      vulkan_options.shaders = {
+          shader_dir / "triangle.vert.spv",
+          shader_dir / "triangle.frag.spv",
+          shader_dir / "triangle.bindless.vert.spv",
+          shader_dir / "triangle.bindless.frag.spv",
+          shader_dir / "environment.hdr"};
+      vulkan_factory =
+          std::make_unique<merlin::vulkan::BackendFactory>(
+              std::move(vulkan_options));
+      factories.push_back(vulkan_factory.get());
+    }
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+    std::unique_ptr<merlin::metal::BackendFactory> metal_factory;
+    if (arguments.backend != merlin::render::BackendRequest::Vulkan) {
+      merlin::metal::BackendOptions metal_options;
+      metal_options.heap_capacity_bytes =
+          arguments.metal_heap_capacity_bytes;
+      auto metal_presentation =
+          merlin::viewport::MakeGlfwMetalPresentation(*window,
+                                                      arguments.vsync);
+      developer_ui->ConfigurePresentation(metal_presentation);
+      metal_options.presentation = std::move(metal_presentation);
+      metal_factory = std::make_unique<merlin::metal::BackendFactory>(
+          std::move(metal_options));
+      factories.push_back(metal_factory.get());
+    }
+#endif
     merlin::render::BackendCreateInfo create_info;
     create_info.backend = arguments.backend;
     create_info.enable_validation = arguments.validation;
@@ -369,7 +426,7 @@ int main(int argc, char** argv) {
               << merlin::render::BackendKindName(selection.selected) << " ("
               << selection.reason << ")\n"
               << "Device: " << backend->capabilities().device_name << '\n'
-              << "Presentation: GPU swapchain, CPU readback disabled by default\n";
+              << "Presentation: native GPU path, CPU readback disabled by default\n";
 
     while (running &&
            (arguments.frame_limit == 0 || frames < arguments.frame_limit)) {
@@ -594,13 +651,30 @@ int main(int argc, char** argv) {
         (!reference_checked || zero_readback_frames == 0)) {
       throw std::runtime_error("viewport reference check did not execute");
     }
+    if (arguments.reference_check &&
+        (statistics.frames_presented != frames ||
+         statistics.presentation_copy_bytes == 0)) {
+      throw std::runtime_error(
+          "viewport did not present every frame through the native GPU path");
+    }
     if (arguments.resize_test && statistics.presentation_recreates == 0) {
-      throw std::runtime_error("viewport resize did not recreate the swapchain");
+      throw std::runtime_error(
+          "viewport resize did not update the presentation target");
     }
     if (statistics.validation_messages != 0) {
-      throw std::runtime_error("Vulkan validation reported viewport messages");
+      throw std::runtime_error(
+          "backend validation reported viewport messages");
     }
     return 0;
+  } catch (const merlin::render::RendererError& error) {
+    if (allow_unavailable &&
+        error.code() ==
+            merlin::render::RendererErrorCode::BackendUnavailable) {
+      std::cerr << "skip: " << error.what() << '\n';
+      return 77;
+    }
+    std::cerr << "merlin-viewport: " << error.what() << '\n';
+    return 1;
   } catch (const std::exception& error) {
     std::cerr << "merlin-viewport: " << error.what() << '\n';
     return 1;

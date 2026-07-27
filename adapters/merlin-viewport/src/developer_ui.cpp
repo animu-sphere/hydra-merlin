@@ -6,7 +6,13 @@
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include <imgui_impl_vulkan.h>
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+#import <Metal/Metal.h>
+#include <imgui_impl_metal.h>
+#endif
 
 #include <array>
 #include <stdexcept>
@@ -16,6 +22,7 @@
 namespace merlin::viewport {
 namespace {
 
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 template <typename Handle>
 Handle DecodeHandle(std::uintptr_t handle) noexcept {
   if constexpr (std::is_pointer_v<Handle>) {
@@ -24,13 +31,23 @@ Handle DecodeHandle(std::uintptr_t handle) noexcept {
     return static_cast<Handle>(handle);
   }
 }
+#endif
 
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+template <typename Handle>
+Handle DecodeObjCHandle(std::uintptr_t handle) noexcept {
+  return (__bridge Handle)(reinterpret_cast<void*>(handle));
+}
+#endif
+
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 void CheckVulkanResult(VkResult result) {
   if (result < 0) {
     throw std::runtime_error("Dear ImGui Vulkan backend failed: " +
                              std::to_string(static_cast<int>(result)));
   }
 }
+#endif
 
 void LabelValue(const char* label, const char* value) {
   ImGui::TableNextRow();
@@ -120,44 +137,65 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     // as its working directory. Do not leave imgui.ini artifacts there.
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
-    if (!ImGui_ImplGlfw_InitForVulkan(
-            static_cast<GLFWwindow*>(window.native_window()), true)) {
-      ImGui::DestroyContext(context_);
-      context_ = nullptr;
-      throw std::runtime_error(
-          "could not initialize Dear ImGui GLFW backend");
-    }
-    glfw_initialized_ = true;
+    window_ = static_cast<GLFWwindow*>(window.native_window());
   }
 
   ~ImGuiDeveloperUi() override {
     SetContext();
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
     if (vulkan_initialized_) {
       ImGui_ImplVulkan_Shutdown();
     }
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+    if (metal_initialized_) {
+      ImGui_ImplMetal_Shutdown();
+    }
+#endif
     if (glfw_initialized_) {
       ImGui_ImplGlfw_Shutdown();
     }
     ImGui::DestroyContext(context_);
   }
 
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
   void ConfigurePresentation(
       vulkan::PresentationOptions& presentation) override {
     presentation.overlay_user_data = this;
     presentation.render_overlay = &RenderOverlay;
   }
+#endif
+
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+  void ConfigurePresentation(
+      metal::PresentationOptions& presentation) override {
+    presentation.overlay_user_data = this;
+    presentation.render_overlay = &RenderMetalOverlay;
+  }
+#endif
 
   DeveloperUiActions DrawFrame(
       const DeveloperUiSnapshot& snapshot) override {
     SetContext();
     actions_ = {};
-    // The renderer initializes the Vulkan UI backend when it creates its first
-    // swapchain. Skip only this bootstrap frame; starting an ImGui frame before
-    // the renderer backend exists leaves the font atlas without a texture.
-    if (!vulkan_initialized_) {
+    // The renderer initializes its UI backend when native presentation becomes
+    // available. Skip only this bootstrap frame; starting an ImGui frame before
+    // then leaves the font atlas without a renderer texture.
+    bool renderer_initialized{};
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
+    renderer_initialized = vulkan_initialized_;
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+    renderer_initialized = renderer_initialized || metal_initialized_;
+#endif
+    if (!renderer_initialized) {
       return actions_;
     }
-    ImGui_ImplVulkan_NewFrame();
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
+    if (vulkan_initialized_) {
+      ImGui_ImplVulkan_NewFrame();
+    }
+#endif
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     DrawDiagnostics(snapshot);
@@ -176,6 +214,26 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   }
 
  private:
+  void EnsureGlfw(bool vulkan) {
+    if (glfw_initialized_) {
+      if (glfw_for_vulkan_ != vulkan) {
+        throw std::runtime_error(
+            "Dear ImGui GLFW backend cannot change renderer API");
+      }
+      return;
+    }
+    const bool initialized =
+        vulkan ? ImGui_ImplGlfw_InitForVulkan(window_, true)
+               : ImGui_ImplGlfw_InitForOther(window_, true);
+    if (!initialized) {
+      throw std::runtime_error(
+          "could not initialize Dear ImGui GLFW backend");
+    }
+    glfw_initialized_ = true;
+    glfw_for_vulkan_ = vulkan;
+  }
+
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
   static void RenderOverlay(
       void* user_data,
       const vulkan::PresentationOverlayContext& context) {
@@ -187,6 +245,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     SetContext();
     switch (context.phase) {
       case vulkan::PresentationOverlayPhase::Initialize: {
+        EnsureGlfw(true);
         if (vulkan_initialized_) {
           ImGui_ImplVulkan_Shutdown();
           vulkan_initialized_ = false;
@@ -228,6 +287,52 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         break;
     }
   }
+#endif
+
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+  static void RenderMetalOverlay(
+      void* user_data,
+      const metal::PresentationOverlayContext& context) {
+    static_cast<ImGuiDeveloperUi*>(user_data)->OnRenderMetalOverlay(context);
+  }
+
+  void OnRenderMetalOverlay(
+      const metal::PresentationOverlayContext& context) {
+    SetContext();
+    switch (context.phase) {
+      case metal::PresentationOverlayPhase::Initialize:
+        EnsureGlfw(false);
+        if (!ImGui_ImplMetal_Init(
+                DecodeObjCHandle<id<MTLDevice>>(context.device))) {
+          throw std::runtime_error(
+              "could not initialize Dear ImGui Metal backend");
+        }
+        metal_initialized_ = true;
+        break;
+      case metal::PresentationOverlayPhase::Render:
+        if (metal_initialized_ && ImGui::GetDrawData() != nullptr) {
+          auto* pass = DecodeObjCHandle<MTLRenderPassDescriptor*>(
+              context.render_pass_descriptor);
+          // The Metal backend's NewFrame call records the current framebuffer
+          // formats; platform input and ImGui draw-data construction already
+          // happened in DrawFrame().
+          ImGui_ImplMetal_NewFrame(pass);
+          ImGui_ImplMetal_RenderDrawData(
+              ImGui::GetDrawData(),
+              DecodeObjCHandle<id<MTLCommandBuffer>>(context.command_buffer),
+              DecodeObjCHandle<id<MTLRenderCommandEncoder>>(
+                  context.render_encoder));
+        }
+        break;
+      case metal::PresentationOverlayPhase::Shutdown:
+        if (metal_initialized_) {
+          ImGui_ImplMetal_Shutdown();
+          metal_initialized_ = false;
+        }
+        break;
+    }
+  }
+#endif
 
   void DrawDiagnostics(const DeveloperUiSnapshot& snapshot) {
     ImGui::SetNextWindowPos(ImVec2(12.0F, 12.0F), ImGuiCond_FirstUseEver);
@@ -431,8 +536,15 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   void SetContext() const noexcept { ImGui::SetCurrentContext(context_); }
 
   ImGuiContext* context_{};
+  GLFWwindow* window_{};
   bool glfw_initialized_{};
+  bool glfw_for_vulkan_{};
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
   bool vulkan_initialized_{};
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+  bool metal_initialized_{};
+#endif
   DeveloperUiActions actions_;
 };
 

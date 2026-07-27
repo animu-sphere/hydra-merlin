@@ -11,6 +11,27 @@ Legend: ✅ done
 
 ---
 
+## v0.12.0 native Metal presentation ✅
+
+- ✅ Added a private Cocoa/GLFW adapter that creates the `CAMetalLayer` while
+  `Merlin::Metal` configures its device, pixel format, color space, pacing, and
+  drawable pool and retains all command encoding and completion ownership.
+- ✅ Added a renderer-owned fullscreen GPU presentation pass from the reference
+  RGBA target to BGRA sRGB drawables, including linear sRGB-to-Display P3
+  conversion and an explicit rejected boundary for future HDR output.
+- ✅ Integrated the official Dear ImGui Metal renderer into the shared
+  viewport UI without moving native handles or widget ownership into Core.
+- ✅ Added resize-safe drawable extents, frames-in-flight drawable retention,
+  vsync and drawable-count policy, presentation timing/copy telemetry, and
+  zero-readback normal frames.
+- ✅ Made `merlin-viewport` build and package with Metal alone while preserving
+  explicit Vulkan selection and Apple automatic Metal preference in combined
+  configurations.
+- ✅ Exercised hidden compositor-backed Apple GPU presentation, resize,
+  validation, exact presented/offscreen reference parity, Metal presentation
+  target validation, Display P3 configuration, and explicit HDR rejection in
+  Debug and Release test suites.
+
 ## v0.11.0 native Metal backend ✅
 
 - ✅ Added the optional `Merlin::Metal` backend with native device/queue,

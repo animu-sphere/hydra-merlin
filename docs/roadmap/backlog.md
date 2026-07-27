@@ -14,18 +14,6 @@ order.
 
 ## Phase B — Cross-platform backend and presentation parity
 
-### ⬜ v0.12.0 — Native Metal presentation
-
-Add the Metal presentation adapter to the same `merlin-viewport` application
-using `CAMetalLayer` and drawables, including resize, format/color-space policy,
-frame pacing, viewport UI integration, presentation telemetry, and explicit
-future HDR extension points. Renderer work remains in `merlin-metal`; the
-shared viewport host never owns Metal command encoding or native resources.
-
-Exit requires the macOS native viewport to render without CPU readback, share
-camera/input/settings/AOV behavior with the Vulkan viewport, survive resize and
-frames in flight, and preserve matching headless/offscreen reference output.
-
 ### ⬜ v0.13.0 — Hydra host presentation bridges
 
 Implement `MetalHgiMetalBridge` as an adapter between `merlin-metal` AOVs and

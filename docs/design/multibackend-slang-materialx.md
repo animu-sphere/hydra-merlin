@@ -53,8 +53,9 @@ Vulkan/Metal contract.
 - The dedicated `merlin-viewport` application owns windows, input, camera
   control, UI, resize, picking, and an abstract presentation target. It is a
   permanent renderer product and performance reference. Vulkan owns its
-  surface/swapchain adapter and Metal owns its `CAMetalLayer` and drawables;
-  both plug into the same application host.
+  surface/swapchain state; the Cocoa adapter creates the `CAMetalLayer`, while
+  Metal configures it and owns drawable acquisition, encoding, presentation,
+  and completion. Both plug into the same application host.
 - The v0.9 Vulkan host uses GLFW behind a private adapter. GLFW types do not
   enter Core or Hydra public APIs, and Vulkan owns the created surface and
   swapchain. Presentation uses a GPU blit from the reference color attachment,
@@ -224,9 +225,9 @@ command-buffer, and counter-sample diagnostics.
 ## Sequencing and non-goals
 
 The Vulkan persistent-residency milestone, Slang migration/Metal compile gate,
-and backend contract/native Vulkan viewport boundary are complete. The ordered
-delivery continues with the MaterialXGenSlang prototype; Metal residency, native presentation,
-and HgiMetal presentation; then add Gaussian and the later GPU-driven,
+backend contract/native Vulkan viewport boundary, MaterialXGenSlang prototype,
+Metal residency, and native Metal presentation are complete. Ordered delivery
+continues with HgiMetal presentation, then Gaussian and the later GPU-driven,
 Visibility, production MaterialX, and meshlet work. The detailed release gates
 are in the [roadmap](../roadmap/backlog.md).
 

@@ -15,15 +15,16 @@ Every configuration requires:
 The Vulkan/headless configuration additionally requires Vulkan 1.4 headers and
 loader, a Vulkan 1.4 physical device with a graphics queue, and the pinned
 Slang 2026.8.x `slangc` shipped by Vulkan SDK 1.4.350.0. The Hydra configuration
-also requires a compatible OpenUSD SDK;
-OpenUSD 26.05 is the currently validated version.
+also requires a compatible OpenUSD SDK; OpenUSD 26.05 and 26.08 are currently
+validated.
 
 The viewport uses GLFW 3.4. CMake first accepts an installed `glfw3` package;
 otherwise it fetches the commit pinned in the top-level build and release
 metadata. GLFW is private to the viewport and never becomes a Core dependency.
 The viewport also fetches the pinned Dear ImGui 1.92.8 revision and compiles
-only its core plus official GLFW/Vulkan backends. Dear ImGui stays private to
-the executable and does not enter an installed Merlin target.
+only its core plus the required official GLFW, Vulkan, and Metal backends.
+Dear ImGui stays private to the executable and does not enter an installed
+Merlin target.
 
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
 Core-only Debug and Release builds with Ninja. Hosted Apple Silicon macOS CI
@@ -56,7 +57,7 @@ ctest --test-dir build-core --output-on-failure
 
 Use `Release` in place of `Debug` to verify the release configuration.
 
-## Native Metal offscreen backend
+## Native Metal backend and viewport
 
 On macOS, `MERLIN_ENABLE_METAL=ON` (the Apple-platform default) builds the
 optional `Merlin::Metal` backend. It uses the system Metal and Foundation
@@ -70,14 +71,25 @@ cmake -S . -B build-metal -G Ninja \
   -DMERLIN_ENABLE_METAL=ON
 cmake --build build-metal --parallel
 ctest --test-dir build-metal --output-on-failure
+./build-metal/adapters/merlin-viewport/merlin-viewport \
+  --backend metal --vsync on
 ```
 
 The backend renders Mesh snapshots offscreen with basic materials, RGBA
 textures/samplers, directional light, opacity masks, depth, and
 color/depth/`primId`/`instanceId` products. Metal argument-buffer tier 2 selects
 the table path; other devices retain conventional Forward. CPU readback remains
-the universal correctness path. Native `CAMetalLayer` presentation is v0.12.0
-work and is intentionally not implied by this backend.
+the universal correctness path.
+
+With `MERLIN_BUILD_VIEWPORT=ON` (the default), the same configuration builds a
+Metal-only `merlin-viewport`. Its Cocoa adapter owns the `CAMetalLayer` while
+`Merlin::Metal` owns drawable acquisition, GPU presentation encoding, pacing,
+and completion. Normal frames perform no CPU readback. `--vsync on|off`,
+resize, screenshots, picking, benchmark capture, and the Dear ImGui diagnostic
+surface use the same command-line and host behavior as the Vulkan viewport.
+The current output policy is SDR sRGB by default, with Display P3 represented
+in the Metal presentation contract and HDR kept as an explicit unsupported
+future extension rather than inferred from a pixel format.
 
 ## Vulkan, headless rendering, and native viewport
 
@@ -111,8 +123,9 @@ skip as exercised GPU coverage.
 
 ## Hydra 2
 
-Hydra is opt-in and requires Vulkan. Point `CMAKE_PREFIX_PATH` at the OpenUSD
-install prefix containing its CMake package and runtime layout.
+Hydra is opt-in and requires either the Vulkan or Metal backend. Point
+`CMAKE_PREFIX_PATH` at the OpenUSD install prefix containing its CMake package
+and runtime layout.
 
 ```powershell
 cmake -S . -B build-hydra2 -G "Visual Studio 17 2022" -A x64 `
@@ -124,13 +137,14 @@ ctest --test-dir build-hydra2 -C Release --output-on-failure
   --usd C:/path/to/scene.usda
 ```
 
-The Hydra configuration accepts the validated OpenUSD 26.05 shared SDK and
-records its detected header version in release metadata. It rejects other
-versions/layouts. On MSVC, a Debug hdMerlin build is also rejected when the SDK
-exports only Release libraries; use `--config Release` or provide a matching
-Debug OpenUSD SDK. Compiler/toolset ABI compatibility still has to match the
-consumer, and the discovery/usdview tests must run against the same runtime
-root used at configure time.
+The Hydra configuration accepts the validated OpenUSD 26.05 and 26.08 shared
+SDKs and records the selected header version in release metadata. It rejects
+other versions/layouts. On MSVC, a Debug hdMerlin build is also rejected when
+the SDK exports only Release libraries; use `--config Release` or provide a
+matching Debug OpenUSD SDK. Compiler/toolset ABI compatibility still has to
+match the consumer, and the discovery/usdview tests must run against the same
+runtime root used at configure time. Metal viewports can raise the default
+64 MiB scene heap for large stages with `--metal-heap-mib N`.
 
 ## Optional MaterialX compiler
 
@@ -197,7 +211,7 @@ contract.
 | `MERLIN_BUILD_TESTS` | `ON` | Build and register the test suite. |
 | `MERLIN_ENABLE_VULKAN` | `ON` | Build Vulkan, shaders, and headless products. |
 | `MERLIN_ENABLE_METAL` | `ON` on Apple, otherwise `OFF` | Build the optional native Metal offscreen backend. |
-| `MERLIN_ENABLE_HYDRA2` | `OFF` | Build the OpenUSD Hydra 2 adapter; requires Vulkan. |
+| `MERLIN_ENABLE_HYDRA2` | `OFF` | Build the OpenUSD Hydra 2 adapter; requires Vulkan or Metal. |
 | `MERLIN_ENABLE_MATERIALX` | `OFF` | Build the optional `Merlin::MaterialX` graph-only compiler. |
 | `MERLIN_FETCH_MATERIALX` | `OFF` | Fetch the pinned MaterialX source when no compatible package/source tree is supplied. |
 | `MERLIN_MATERIALX_SOURCE_DIR` | empty | Use an existing compatible MaterialX source tree. |

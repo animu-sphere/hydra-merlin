@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.11.0 released · **Last reviewed:** 2026-07-27
+**Status:** v0.11.0 released · v0.12.0 complete pending release · **Last reviewed:** 2026-07-27
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -12,7 +12,7 @@ work, but is not currently claimed as supported evidence.
 | --- | --- | --- | --- | --- | --- |
 | Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 | Core hosted CI plus local v0.9 viewport/Hydra and v0.10 Vulkan/MaterialX Release validation; capability workflow retains the same evidence |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Not continuously exercised | Core hosted CI |
-| macOS 14, Apple Silicon, AppleClang 16 | Debug/Release | Native Metal offscreen Debug/Release; Vulkan not claimed | Metal presentation not yet available | Not validated | Hosted compile/package coverage plus local Apple GPU runtime AOV/residency validation |
+| macOS 14, Apple Silicon, AppleClang 16 | Debug/Release | Native Metal offscreen Debug/Release; Vulkan not claimed | Native Metal `CAMetalLayer` viewport; Vulkan not claimed | Release with OpenUSD 26.08 and Metal | Hosted compile/package coverage plus local Apple GPU runtime AOV/residency, native presentation, and Kitchen Set Hydra validation |
 
 A repository-scoped Windows x64 GPU runner is enrolled with the `vulkan-1.4`
 label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
@@ -26,21 +26,20 @@ check.
 | CMake | 3.24 | All builds |
 | C++ compiler | C++20 | All builds |
 | OpenStrata CLI | 0.19.0 | Managed build/validation, renderer viewport intents, redacted diagnostics, and capability CI |
-| Vulkan headers/loader/device | 1.4 | Vulkan/headless and Hydra |
+| Vulkan headers/loader/device | 1.4 | Vulkan/headless and Vulkan-backed Hydra |
 | Vulkan SDK `slangc` | Slang 2026.8.x; Vulkan SDK 1.4.350.0 in capability workflow | Shader build and SPIR-V/Metal compile gates |
-| GLFW | 3.4; pinned commit fallback recorded in release metadata | `merlin-viewport` window/input and Vulkan surface adapter |
+| GLFW | 3.4; pinned commit fallback recorded in release metadata | `merlin-viewport` window/input plus Vulkan and Cocoa/Metal presentation adapters |
 | Dear ImGui | 1.92.8 at pinned revision `8936b58fe26e8c3da834b8f60b06511d537b4c63` | Private `merlin-viewport` development UI |
-| OpenUSD | 26.05 currently validated | Hydra 2 only |
+| OpenUSD | 26.05 and 26.08 currently validated | Hydra 2 only |
 | MaterialX | 1.39.6 prototype pin at `38368ee04da84ce1f8837ecba7322dd6d81291f8`; source builds require CMake 3.26+ | Optional `Merlin::MaterialX` compiler |
 | Metal | macOS system framework; Metal argument-buffer tier 2 negotiated at runtime | Optional `Merlin::Metal` backend |
 | Python + `testusdview` | Matching the OpenUSD runtime | Install-tree Hydra host test |
 
-Hydra configuration verifies the exact OpenUSD 26.05 header version and shared
+Hydra configuration verifies an accepted OpenUSD header version and the shared
 library target layout. On MSVC it rejects a Debug hdMerlin build when the SDK
 does not export Debug libraries. Plugin discovery and the install-tree usdview
 test then load the runtime from that SDK root. Compiler/toolset ABI differences
-between separately produced OpenUSD 26.05 SDKs remain the operator's
-responsibility.
+between separately produced OpenUSD SDKs remain the operator's responsibility.
 
 ## Product and feature coverage
 
@@ -68,7 +67,7 @@ responsibility.
 | MaterialXGenSlang material-function prototype | Available for v0.10.0: optional `Merlin::MaterialX` emits deterministic graph-only Slang functions and renderer-owned minimum Standard Surface results for constants, image/UV0/world-normal, add/multiply/mix, `base`, `base_color`, `metalness`, `specular_roughness`, and `normal`. Portable library/include fingerprints feed topology-only module keys separated from parameter/resource state. Registered parameter-only and texture/sampler artifacts execute in renderer-owned Vulkan Forward after ABI/reflection checks, reuse pipelines across value and texture-content edits, and report structured fallback/capability telemetry. The same sources retain installed SPIR-V, Metal-target, and reflection evidence. General MaterialX documents, tangent-space normal mapping, production IBL, and Hydra MaterialX ingestion are not claimed |
 | Material ABI agreement | `merlin.material-abi/v1` is available in Core. A consumer declares the result fields it reads and the geometry inputs it can build, and a module is checked against that rather than in isolation. A compiled artifact's reflected interface is checked back against the module's logical one by name, type, and array size, so SPIR-V and Metal describe one material through their own native bindings and agree with each other by agreeing with the module. The same contract owns the pass-neutrality rule, which `Merlin::MaterialX` applies to its own output; both generated modules and all four of their SPIR-V/Metal artifacts are checked in the test suite, including the dropped, retyped, and undeclared-parameter cases |
 | Native Metal backend and residency | Available for offscreen Mesh Forward: native device/queue, runtime MSL, buffers/textures/samplers, heap residency, generation-checked argument-buffer tables with conventional fallback, frames-in-flight retirement, basic material/opacity mask, color/depth/primId/instanceId AOVs, CPU readback, capacity diagnostics, and Metal-specific telemetry |
-| Native Metal viewport presentation | Planned for v0.12.0 after the backend-neutral viewport boundary |
+| Native Metal viewport presentation | Complete pending v0.12.0: adapter-owned `CAMetalLayer`, renderer-owned drawable encoding, GPU-only offscreen-to-drawable presentation, resize/frames-in-flight safety, sRGB/Display P3 SDR policy with an explicit future HDR boundary, vsync/drawable-count pacing, Dear ImGui integration, presentation telemetry, and exact offscreen reference parity |
 | HgiMetal host presentation bridge | Planned for v0.13.0 with direct-share, GPU-copy, and CPU-readback fallback tiers validated per supported host |
 | Hydra native and nested instancing | Available |
 | Bindless texture/sampler residency | Finite generation-checked tables, reserved fallback images, dirty Vulkan descriptor writes, deduplicated samplers, completion-safe replacement, and telemetry are available on negotiated devices |

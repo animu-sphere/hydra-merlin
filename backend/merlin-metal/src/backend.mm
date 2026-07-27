@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
 
 #include <merlin/metal/backend.hpp>
 
@@ -35,6 +36,11 @@ std::string String(NSString *value) {
   }
   const char *utf8 = value.UTF8String;
   return utf8 == nullptr ? std::string{} : std::string(utf8);
+}
+
+template <typename Handle>
+Handle DecodeHandle(std::uintptr_t value) noexcept {
+  return (__bridge Handle)(reinterpret_cast<void *>(value));
 }
 
 std::uint64_t DurationNs(Clock::time_point begin, Clock::time_point end) {
@@ -244,6 +250,39 @@ fragment FragmentOutput merlin_fragment_conventional(
   }
   return shade(input, draw, material, sample_value);
 }
+
+struct PresentationVertexOutput {
+  float4 position [[position]];
+  float2 texcoord;
+};
+
+vertex PresentationVertexOutput merlin_presentation_vertex(
+    uint vertex_id [[vertex_id]]) {
+  constexpr float2 positions[] = {
+      float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0)};
+  constexpr float2 texcoords[] = {
+      float2(0.0, 1.0), float2(2.0, 1.0), float2(0.0, -1.0)};
+  PresentationVertexOutput output;
+  output.position = float4(positions[vertex_id], 0.0, 1.0);
+  output.texcoord = texcoords[vertex_id];
+  return output;
+}
+
+fragment float4 merlin_presentation_fragment(
+    PresentationVertexOutput input [[stage_in]],
+    texture2d<float> color [[texture(0)]],
+    constant uint& color_space [[buffer(0)]]) {
+  constexpr sampler linear_sampler(
+      coord::normalized, address::clamp_to_edge, filter::linear);
+  float4 result = color.sample(linear_sampler, input.texcoord);
+  if (color_space == 1u) {
+    result.rgb = float3(
+        dot(float3(0.82259287, 0.17753395, 0.0), result.rgb),
+        dot(float3(0.03319951, 0.96678350, 0.0), result.rgb),
+        dot(float3(0.01708535, 0.07239572, 0.91030148), result.rgb));
+  }
+  return result;
+}
 )METAL";
 
 std::uint64_t AovBit(Aov aov) {
@@ -334,6 +373,24 @@ public:
                                     "create Metal backend",
                                     "heap capacity must be at least 1 MiB");
       }
+      if (options_.presentation &&
+          (options_.presentation->layer == 0 ||
+           options_.presentation->drawable_count < 2 ||
+           options_.presentation->drawable_count > 3)) {
+        throw render::RendererError(
+            render::RendererErrorCode::InvalidRequest,
+            "create Metal presentation",
+            "presentation requires a CAMetalLayer and 2 or 3 drawables");
+      }
+      if (options_.presentation &&
+          options_.presentation->dynamic_range !=
+              PresentationDynamicRange::Standard) {
+        throw render::RendererError(
+            render::RendererErrorCode::Unsupported,
+            "create Metal presentation",
+            "extended-range presentation is reserved for the future HDR "
+            "contract");
+      }
 
       device_ = MTLCreateSystemDefaultDevice();
       if (device_ == nil) {
@@ -352,6 +409,9 @@ public:
       CreateLibraryAndPipeline();
       CreateDepthState();
       CreateHeap();
+      if (options_.presentation) {
+        ConfigurePresentation(*options_.presentation);
+      }
 
       frames_.resize(info.frames_in_flight);
       for (auto &frame : frames_) {
@@ -377,7 +437,7 @@ public:
       capabilities_.bindless_textures = bindless_;
       capabilities_.asynchronous_upload = false;
       capabilities_.timestamp_queries = true;
-      capabilities_.external_presentation = false;
+      capabilities_.external_presentation = layer_ != nil;
       capabilities_.cpu_readback = true;
       capabilities_.validation_enabled = info.enable_validation;
       capabilities_.generated_materials = false;
@@ -397,6 +457,7 @@ public:
         (void)value;
         [pending.command waitUntilCompleted];
       }
+      NotifyOverlay(PresentationOverlayPhase::Shutdown);
     }
   }
 
@@ -409,6 +470,7 @@ public:
     const auto metal = metal_statistics();
     result.uploaded_bytes = uploaded_bytes_;
     result.readback_bytes = readback_bytes_;
+    result.presentation_copy_bytes = presentation_copy_bytes_;
     result.residency.bindless_tables = bindless_;
     result.residency.vram_heap_capacity_bytes = metal.heap_capacity_bytes;
     result.residency.vram_heap_budget_bytes = metal.heap_capacity_bytes;
@@ -443,6 +505,18 @@ public:
     return result;
   }
 
+  std::optional<render::PresentationTarget>
+  default_presentation_target() const noexcept {
+    return presentation_;
+  }
+
+  void ResizePresentationTarget(render::PresentationTarget target,
+                                std::uint32_t width, std::uint32_t height) {
+    ValidatePresentation(target, "resize Metal presentation");
+    ValidatePresentationExtent(width, height, "resize Metal presentation");
+    UpdatePresentationExtent(width, height);
+  }
+
   render::CompletionToken Submit(const render::RenderRequest &request) {
     @autoreleasepool {
       const auto submit_begin = Clock::now();
@@ -458,9 +532,8 @@ public:
                                     "render extent is invalid");
       }
       if (request.presentation) {
-        throw render::RendererError(
-            render::RendererErrorCode::Unsupported, "submit Metal frame",
-            "native Metal presentation is a separate v0.12.0 capability");
+        ValidatePresentation(request.presentation, "submit Metal frame");
+        UpdatePresentationExtent(request.width, request.height);
       }
 
       std::vector<Aov> readbacks;
@@ -498,6 +571,21 @@ public:
 
       const auto record_begin = Clock::now();
       EncodeRender(command, frame, request, build);
+      id<CAMetalDrawable> drawable;
+      if (request.presentation) {
+        const auto presentation_begin = Clock::now();
+        drawable = [layer_ nextDrawable];
+        if (drawable == nil) {
+          throw render::RendererError(
+              render::RendererErrorCode::ResourceBusy,
+              "acquire Metal drawable",
+              "CAMetalLayer returned no drawable before its timeout");
+        }
+        EncodePresentation(command, frame, drawable, build);
+        [command presentDrawable:drawable];
+        build.presentation_ns =
+            DurationNs(presentation_begin, Clock::now());
+      }
       EncodeReadback(command, frame, readbacks);
       const auto record_end = Clock::now();
 
@@ -525,12 +613,14 @@ public:
       pending.height = request.height;
       pending.rendered_aovs = std::move(rendered);
       pending.readback_aovs = std::move(readbacks);
+      pending.drawable = drawable;
       pending.result.scene_revision = request.snapshot->revision;
       pending.result.completion_value = value;
       pending.result.telemetry = build.telemetry;
       pending.result.timings.upload_ns = build.upload_ns;
       pending.result.timings.command_recording_ns =
           DurationNs(record_begin, record_end);
+      pending.result.timings.presentation_ns = build.presentation_ns;
       pending.result.timings.queue_submission_ns =
           DurationNs(queue_begin, queue_end);
       pending.result.timings.backend_total_ns =
@@ -609,6 +699,11 @@ public:
       frame.busy = false;
       frame.completion_value = 0;
       readback_bytes_ += result.telemetry.readback_bytes;
+      if (pending.drawable != nil) {
+        ++statistics_.frames_presented;
+        presentation_copy_bytes_ +=
+            result.telemetry.presentation_copy_bytes;
+      }
       pending_.erase(token.value());
       CollectRetirements();
       return result;
@@ -665,6 +760,7 @@ private:
 
   struct Pending {
     id<MTLCommandBuffer> command;
+    id<CAMetalDrawable> drawable;
     dispatch_semaphore_t completion;
     std::size_t context_index{};
     std::shared_ptr<const extraction::FrameSnapshot> snapshot;
@@ -678,6 +774,7 @@ private:
   struct FrameBuild {
     render::FrameTelemetry telemetry;
     std::uint64_t upload_ns{};
+    std::uint64_t presentation_ns{};
     std::vector<MaterialDiagnostic> material_diagnostics;
   };
 
@@ -749,6 +846,105 @@ private:
                                     "fragment argument encoder is unavailable");
       }
     }
+    if (options_.presentation) {
+      id<MTLFunction> presentation_vertex =
+          [library_ newFunctionWithName:@"merlin_presentation_vertex"];
+      id<MTLFunction> presentation_fragment =
+          [library_ newFunctionWithName:@"merlin_presentation_fragment"];
+      MTLRenderPipelineDescriptor *presentation =
+          [MTLRenderPipelineDescriptor new];
+      presentation.label = @"hdMerlin native presentation";
+      presentation.vertexFunction = presentation_vertex;
+      presentation.fragmentFunction = presentation_fragment;
+      presentation.colorAttachments[0].pixelFormat =
+          MTLPixelFormatBGRA8Unorm_sRGB;
+      presentation_pipeline_ =
+          [device_ newRenderPipelineStateWithDescriptor:presentation
+                                                  error:&error];
+      if (presentation_pipeline_ == nil) {
+        throw render::RendererError(
+            render::RendererErrorCode::BackendFailure,
+            "create Metal presentation pipeline",
+            error == nil ? "newRenderPipelineState returned nil"
+                         : String(error.localizedDescription),
+            static_cast<std::int32_t>(error.code));
+      }
+    }
+  }
+
+  void ConfigurePresentation(const PresentationOptions &options) {
+    layer_ = DecodeHandle<CAMetalLayer *>(options.layer);
+    layer_.device = device_;
+    layer_.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
+    layer_.framebufferOnly = YES;
+    layer_.displaySyncEnabled = options.vsync ? YES : NO;
+    layer_.maximumDrawableCount = options.drawable_count;
+    layer_.allowsNextDrawableTimeout = YES;
+    layer_.presentsWithTransaction = NO;
+    presentation_color_space_ = options.color_space;
+    CGColorSpaceRef color_space = CGColorSpaceCreateWithName(
+        options.color_space == PresentationColorSpace::DisplayP3
+            ? kCGColorSpaceDisplayP3
+            : kCGColorSpaceSRGB);
+    layer_.colorspace = color_space;
+    CGColorSpaceRelease(color_space);
+    presentation_ = render::PresentationTarget(owner_, 1);
+    NotifyOverlay(PresentationOverlayPhase::Initialize);
+  }
+
+  void NotifyOverlay(PresentationOverlayPhase phase,
+                     id<MTLCommandBuffer> command = nil,
+                     id<MTLRenderCommandEncoder> encoder = nil,
+                     MTLRenderPassDescriptor *pass = nil) {
+    if (!options_.presentation ||
+        options_.presentation->render_overlay == nullptr) {
+      return;
+    }
+    PresentationOverlayContext context;
+    context.phase = phase;
+    context.device =
+        reinterpret_cast<std::uintptr_t>((__bridge void *)device_);
+    context.command_buffer =
+        reinterpret_cast<std::uintptr_t>((__bridge void *)command);
+    context.render_encoder =
+        reinterpret_cast<std::uintptr_t>((__bridge void *)encoder);
+    context.render_pass_descriptor =
+        reinterpret_cast<std::uintptr_t>((__bridge void *)pass);
+    options_.presentation->render_overlay(
+        options_.presentation->overlay_user_data, context);
+  }
+
+  void ValidatePresentation(render::PresentationTarget target,
+                            const char *operation) const {
+    if (!presentation_ || target != *presentation_) {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest, operation,
+          "presentation target belongs to another backend");
+    }
+  }
+
+  void ValidatePresentationExtent(std::uint32_t width, std::uint32_t height,
+                                  const char *operation) const {
+    if (width == 0 || height == 0 ||
+        width > capabilities_.limits.max_image_dimension_2d ||
+        height > capabilities_.limits.max_image_dimension_2d) {
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+                                  operation,
+                                  "presentation extent is invalid");
+    }
+  }
+
+  void UpdatePresentationExtent(std::uint32_t width, std::uint32_t height) {
+    ValidatePresentationExtent(width, height, "resize Metal presentation");
+    if (presentation_width_ == width && presentation_height_ == height) {
+      return;
+    }
+    if (presentation_width_ != 0 && presentation_height_ != 0) {
+      ++statistics_.presentation_recreates;
+    }
+    presentation_width_ = width;
+    presentation_height_ = height;
+    layer_.drawableSize = CGSizeMake(width, height);
   }
 
   void CreateDepthState() {
@@ -1410,6 +1606,44 @@ private:
     [encoder endEncoding];
   }
 
+  void EncodePresentation(id<MTLCommandBuffer> command, FrameContext &frame,
+                          id<CAMetalDrawable> drawable, FrameBuild &build) {
+    MTLRenderPassDescriptor *pass =
+        [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = drawable.texture;
+    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> encoder =
+        [command renderCommandEncoderWithDescriptor:pass];
+    if (encoder == nil) {
+      throw render::RendererError(
+          render::RendererErrorCode::BackendFailure,
+          "encode Metal presentation pass",
+          "renderCommandEncoder returned nil");
+    }
+    [encoder setRenderPipelineState:presentation_pipeline_];
+    const auto color_space =
+        presentation_color_space_ == PresentationColorSpace::DisplayP3 ? 1U
+                                                                       : 0U;
+    [encoder setFragmentBytes:&color_space
+                       length:sizeof(color_space)
+                      atIndex:0];
+    [encoder setFragmentTexture:frame.color atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                vertexStart:0
+                vertexCount:3];
+    try {
+      NotifyOverlay(PresentationOverlayPhase::Render, command, encoder, pass);
+    } catch (...) {
+      [encoder endEncoding];
+      throw;
+    }
+    [encoder endEncoding];
+    build.telemetry.present_count = 1;
+    build.telemetry.presentation_copy_bytes =
+        static_cast<std::uint64_t>(frame.width) * frame.height * 4U;
+  }
+
   void EncodeReadback(id<MTLCommandBuffer> command, FrameContext &frame,
                       const std::vector<Aov> &readbacks) {
     if (readbacks.empty()) {
@@ -1582,10 +1816,17 @@ private:
   id<MTLCommandQueue> queue_;
   id<MTLLibrary> library_;
   id<MTLRenderPipelineState> pipeline_;
+  id<MTLRenderPipelineState> presentation_pipeline_;
   id<MTLDepthStencilState> depth_state_;
   id<MTLArgumentEncoder> argument_encoder_;
   id<MTLHeap> heap_;
+  CAMetalLayer *layer_;
   bool bindless_{};
+  std::optional<render::PresentationTarget> presentation_;
+  PresentationColorSpace presentation_color_space_{
+      PresentationColorSpace::Srgb};
+  std::uint32_t presentation_width_{};
+  std::uint32_t presentation_height_{};
 
   render::RendererCapabilities capabilities_;
   render::RendererStatistics statistics_;
@@ -1603,6 +1844,7 @@ private:
   std::atomic<std::uint64_t> completed_value_{};
   std::uint64_t uploaded_bytes_{};
   std::uint64_t readback_bytes_{};
+  std::uint64_t presentation_copy_bytes_{};
   std::uint64_t geometry_peak_resident_bytes_{};
 };
 
@@ -1627,14 +1869,13 @@ MetalStatistics Backend::metal_statistics() const noexcept {
 
 std::optional<render::PresentationTarget>
 Backend::default_presentation_target() const noexcept {
-  return std::nullopt;
+  return impl_->default_presentation_target();
 }
 
-void Backend::ResizePresentationTarget(render::PresentationTarget,
-                                       std::uint32_t, std::uint32_t) {
-  throw render::RendererError(
-      render::RendererErrorCode::Unsupported, "resize Metal presentation",
-      "native Metal presentation is a separate v0.12.0 capability");
+void Backend::ResizePresentationTarget(render::PresentationTarget target,
+                                       std::uint32_t width,
+                                       std::uint32_t height) {
+  impl_->ResizePresentationTarget(target, width, height);
 }
 
 render::CompletionToken Backend::Submit(const render::RenderRequest &request) {

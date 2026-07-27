@@ -11,10 +11,23 @@ remain authoritative in the
 [MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
 v0.11.0 shipped the native Metal offscreen/residency backend; its objective,
 compatibility, limitations, and evidence are recorded in
-[docs/releases/v0.11.0.md](../releases/v0.11.0.md). Native presentation remains
-ordered as v0.12.0 in the [backlog](backlog.md).
+[docs/releases/v0.11.0.md](../releases/v0.11.0.md).
 
 ## Next milestone
+
+### ✅ v0.12.0 — Native Metal presentation
+
+Native `merlin-viewport` presentation now uses an adapter-owned
+`CAMetalLayer`; `merlin-metal` owns drawable acquisition, GPU presentation
+encoding, frame completion, and native resources. The path includes
+resize/frames-in-flight safety, vsync and drawable-count pacing, sRGB/Display P3
+SDR policy with an explicit future HDR boundary, Dear ImGui integration,
+presentation timing/copy telemetry, and Metal-only viewport builds.
+
+Apple GPU evidence covers hidden compositor-backed smoke execution, resize,
+zero-readback presented frames, and exact equality between presented offscreen
+products and a headless reference render. The completed milestone remains here
+until v0.12.0 release metadata is prepared.
 
 ### ⬜ v0.10.x — Development viewport and diagnostic surface
 
@@ -95,5 +108,5 @@ and telemetry controls.
 2. Add the development viewport surface over existing capability, timing,
    residency, upload, material, AOV, and fallback contracts.
 3. Strengthen non-GPU and Linux gates before implementation breadth grows.
-4. Build native Metal presentation on the completed v0.11 backend using the
-   v0.9 renderer/viewport boundaries plus the v0.10 material ABI.
+4. Preserve the completed native Metal presentation path while extending the
+   shared viewport diagnostics and platform evidence.

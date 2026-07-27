@@ -2,7 +2,12 @@
 
 #include "adapter.hpp"
 #include "developer_ui.hpp"
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include "presentation_glfw.hpp"
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+#include "presentation_metal.hpp"
+#endif
 #include "window.hpp"
 
 #include <pxr/base/gf/matrix4d.h>
@@ -24,8 +29,13 @@
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
 
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include <merlin/vulkan/backend.hpp>
 #include <merlin/vulkan/shader_abi.hpp>
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+#include <merlin/metal/backend.hpp>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -61,6 +71,9 @@ enum class CameraMode {
 
 class ViewportRenderPassState final : public HdRenderPassState {
  public:
+  explicit ViewportRenderPassState(bool reflect_projection_y)
+      : reflect_projection_y_(reflect_projection_y) {}
+
   GfMatrix4d GetWorldToViewMatrix() const override { return view_; }
   GfMatrix4d GetProjectionMatrix() const override { return projection_; }
 
@@ -225,15 +238,16 @@ class ViewportRenderPassState final : public HdRenderPassState {
     GfFrustum frustum;
     frustum.SetPerspective(kVerticalFovDegrees, aspect, near_, far_);
 
-    // Gf uses OpenGL Y and depth in [-1, 1]. Convert to the standalone Vulkan
-    // viewport's Y-down framebuffer and [0, 1] depth conventions while the
-    // matrix is still in Gf row-vector form. The render delegate selects the
-    // corresponding counter-clockwise raster winding for this reflected Y.
-    GfMatrix4d to_vulkan(1.0);
-    to_vulkan[1][1] = -1.0;
-    to_vulkan[2][2] = 0.5;
-    to_vulkan[3][2] = 0.5;
-    projection_ = frustum.ComputeProjectionMatrix() * to_vulkan;
+    // Gf uses OpenGL depth in [-1, 1]. Both native backends use [0, 1], but
+    // only Vulkan's positive-height viewport needs projection Y reflected.
+    // Metal's viewport transform already maps NDC Y to its top-left target.
+    GfMatrix4d to_backend(1.0);
+    if (reflect_projection_y_) {
+      to_backend[1][1] = -1.0;
+    }
+    to_backend[2][2] = 0.5;
+    to_backend[3][2] = 0.5;
+    projection_ = frustum.ComputeProjectionMatrix() * to_backend;
   }
 
   GfMatrix4d view_{1.0};
@@ -251,6 +265,7 @@ class ViewportRenderPassState final : public HdRenderPassState {
   std::uint32_t viewport_width_{1};
   std::uint32_t viewport_height_{1};
   bool is_z_up_{};
+  bool reflect_projection_y_{};
 };
 
 class ViewportTask final : public HdTask {
@@ -348,22 +363,43 @@ void WriteBenchmark(const std::filesystem::path& path,
 std::shared_ptr<render::Backend> CreateRenderer(
     const HydraViewportOptions& options, Window& window,
     DeveloperUi& developer_ui, render::BackendSelection& selection) {
-  const auto executable_dir =
-      std::filesystem::absolute(options.executable).parent_path();
-  const auto shader_dir =
-      executable_dir / vulkan::shader_abi::ArtifactDirectory();
-  vulkan::BackendFactoryOptions vulkan_options;
-  auto presentation =
-      MakeGlfwVulkanPresentation(window, options.vsync);
-  developer_ui.ConfigurePresentation(presentation);
-  vulkan_options.renderer.presentation = std::move(presentation);
-  vulkan_options.shaders = {
-      shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
-      shader_dir / "triangle.bindless.vert.spv",
-      shader_dir / "triangle.bindless.frag.spv",
-      shader_dir / "environment.hdr"};
-  vulkan::BackendFactory vulkan_factory(std::move(vulkan_options));
-  std::vector<render::BackendFactory*> factories{&vulkan_factory};
+  std::vector<render::BackendFactory*> factories;
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
+  std::unique_ptr<vulkan::BackendFactory> vulkan_factory;
+  if (options.backend != render::BackendRequest::Metal) {
+    const auto executable_dir =
+        std::filesystem::absolute(options.executable).parent_path();
+    const auto shader_dir =
+        executable_dir / vulkan::shader_abi::ArtifactDirectory();
+    vulkan::BackendFactoryOptions vulkan_options;
+    auto presentation =
+        MakeGlfwVulkanPresentation(window, options.vsync);
+    developer_ui.ConfigurePresentation(presentation);
+    vulkan_options.renderer.presentation = std::move(presentation);
+    vulkan_options.shaders = {
+        shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
+        shader_dir / "triangle.bindless.vert.spv",
+        shader_dir / "triangle.bindless.frag.spv",
+        shader_dir / "environment.hdr"};
+    vulkan_factory =
+        std::make_unique<vulkan::BackendFactory>(
+            std::move(vulkan_options));
+    factories.push_back(vulkan_factory.get());
+  }
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+  std::unique_ptr<metal::BackendFactory> metal_factory;
+  if (options.backend != render::BackendRequest::Vulkan) {
+    metal::BackendOptions metal_options;
+    metal_options.heap_capacity_bytes = options.metal_heap_capacity_bytes;
+    auto presentation = MakeGlfwMetalPresentation(window, options.vsync);
+    developer_ui.ConfigurePresentation(presentation);
+    metal_options.presentation = std::move(presentation);
+    metal_factory =
+        std::make_unique<metal::BackendFactory>(std::move(metal_options));
+    factories.push_back(metal_factory.get());
+  }
+#endif
   render::BackendCreateInfo create_info;
   create_info.backend = options.backend;
   create_info.enable_validation = options.validation;
@@ -399,7 +435,9 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   }
 
   HdMerlinRenderDelegate render_delegate(backend);
-  render_delegate.SetCameraFrontFaceCounterClockwise(true);
+  const bool reflect_projection_y =
+      selection.selected == render::BackendKind::Vulkan;
+  render_delegate.SetCameraFrontFaceCounterClockwise(reflect_projection_y);
   std::unique_ptr<HdRenderIndex> render_index(
       HdRenderIndex::New(&render_delegate, HdDriverVector{}));
   if (!render_index) {
@@ -413,7 +451,8 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   HdRprimCollection collection(HdTokens->geometry,
                                HdReprSelector(HdReprTokens->smoothHull));
   auto pass = render_delegate.CreateRenderPass(render_index.get(), collection);
-  auto state = std::make_shared<ViewportRenderPassState>();
+  auto state =
+      std::make_shared<ViewportRenderPassState>(reflect_projection_y);
   auto task = std::make_shared<ViewportTask>(
       pass, state, render_delegate.GetResourceRegistry());
   HdTaskSharedPtrVector tasks{task};
@@ -687,10 +726,12 @@ int RunHydraViewport(const HydraViewportOptions& options) {
                    elapsed_ns);
   }
   if (options.resize_test && statistics.presentation_recreates == 0) {
-    throw std::runtime_error("Hydra viewport resize did not recreate swapchain");
+    throw std::runtime_error(
+        "Hydra viewport resize did not update the presentation target");
   }
   if (statistics.validation_messages != 0) {
-    throw std::runtime_error("Vulkan validation reported Hydra viewport messages");
+    throw std::runtime_error(
+        "backend validation reported Hydra viewport messages");
   }
   if (options.reference_check) {
     if (!reference_checked) {

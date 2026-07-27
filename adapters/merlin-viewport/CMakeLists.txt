@@ -28,15 +28,33 @@ add_library(merlin-viewport-imgui STATIC
   "${imgui_SOURCE_DIR}/imgui_tables.cpp"
   "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
   "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
-  "${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp"
 )
+if(TARGET Merlin::Vulkan)
+  target_sources(merlin-viewport-imgui PRIVATE
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp"
+  )
+  target_link_libraries(merlin-viewport-imgui PUBLIC Merlin::Vulkan)
+endif()
+if(TARGET Merlin::Metal)
+  target_sources(merlin-viewport-imgui PRIVATE
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm"
+  )
+  set_target_properties(merlin-viewport-imgui PROPERTIES
+    OBJCXX_STANDARD 20
+    OBJCXX_STANDARD_REQUIRED ON
+    OBJCXX_EXTENSIONS OFF
+  )
+  target_compile_options(merlin-viewport-imgui PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>
+  )
+endif()
 target_include_directories(merlin-viewport-imgui
   SYSTEM PUBLIC
     "${imgui_SOURCE_DIR}"
     "${imgui_SOURCE_DIR}/backends"
 )
 target_link_libraries(merlin-viewport-imgui
-  PUBLIC glfw Merlin::Vulkan
+  PUBLIC glfw
 )
 target_compile_features(merlin-viewport-imgui PUBLIC cxx_std_20)
 if(MSVC)
@@ -48,9 +66,41 @@ endif()
 add_executable(merlin-viewport
   src/developer_ui.cpp
   src/main.cpp
-  src/presentation_glfw.cpp
   src/window_glfw.cpp
 )
+if(TARGET Merlin::Vulkan)
+  target_sources(merlin-viewport PRIVATE src/presentation_glfw.cpp)
+  target_compile_definitions(merlin-viewport PRIVATE
+    MERLIN_VIEWPORT_ENABLE_VULKAN=1
+  )
+  target_link_libraries(merlin-viewport PRIVATE Merlin::Vulkan)
+endif()
+if(TARGET Merlin::Metal)
+  find_library(MERLIN_VIEWPORT_APPKIT_FRAMEWORK AppKit REQUIRED)
+  find_library(MERLIN_VIEWPORT_QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+  target_sources(merlin-viewport PRIVATE
+    src/presentation_metal.mm
+  )
+  set_source_files_properties(src/developer_ui.cpp PROPERTIES
+    LANGUAGE OBJCXX
+  )
+  set_target_properties(merlin-viewport PROPERTIES
+    OBJCXX_STANDARD 20
+    OBJCXX_STANDARD_REQUIRED ON
+    OBJCXX_EXTENSIONS OFF
+  )
+  target_compile_definitions(merlin-viewport PRIVATE
+    MERLIN_VIEWPORT_ENABLE_METAL=1
+  )
+  target_compile_options(merlin-viewport PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>
+  )
+  target_link_libraries(merlin-viewport PRIVATE
+    Merlin::Metal
+    "${MERLIN_VIEWPORT_APPKIT_FRAMEWORK}"
+    "${MERLIN_VIEWPORT_QUARTZCORE_FRAMEWORK}"
+  )
+endif()
 
 if(MERLIN_ENABLE_HYDRA2)
   target_sources(merlin-viewport PRIVATE src/hydra_scene.cpp)
@@ -70,24 +120,25 @@ target_link_libraries(merlin-viewport
   PRIVATE
     Merlin::RenderWorld
     Merlin::RenderBackend
-    Merlin::Vulkan
     glfw
     merlin-viewport-imgui
 )
 target_compile_features(merlin-viewport PRIVATE cxx_std_20)
 
-add_dependencies(merlin-viewport merlin-vulkan-shaders)
-add_custom_target(merlin-viewport-shader-package
-  COMMAND ${CMAKE_COMMAND} -E make_directory
-          "$<TARGET_FILE_DIR:merlin-viewport>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          ${MERLIN_SHADER_PACKAGE_FILES}
-          "$<TARGET_FILE_DIR:merlin-viewport>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
-  DEPENDS ${MERLIN_SHADER_PACKAGE_FILES}
-  VERBATIM
-)
-add_dependencies(merlin-viewport-shader-package merlin-vulkan-shaders)
-add_dependencies(merlin-viewport merlin-viewport-shader-package)
+if(TARGET Merlin::Vulkan)
+  add_dependencies(merlin-viewport merlin-vulkan-shaders)
+  add_custom_target(merlin-viewport-shader-package
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:merlin-viewport>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${MERLIN_SHADER_PACKAGE_FILES}
+            "$<TARGET_FILE_DIR:merlin-viewport>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+    DEPENDS ${MERLIN_SHADER_PACKAGE_FILES}
+    VERBATIM
+  )
+  add_dependencies(merlin-viewport-shader-package merlin-vulkan-shaders)
+  add_dependencies(merlin-viewport merlin-viewport-shader-package)
+endif()
 
 install(TARGETS merlin-viewport
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
@@ -95,32 +146,62 @@ install(TARGETS merlin-viewport
 install(FILES "${imgui_SOURCE_DIR}/LICENSE.txt"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/licenses/imgui"
 )
-install(FILES ${MERLIN_SHADER_PACKAGE_FILES}
-  DESTINATION
-    "${CMAKE_INSTALL_BINDIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
+if(TARGET Merlin::Vulkan)
+  install(FILES ${MERLIN_SHADER_PACKAGE_FILES}
+    DESTINATION
+      "${CMAKE_INSTALL_BINDIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
+endif()
 
 if(MERLIN_BUILD_TESTS)
-  add_test(
-    NAME merlin-viewport-vulkan
-    COMMAND merlin-viewport
-            --hidden
-            --frames 8
-            --vsync off
-            --validate
-            --reference-check
-            --resize-test
-            --benchmark "${CMAKE_CURRENT_BINARY_DIR}/viewport-benchmark.json"
-  )
-  set_tests_properties(merlin-viewport-vulkan PROPERTIES
-    LABELS "gpu;viewport;presentation"
-    TIMEOUT 60
-  )
-  if(MERLIN_ENABLE_HYDRA2)
-    set_property(TEST merlin-viewport-vulkan APPEND PROPERTY
-      ENVIRONMENT_MODIFICATION
-        "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin"
-        "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib"
+  if(TARGET Merlin::Vulkan)
+    add_test(
+      NAME merlin-viewport-vulkan
+      COMMAND merlin-viewport
+              --backend vulkan
+              --hidden
+              --frames 8
+              --vsync off
+              --validate
+              --reference-check
+              --resize-test
+              --allow-unavailable
+              --benchmark "${CMAKE_CURRENT_BINARY_DIR}/viewport-benchmark.json"
     )
+    set_tests_properties(merlin-viewport-vulkan PROPERTIES
+      LABELS "gpu;viewport;presentation"
+      SKIP_RETURN_CODE 77
+      TIMEOUT 60
+    )
+  endif()
+  if(TARGET Merlin::Metal)
+    add_test(
+      NAME merlin-viewport-metal
+      COMMAND merlin-viewport
+              --backend metal
+              --hidden
+              --frames 8
+              --vsync off
+              --validate
+              --reference-check
+              --resize-test
+              --allow-unavailable
+              --benchmark
+              "${CMAKE_CURRENT_BINARY_DIR}/viewport-metal-benchmark.json"
+    )
+    set_tests_properties(merlin-viewport-metal PROPERTIES
+      LABELS "gpu;viewport;presentation;metal"
+      SKIP_RETURN_CODE 77
+      TIMEOUT 60
+    )
+  endif()
+  if(MERLIN_ENABLE_HYDRA2)
+    if(TARGET Merlin::Vulkan)
+      set_property(TEST merlin-viewport-vulkan APPEND PROPERTY
+        ENVIRONMENT_MODIFICATION
+          "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin"
+          "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib"
+      )
+    endif()
     add_test(
       NAME merlin-viewport-hydra
       COMMAND merlin-viewport
@@ -130,11 +211,13 @@ if(MERLIN_BUILD_TESTS)
               --validate
               --reference-check
               --resize-test
+              --allow-unavailable
               --usd "${PROJECT_SOURCE_DIR}/adapters/merlin-hydra2/tests/usdview-smoke.usda"
               --benchmark "${CMAKE_CURRENT_BINARY_DIR}/viewport-hydra-benchmark.json"
     )
     set_tests_properties(merlin-viewport-hydra PROPERTIES
       LABELS "gpu;viewport;presentation;hydra;host-smoke"
+      SKIP_RETURN_CODE 77
       TIMEOUT 60
       ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib"
