@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.10.0 released · **Last reviewed:** 2026-07-27
+**Status:** v0.10.0 released · v0.11.0 complete pending release · **Last reviewed:** 2026-07-27
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -12,7 +12,7 @@ work, but is not currently claimed as supported evidence.
 | --- | --- | --- | --- | --- | --- |
 | Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 | Core hosted CI plus local v0.9 viewport/Hydra and v0.10 Vulkan/MaterialX Release validation; capability workflow retains the same evidence |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Not continuously exercised | Core hosted CI |
-| macOS | Not validated | Not validated | Not validated | Not validated | No current claim |
+| macOS 14, Apple Silicon, AppleClang 16 | Debug/Release | Native Metal offscreen Debug/Release; Vulkan not claimed | Metal presentation not yet available | Not validated | Hosted compile/package coverage plus local Apple GPU runtime AOV/residency validation |
 
 A repository-scoped Windows x64 GPU runner is enrolled with the `vulkan-1.4`
 label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
@@ -32,6 +32,7 @@ check.
 | Dear ImGui | 1.92.8 at pinned revision `8936b58fe26e8c3da834b8f60b06511d537b4c63` | Private `merlin-viewport` development UI |
 | OpenUSD | 26.05 currently validated | Hydra 2 only |
 | MaterialX | 1.39.6 prototype pin at `38368ee04da84ce1f8837ecba7322dd6d81291f8`; source builds require CMake 3.26+ | Optional `Merlin::MaterialX` compiler |
+| Metal | macOS system framework; Metal argument-buffer tier 2 negotiated at runtime | Optional `Merlin::Metal` backend |
 | Python + `testusdview` | Matching the OpenUSD runtime | Install-tree Hydra host test |
 
 Hydra configuration verifies the exact OpenUSD 26.05 header version and shared
@@ -57,7 +58,7 @@ responsibility.
 | PNG/EXR expected/actual/diff regression artifacts | Exact comparison is available for color, depth, primId, and instanceId |
 | Deterministic benchmark and comparison JSON | v3 CPU/GPU stage distributions, bindless/geometry/transfer/VRAM residency telemetry, fixed scale/AOV/4K fixtures, structural regression gates, and opt-in controlled-hardware timing thresholds are available |
 | Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes |
-| Installed CMake targets | `Merlin::RenderWorld`, `Merlin::RenderExtraction`, `Merlin::RenderBackend`, optional `Merlin::Vulkan`, and optional `Merlin::MaterialX` are available |
+| Installed CMake targets | `Merlin::RenderWorld`, `Merlin::RenderExtraction`, `Merlin::RenderBackend`, optional `Merlin::Vulkan`, optional `Merlin::Metal`, and optional `Merlin::MaterialX` are available |
 | Versioned dependency and package metadata | Available as installed JSON |
 | Tag-driven Core SDK release automation | Available for stable SemVer tags |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
@@ -66,7 +67,7 @@ responsibility.
 | Shader module and target-artifact identity | Available: one host-neutral contract keys generated and handwritten Slang. Module identity covers source and include content, recovered from the compiler's own depfile; a separate artifact key adds compiler, target, profile, capability, layout, optimization, debug, and target-option policy. The build writes both into the shader manifest and a test recomputes every one of them through the contract |
 | MaterialXGenSlang material-function prototype | Available for v0.10.0: optional `Merlin::MaterialX` emits deterministic graph-only Slang functions and renderer-owned minimum Standard Surface results for constants, image/UV0/world-normal, add/multiply/mix, `base`, `base_color`, `metalness`, `specular_roughness`, and `normal`. Portable library/include fingerprints feed topology-only module keys separated from parameter/resource state. Registered parameter-only and texture/sampler artifacts execute in renderer-owned Vulkan Forward after ABI/reflection checks, reuse pipelines across value and texture-content edits, and report structured fallback/capability telemetry. The same sources retain installed SPIR-V, Metal-target, and reflection evidence. General MaterialX documents, tangent-space normal mapping, production IBL, and Hydra MaterialX ingestion are not claimed |
 | Material ABI agreement | `merlin.material-abi/v1` is available in Core. A consumer declares the result fields it reads and the geometry inputs it can build, and a module is checked against that rather than in isolation. A compiled artifact's reflected interface is checked back against the module's logical one by name, type, and array size, so SPIR-V and Metal describe one material through their own native bindings and agree with each other by agreeing with the module. The same contract owns the pass-neutrality rule, which `Merlin::MaterialX` applies to its own output; both generated modules and all four of their SPIR-V/Metal artifacts are checked in the test suite, including the dropped, retyped, and undeclared-parameter cases |
-| Native Metal backend and residency | Planned for v0.11.0; no current Metal execution support is claimed |
+| Native Metal backend and residency | Available for offscreen Mesh Forward: native device/queue, runtime MSL, buffers/textures/samplers, heap residency, generation-checked argument-buffer tables with conventional fallback, frames-in-flight retirement, basic material/opacity mask, color/depth/primId/instanceId AOVs, CPU readback, capacity diagnostics, and Metal-specific telemetry |
 | Native Metal viewport presentation | Planned for v0.12.0 after the backend-neutral viewport boundary |
 | HgiMetal host presentation bridge | Planned for v0.13.0 with direct-share, GPU-copy, and CPU-readback fallback tiers validated per supported host |
 | Hydra native and nested instancing | Available |

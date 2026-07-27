@@ -1,8 +1,8 @@
 # Build and install
 
-hdMerlin can be built as portable Core libraries, with the Vulkan headless and
-native viewport products, or with the opt-in Hydra 2 adapter. Build only the layers whose
-dependencies are available.
+hdMerlin can be built as portable Core libraries, with native Metal offscreen
+execution, with the Vulkan headless and native viewport products, or with the
+opt-in Hydra 2 adapter. Build only the layers whose dependencies are available.
 
 ## Prerequisites
 
@@ -26,7 +26,9 @@ only its core plus official GLFW/Vulkan backends. Dear ImGui stays private to
 the executable and does not enter an installed Merlin target.
 
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
-Core-only Debug and Release builds with Ninja. See the
+Core-only Debug and Release builds with Ninja. Hosted Apple Silicon macOS CI
+compiles and packages Core plus Metal in Debug and Release; local runtime
+evidence exercises an Apple GPU. See the
 [support matrix](../reference/support-matrix.md) for the exact coverage.
 
 ## Core-only
@@ -53,6 +55,29 @@ ctest --test-dir build-core --output-on-failure
 ```
 
 Use `Release` in place of `Debug` to verify the release configuration.
+
+## Native Metal offscreen backend
+
+On macOS, `MERLIN_ENABLE_METAL=ON` (the Apple-platform default) builds the
+optional `Merlin::Metal` backend. It uses the system Metal and Foundation
+frameworks and compiles its renderer-owned MSL at runtime, so the standalone
+Metal offline compiler is not required.
+
+```bash
+cmake -S . -B build-metal -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DMERLIN_ENABLE_VULKAN=OFF \
+  -DMERLIN_ENABLE_METAL=ON
+cmake --build build-metal --parallel
+ctest --test-dir build-metal --output-on-failure
+```
+
+The backend renders Mesh snapshots offscreen with basic materials, RGBA
+textures/samplers, directional light, opacity masks, depth, and
+color/depth/`primId`/`instanceId` products. Metal argument-buffer tier 2 selects
+the table path; other devices retain conventional Forward. CPU readback remains
+the universal correctness path. Native `CAMetalLayer` presentation is v0.12.0
+work and is intentionally not implied by this backend.
 
 ## Vulkan, headless rendering, and native viewport
 
@@ -143,6 +168,8 @@ cmake --install build --config Release --prefix C:/merlin
 ```
 
 Core headers, libraries, and versioned CMake package files are always installed.
+Metal-enabled builds install `Merlin::Metal`, its public backend/resource-table
+headers, and an independent package export.
 Vulkan-enabled builds also install the Vulkan library, `merlin-headless`,
 `merlin-benchmark`, `merlin-viewport`, and
 `<prefix>/<bindir>/shaders/v2` with SPIR-V, Metal compile-gate source,
@@ -169,6 +196,7 @@ contract.
 | --- | --- | --- |
 | `MERLIN_BUILD_TESTS` | `ON` | Build and register the test suite. |
 | `MERLIN_ENABLE_VULKAN` | `ON` | Build Vulkan, shaders, and headless products. |
+| `MERLIN_ENABLE_METAL` | `ON` on Apple, otherwise `OFF` | Build the optional native Metal offscreen backend. |
 | `MERLIN_ENABLE_HYDRA2` | `OFF` | Build the OpenUSD Hydra 2 adapter; requires Vulkan. |
 | `MERLIN_ENABLE_MATERIALX` | `OFF` | Build the optional `Merlin::MaterialX` graph-only compiler. |
 | `MERLIN_FETCH_MATERIALX` | `OFF` | Fetch the pinned MaterialX source when no compatible package/source tree is supplied. |

@@ -42,14 +42,16 @@ cmake --build build --config Release
 | `RenderExtraction` | `Merlin::RenderExtraction` | Always | `Merlin::RenderWorld` |
 | `RenderBackend` | `Merlin::RenderBackend` | Always | `Merlin::RenderExtraction` |
 | `Vulkan` | `Merlin::Vulkan` | Vulkan enabled | Vulkan 1.4, `Merlin::RenderBackend`, and `Merlin::RenderExtraction` |
+| `Metal` | `Merlin::Metal` | Metal enabled on Apple | Apple Metal/Foundation frameworks, `Merlin::RenderBackend`, and `Merlin::RenderExtraction` |
 
 Requesting `Vulkan` makes the installed package discover Vulkan 1.4. A consumer
-requesting only Core components does not need Vulkan, even when the producer was
-built with Vulkan enabled.
+requesting only Core components does not need Vulkan or Metal, even when the
+producer was built with either backend enabled.
 
 Unknown or unavailable required components make `find_package(Merlin ...)`
-fail. The package exposes `Merlin_VERSION`, `Merlin_WITH_VULKAN`, and
-`Merlin_VULKAN_MIN_VERSION` for inspection after discovery.
+fail. The package exposes `Merlin_VERSION`, `Merlin_WITH_VULKAN`,
+`Merlin_VULKAN_MIN_VERSION`, and `Merlin_WITH_METAL` for inspection after
+discovery.
 
 ## Runtime-only products
 
@@ -67,7 +69,7 @@ transitive dependency of the Core or Vulkan CMake targets.
 
 Every configured build generates `merlin-release-metadata.json` and installs it
 under `<prefix>/<datadir>/merlin`. Schema version 1 records the project version,
-enabled Vulkan/Hydra/viewport layers, dependency minimums or validated versions, exported
+enabled Vulkan/Metal/Hydra/viewport layers, dependency minimums or validated versions, exported
 CMake targets, and the runtime-only product list. Release archives carry the
 same file and the plain-text `VERSION` source of truth so tooling can inspect
 their contract without parsing this guide.

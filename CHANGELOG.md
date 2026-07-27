@@ -8,6 +8,33 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Optional native `Merlin::Metal` backend and installed CMake component for
+  Apple platforms, using the same backend-neutral `FrameSnapshot`,
+  submission/completion, render-product, diagnostic, and telemetry contracts
+  as Vulkan.
+- Metal device/queue setup, runtime-compiled renderer-owned Forward shaders,
+  heap-backed Mesh and texture residency, samplers, camera transforms, depth,
+  opacity masks, offscreen color/depth/primId/instanceId AOVs, and selectable
+  CPU readback.
+- Tier-2 argument-buffer texture/sampler tables with conventional Forward
+  fallback, finite generation-checked slots, completion-protected retirement,
+  per-frame dirty-only encoding, capacity errors, and Metal-specific heap,
+  table, allocation, and update telemetry.
+- Apple Silicon runtime evidence for textured rendering, depth and picking IDs,
+  alpha-mask discard, resource replacement, stable slots, and zero steady-state
+  target allocation or argument-table update, plus hosted macOS Debug/Release
+  compile/package coverage and an isolated `Merlin::Metal` install consumer.
+
+### Changed
+
+- Automatic backend selection now has a production Metal factory to select on
+  Apple platforms; Core-only and Vulkan configurations retain their existing
+  dependency and fast-path boundaries.
+- Release metadata now records the optional Metal configuration and exported
+  target.
+
 ## [0.10.0] - 2026-07-27
 
 ### Added

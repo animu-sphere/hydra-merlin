@@ -27,7 +27,11 @@ if(NOT _merlin_openstrata_name STREQUAL "hdMerlin" OR
     "openstrata.toml project identity must be hdMerlin ${MERLIN_PROJECT_VERSION}")
 endif()
 
-project(hdMerlin VERSION "${MERLIN_PROJECT_VERSION}" LANGUAGES CXX)
+if(APPLE)
+  project(hdMerlin VERSION "${MERLIN_PROJECT_VERSION}" LANGUAGES CXX OBJCXX)
+else()
+  project(hdMerlin VERSION "${MERLIN_PROJECT_VERSION}" LANGUAGES CXX)
+endif()
 
 set(MERLIN_VULKAN_MIN_VERSION_MAJOR 1)
 set(MERLIN_VULKAN_MIN_VERSION_MINOR 4)
@@ -56,6 +60,7 @@ include(CMakePackageConfigHelpers)
 
 option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
+option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
 option(MERLIN_ENABLE_MATERIALX
   "Build the MaterialXGenSlang material-function compiler" OFF)
@@ -173,6 +178,10 @@ if(MERLIN_ENABLE_VULKAN)
   add_subdirectory(adapters/merlin-benchmark)
 endif()
 
+if(MERLIN_ENABLE_METAL)
+  add_subdirectory(backend/merlin-metal)
+endif()
+
 if(MERLIN_ENABLE_HYDRA2)
   add_subdirectory(adapters/merlin-hydra2)
 endif()
@@ -227,6 +236,14 @@ if(TARGET merlin-vulkan)
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
   )
 endif()
+if(TARGET merlin-metal)
+  install(TARGETS merlin-metal
+    EXPORT MerlinMetalTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  )
+endif()
 if(TARGET merlin-materialx)
   install(TARGETS merlin-materialx
     EXPORT MerlinMaterialXTargets
@@ -245,6 +262,10 @@ if(TARGET merlin-vulkan)
   install(DIRECTORY backend/merlin-vulkan/include/
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 endif()
+if(TARGET merlin-metal)
+  install(DIRECTORY backend/merlin-metal/include/
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+endif()
 if(TARGET merlin-materialx)
   install(DIRECTORY material/merlin-materialx/include/
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
@@ -258,6 +279,13 @@ install(EXPORT MerlinTargets
 if(TARGET merlin-vulkan)
   install(EXPORT MerlinVulkanTargets
     FILE MerlinVulkanTargets.cmake
+    NAMESPACE Merlin::
+    DESTINATION "${_merlin_install_cmakedir}"
+  )
+endif()
+if(TARGET merlin-metal)
+  install(EXPORT MerlinMetalTargets
+    FILE MerlinMetalTargets.cmake
     NAMESPACE Merlin::
     DESTINATION "${_merlin_install_cmakedir}"
   )
@@ -322,6 +350,15 @@ else()
   set(_merlin_metadata_runtime_products "")
 endif()
 
+if(MERLIN_ENABLE_METAL)
+  set(_merlin_metadata_metal_enabled true)
+  set(_merlin_metadata_exported_metal
+      ",\n      \"Merlin::Metal\"")
+else()
+  set(_merlin_metadata_metal_enabled false)
+  set(_merlin_metadata_exported_metal "")
+endif()
+
 if(MERLIN_ENABLE_MATERIALX)
   set(_merlin_metadata_materialx_enabled true)
   set(_merlin_metadata_materialx_version
@@ -382,7 +419,7 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/openstrata.renderer.yaml"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin"
 )
-if(MERLIN_ENABLE_VULKAN OR MERLIN_ENABLE_MATERIALX)
+if(MERLIN_ENABLE_VULKAN OR MERLIN_ENABLE_METAL OR MERLIN_ENABLE_MATERIALX)
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/licenses"
   )
@@ -408,6 +445,7 @@ if(MERLIN_BUILD_TESTS)
       "-DMERLIN_METADATA:FILEPATH=${CMAKE_CURRENT_BINARY_DIR}/merlin-release-metadata.json"
       "-DMERLIN_EXPECTED_VERSION:STRING=${PROJECT_VERSION}"
       "-DMERLIN_EXPECTED_VULKAN:BOOL=${MERLIN_ENABLE_VULKAN}"
+      "-DMERLIN_EXPECTED_METAL:BOOL=${MERLIN_ENABLE_METAL}"
       "-DMERLIN_EXPECTED_HYDRA2:BOOL=${MERLIN_ENABLE_HYDRA2}"
       "-DMERLIN_EXPECTED_MATERIALX:BOOL=${MERLIN_ENABLE_MATERIALX}"
       "-DMERLIN_EXPECTED_VIEWPORT:BOOL=${_merlin_metadata_viewport_enabled}"

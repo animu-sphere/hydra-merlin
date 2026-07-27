@@ -250,13 +250,16 @@ Hydra are optional dependency layers:
 | Configuration | CMake options | Required dependencies |
 |---|---|---|
 | Core-only | `MERLIN_ENABLE_VULKAN=OFF` | C++20 compiler |
+| Native Metal | `MERLIN_ENABLE_VULKAN=OFF`, `MERLIN_ENABLE_METAL=ON` | macOS, Apple Metal framework, and a Metal-capable device |
 | Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
 | Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback; pinned Dear ImGui 1.92.8 |
 | Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | Vulkan requirements and a compatible OpenUSD SDK |
 | MaterialX compiler | `MERLIN_ENABLE_MATERIALX=ON` | MaterialX 1.39.6 with MaterialXGenSlang; CMake 3.26+ for source fallback |
 
-Windows with Visual Studio 2022 is the currently validated development path.
-Core-only Debug and Release builds run on hosted Windows and Linux CI. GPU and
+Windows with Visual Studio 2022 and AppleClang on macOS are validated
+development paths. Core-only Debug and Release builds run on hosted Windows and
+Linux CI; Core plus Metal compiles and packages on hosted Apple Silicon macOS.
+GPU and
 Hydra tests remain capability jobs: missing validation/device capabilities are
 reported as skips where the test contract allows it, and OpenUSD build
 configuration and C++ runtime ABI must match the consumer.
@@ -293,7 +296,8 @@ target_link_libraries(my-renderer PRIVATE Merlin::RenderBackend)
 Available package components and targets are `RenderWorld`
 (`Merlin::RenderWorld`), `RenderExtraction` (`Merlin::RenderExtraction`),
 `RenderBackend` (`Merlin::RenderBackend`), and, for Vulkan-enabled builds,
-`Vulkan` (`Merlin::Vulkan`). MaterialX-enabled builds also export `MaterialX`
+`Vulkan` (`Merlin::Vulkan`). Apple Metal-enabled builds export `Metal`
+(`Merlin::Metal`). MaterialX-enabled builds also export `MaterialX`
 (`Merlin::MaterialX`). The install-consumer
 CTest installs to an isolated prefix and verifies downstream configure, build,
 link, and execution.
@@ -302,11 +306,12 @@ link, and execution.
 
 Dependencies flow from adapters into the host-neutral scene model, deterministic
 draw extraction, backend-neutral execution contract, and concrete backend.
-Public Core APIs do not expose OpenUSD, Hydra, Vulkan, GLFW, Qt, or DCC types.
+Public Core APIs do not expose OpenUSD, Hydra, Vulkan, Metal, GLFW, Qt, or DCC types.
 Hydra owns host path/dirty-bit translation; the GLFW adapter owns the window;
-the private Dear ImGui host surface owns development widgets; and Vulkan owns
+the private Dear ImGui host surface owns development widgets; Vulkan owns its
 execution, readback, surface, swapchain, overlay render pass, and
-synchronization.
+synchronization; and Metal independently owns native execution, heaps,
+argument buffers, completion, and readback.
 
 ## Project documentation
 

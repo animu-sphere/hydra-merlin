@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-2022]
+        os: [ubuntu-latest, windows-2022, macos-14]
         build_type: [Debug, Release]
 
     steps:
@@ -32,6 +32,10 @@ jobs:
       - name: Configure Core-only (Linux)
         if: runner.os == 'Linux'
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_ENABLE_VULKAN=OFF
+
+      - name: Configure Core + Metal (macOS)
+        if: runner.os == 'macOS'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=ON
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 4

@@ -11,6 +11,10 @@ compatibility, and limitation record is in
 [docs/releases/v0.10.0.md](../releases/v0.10.0.md). The ownership rules it
 established remain authoritative in the
 [MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
+The completed native Metal offscreen/residency implementation for v0.11.0 is
+retained in the [delivery history](../reports/delivery-history.md); native
+presentation remains ordered as v0.12.0 in the
+[backlog](backlog.md).
 
 ## Next milestone
 
@@ -93,5 +97,5 @@ and telemetry controls.
 2. Add the development viewport surface over existing capability, timing,
    residency, upload, material, AOV, and fallback contracts.
 3. Strengthen non-GPU and Linux gates before implementation breadth grows.
-4. Begin the native Metal backend and presentation using the v0.9 renderer and
-   viewport boundaries plus the v0.10 material ABI.
+4. Build native Metal presentation on the completed v0.11 backend using the
+   v0.9 renderer/viewport boundaries plus the v0.10 material ABI.

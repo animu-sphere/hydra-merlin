@@ -61,6 +61,37 @@ add_executable(merlin-render-backend-tests
 target_link_libraries(merlin-render-backend-tests PRIVATE Merlin::RenderBackend)
 add_test(NAME merlin-render-backend COMMAND merlin-render-backend-tests)
 
+if(TARGET Merlin::Metal)
+  add_executable(merlin-metal-resource-table-tests
+    metal_resource_table_test.cpp
+  )
+  target_link_libraries(merlin-metal-resource-table-tests
+    PRIVATE Merlin::Metal)
+  add_test(NAME merlin-metal-resource-table
+    COMMAND merlin-metal-resource-table-tests)
+  set_tests_properties(merlin-metal-resource-table PROPERTIES
+    LABELS "metal;residency")
+
+  add_executable(merlin-metal-backend-tests
+    metal_backend_test.mm
+  )
+  set_target_properties(merlin-metal-backend-tests PROPERTIES
+    OBJCXX_STANDARD 20
+    OBJCXX_STANDARD_REQUIRED ON
+    OBJCXX_EXTENSIONS OFF
+  )
+  target_compile_options(merlin-metal-backend-tests PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-UNDEBUG>
+  )
+  target_link_libraries(merlin-metal-backend-tests
+    PRIVATE Merlin::Metal)
+  add_test(NAME merlin-metal-backend COMMAND merlin-metal-backend-tests)
+  set_tests_properties(merlin-metal-backend PROPERTIES
+    LABELS "metal;runtime;aov;residency"
+    SKIP_RETURN_CODE 77)
+endif()
+
 add_test(
   NAME merlin-backend-boundaries
   COMMAND ${CMAKE_COMMAND}
@@ -529,6 +560,7 @@ add_test(
     "-DMERLIN_EXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
     "-DMERLIN_SHADER_ARTIFACT_SCHEMA_VERSION=${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
     "-DMERLIN_EXPECTED_MATERIALX_ARTIFACTS=${MERLIN_MATERIALX_ARTIFACTS_ENABLED}"
+    "-DMERLIN_EXPECTED_METAL=${MERLIN_ENABLE_METAL}"
     "-DMERLIN_EXPECTED_VERSION=${PROJECT_VERSION}"
     "-DMERLIN_GENERATOR=${CMAKE_GENERATOR}"
     "-DMERLIN_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"

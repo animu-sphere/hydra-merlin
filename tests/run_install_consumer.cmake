@@ -7,6 +7,7 @@ if(NOT DEFINED MERLIN_CMAKE_COMMAND OR
    NOT DEFINED MERLIN_INSTALL_DATADIR OR
    NOT DEFINED MERLIN_EXECUTABLE_SUFFIX OR
    NOT DEFINED MERLIN_EXPECTED_VERSION OR
+   NOT DEFINED MERLIN_EXPECTED_METAL OR
    NOT DEFINED MERLIN_GENERATOR OR
    NOT DEFINED MERLIN_MULTI_CONFIG)
   message(FATAL_ERROR "Missing Merlin install-consumer test arguments")
@@ -117,6 +118,52 @@ if(NOT "${MERLIN_GENERATOR_TOOLSET}" STREQUAL "")
 endif()
 if(NOT MERLIN_MULTI_CONFIG AND NOT "${MERLIN_CONFIG}" STREQUAL "")
   list(APPEND _generator_args "-DCMAKE_BUILD_TYPE=${MERLIN_CONFIG}")
+endif()
+
+if(MERLIN_EXPECTED_METAL)
+  set(_metal_targets
+      "${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin/MerlinMetalTargets.cmake")
+  if(NOT EXISTS "${_metal_targets}")
+    message(FATAL_ERROR
+      "Metal-enabled install is missing MerlinMetalTargets.cmake")
+  endif()
+  set(_metal_consumer_build_dir
+      "${MERLIN_TEST_BINARY_DIR}/metal-install-consumer-build")
+  execute_process(
+    COMMAND "${MERLIN_CMAKE_COMMAND}"
+            -S "${MERLIN_SOURCE_DIR}/tests/metal-install-consumer"
+            -B "${_metal_consumer_build_dir}"
+            ${_generator_args}
+            "-DMerlin_DIR=${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin"
+    RESULT_VARIABLE _metal_configure_result
+  )
+  if(NOT _metal_configure_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin Metal consumer configure failed: ${_metal_configure_result}")
+  endif()
+  execute_process(
+    COMMAND "${MERLIN_CMAKE_COMMAND}" --build
+            "${_metal_consumer_build_dir}" ${_config_args}
+    RESULT_VARIABLE _metal_build_result
+  )
+  if(NOT _metal_build_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin Metal consumer build failed: ${_metal_build_result}")
+  endif()
+  set(_metal_consumer_executable
+      "${_metal_consumer_build_dir}/merlin-metal-install-consumer${MERLIN_EXECUTABLE_SUFFIX}")
+  if(MERLIN_MULTI_CONFIG AND NOT "${MERLIN_CONFIG}" STREQUAL "")
+    set(_metal_consumer_executable
+        "${_metal_consumer_build_dir}/${MERLIN_CONFIG}/merlin-metal-install-consumer${MERLIN_EXECUTABLE_SUFFIX}")
+  endif()
+  execute_process(
+    COMMAND "${_metal_consumer_executable}"
+    RESULT_VARIABLE _metal_run_result
+  )
+  if(NOT _metal_run_result EQUAL 0)
+    message(FATAL_ERROR
+      "Merlin Metal consumer run failed: ${_metal_run_result}")
+  endif()
 endif()
 
 execute_process(
