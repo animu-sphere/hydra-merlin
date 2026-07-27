@@ -1,6 +1,7 @@
 if(NOT DEFINED MERLIN_METADATA OR
    NOT DEFINED MERLIN_EXPECTED_VERSION OR
    NOT DEFINED MERLIN_EXPECTED_VULKAN OR
+   NOT DEFINED MERLIN_EXPECTED_METAL OR
    NOT DEFINED MERLIN_EXPECTED_HYDRA2 OR
    NOT DEFINED MERLIN_EXPECTED_MATERIALX OR
    NOT DEFINED MERLIN_EXPECTED_VIEWPORT)
@@ -13,6 +14,7 @@ string(JSON _schema GET "${_merlin_metadata}" schema)
 string(JSON _schema_version GET "${_merlin_metadata}" schema_version)
 string(JSON _project_version GET "${_merlin_metadata}" project version)
 string(JSON _vulkan_enabled GET "${_merlin_metadata}" configuration vulkan)
+string(JSON _metal_enabled GET "${_merlin_metadata}" configuration metal)
 string(JSON _hydra2_enabled GET "${_merlin_metadata}" configuration hydra2)
 string(JSON _materialx_enabled GET "${_merlin_metadata}" configuration materialx)
 string(JSON _viewport_enabled GET "${_merlin_metadata}" configuration viewport)
@@ -60,6 +62,11 @@ if((_vulkan_enabled AND NOT MERLIN_EXPECTED_VULKAN) OR
   message(FATAL_ERROR
     "metadata Vulkan flag ${_vulkan_enabled} != ${MERLIN_EXPECTED_VULKAN}")
 endif()
+if((_metal_enabled AND NOT MERLIN_EXPECTED_METAL) OR
+   (NOT _metal_enabled AND MERLIN_EXPECTED_METAL))
+  message(FATAL_ERROR
+    "metadata Metal flag ${_metal_enabled} != ${MERLIN_EXPECTED_METAL}")
+endif()
 if((_hydra2_enabled AND NOT MERLIN_EXPECTED_HYDRA2) OR
    (NOT _hydra2_enabled AND MERLIN_EXPECTED_HYDRA2))
   message(FATAL_ERROR
@@ -104,6 +111,8 @@ if(NOT _imgui_version STREQUAL "1.92.8" OR
   message(FATAL_ERROR "unexpected Dear ImGui dependency metadata")
 endif()
 
+set(_expected_exported_target_count 3)
+set(_next_exported_target_index 3)
 if(MERLIN_EXPECTED_VULKAN)
   string(JSON _slang_detected GET "${_merlin_metadata}"
     requirements slang detected)
@@ -114,29 +123,27 @@ if(MERLIN_EXPECTED_VULKAN)
     message(FATAL_ERROR
       "Vulkan metadata requires Slang 2026.8.x and shader artifacts v2")
   endif()
-  set(_expected_exported_target_count 4)
-  if(MERLIN_EXPECTED_MATERIALX)
-    math(EXPR _expected_exported_target_count
-         "${_expected_exported_target_count} + 1")
-  endif()
-  if(NOT _exported_target_count EQUAL _expected_exported_target_count)
-    message(FATAL_ERROR
-      "Vulkan metadata exported target count is incorrect")
-  endif()
   string(JSON _vulkan_target GET "${_merlin_metadata}"
          packaging exported_targets 3)
   if(NOT _vulkan_target STREQUAL "Merlin::Vulkan")
     message(FATAL_ERROR "Vulkan metadata target is missing")
   endif()
-else()
-  set(_expected_exported_target_count 3)
-  if(MERLIN_EXPECTED_MATERIALX)
-    math(EXPR _expected_exported_target_count
-         "${_expected_exported_target_count} + 1")
+  math(EXPR _expected_exported_target_count
+       "${_expected_exported_target_count} + 1")
+  math(EXPR _next_exported_target_index
+       "${_next_exported_target_index} + 1")
+endif()
+
+if(MERLIN_EXPECTED_METAL)
+  string(JSON _metal_target GET "${_merlin_metadata}"
+         packaging exported_targets ${_next_exported_target_index})
+  if(NOT _metal_target STREQUAL "Merlin::Metal")
+    message(FATAL_ERROR "Metal metadata target is missing")
   endif()
-  if(NOT _exported_target_count EQUAL _expected_exported_target_count)
-    message(FATAL_ERROR "Core metadata exported target count is incorrect")
-  endif()
+  math(EXPR _expected_exported_target_count
+       "${_expected_exported_target_count} + 1")
+  math(EXPR _next_exported_target_index
+       "${_next_exported_target_index} + 1")
 endif()
 
 if(MERLIN_EXPECTED_MATERIALX)
@@ -144,15 +151,18 @@ if(MERLIN_EXPECTED_MATERIALX)
     message(FATAL_ERROR
       "MaterialX metadata ${_materialx_detected} is older than ${_materialx_minimum}")
   endif()
-  set(_materialx_target_index 3)
-  if(MERLIN_EXPECTED_VULKAN)
-    set(_materialx_target_index 4)
-  endif()
   string(JSON _materialx_target GET "${_merlin_metadata}"
-         packaging exported_targets ${_materialx_target_index})
+         packaging exported_targets ${_next_exported_target_index})
   if(NOT _materialx_target STREQUAL "Merlin::MaterialX")
     message(FATAL_ERROR "MaterialX metadata target is missing")
   endif()
+  math(EXPR _expected_exported_target_count
+       "${_expected_exported_target_count} + 1")
+endif()
+
+if(NOT _exported_target_count EQUAL _expected_exported_target_count)
+  message(FATAL_ERROR
+    "metadata exported target count is incorrect")
 endif()
 
 set(_expected_runtime_product_count 0)

@@ -7,6 +7,7 @@
   },
   "configuration": {
     "vulkan": @_merlin_metadata_vulkan_enabled@,
+    "metal": @_merlin_metadata_metal_enabled@,
     "hydra2": @_merlin_metadata_hydra2_enabled@,
     "materialx": @_merlin_metadata_materialx_enabled@,
     "viewport": @_merlin_metadata_viewport_enabled@
@@ -52,7 +53,7 @@
     "exported_targets": [
       "Merlin::RenderWorld",
       "Merlin::RenderExtraction",
-      "Merlin::RenderBackend"@_merlin_metadata_exported_vulkan@@_merlin_metadata_exported_materialx@
+      "Merlin::RenderBackend"@_merlin_metadata_exported_vulkan@@_merlin_metadata_exported_metal@@_merlin_metadata_exported_materialx@
     ],
     "runtime_products_contract": "runtime-only",
     "runtime_products": @_merlin_metadata_runtime_products@

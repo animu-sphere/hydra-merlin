@@ -1,6 +1,8 @@
 # Backlog
 
-Ordered work after the completed v0.10.0 implementation in
+Ordered work after the completed v0.11.0 implementation recorded in the
+[delivery history](../reports/delivery-history.md), alongside active foundation
+work in
 [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
@@ -12,24 +14,6 @@ benchmark evidence. Scope may move when that evidence changes the justified
 order.
 
 ## Phase B — Cross-platform backend and presentation parity
-
-### ⬜ v0.11.0 — Native Metal backend
-
-Implement the independent Metal backend with device/queue setup, buffers,
-textures, samplers, pipelines, depth, offscreen rendering, CPU readback, Mesh,
-camera, textures, opacity masks, the basic material contract, and
-color/depth/ID AOVs. Add argument-buffer resource tables, stable
-generation-checked slots, dirty-only table updates, heap/residency policy,
-frames-in-flight retirement, capacity diagnostics, and Metal-specific telemetry
-without weakening Vulkan fast paths. Metal may use native lifetime and resource
-policy where it differs from Vulkan, and conventional Forward remains available
-when capability or shader behavior does not justify bindless equivalence.
-
-Exit requires the same `FrameSnapshot` to render through Vulkan and Metal;
-basic AOV differential tests to meet declared exact/tolerance rules; unchanged
-resource identity to stay stable with zero needless steady-state allocation or
-table update; replacement and exhaustion to remain safe and actionable; and no
-resource-lifetime violation on supported Apple Silicon hardware.
 
 ### ⬜ v0.12.0 — Native Metal presentation
 

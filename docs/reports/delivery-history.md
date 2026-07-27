@@ -11,6 +11,28 @@ Legend: ✅ done
 
 ---
 
+## v0.11.0 native Metal backend ✅
+
+- ✅ Added the optional `Merlin::Metal` backend with native device/queue,
+  renderer-owned runtime MSL compilation, Forward pipelines, depth, offscreen
+  targets, and explicit submit/completion/resolve behavior.
+- ✅ Consumed the same host-neutral Mesh, instance, camera, texture, sampler,
+  basic material, opacity-mask, and render-product records as Vulkan, with
+  color, depth, `primId`, and `instanceId` CPU readback.
+- ✅ Added heap-backed scene residency, finite generation-checked texture and
+  sampler slots, completion-protected reuse, frames-in-flight target/readback
+  reuse, argument-buffer tier negotiation, and conventional Forward fallback.
+- ✅ Made per-frame argument buffers dirty-only and retained zero target
+  allocation and zero table update for a steady snapshot after frame contexts
+  are seeded.
+- ✅ Added actionable heap/table exhaustion classes and backend-neutral plus
+  Metal-specific capacity, residency, allocation, retirement, and argument
+  update telemetry.
+- ✅ Exercised textured output, depth/picking identity, alpha-mask discard,
+  replacement under stable slots, install-tree consumption, and runtime command
+  completion on Apple Silicon; hosted macOS Debug/Release jobs retain
+  compile/package evidence.
+
 ## v0.10.0 MaterialX shader-generation boundary ✅
 
 - ✅ Generated the accepted constants, image/UV0/world-normal,
