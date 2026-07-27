@@ -2790,24 +2790,41 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
       pixels > std::numeric_limits<std::size_t>::max() / pixel_size) {
     return false;
   }
-  const bool recreation = static_cast<bool>(hgi_target_);
-  DestroyHgiTargetLocked();
+  // Hydra re-issues Allocate whenever an AOV binding is set up, so an
+  // unchanged description keeps its target: retiring and recreating identical
+  // GPU memory every frame would also make target_recreations report something
+  // other than resizes.
+  const bool reusable_target = static_cast<bool>(hgi_target_) &&
+                               dimensions_ == dimensions &&
+                               format_ == format &&
+                               multi_sampled_ == multi_sampled;
+  const bool recreation = static_cast<bool>(hgi_target_) && !reusable_target;
+  if (!reusable_target) {
+    DestroyHgiTargetLocked();
+  }
   dimensions_ = dimensions;
   format_ = format;
   multi_sampled_ = multi_sampled;
   converged_ = false;
   data_.assign(pixels * pixel_size, 0);
-  if (hgi_vulkan_bridge_ && pixels != 0) {
+  // Only the 8-bit color AOV is published as an Hgi target. It is the buffer a
+  // host present task consumes as a texture, while depth and id buffers are
+  // read back through Map(); uploading those every frame would spend bandwidth
+  // no consumer collects.
+  const HgiFormat hgi_format = HdMerlinHgiFormatForRenderBuffer(format);
+  if (!hgi_target_ && hgi_vulkan_bridge_ && pixels != 0 &&
+      format == HdFormatUNorm8Vec4 && hgi_format != HgiFormatInvalid &&
+      dimensions[2] == 1) {
     HgiTextureDesc descriptor;
     descriptor.debugName = GetId().GetString();
     descriptor.usage = HgiTextureUsageBitsShaderRead;
-    descriptor.format =
-        format == HdFormatUNorm8Vec4
-            ? HgiFormatUNorm8Vec4
-            : (format == HdFormatFloat32 ? HgiFormatFloat32
-                                         : HgiFormatInt32);
+    descriptor.format = hgi_format;
+    descriptor.type = HgiTextureType2D;
     descriptor.dimensions = dimensions;
+    descriptor.layerCount = 1;
+    descriptor.mipLevels = 1;
     descriptor.sampleCount = HgiSampleCount1;
+    descriptor.pixelsByteSize = data_.size();
     hgi_target_ =
         hgi_vulkan_bridge_->CreateTarget(descriptor, recreation);
   }
@@ -2889,7 +2906,7 @@ bool HdMerlinRenderBuffer::WriteColor(
     return false;
   }
   data_ = rgba8;
-  (void)UploadHgiTargetLocked();
+  UploadHgiTargetLocked();
   return true;
 }
 
@@ -2905,7 +2922,7 @@ bool HdMerlinRenderBuffer::WriteDepth(const std::vector<float>& depth,
     return false;
   }
   std::memcpy(data_.data(), depth.data(), byte_size);
-  (void)UploadHgiTargetLocked();
+  UploadHgiTargetLocked();
   return true;
 }
 
@@ -2921,7 +2938,7 @@ bool HdMerlinRenderBuffer::WriteId(const std::vector<std::uint32_t>& ids,
     return false;
   }
   std::memcpy(data_.data(), ids.data(), byte_size);
-  (void)UploadHgiTargetLocked();
+  UploadHgiTargetLocked();
   return true;
 }
 
@@ -2943,16 +2960,16 @@ void HdMerlinRenderBuffer::_Deallocate() {
   data_.clear();
 }
 
-bool HdMerlinRenderBuffer::UploadHgiTargetLocked() {
+void HdMerlinRenderBuffer::UploadHgiTargetLocked() {
   if (!hgi_target_) {
-    return false;
+    return;
   }
+  // A failed upload retires the target so GetResource stops advertising a
+  // stale texture; the bridge records why and the CPU buffer stays the truth.
   if (!hgi_vulkan_bridge_ ||
       !hgi_vulkan_bridge_->Upload(hgi_target_, data_.data(), data_.size())) {
     DestroyHgiTargetLocked();
-    return false;
   }
-  return true;
 }
 
 void HdMerlinRenderBuffer::DestroyHgiTargetLocked() {
@@ -2963,33 +2980,29 @@ void HdMerlinRenderBuffer::DestroyHgiTargetLocked() {
   }
 }
 
+namespace {
+
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_VULKAN_BRIDGE
+constexpr bool kHgiVulkanBridgeEnabled = true;
+#else
+constexpr bool kHgiVulkanBridgeEnabled = false;
+#endif
+
+}  // namespace
+
 class HdMerlinRenderDelegate::Impl {
  public:
-  Impl()
-      : bridge(std::make_shared<SceneBridge>()),
-        hgi_vulkan_bridge(std::make_shared<HdMerlinHgiVulkanBridge>(
-#ifdef MERLIN_HYDRA2_ENABLE_HGI_VULKAN_BRIDGE
-            true
-#else
-            false
-#endif
-            )) {}
+  Impl() : bridge(std::make_shared<SceneBridge>()) {}
   explicit Impl(std::shared_ptr<merlin::render::Backend> backend) {
     if (!backend) {
       throw std::invalid_argument("Hydra renderer backend is null");
     }
     bridge = std::make_shared<SceneBridge>(std::move(backend));
-    hgi_vulkan_bridge = std::make_shared<HdMerlinHgiVulkanBridge>(
-#ifdef MERLIN_HYDRA2_ENABLE_HGI_VULKAN_BRIDGE
-        true
-#else
-        false
-#endif
-    );
   }
 
   std::shared_ptr<SceneBridge> bridge;
-  std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge;
+  std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge{
+      std::make_shared<HdMerlinHgiVulkanBridge>(kHgiVulkanBridgeEnabled)};
   HydraDirtyTracker dirty_tracker;
   HdSceneIndexBaseRefPtr terminal_scene_index;
 };

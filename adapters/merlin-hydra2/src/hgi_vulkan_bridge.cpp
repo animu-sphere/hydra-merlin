@@ -20,8 +20,19 @@ std::uint64_t ElapsedNanoseconds(Clock::time_point start) {
           .count());
 }
 
-constexpr bool IsValidatedOpenUsd(std::uint32_t version) noexcept {
-  return version == 2605 || version == 2608;
+// The validated OpenUSD line is chosen once, by MERLIN_OPENUSD_VALIDATED_
+// VERSIONS in the top-level CMakeLists, and the adapter rejects a header
+// mismatch at compile time. Deriving the check from that single configured
+// value keeps a version bump from silently degrading the bridge to CPU
+// fallback the way a duplicated literal list would; capability itself still
+// comes from runtime driver detection, never from the version.
+constexpr bool IsValidatedOpenUsd(
+    [[maybe_unused]] std::uint32_t version) noexcept {
+#ifdef MERLIN_OPENUSD_VALIDATED_PXR_VERSION
+  return version == MERLIN_OPENUSD_VALIDATED_PXR_VERSION;
+#else
+  return true;
+#endif
 }
 
 }  // namespace
@@ -52,6 +63,8 @@ std::string_view HdMerlinHgiVulkanFallbackReasonName(
       return "unsupported-openusd";
     case HdMerlinHgiVulkanFallbackReason::GpuCopyUnavailable:
       return "gpu-copy-unavailable";
+    case HdMerlinHgiVulkanFallbackReason::DriverSwapRejected:
+      return "driver-swap-rejected";
     case HdMerlinHgiVulkanFallbackReason::InvalidTarget:
       return "invalid-target";
     case HdMerlinHgiVulkanFallbackReason::TargetCreationFailed:
@@ -93,6 +106,19 @@ HdMerlinHgiVulkanBridgeStatus HdMerlinEvaluateHgiVulkanBridgeSupport(
   return result;
 }
 
+HgiFormat HdMerlinHgiFormatForRenderBuffer(HdFormat format) noexcept {
+  switch (format) {
+    case HdFormatUNorm8Vec4:
+      return HgiFormatUNorm8Vec4;
+    case HdFormatFloat32:
+      return HgiFormatFloat32;
+    case HdFormatInt32:
+      return HgiFormatInt32;
+    default:
+      return HgiFormatInvalid;
+  }
+}
+
 HdMerlinHgiVulkanBridge::HdMerlinHgiVulkanBridge(bool enabled)
     : enabled_(enabled),
       status_(HdMerlinEvaluateHgiVulkanBridgeSupport(
@@ -102,14 +128,23 @@ HdMerlinHgiVulkanBridge::~HdMerlinHgiVulkanBridge() = default;
 
 void HdMerlinHgiVulkanBridge::SetDrivers(const HdDriverVector& drivers) {
   std::scoped_lock lock(mutex_);
-  hgi_ = nullptr;
+  Hgi* discovered = nullptr;
   for (const HdDriver* driver : drivers) {
     if (driver != nullptr && driver->name == HgiTokens->renderDriver &&
         driver->driver.IsHolding<Hgi*>()) {
-      hgi_ = driver->driver.UncheckedGet<Hgi*>();
+      discovered = driver->driver.UncheckedGet<Hgi*>();
       break;
     }
   }
+  if (discovered != hgi_ && outstanding_targets_ != 0) {
+    // Published targets can only be retired by the Hgi that created them.
+    // Rather than leak them or hand them to another device, keep the creating
+    // Hgi for retirement and stop publishing new targets.
+    SetOperationalFallbackLocked(
+        HdMerlinHgiVulkanFallbackReason::DriverSwapRejected);
+    return;
+  }
+  hgi_ = discovered;
   const bool has_driver = hgi_ != nullptr;
   const bool is_vulkan =
       has_driver && hgi_->GetAPIName() == HgiTokens->Vulkan;
@@ -138,9 +173,13 @@ HgiTextureHandle HdMerlinHgiVulkanBridge::CreateTarget(
     // Preserve the capability-level reason selected by SetDrivers.
     return {};
   }
+  // Only single-sampled 2D targets are published, so the descriptor has to be
+  // exactly one texel deep: a HgiTextureType2D image with a deeper extent is
+  // invalid in Vulkan rather than merely unused.
   if (descriptor.format == HgiFormatInvalid ||
+      descriptor.type != HgiTextureType2D ||
       descriptor.dimensions[0] <= 0 || descriptor.dimensions[1] <= 0 ||
-      descriptor.dimensions[2] <= 0 ||
+      descriptor.dimensions[2] != 1 || descriptor.layerCount != 1 ||
       descriptor.sampleCount != HgiSampleCount1) {
     SetOperationalFallbackLocked(
         HdMerlinHgiVulkanFallbackReason::InvalidTarget);
@@ -154,6 +193,7 @@ HgiTextureHandle HdMerlinHgiVulkanBridge::CreateTarget(
           HdMerlinHgiVulkanFallbackReason::TargetCreationFailed);
       return {};
     }
+    ++outstanding_targets_;
     ++telemetry_.target_generation;
     ++telemetry_.target_creations;
     telemetry_.target_recreations += recreation ? 1U : 0U;
@@ -174,7 +214,14 @@ void HdMerlinHgiVulkanBridge::DestroyTarget(HgiTextureHandle* target) {
     hgi_->DestroyTexture(target);
     ++telemetry_.target_retirements;
   } else {
+    // SetDrivers refuses to drop an Hgi that still owns targets, so this is
+    // unreachable; dropping the handle would leak the texture, so make that
+    // visible rather than silent.
     *target = {};
+    ++telemetry_.target_orphans;
+  }
+  if (outstanding_targets_ != 0) {
+    --outstanding_targets_;
   }
 }
 

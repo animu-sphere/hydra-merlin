@@ -34,12 +34,14 @@ Implementation progress:
 
 - the adapter now discovers the application-owned Hgi render driver through
   the public Hydra driver contract on OpenUSD 26.05 and 26.08;
-- when a Vulkan Hgi driver is supplied, RenderBuffers create Hgi-owned targets
-  and submit Tier 0 CPU-to-Hgi upload; target destruction is handed back to
-  the owning Hgi and the adapter introduces no coarse idle wait;
-- missing, disabled, non-Vulkan, and operationally rejected paths retain the
-  original CPU RenderBuffer and report structured selection, fallback, target,
-  byte, encode-time, and wait telemetry;
+- when a Vulkan Hgi driver is supplied, the color RenderBuffer creates an
+  Hgi-owned target and submits Tier 0 CPU-to-Hgi upload; depth and id buffers
+  stay on `Map` readback, target destruction is handed back to the Hgi that
+  created it, and the adapter introduces no coarse idle wait;
+- missing, disabled, non-Vulkan, driver-swap, and operationally rejected paths
+  retain the original CPU RenderBuffer and report structured selection,
+  fallback, target, byte, and encode-time telemetry alongside a coarse-wait
+  counter that stays at zero because no idle wait is introduced;
 - selected-AOV renderer image export, Vulkan GPU copy, distinct bridge
   completion, host-consumption retirement, and smoke evidence against an
   OpenUSD package that ships a Vulkan Hgi driver remain before the milestone

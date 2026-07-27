@@ -101,9 +101,10 @@ target_include_directories(merlin-hydra2-runtime PUBLIC
 target_link_libraries(merlin-hydra2-runtime
   PUBLIC
     hd
+    # HgiTextureHandle reaches the public boundary through adapter.hpp.
+    hgi
     Merlin::RenderBackend
   PRIVATE
-    hgi
     hio
     Merlin::RenderWorld
     Merlin::RenderExtraction

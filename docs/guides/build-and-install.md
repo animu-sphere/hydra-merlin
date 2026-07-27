@@ -146,11 +146,13 @@ match the consumer, and the discovery/usdview tests must run against the same
 runtime root used at configure time. Metal viewports can raise the default
 64 MiB scene heap for large stages with `--metal-heap-mib N`.
 
-`MERLIN_ENABLE_HGI_VULKAN_BRIDGE` follows `MERLIN_ENABLE_HYDRA2` by default
-and requires both Hydra 2 and Vulkan. It discovers the application-owned Hgi
-driver at runtime. OpenUSD version support does not imply that a package ships
-a Vulkan Hgi driver; missing and non-Vulkan drivers retain the CPU RenderBuffer
-path and report the rejection. Disable the option to build only that universal
+`MERLIN_ENABLE_HGI_VULKAN_BRIDGE` is offered only when both `MERLIN_ENABLE_HYDRA2`
+and `MERLIN_ENABLE_VULKAN` are on, and defaults to `ON` there; a Metal-only
+Hydra 2 build simply does not present it. It discovers the application-owned
+Hgi driver at runtime and publishes an Hgi-owned target for the color AOV.
+OpenUSD version support does not imply that a package ships a Vulkan Hgi
+driver; missing and non-Vulkan drivers retain the CPU RenderBuffer path and
+report the rejection. Disable the option to build only that universal
 fallback.
 
 ## Optional MaterialX compiler
@@ -219,7 +221,7 @@ contract.
 | `MERLIN_ENABLE_VULKAN` | `ON` | Build Vulkan, shaders, and headless products. |
 | `MERLIN_ENABLE_METAL` | `ON` on Apple, otherwise `OFF` | Build the optional native Metal offscreen backend. |
 | `MERLIN_ENABLE_HYDRA2` | `OFF` | Build the OpenUSD Hydra 2 adapter; requires Vulkan or Metal. |
-| `MERLIN_ENABLE_HGI_VULKAN_BRIDGE` | follows `MERLIN_ENABLE_HYDRA2` | Build HgiVulkan driver discovery and Hgi-owned presentation targets; requires Hydra 2 and Vulkan. |
+| `MERLIN_ENABLE_HGI_VULKAN_BRIDGE` | `ON` when Hydra 2 and Vulkan are both on, otherwise unavailable | Build HgiVulkan driver discovery and the Hgi-owned color presentation target. |
 | `MERLIN_ENABLE_MATERIALX` | `OFF` | Build the optional `Merlin::MaterialX` graph-only compiler. |
 | `MERLIN_FETCH_MATERIALX` | `OFF` | Fetch the pinned MaterialX source when no compatible package/source tree is supplied. |
 | `MERLIN_MATERIALX_SOURCE_DIR` | empty | Use an existing compatible MaterialX source tree. |

@@ -18,12 +18,18 @@ foreach(_header IN LISTS _core_headers)
   endif()
 endforeach()
 
-set(_hydra_public_header
-    "${MERLIN_SOURCE_DIR}/adapters/merlin-hydra2/src/adapter.hpp")
-if(EXISTS "${_hydra_public_header}")
-  file(READ "${_hydra_public_header}" _contents)
-  if(_contents MATCHES "<vulkan/|Vk[A-Z]|<Metal/|id[ \t]*<[ \t]*MTL|<GLFW/|<windows[.]h>")
-    message(FATAL_ERROR
-      "backend/window type leaked into the Hydra public boundary: ${_hydra_public_header}")
+# adapter.hpp includes hgi_vulkan_bridge.hpp and embeds its status/telemetry in
+# HdMerlinViewportFrame, so the presentation-bridge header is part of the same
+# public boundary and has to be held to the same rule.
+set(_hydra_public_headers
+    "${MERLIN_SOURCE_DIR}/adapters/merlin-hydra2/src/adapter.hpp"
+    "${MERLIN_SOURCE_DIR}/adapters/merlin-hydra2/src/hgi_vulkan_bridge.hpp")
+foreach(_hydra_public_header IN LISTS _hydra_public_headers)
+  if(EXISTS "${_hydra_public_header}")
+    file(READ "${_hydra_public_header}" _contents)
+    if(_contents MATCHES "<vulkan/|Vk[A-Z]|<Metal/|id[ \t]*<[ \t]*MTL|<GLFW/|<windows[.]h>")
+      message(FATAL_ERROR
+        "backend/window type leaked into the Hydra public boundary: ${_hydra_public_header}")
+    endif()
   endif()
-endif()
+endforeach()

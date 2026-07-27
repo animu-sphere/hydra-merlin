@@ -105,6 +105,17 @@ this target only for a Vulkan Hgi driver; a missing driver, a non-Vulkan
 driver, a disabled bridge, or a target failure retains the original CPU
 RenderBuffer path with a structured rejection.
 
+The slice publishes a target for the 8-bit color AOV alone. Color is the AOV a
+host present task consumes as a texture, while depth, `primId`, and
+`instanceId` are read through `HdRenderBuffer::Map`; uploading those would
+spend bandwidth no consumer collects. A published target is bound to the Hgi
+that created it: a driver declaration that would swap that Hgi while targets
+are outstanding is rejected as `driver-swap-rejected` rather than retiring
+those textures through a different device. Re-declaring the same driver is the
+one point at which an operational rejection is re-evaluated; otherwise a
+rejection holds for the delegate's lifetime instead of being retried per
+frame.
+
 The public APIs used by this slice are unchanged between OpenUSD 26.05 and
 26.08. Hgi backend availability is nevertheless a package-composition
 capability, not a version guarantee: an OpenUSD 26.08 package can provide the

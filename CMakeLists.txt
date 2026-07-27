@@ -63,9 +63,14 @@ option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
-option(MERLIN_ENABLE_HGI_VULKAN_BRIDGE
-  "Build the Hydra-owned HgiVulkan presentation bridge"
-  ${MERLIN_ENABLE_HYDRA2})
+# Hydra 2 is also satisfied by Metal alone, so this cannot be a plain option
+# defaulting to MERLIN_ENABLE_HYDRA2: a Metal-only Hydra build would then turn
+# the bridge on implicitly and fail its own dependency rule. A dependent option
+# also keeps the cached value from outliving a later MERLIN_ENABLE_HYDRA2=OFF.
+include(CMakeDependentOption)
+cmake_dependent_option(MERLIN_ENABLE_HGI_VULKAN_BRIDGE
+  "Build the Hydra-owned HgiVulkan presentation bridge" ON
+  "MERLIN_ENABLE_HYDRA2;MERLIN_ENABLE_VULKAN" OFF)
 option(MERLIN_ENABLE_MATERIALX
   "Build the MaterialXGenSlang material-function compiler" OFF)
 option(MERLIN_FETCH_MATERIALX
@@ -75,13 +80,6 @@ set(MERLIN_MATERIALX_SOURCE_DIR "" CACHE PATH
 option(MERLIN_BUILD_VIEWPORT "Build the native merlin-viewport application" ON)
 option(MERLIN_GENERATE_RENDERER_REPORT
   "Generate OpenStrata renderer evidence after linking merlin-headless" ON)
-
-if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE AND
-   (NOT MERLIN_ENABLE_HYDRA2 OR NOT MERLIN_ENABLE_VULKAN))
-  message(FATAL_ERROR
-    "MERLIN_ENABLE_HGI_VULKAN_BRIDGE requires MERLIN_ENABLE_HYDRA2=ON and "
-    "MERLIN_ENABLE_VULKAN=ON")
-endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

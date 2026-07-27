@@ -69,7 +69,7 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   void _Deallocate() override;
 
  private:
-  bool UploadHgiTargetLocked();
+  void UploadHgiTargetLocked();
   void DestroyHgiTargetLocked();
 
   mutable std::mutex mutex_;
