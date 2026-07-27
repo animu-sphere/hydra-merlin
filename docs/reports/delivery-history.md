@@ -377,7 +377,9 @@ repository-scoped GPU runner for continuous execution remains in the
   the depfile the compiler emitted, so an added include cannot slip past the
   key.
 
-This completed foundation is not the v0.10.0 release boundary. The accepted
-[MaterialXGenSlang policy](../design/materialxgenslang-boundary.md) retains
-common diagnostics/fallback, Vulkan Forward execution, and image evidence as
-active work.
+This is the foundation stage of the boundary rather than the whole of it. The
+common diagnostic/fallback contract, Vulkan Forward execution, and image
+evidence that completed it are recorded in the v0.10.0 section above and
+released in [v0.10.0](../releases/v0.10.0.md); the accepted
+[MaterialXGenSlang policy](../design/materialxgenslang-boundary.md) remains the
+authoritative ownership contract.

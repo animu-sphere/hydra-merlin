@@ -6,101 +6,13 @@ its detailed pre-release history is retained in the
 [delivery history](../reports/delivery-history.md); shipped versions are
 recorded in the [changelog](../../CHANGELOG.md).
 
+v0.10.0 shipped the MaterialX shader-generation boundary; its objective,
+compatibility, and limitation record is in
+[docs/releases/v0.10.0.md](../releases/v0.10.0.md). The ownership rules it
+established remain authoritative in the
+[MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
+
 ## Next milestone
-
-### ✅ v0.10.0 — MaterialX shader-generation boundary
-
-Use the official MaterialX Slang Shader Generator to establish a durable,
-optional material-function boundary. v0.10.0 is not a production MaterialX
-support claim: it proves that a small diagnosed graph and Standard Surface
-slice can cross the existing host-neutral `MaterialIR` boundary, execute in
-Vulkan Forward, and compile for SPIR-V and Metal without giving MaterialX
-ownership of the render pass.
-
-The authoritative scope, ownership, ABI, cache, diagnostic, and fallback rules
-are in the [MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
-
-#### Release acceptance criteria
-
-- A MaterialX document deterministically produces an
-  `evaluateMaterial`-style Slang module for constant/color values, image,
-  texcoord, normal, add, multiply, mix, and the minimum Standard Surface
-  `base`, `base_color`, `metalness`, `specular_roughness`, and `normal` slice.
-- Vulkan Forward invokes the generated material function while geometry,
-  lighting, alpha/depth policy, resources, render passes, picking, and AOV
-  writes remain renderer-owned.
-- Constant dielectric, constant metal, textured dielectric, arithmetic/mix,
-  normal, multiple-material, and unsupported-node fallback fixtures meet their
-  declared exact or tolerance-based image contracts.
-- The same generated module source produces SPIR-V and Metal-target artifacts;
-  target reflection agrees semantically with the common versioned material
-  ABI.
-- Core public APIs expose no MaterialX SDK types, and the MaterialX integration
-  exposes no Vulkan types, native handles, descriptor bindings, or pipeline
-  layout.
-- Canonical graph topology, runtime parameter values, and texture/resource
-  assignments have separate identities. Identical graphs share modules and do
-  not regenerate; parameter-only edits do not change a shader key.
-- Module and artifact keys cover MaterialX/library/generator/compiler versions,
-  include fingerprints, target/profile/options, ABI version, and enabled
-  features at the appropriate layer.
-- Unsupported nodes, inputs, conversions, dependencies, generation, compile,
-  reflection, ABI, target, and cache failures produce structured diagnostics
-  with an explicit simplification, basic-material, or error-material fallback.
-- `MERLIN_ENABLE_MATERIALX=OFF` retains the existing Core and Vulkan build,
-  tests, basic material path, and install contract.
-- Complete Standard Surface, arbitrary MaterialX documents, production IBL,
-  asynchronous compilation, prewarming, Visibility integration, and complete
-  OpenChess Set fidelity are not claimed by this release.
-
-#### Completion evidence
-
-- Vulkan Forward composes generated parameter blocks and texture/sampler
-  resources through per-module backend-owned descriptor and pipeline layouts.
-  The image test exercises image, multiply, UV0, world normal, minimum Standard
-  Surface, texture-content edits, and explicit missing-resource fallback
-  without handing lighting, depth, picking, or AOV ownership to MaterialX.
-- Vulkan-native and backend-neutral results expose generated draw/fallback
-  counts and worst-rung evidence; benchmark, headless renderer-report, native
-  viewport benchmark, and Hydra regression serialization consume those fields.
-- The accepted prototype and Standard Surface Slang modules, SPIR-V,
-  Metal-target outputs, and reflection are retained and installed beneath
-  `shaders/v2/materialx`; install-consumer validation requires the complete
-  evidence set.
-
-The graph-only compiler now covers image/UV0/world-normal generation and adapts
-the minimum Standard Surface fields into a renderer-owned material result;
-full tangent-space normal mapping remains later quality work. Portable loaded
-standard-library and transitive generator-include fingerprints participate in
-the topology-only module key. Target/compiler/profile/layout/capability policy
-now composes into a Core target-artifact key that keys generated and
-handwritten Slang the same way; the shader package records module and artifact
-identities separately, recovers each module's include closure from the depfile
-the compiler emitted, and a test recomputes both identities from the manifest,
-so the build system cannot drift from the contract. Material failures are
-classified by a Core-owned category, context, and fallback contract that
-`Merlin::MaterialX` bridges onto `merlin-diagnostic/v1`; a producer that
-rejected a document reports the basic-material fallback rather than a
-simplification it never generated, so evidence cannot record a recovery the
-renderer did not perform. The previously merged
-package target, deterministic prototype generation, logical reflection,
-diagnostics, and direct SPIR-V/Metal compile wrappers are recorded in the
-[delivery history](../reports/delivery-history.md). A Core-owned material ABI
-contract now answers both halves of the agreement: whether a module produces
-what a consumer reads and needs only what it can supply, and whether a compiled
-artifact's reflected interface still describes the module it was built from.
-Agreement is semantic, so SPIR-V and Metal describe one material through their
-own native bindings, and both agreeing with the module is what makes them agree
-with each other. The same contract owns the pass-neutrality rule, which the
-MaterialX compiler now applies to its own output, so a generated module that
-declared part of a render pass is refused at generation rather than found by
-whoever composed it. Topology-only module
-identity, separate parameter/resource state identities, and the host-neutral
-Core module contract are included in the current capability summary in the
-[support matrix](../reference/support-matrix.md). They are foundation evidence,
-not completion of the gates above.
-
-## Active follow-up
 
 ### ⬜ v0.10.x — Development viewport and diagnostic surface
 
@@ -127,7 +39,7 @@ property editor, and authoring workflow remain outside this milestone.
 
 ## Phase A foundation gates
 
-These cross-cutting items should land alongside v0.10.0 or v0.10.x, before the
+These cross-cutting items should land alongside v0.10.x, before the
 implementation becomes substantially more backend-specific.
 
 ### ⬜ Evidence-tier separation
@@ -176,8 +88,8 @@ and telemetry controls.
 
 ## Near-term execution order
 
-1. Keep the completed v0.10.0 boundary narrow; do not broaden node coverage
-   merely to claim general MaterialX.
+1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
+   merely to claim general MaterialX. Production quality belongs to v0.18.0.
 2. Add the development viewport surface over existing capability, timing,
    residency, upload, material, AOV, and fallback contracts.
 3. Strengthen non-GPU and Linux gates before implementation breadth grows.

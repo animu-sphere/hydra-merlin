@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.9.0 released · **Last reviewed:** 2026-07-18
+**Status:** v0.10.0 released · **Last reviewed:** 2026-07-27
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -10,7 +10,7 @@ work, but is not currently claimed as supported evidence.
 
 | Platform | Core | Vulkan/headless | Vulkan viewport | Hydra 2 | Evidence level |
 | --- | --- | --- | --- | --- | --- |
-| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 | Core hosted CI plus local v0.9 viewport/Hydra validation; capability workflow retains the same evidence |
+| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 | Core hosted CI plus local v0.9 viewport/Hydra and v0.10 Vulkan/MaterialX Release validation; capability workflow retains the same evidence |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Not continuously exercised | Core hosted CI |
 | macOS | Not validated | Not validated | Not validated | Not validated | No current claim |
 
