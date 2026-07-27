@@ -556,8 +556,7 @@ int main(int argc, char** argv) {
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 Clock::now() - benchmark_start)
                 .count());
-        const auto path =
-            executable_dir / "merlin-viewport-benchmark.json";
+        const std::filesystem::path path = "merlin-viewport-benchmark.json";
         WriteBenchmark(path, selection, backend->statistics(), frames,
                        elapsed_ns, gpu_ns, presented_readback_bytes,
                        presentation_copy_bytes, zero_readback_frames,

@@ -435,6 +435,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   std::int32_t last_pointer_y{};
   bool resized_for_test{};
   std::uint64_t frames{};
+  std::uint64_t latest_frame_ns{};
   HdMerlinViewportFrame latest_viewport_frame;
   const auto start = Clock::now();
 
@@ -563,6 +564,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
         latest_viewport_frame.lights,
     };
     ui_snapshot.frame_index = frames;
+    ui_snapshot.host_frame_ns = latest_frame_ns;
     ui_snapshot.width = width;
     ui_snapshot.height = height;
     const auto ui_actions = developer_ui->DrawFrame(ui_snapshot);
@@ -601,7 +603,12 @@ int RunHydraViewport(const HydraViewportOptions& options) {
           MakeBinding(HdAovTokens->instanceId, instance_id.get()));
     }
     state->SetAovBindings(bindings);
+    const auto frame_start = Clock::now();
     engine.Execute(render_index.get(), &tasks);
+    latest_frame_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            Clock::now() - frame_start)
+            .count());
     latest_viewport_frame = render_delegate.GetLatestViewportFrame();
     ++frames;
     if (benchmark_snapshot_pending) {
@@ -609,9 +616,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
           std::chrono::duration_cast<std::chrono::nanoseconds>(
               Clock::now() - start)
               .count());
-      const auto path =
-          std::filesystem::absolute(options.executable).parent_path() /
-          "merlin-viewport-benchmark.json";
+      const std::filesystem::path path = "merlin-viewport-benchmark.json";
       WriteBenchmark(path, selection, backend->statistics(), frames,
                      elapsed_ns);
       std::cout << "Benchmark snapshot: " << path.string() << '\n';
