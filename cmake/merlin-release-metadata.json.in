@@ -9,6 +9,7 @@
     "vulkan": @_merlin_metadata_vulkan_enabled@,
     "metal": @_merlin_metadata_metal_enabled@,
     "hydra2": @_merlin_metadata_hydra2_enabled@,
+    "hgi_vulkan_bridge": @_merlin_metadata_hgi_vulkan_bridge_enabled@,
     "materialx": @_merlin_metadata_materialx_enabled@,
     "viewport": @_merlin_metadata_viewport_enabled@
   },

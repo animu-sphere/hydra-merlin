@@ -63,6 +63,9 @@ option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
+option(MERLIN_ENABLE_HGI_VULKAN_BRIDGE
+  "Build the Hydra-owned HgiVulkan presentation bridge"
+  ${MERLIN_ENABLE_HYDRA2})
 option(MERLIN_ENABLE_MATERIALX
   "Build the MaterialXGenSlang material-function compiler" OFF)
 option(MERLIN_FETCH_MATERIALX
@@ -72,6 +75,13 @@ set(MERLIN_MATERIALX_SOURCE_DIR "" CACHE PATH
 option(MERLIN_BUILD_VIEWPORT "Build the native merlin-viewport application" ON)
 option(MERLIN_GENERATE_RENDERER_REPORT
   "Generate OpenStrata renderer evidence after linking merlin-headless" ON)
+
+if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE AND
+   (NOT MERLIN_ENABLE_HYDRA2 OR NOT MERLIN_ENABLE_VULKAN))
+  message(FATAL_ERROR
+    "MERLIN_ENABLE_HGI_VULKAN_BRIDGE requires MERLIN_ENABLE_HYDRA2=ON and "
+    "MERLIN_ENABLE_VULKAN=ON")
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -398,6 +408,11 @@ else()
   set(_merlin_metadata_hydra2_enabled false)
   set(_merlin_metadata_openusd_version "null")
 endif()
+if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
+  set(_merlin_metadata_hgi_vulkan_bridge_enabled true)
+else()
+  set(_merlin_metadata_hgi_vulkan_bridge_enabled false)
+endif()
 
 if(_merlin_metadata_runtime_products)
   set(_merlin_metadata_runtime_products
@@ -448,6 +463,7 @@ if(MERLIN_BUILD_TESTS)
       "-DMERLIN_EXPECTED_VULKAN:BOOL=${MERLIN_ENABLE_VULKAN}"
       "-DMERLIN_EXPECTED_METAL:BOOL=${MERLIN_ENABLE_METAL}"
       "-DMERLIN_EXPECTED_HYDRA2:BOOL=${MERLIN_ENABLE_HYDRA2}"
+      "-DMERLIN_EXPECTED_HGI_VULKAN_BRIDGE:BOOL=${MERLIN_ENABLE_HGI_VULKAN_BRIDGE}"
       "-DMERLIN_EXPECTED_MATERIALX:BOOL=${MERLIN_ENABLE_MATERIALX}"
       "-DMERLIN_EXPECTED_VIEWPORT:BOOL=${_merlin_metadata_viewport_enabled}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify-release-metadata.cmake"

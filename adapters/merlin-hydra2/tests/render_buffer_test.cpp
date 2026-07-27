@@ -29,6 +29,10 @@ int main() {
       !Check(!color.IsConverged(), "new color buffer is converged")) {
     return 1;
   }
+  if (!Check(color.GetResource(false).IsEmpty(),
+             "CPU fallback unexpectedly exposed an Hgi resource")) {
+    return 1;
+  }
 
   const std::vector<std::uint8_t> pixels{
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};

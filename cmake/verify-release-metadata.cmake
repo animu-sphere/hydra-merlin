@@ -3,6 +3,7 @@ if(NOT DEFINED MERLIN_METADATA OR
    NOT DEFINED MERLIN_EXPECTED_VULKAN OR
    NOT DEFINED MERLIN_EXPECTED_METAL OR
    NOT DEFINED MERLIN_EXPECTED_HYDRA2 OR
+   NOT DEFINED MERLIN_EXPECTED_HGI_VULKAN_BRIDGE OR
    NOT DEFINED MERLIN_EXPECTED_MATERIALX OR
    NOT DEFINED MERLIN_EXPECTED_VIEWPORT)
   message(FATAL_ERROR "release metadata verification arguments are incomplete")
@@ -16,6 +17,8 @@ string(JSON _project_version GET "${_merlin_metadata}" project version)
 string(JSON _vulkan_enabled GET "${_merlin_metadata}" configuration vulkan)
 string(JSON _metal_enabled GET "${_merlin_metadata}" configuration metal)
 string(JSON _hydra2_enabled GET "${_merlin_metadata}" configuration hydra2)
+string(JSON _hgi_vulkan_bridge_enabled GET "${_merlin_metadata}"
+  configuration hgi_vulkan_bridge)
 string(JSON _materialx_enabled GET "${_merlin_metadata}" configuration materialx)
 string(JSON _viewport_enabled GET "${_merlin_metadata}" configuration viewport)
 string(JSON _packaging_contract GET "${_merlin_metadata}"
@@ -71,6 +74,18 @@ if((_hydra2_enabled AND NOT MERLIN_EXPECTED_HYDRA2) OR
    (NOT _hydra2_enabled AND MERLIN_EXPECTED_HYDRA2))
   message(FATAL_ERROR
     "metadata Hydra flag ${_hydra2_enabled} != ${MERLIN_EXPECTED_HYDRA2}")
+endif()
+if((_hgi_vulkan_bridge_enabled AND
+    NOT MERLIN_EXPECTED_HGI_VULKAN_BRIDGE) OR
+   (NOT _hgi_vulkan_bridge_enabled AND
+    MERLIN_EXPECTED_HGI_VULKAN_BRIDGE))
+  message(FATAL_ERROR
+    "metadata HgiVulkan bridge flag ${_hgi_vulkan_bridge_enabled} != ${MERLIN_EXPECTED_HGI_VULKAN_BRIDGE}")
+endif()
+if(MERLIN_EXPECTED_HGI_VULKAN_BRIDGE AND
+   (NOT MERLIN_EXPECTED_HYDRA2 OR NOT MERLIN_EXPECTED_VULKAN))
+  message(FATAL_ERROR
+    "HgiVulkan bridge metadata requires Hydra 2 and Vulkan")
 endif()
 if((_materialx_enabled AND NOT MERLIN_EXPECTED_MATERIALX) OR
    (NOT _materialx_enabled AND MERLIN_EXPECTED_MATERIALX))

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hgi_vulkan_bridge.hpp"
+
 #include <pxr/pxr.h>
 
 #include <pxr/imaging/hd/renderBuffer.h>
@@ -29,12 +31,17 @@ struct HdMerlinViewportFrame {
   std::uint64_t materials{};
   std::uint64_t instances{};
   std::uint64_t lights{};
+  HdMerlinHgiVulkanBridgeStatus hgi_vulkan_bridge;
+  HdMerlinHgiVulkanBridgeTelemetry hgi_vulkan_telemetry;
   bool available{};
 };
 
 class HdMerlinRenderBuffer final : public HdRenderBuffer {
  public:
-  explicit HdMerlinRenderBuffer(const SdfPath& id);
+  explicit HdMerlinRenderBuffer(
+      const SdfPath& id,
+      std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {});
+  ~HdMerlinRenderBuffer() override;
 
   bool Allocate(const GfVec3i& dimensions, HdFormat format,
                 bool multi_sampled) override;
@@ -48,6 +55,7 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   bool IsMapped() const override;
   void Resolve() override;
   bool IsConverged() const override;
+  VtValue GetResource(bool multi_sampled) const override;
 
   bool WriteColor(const std::vector<std::uint8_t>& rgba8,
                   std::uint32_t width, std::uint32_t height);
@@ -61,7 +69,12 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   void _Deallocate() override;
 
  private:
+  bool UploadHgiTargetLocked();
+  void DestroyHgiTargetLocked();
+
   mutable std::mutex mutex_;
+  std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
+  HgiTextureHandle hgi_target_;
   GfVec3i dimensions_{0};
   HdFormat format_{HdFormatInvalid};
   bool multi_sampled_{};
@@ -78,6 +91,7 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
       const HdRenderSettingsMap& settings = {});
   ~HdMerlinRenderDelegate() override;
 
+  void SetDrivers(const HdDriverVector& drivers) override;
   const TfTokenVector& GetSupportedRprimTypes() const override;
   const TfTokenVector& GetSupportedSprimTypes() const override;
   const TfTokenVector& GetSupportedBprimTypes() const override;

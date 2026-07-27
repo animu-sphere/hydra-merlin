@@ -16,6 +16,7 @@
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/dataSourceLocator.h>
+#include <pxr/imaging/hd/driver.h>
 #include <pxr/imaging/hd/instancer.h>
 #include <pxr/imaging/hd/light.h>
 #include <pxr/imaging/hd/material.h>
@@ -31,6 +32,9 @@
 #include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/sceneIndexObserver.h>
 #include <pxr/imaging/hd/tokens.h>
+#include <pxr/imaging/hgi/enums.h>
+#include <pxr/imaging/hgi/texture.h>
+#include <pxr/imaging/hgi/types.h>
 #include <pxr/imaging/hio/image.h>
 #include <pxr/usd/sdf/assetPath.h>
 
@@ -2749,8 +2753,16 @@ class HdMerlinRenderPass final : public HdRenderPass {
 
 }  // namespace
 
-HdMerlinRenderBuffer::HdMerlinRenderBuffer(const SdfPath& id)
-    : HdRenderBuffer(id) {}
+HdMerlinRenderBuffer::HdMerlinRenderBuffer(
+    const SdfPath& id,
+    std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge)
+    : HdRenderBuffer(id),
+      hgi_vulkan_bridge_(std::move(hgi_vulkan_bridge)) {}
+
+HdMerlinRenderBuffer::~HdMerlinRenderBuffer() {
+  std::scoped_lock lock(mutex_);
+  DestroyHgiTargetLocked();
+}
 
 bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
                                     bool multi_sampled) {
@@ -2778,11 +2790,27 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
       pixels > std::numeric_limits<std::size_t>::max() / pixel_size) {
     return false;
   }
+  const bool recreation = static_cast<bool>(hgi_target_);
+  DestroyHgiTargetLocked();
   dimensions_ = dimensions;
   format_ = format;
   multi_sampled_ = multi_sampled;
   converged_ = false;
   data_.assign(pixels * pixel_size, 0);
+  if (hgi_vulkan_bridge_ && pixels != 0) {
+    HgiTextureDesc descriptor;
+    descriptor.debugName = GetId().GetString();
+    descriptor.usage = HgiTextureUsageBitsShaderRead;
+    descriptor.format =
+        format == HdFormatUNorm8Vec4
+            ? HgiFormatUNorm8Vec4
+            : (format == HdFormatFloat32 ? HgiFormatFloat32
+                                         : HgiFormatInt32);
+    descriptor.dimensions = dimensions;
+    descriptor.sampleCount = HgiSampleCount1;
+    hgi_target_ =
+        hgi_vulkan_bridge_->CreateTarget(descriptor, recreation);
+  }
   return true;
 }
 
@@ -2842,6 +2870,14 @@ bool HdMerlinRenderBuffer::IsConverged() const {
   return converged_;
 }
 
+VtValue HdMerlinRenderBuffer::GetResource(bool multi_sampled) const {
+  std::scoped_lock lock(mutex_);
+  if (multi_sampled || multi_sampled_ || !hgi_target_) {
+    return {};
+  }
+  return VtValue(hgi_target_);
+}
+
 bool HdMerlinRenderBuffer::WriteColor(
     const std::vector<std::uint8_t>& rgba8, std::uint32_t width,
     std::uint32_t height) {
@@ -2853,6 +2889,7 @@ bool HdMerlinRenderBuffer::WriteColor(
     return false;
   }
   data_ = rgba8;
+  (void)UploadHgiTargetLocked();
   return true;
 }
 
@@ -2868,6 +2905,7 @@ bool HdMerlinRenderBuffer::WriteDepth(const std::vector<float>& depth,
     return false;
   }
   std::memcpy(data_.data(), depth.data(), byte_size);
+  (void)UploadHgiTargetLocked();
   return true;
 }
 
@@ -2883,6 +2921,7 @@ bool HdMerlinRenderBuffer::WriteId(const std::vector<std::uint32_t>& ids,
     return false;
   }
   std::memcpy(data_.data(), ids.data(), byte_size);
+  (void)UploadHgiTargetLocked();
   return true;
 }
 
@@ -2896,6 +2935,7 @@ void HdMerlinRenderBuffer::_Deallocate() {
   if (map_count_ != 0) {
     return;
   }
+  DestroyHgiTargetLocked();
   dimensions_ = GfVec3i(0);
   format_ = HdFormatInvalid;
   multi_sampled_ = false;
@@ -2903,17 +2943,53 @@ void HdMerlinRenderBuffer::_Deallocate() {
   data_.clear();
 }
 
+bool HdMerlinRenderBuffer::UploadHgiTargetLocked() {
+  if (!hgi_target_) {
+    return false;
+  }
+  if (!hgi_vulkan_bridge_ ||
+      !hgi_vulkan_bridge_->Upload(hgi_target_, data_.data(), data_.size())) {
+    DestroyHgiTargetLocked();
+    return false;
+  }
+  return true;
+}
+
+void HdMerlinRenderBuffer::DestroyHgiTargetLocked() {
+  if (hgi_vulkan_bridge_ && hgi_target_) {
+    hgi_vulkan_bridge_->DestroyTarget(&hgi_target_);
+  } else {
+    hgi_target_ = {};
+  }
+}
+
 class HdMerlinRenderDelegate::Impl {
  public:
-  Impl() : bridge(std::make_shared<SceneBridge>()) {}
+  Impl()
+      : bridge(std::make_shared<SceneBridge>()),
+        hgi_vulkan_bridge(std::make_shared<HdMerlinHgiVulkanBridge>(
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_VULKAN_BRIDGE
+            true
+#else
+            false
+#endif
+            )) {}
   explicit Impl(std::shared_ptr<merlin::render::Backend> backend) {
     if (!backend) {
       throw std::invalid_argument("Hydra renderer backend is null");
     }
     bridge = std::make_shared<SceneBridge>(std::move(backend));
+    hgi_vulkan_bridge = std::make_shared<HdMerlinHgiVulkanBridge>(
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_VULKAN_BRIDGE
+        true
+#else
+        false
+#endif
+    );
   }
 
   std::shared_ptr<SceneBridge> bridge;
+  std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge;
   HydraDirtyTracker dirty_tracker;
   HdSceneIndexBaseRefPtr terminal_scene_index;
 };
@@ -2933,6 +3009,11 @@ HdMerlinRenderDelegate::HdMerlinRenderDelegate(
 
 HdMerlinRenderDelegate::~HdMerlinRenderDelegate() = default;
 
+void HdMerlinRenderDelegate::SetDrivers(const HdDriverVector& drivers) {
+  HdRenderDelegate::SetDrivers(drivers);
+  impl_->hgi_vulkan_bridge->SetDrivers(drivers);
+}
+
 void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
     bool counter_clockwise) {
   impl_->bridge->SetCameraFrontFaceWinding(
@@ -2942,7 +3023,10 @@ void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
 
 HdMerlinViewportFrame
 HdMerlinRenderDelegate::GetLatestViewportFrame() const {
-  return impl_->bridge->GetLatestViewportFrame();
+  auto frame = impl_->bridge->GetLatestViewportFrame();
+  frame.hgi_vulkan_bridge = impl_->hgi_vulkan_bridge->status();
+  frame.hgi_vulkan_telemetry = impl_->hgi_vulkan_bridge->telemetry();
+  return frame;
 }
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
@@ -3026,14 +3110,15 @@ void HdMerlinRenderDelegate::DestroySprim(HdSprim* sprim) { delete sprim; }
 HdBprim* HdMerlinRenderDelegate::CreateBprim(const TfToken& type_id,
                                              const SdfPath& bprim_id) {
   if (type_id == HdPrimTypeTokens->renderBuffer) {
-    return new HdMerlinRenderBuffer(bprim_id);
+    return new HdMerlinRenderBuffer(bprim_id, impl_->hgi_vulkan_bridge);
   }
   return nullptr;
 }
 
 HdBprim* HdMerlinRenderDelegate::CreateFallbackBprim(const TfToken& type_id) {
   if (type_id == HdPrimTypeTokens->renderBuffer) {
-    return new HdMerlinRenderBuffer(SdfPath("/__merlinFallbackRenderBuffer"));
+    return new HdMerlinRenderBuffer(SdfPath("/__merlinFallbackRenderBuffer"),
+                                    impl_->hgi_vulkan_bridge);
   }
   return nullptr;
 }
