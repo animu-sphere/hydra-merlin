@@ -9,8 +9,9 @@ current and first backend and Metal as its planned second backend. It is not a
 DCC plugin by itself: the product is the composition of a renderer core,
 independently optimized GPU backends, a renderer-owned extraction layer, an
 independent material compiler, and thin Hydra/DCC adapters. The accepted
-Vulkan/Metal, Slang, MaterialX, native viewport, and HgiMetal boundaries are in
-the [multi-backend strategy](multibackend-slang-materialx.md).
+Vulkan/Metal, Slang, MaterialX, native viewport, and host-bridge boundaries are
+in the [multi-backend strategy](multibackend-slang-materialx.md) and the
+[Hgi host presentation policy](hgi-host-presentation.md).
 
 ## Dependency boundary
 
@@ -51,6 +52,9 @@ Required rules:
   creation; Vulkan owns the resulting surface, swapchain, images, and sync.
 - Tier 0 CPU readback remains the correctness reference when lower-copy host
   presentation is added.
+- HgiVulkan and HgiMetal are Hydra-adapter integrations. They share host
+  transfer semantics, but no Hgi type enters Core or a backend public API and
+  no backend surrenders native resource ownership to the host.
 - Dependencies point from adapters/integrations toward Core and backend, never
   from Core toward a host SDK.
 
@@ -155,7 +159,9 @@ OpenUSD 26.05 already supplies the concrete
 `particleField` Rprim token. The accepted attribute, fallback, invalidation,
 and compatibility boundary is recorded in the
 [Gaussian ingestion through Hydra](gaussian-hydra-ingestion.md).
-`GaussianResource` and native rendering remain v0.14.0 work.
+`GaussianResource` and native rendering remain v0.14.1 work. The subsequent
+GPU-driven, temporal, LOD, and streaming sequence is in the
+[Gaussian rendering roadmap](gaussian-rendering-roadmap.md).
 
 The Mesh pipeline evolves behind this boundary in measured stages: bindless
 resource tables, a persistent GPU Scene, GPU-driven indexed Forward, an opaque
@@ -274,9 +280,11 @@ long-running static scene, and usdview first frame/navigation.
 
 Optimization follows measurement. In particular, lower-copy presentation is
 not selected until usdview timings separate Hydra Sync, snapshot and GPU scene
-work, command recording/submission, GPU execution, readback, RenderBuffer
-resolve/map, Hgi upload, and host presentation. Tier 0 CPU readback remains the
-reference path after any faster presentation adapter is added.
+work, command recording/submission, GPU execution, renderer completion, bridge
+copy/wait, RenderBuffer resolve/map, Hgi upload, host composite, and host
+consumption. Tier 0 CPU readback remains the reference path after any faster
+presentation adapter is added; GPU copy is the initial bridge path and direct
+sharing is a separately verified capability.
 
 ## Permanent validation gates
 

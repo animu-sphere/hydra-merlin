@@ -36,15 +36,17 @@ presentation; its completed pre-release detail is retained in the changelog and
 delivery history. v0.10.0 released a MaterialXGenSlang material-function slice,
 and v0.11.0 released native Metal offscreen execution and residency while the
 active v0.10.x work finishes the renderer-development diagnostic surface.
-v0.12.0 released native Metal viewport presentation; an HgiMetal host bridge
-follows. The later Mesh and Gaussian paths advance
-through persistent draw
-identity, GPU-driven execution, an experimental opaque Visibility Buffer,
-production MaterialX and lighting quality, and static meshlets. Optional Mesh
-Shader, Hi-Z/LOD, and large-scene streaming remain measurement-gated. The
+v0.12.0 released native Metal viewport presentation. v0.13.0 starts the
+HgiVulkan GPU-copy bridge, v0.14.0 follows with HgiMetal, and v0.14.1 establishes
+the Gaussian correctness MVP. The later Gaussian path advances through
+persistent resources, GPU-driven projection/sorting, contribution-aware and
+hierarchical tiling, temporal reuse, LOD/compression, and streaming; Mesh
+Visibility, MaterialX/lighting, meshlets, Mesh Shader, and Hi-Z remain
+independently measurement-gated. The
 architecture behind this order is recorded in the [multi-backend shader and
-presentation strategy](../design/multibackend-slang-materialx.md); the exact
-v0.10.0 contract is the
+presentation strategy](../design/multibackend-slang-materialx.md), [Hgi host
+presentation policy](../design/hgi-host-presentation.md), and [Gaussian
+rendering roadmap](../design/gaussian-rendering-roadmap.md); the exact v0.10.0 contract is the
 [MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
 
 When a version ships, its completed scope is captured in the changelog and
@@ -92,10 +94,10 @@ The long-term ownership invariants are:
 | Phase | Objective | Planned scope |
 | --- | --- | --- |
 | A — Renderer foundation | Complete material, diagnostics, and renderer-development foundations. | v0.10.0, v0.10.x, and foundation gates |
-| B — Backend parity | Establish cross-platform backend and presentation parity. | v0.11.0–v0.13.0 |
-| C — Scene and lighting breadth | Broaden scene representation and establish the lighting ladder. | v0.14.0–v0.15.0 and lighting tiers |
-| D — GPU scalability | Scale submission and shading through measured GPU-driven paths. | v0.16.0–v0.20.0 |
-| E — Production readiness | Productize large scenes, DCC hosts, runtime composition, and v1.0 contracts. | v0.21.0–v1.0.0 |
+| B — Backend parity | Establish native and Hgi host-presentation parity. | v0.11.0–v0.14.0 |
+| C — Scene breadth | Establish the Gaussian correctness and persistent-resource baselines. | v0.14.1–v0.15.0 and lighting tiers |
+| D — GPU scalability | Scale Mesh and Gaussian execution through measured GPU-driven paths. | v0.16.0–v0.20.0 |
+| E — Production readiness | Productize streaming, backend parity, DCC hosts, runtime composition, and v1.0 contracts. | v0.21.0–v1.0.0 |
 
 ## Quality bar
 
@@ -166,7 +168,8 @@ Every milestone defines its release gates in six categories:
 - **Keep presentation separable.** Native Vulkan viewport, headless rendering,
   native Metal viewport, headless rendering, and Hgi/DCC presentation use the
   same renderer core while keeping their presentation costs independently
-  measurable. HgiMetal is a host AOV bridge, not the Metal rendering RHI.
+  measurable. HgiVulkan and HgiMetal are host AOV bridges, not rendering RHIs;
+  Tier 0 CPU transfer remains permanent and GPU copy precedes direct sharing.
 - **Measure before optimizing.** Hydra Sync, scene normalization, command
   recording, GPU work, readback, host upload, and presentation must be separated
   before selecting an optimization.

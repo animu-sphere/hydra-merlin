@@ -14,28 +14,37 @@ order.
 
 ## Phase B — Cross-platform backend and presentation parity
 
-### ⬜ v0.13.0 — Hydra host presentation bridges
+### ⬜ v0.13.0 — HgiVulkan GPU-copy bridge
 
-Implement `MetalHgiMetalBridge` as an adapter between `merlin-metal` AOVs and
-the Hydra host composite, not as the renderer RHI. Validate the public HgiMetal
-device, texture, format, usage, synchronization, resize, and composite contracts
-for each supported OpenUSD/host version. Select direct same-device texture
-sharing when supported, Metal-local texture copy otherwise, and CPU readback as
-the universal fallback. Preserve independent presentation telemetry and color,
-depth, `primId`, and `instanceId` semantics.
+Implement `HgiVulkanBridge` in the Hydra adapter, not the renderer RHI. Create
+Hgi-owned destination targets, retain Tier 0 CPU RenderBuffers as the reference
+path, then copy selected color/depth/`primId`/`instanceId` AOVs from
+`merlin-vulkan` images with explicit layout/ownership transitions and a distinct
+bridge completion token. Validate public HgiVulkan device, texture, format,
+usage, resize, target-lifetime, and host-composite contracts for each supported
+OpenUSD/host version.
 
-Retain Tier 0 CPU RenderBuffer readback for every backend. If measured host
-costs justify it, add an independent HgiVulkan adapter using same-device image
-sharing first, external memory/semaphore interop second, and GPU copy fallback
-third; Vulkan and Metal synchronization and resource ownership stay backend-
-specific.
+Exit requires CPU fallback and GPU copy to work; camera-only GPU-copy frames to
+avoid CPU readback/upload; resize and frames-in-flight retirement to be safe;
+unsupported configurations to report structured fallback reasons; independent
+presentation telemetry; no coarse device/queue idle wait; and Tier 0 comparison
+evidence. Direct native sharing and external interop are not v0.13.0 claims.
 
-Exit requires Metal AOVs to display in the reference Hydra host; GPU-copy and
-CPU fallbacks to work; direct sharing to be selected where the public host
-contract permits it; resize and frames-in-flight lifetime to remain safe; and
-native and Hydra presentation to consume the same renderer output. Any claimed
-low-copy path must avoid coarse device waits and show a measured benefit over
-Tier 0. Immediate zero-copy coverage for every DCC is not required.
+### ⬜ v0.13.1 — HgiVulkan direct-path hardening
+
+Consider same-logical-device sharing only after physical/logical device identity,
+queue ownership, format/usage, public host consumption, completion retention,
+resize/destruction, and vendor/driver evidence are all verified. GPU copy remains
+the fallback. External memory/semaphores require a demonstrated supported-host
+need and a measured advantage over GPU copy.
+
+### ⬜ v0.14.0 — HgiMetal bridge
+
+Implement the equivalent HgiMetal adapter with Tier 0 CPU fallback, Metal-local
+copy, and optional same-`MTLDevice` sharing. Preserve independent Metal resource
+ownership and synchronization, validate SDR sRGB/Display P3 target contracts and
+HDR rejection, and compare native Metal viewport and Hydra output from the same
+renderer AOVs. See the [Hgi host presentation policy](../design/hgi-host-presentation.md).
 
 ## Phase C — Scene breadth and lighting quality
 
@@ -67,7 +76,7 @@ MaterialX paths agree within tolerance, lighting cost is separately observable,
 representative dielectric/metal/textured/normal-mapped/mixed-light fixtures
 exist, and Vulkan/Metal behavior is compared where both backends are available.
 
-### ⬜ v0.14.0 — Gaussian MVP
+### ⬜ v0.14.1 — Gaussian MVP
 
 Consume the existing OpenUSD Gaussian representation through Hydra and create
 host-neutral Gaussian resources. Implement GPU upload, covariance evaluation,
@@ -85,18 +94,22 @@ visibility updates, and native-viewport performance evidence. GPU radix sort,
 tiling, streaming, LOD, compression, and out-of-core rendering are not MVP
 requirements.
 
-### ⬜ v0.15.0 — Persistent draw and instancing
+### ⬜ v0.15.0 — Persistent GPU Scene and Gaussian resources
 
 Complete the common GPU Scene ABI with persistent geometry, instance, material,
 and draw records; stable object/draw/material/primitive/instance IDs; reflected
 C++/shader layouts; pipeline/material sorting; descriptor-bind reduction;
 secondary-command reuse; parallel recording; instance aggregation;
 nested-instancing improvements; per-instance visibility; and revision-based
-packet invalidation.
+packet invalidation. Add generation-checked persistent Gaussian records,
+changed-range updates, immutable snapshot integration, and separate Gaussian
+ingestion/projection/sort/pair/raster timing.
 
-Exit requires static scenes to generate no new draw packets and Mesh submission
-cost to be ready for indirect execution without weakening deterministic IDs,
-changed-range upload, picking identity, or completion-safe resource lifetime.
+Exit requires static Mesh scenes to generate no new draw packets, static Gaussian
+scenes to allocate or upload nothing, partial Gaussian edits to upload only
+changed ranges, and both paths to retain deterministic IDs, picking identity,
+and completion-safe lifetime. The full Gaussian sequence is in the
+[Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
 
 ## Phase D — GPU-driven rendering and shading scalability
 
@@ -116,7 +129,16 @@ render preparations to complete in a small number of GPU dispatches/draws.
 Conventional Forward output remains the image reference, and candidate/visible
 counts plus culling cost are retained as benchmark evidence.
 
-### ⬜ v0.17.0 — Experimental opaque Visibility Buffer
+### ⬜ v0.17.0 — Contribution-aware Gaussian culling and adaptive bounds
+
+Add conservative Gaussian and Gaussian–tile contribution bounds, tighter
+projected bounds, threshold quality modes, and diagnostics for rejection,
+pair counts, saturation, and early termination. `Exact` remains the validation
+path; `Balanced` requires image and temporal-tolerance evidence with no
+unexplained view-dependent popping. Experimental opaque Mesh Visibility remains
+a separately gated track after GPU-driven indexed Forward is stable.
+
+### ⬜ Experimental opaque Visibility Buffer — independently gated Mesh track
 
 Add an opt-in Visibility path for supported opaque, static, indexed triangle
 meshes. Rasterize stable draw and primitive IDs to `R32G32_UINT` plus depth,
@@ -131,7 +153,13 @@ images; explicit pass barriers/timestamps; and separate visibility-raster and
 material-resolve evidence. Visibility remains a selectable path, not the new
 universal renderer.
 
-### ⬜ v0.18.0 — Production MaterialX and lighting quality
+### ⬜ v0.18.0 — Hierarchical Gaussian tiles; production MaterialX and lighting
+
+Classify coarse Gaussian tiles, render light tiles directly, and subdivide only
+heavy tiles for local pair generation and sorting. Start with a bounded two-level
+path, overflow fallback, debug visualization, and resolution-specific profiles;
+select it only from measured 4K/8K p95/p99 benefit. MaterialX and lighting work
+continues as an independent scope:
 
 Extend the accepted v0.10.0
 [MaterialX material-function boundary](../design/materialxgenslang-boundary.md)
@@ -160,7 +188,13 @@ diagnosed, and compared across Vulkan and Metal. Raw MaterialX graphs never
 enter the Core scene model, and Gaussian appearance is not forced into a
 MaterialX BSDF.
 
-### ⬜ v0.19.0 — Static meshlet rendering
+### ⬜ v0.19.0 — Temporal Gaussian reuse; static meshlet rendering
+
+Reuse only compatibility-classified Gaussian preprocessing with conservative
+camera margins, periodic full validation, and explicit invalidation on scene,
+projection, target, LOD, or residency changes. `PreprocessOnly` must be exact;
+selective color-tile reuse remains experimental. Static meshlet work continues
+as an independent scope:
 
 Build material-homogeneous meshlets internally from standard Hydra mesh data
 after triangulation and `GeomSubset` partitioning. Add deterministic local
@@ -177,7 +211,11 @@ parity; visible and rejected meshlet statistics; and a measured reduction in
 processed triangles or frame cost on the large-static-mesh fixture without a
 regression on small-mesh fallback fixtures.
 
-### ⬜ v0.20.0 — Optional Mesh Shader, Hi-Z, and discrete LOD
+### ⬜ v0.20.0 — Gaussian LOD/compression; optional Mesh Shader, Hi-Z, and mesh LOD
+
+Add deterministic Gaussian chunk bounds, discrete LOD, versioned compression,
+full-precision fallback, and residency preparation with image/temporal evidence.
+Mesh optional-path work continues as an independent scope:
 
 Add a capability- and benchmark-selected `VK_EXT_mesh_shader` backend while
 retaining indexed-indirect meshlets. Add previous-frame hierarchical-Z
@@ -192,11 +230,13 @@ visibility errors during motion, and acceptable versioned LOD transitions.
 
 ## Phase E — Large scenes, hosts, and production readiness
 
-### ⬜ v0.21.0 — Large-scene streaming and parallel ingestion
+### ⬜ v0.21.0 — Gaussian streaming/out-of-core rendering and parallel ingestion
 
-Add chunked hierarchical Gaussian bounds, multi-resolution LOD, compressed and
-quantized attributes, asynchronous streaming, eviction/prefetch, temporal
-residency, mesh/texture residency, VRAM budgets, and out-of-core rendering.
+Add asynchronous Gaussian chunk requests, decode/upload queues, prioritized
+prefetch, completion-safe residency, eviction, temporal hysteresis, bounded
+VRAM, and out-of-core rendering. Missing data retains a coarser resident LOD
+or bounded proxy and never exposes uninitialized memory. Continue mesh/texture
+residency as independently justified work.
 Parallelize Hydra primitive processing, triangulation, primvar/Gaussian
 conversion, batched RenderWorld commits, and incremental snapshot generation
 with deterministic merge and low-contention queues.
@@ -204,6 +244,14 @@ with deterministic merge and low-contention queues.
 Exit requires a scene larger than VRAM to stream only needed chunks with bounded
 hitches and controllable quality, plus deterministic CPU scaling for large dirty
 sets across available cores.
+
+### ⬜ v0.22.0 — Gaussian cross-backend optimization and production hardening
+
+Bring Vulkan and Metal to one Gaussian resource ABI, culling/sort semantics,
+quality modes, AOV/picking contract, telemetry vocabulary, and reference
+tolerance while retaining backend-specific kernels. Add capability-selected
+optimization, overflow/device-loss/allocation diagnostics, cache persistence,
+reproducible benchmarks, host-presentation validation, and conservative fallback.
 
 ### DCC integration order
 

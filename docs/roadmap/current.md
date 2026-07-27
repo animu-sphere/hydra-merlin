@@ -15,6 +15,21 @@ compatibility, limitations, and evidence are recorded in
 Metal viewport presentation; its objective, compatibility, limitations, and
 evidence are recorded in [docs/releases/v0.12.0.md](../releases/v0.12.0.md).
 
+## v0.13.0 — HgiVulkan GPU-copy bridge
+
+The next release starts host presentation work with HgiVulkan. The Hydra adapter
+will establish Hgi-owned destination targets and retain the existing Tier 0 CPU
+RenderBuffer path as the universal reference/fallback. It will then add
+selected-AOV Vulkan GPU copy with explicit image state, renderer-to-bridge and
+bridge-to-host completion, resize/frames-in-flight-safe retirement, structured
+capability and rejection telemetry, and Tier 0 image/performance comparison.
+
+This release does not claim direct native resource sharing or external
+memory/semaphore interop. Same-logical-device direct sharing is a separately
+gated v0.13.1 hardening path, and HgiMetal follows in v0.14.0. The full
+contract, forbidden synchronization, validation matrix, and dependency rules
+are in the [Hgi host presentation policy](../design/hgi-host-presentation.md).
+
 ## Active carry-over
 
 ### ⬜ v0.10.x — Development viewport and diagnostic surface
