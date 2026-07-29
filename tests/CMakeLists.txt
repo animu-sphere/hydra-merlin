@@ -316,6 +316,18 @@ set_tests_properties(merlin-mesh-scale-regression PROPERTIES
   TIMEOUT 60)
 
 if(TARGET Merlin::Vulkan)
+  add_executable(merlin-borrowed-vulkan-context-tests
+    borrowed_vulkan_context_test.cpp
+  )
+  target_link_libraries(merlin-borrowed-vulkan-context-tests
+    PRIVATE Merlin::Vulkan)
+  add_test(NAME merlin-vulkan-borrowed-context
+           COMMAND merlin-borrowed-vulkan-context-tests)
+  set_tests_properties(merlin-vulkan-borrowed-context PROPERTIES
+    LABELS "gpu;vulkan;hgi;presentation"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 60)
+
   add_executable(merlin-shader-abi-tests
     shader_abi_test.cpp
   )
