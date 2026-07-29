@@ -199,7 +199,7 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     }
   }
 
-  void ReleaseAovImage(AovImageLease lease) override {
+  void ReleaseAovImage(AovImageLease&& lease) override {
     try {
       renderer_.ReleaseAovImage(std::move(lease));
     } catch (const RendererError& error) {

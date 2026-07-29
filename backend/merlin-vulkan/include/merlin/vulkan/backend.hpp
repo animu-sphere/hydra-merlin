@@ -15,7 +15,7 @@ class AovImageExporter {
   virtual ~AovImageExporter() = default;
   [[nodiscard]] virtual AovImageExport AcquireAovImage(
       render::CompletionToken token, Aov aov) = 0;
-  virtual void ReleaseAovImage(AovImageLease lease) = 0;
+  virtual void ReleaseAovImage(AovImageLease&& lease) = 0;
 };
 
 struct BackendFactoryOptions {

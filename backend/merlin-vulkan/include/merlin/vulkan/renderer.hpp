@@ -453,16 +453,7 @@ class AovImageLease {
     other.owner_ = 0;
     other.completion_ = 0;
   }
-  AovImageLease& operator=(AovImageLease&& other) noexcept {
-    if (this != &other) {
-      owner_ = other.owner_;
-      completion_ = other.completion_;
-      aov_ = other.aov_;
-      other.owner_ = 0;
-      other.completion_ = 0;
-    }
-    return *this;
-  }
+  AovImageLease& operator=(AovImageLease&&) = delete;
   AovImageLease(const AovImageLease&) = delete;
   AovImageLease& operator=(const AovImageLease&) = delete;
 
@@ -565,7 +556,7 @@ class Renderer {
   // that must complete before a bridge reads it. Resolve may run while the
   // lease is held, but no frame target is reused until ReleaseAovImage.
   [[nodiscard]] AovImageExport AcquireAovImage(CompletionToken token, Aov aov);
-  void ReleaseAovImage(AovImageLease lease);
+  void ReleaseAovImage(AovImageLease&& lease);
   [[nodiscard]] RenderResult Resolve(
       CompletionToken token,
       std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max());

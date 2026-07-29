@@ -5760,17 +5760,21 @@ AovImageExport Renderer::AcquireAovImage(CompletionToken token, Aov aov) {
                         "token belongs to another renderer");
   }
   auto result = impl_->AcquireAovImage(token.value_, aov);
-  result.lease = AovImageLease(impl_->owner_id_, token.value_, aov);
+  result.lease.owner_ = impl_->owner_id_;
+  result.lease.completion_ = token.value_;
+  result.lease.aov_ = aov;
   return result;
 }
 
-void Renderer::ReleaseAovImage(AovImageLease lease) {
+void Renderer::ReleaseAovImage(AovImageLease&& lease) {
   if (!lease || lease.owner_ != impl_->owner_id_) {
     throw RendererError(RendererErrorCode::InvalidToken,
                         "release AOV image",
                         "lease belongs to another renderer");
   }
   impl_->ReleaseAovImage(lease.completion_, lease.aov_);
+  lease.owner_ = 0;
+  lease.completion_ = 0;
 }
 
 RenderResult Renderer::Resolve(CompletionToken token,

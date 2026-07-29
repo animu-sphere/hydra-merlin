@@ -15,10 +15,15 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace {
+
+static_assert(
+    !std::is_move_assignable_v<merlin::vulkan::AovImageLease>,
+    "an active AOV image lease must not be replaceable without release");
 
 merlin::MeshDescriptor Triangle(float x) {
   merlin::MeshDescriptor mesh;
@@ -295,7 +300,18 @@ int main(int argc, char** argv) {
   const auto backend_result = backend->Resolve(backend_token);
   assert(backend_result.telemetry.aov_image_export_count == 1);
   assert(backend->statistics().active_aov_image_leases == 1);
+  bool wrong_renderer_rejected{};
+  try {
+    renderer->ReleaseAovImage(std::move(backend_export.lease));
+  } catch (const merlin::vulkan::RendererError& error) {
+    wrong_renderer_rejected =
+        IsCode(error, merlin::vulkan::RendererErrorCode::InvalidToken);
+  }
+  assert(wrong_renderer_rejected);
+  assert(backend_export.lease);
+  assert(backend->statistics().active_aov_image_leases == 1);
   exporter->ReleaseAovImage(std::move(backend_export.lease));
+  assert(!backend_export.lease);
   assert(backend->statistics().active_aov_image_leases == 0);
 
   bool consumed{};
