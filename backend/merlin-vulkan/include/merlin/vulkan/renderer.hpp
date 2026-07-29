@@ -97,6 +97,28 @@ struct PresentationOptions {
   bool vsync{true};
 };
 
+// Application-owned Vulkan execution context used by host integrations such
+// as HgiVulkan. The caller retains every handle for the Renderer lifetime and
+// externally serializes access to graphics_queue. Renderer owns all resources,
+// command pools, and synchronization objects it creates on the borrowed
+// device, but never destroys or idles the application device, queue, physical
+// device, or instance.
+//
+// Feature enablement is stated explicitly because querying physical-device
+// support cannot prove which optional features the application enabled when it
+// created VkDevice. The initial host path deliberately uses the conventional
+// descriptor backend and one graphics queue.
+struct BorrowedVulkanContext {
+  std::uintptr_t instance{};
+  std::uintptr_t physical_device{};
+  std::uintptr_t device{};
+  std::uintptr_t graphics_queue{};
+  std::uint32_t graphics_queue_family{};
+  std::uint32_t graphics_queue_index{};
+  bool timeline_semaphore_enabled{};
+  bool validation_enabled{};
+};
+
 struct RendererOptions {
   bool enable_validation{};
   std::uint32_t frames_in_flight{3};
@@ -110,6 +132,7 @@ struct RendererOptions {
   std::uint64_t vram_limit_bytes{};
   bool enable_async_transfer{true};
   std::optional<PresentationOptions> presentation;
+  std::optional<BorrowedVulkanContext> borrowed_context;
   std::vector<GeneratedMaterialArtifact> generated_material_artifacts;
 };
 
@@ -132,6 +155,7 @@ struct RendererCapabilities {
   bool transfer_queue{};
   bool async_transfer_queue{};
   bool queue_ownership_transfers{};
+  bool borrowed_vulkan_context{};
   std::uint32_t graphics_queue_family{};
   std::uint32_t transfer_queue_family{};
   bool memory_budget_extension{};

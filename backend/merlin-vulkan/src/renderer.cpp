@@ -978,6 +978,18 @@ class Renderer::Impl {
                           "create renderer",
                           "bindless_sampler_capacity must not exceed 65536");
     }
+    if (options.borrowed_context && options.presentation) {
+      throw RendererError(
+          RendererErrorCode::InvalidRequest, "create renderer",
+          "a borrowed Vulkan context cannot own native presentation");
+    }
+    if (options.borrowed_context &&
+        options.descriptor_backend == DescriptorBackendRequest::Bindless) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "create renderer",
+          "a borrowed Vulkan context initially supports only conventional "
+          "descriptors");
+    }
     if (options.presentation) {
       if (options.presentation->create_surface == nullptr) {
         throw RendererError(RendererErrorCode::InvalidRequest,
@@ -1046,7 +1058,22 @@ class Renderer::Impl {
 
   ~Impl() {
     if (device_ != VK_NULL_HANDLE) {
-      (void)vkDeviceWaitIdle(device_);
+      if (owns_vulkan_context_) {
+        (void)vkDeviceWaitIdle(device_);
+      } else {
+        // Waiting only for Merlin submissions avoids idling unrelated Hgi or
+        // host work on the application-owned device.
+        for (auto& frame : frames_) {
+          if (frame.outstanding) {
+            try {
+              WaitForFrame(frame, std::chrono::nanoseconds::max());
+            } catch (const std::exception&) {
+              // Destructors cannot report a device-loss-style failure. Keep
+              // teardown best-effort while never escalating to device idle.
+            }
+          }
+        }
+      }
       ShutdownPresentationOverlay();
       for (auto& retired : deferred_) {
         DestroyBuffer(retired.buffer);
@@ -1156,7 +1183,9 @@ class Renderer::Impl {
         vkDestroySemaphore(device_, transfer_timeline_semaphore_, nullptr);
       }
       DestroySwapchain();
-      vkDestroyDevice(device_, nullptr);
+      if (owns_vulkan_context_) {
+        vkDestroyDevice(device_, nullptr);
+      }
     }
     if (surface_ != VK_NULL_HANDLE && instance_ != VK_NULL_HANDLE) {
       vkDestroySurfaceKHR(instance_, surface_, nullptr);
@@ -1168,7 +1197,7 @@ class Renderer::Impl {
         destroy(instance_, debug_messenger_, nullptr);
       }
     }
-    if (instance_ != VK_NULL_HANDLE) {
+    if (owns_vulkan_context_ && instance_ != VK_NULL_HANDLE) {
       vkDestroyInstance(instance_, nullptr);
     }
   }
@@ -1699,7 +1728,190 @@ class Renderer::Impl {
         snapshot.source_id == 0 ? 0 : snapshot.revision;
   }
 
+  void AdoptBorrowedContext(const RendererOptions& options) {
+    const auto& borrowed = *options.borrowed_context;
+    instance_ = DecodeHandle<VkInstance>(borrowed.instance);
+    physical_device_ =
+        DecodeHandle<VkPhysicalDevice>(borrowed.physical_device);
+    device_ = DecodeHandle<VkDevice>(borrowed.device);
+    queue_ = DecodeHandle<VkQueue>(borrowed.graphics_queue);
+    queue_family_ = borrowed.graphics_queue_family;
+    if (instance_ == VK_NULL_HANDLE ||
+        physical_device_ == VK_NULL_HANDLE ||
+        device_ == VK_NULL_HANDLE || queue_ == VK_NULL_HANDLE) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "borrow Vulkan context",
+                          "instance, physical device, device, and graphics "
+                          "queue handles must all be non-null");
+    }
+    if (options.enable_validation && !borrowed.validation_enabled) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "borrow Vulkan context",
+          "renderer validation was requested but the application did not "
+          "enable validation for the borrowed device");
+    }
+
+    std::uint32_t queue_count{};
+    vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_count,
+                                             nullptr);
+    if (queue_family_ >= queue_count) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "borrow Vulkan context",
+                          "graphics queue family is out of range");
+    }
+    std::vector<VkQueueFamilyProperties> queues(queue_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_count,
+                                             queues.data());
+    const auto& queue_properties = queues[queue_family_];
+    if ((queue_properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0U ||
+        borrowed.graphics_queue_index >= queue_properties.queueCount) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "borrow Vulkan context",
+                          "borrowed queue is not a valid graphics queue");
+    }
+    VkQueue declared_queue{};
+    vkGetDeviceQueue(device_, queue_family_, borrowed.graphics_queue_index,
+                     &declared_queue);
+    if (declared_queue != queue_) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "borrow Vulkan context",
+                          "graphics queue does not match its declared family "
+                          "and index");
+    }
+
+    std::uint32_t loader_api_version = VK_API_VERSION_1_0;
+    const auto enumerate_instance_version =
+        reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+            vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion"));
+    if (enumerate_instance_version != nullptr) {
+      Check(enumerate_instance_version(&loader_api_version),
+            "query Vulkan loader version");
+    }
+    if (loader_api_version < kMinimumVulkanApiVersion) {
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "borrow Vulkan context",
+                          std::string("Vulkan ") +
+                              MERLIN_VULKAN_MIN_VERSION_STRING +
+                              " loader is required");
+    }
+
+    VkPhysicalDeviceDescriptorIndexingProperties descriptor_properties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES};
+    VkPhysicalDeviceDriverProperties driver_properties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+    driver_properties.pNext = &descriptor_properties;
+    VkPhysicalDeviceProperties2 properties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    properties.pNext = &driver_properties;
+    vkGetPhysicalDeviceProperties2(physical_device_, &properties);
+    if (properties.properties.apiVersion < kMinimumVulkanApiVersion) {
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "borrow Vulkan context",
+                          std::string("borrowed device does not provide Vulkan ") +
+                              MERLIN_VULKAN_MIN_VERSION_STRING);
+    }
+
+    VkPhysicalDeviceTimelineSemaphoreFeatures timeline{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+    VkPhysicalDeviceFeatures2 features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    features.pNext = &timeline;
+    vkGetPhysicalDeviceFeatures2(physical_device_, &features);
+    if (borrowed.timeline_semaphore_enabled &&
+        timeline.timelineSemaphore != VK_TRUE) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "borrow Vulkan context",
+          "application declared timeline semaphores on a device that does "
+          "not support them");
+    }
+
+    VkFormatProperties depth_properties{};
+    vkGetPhysicalDeviceFormatProperties(physical_device_, kDepthFormat,
+                                        &depth_properties);
+    const auto required_depth =
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
+        VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+    if ((depth_properties.optimalTilingFeatures & required_depth) !=
+        required_depth) {
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "borrow Vulkan context",
+                          "D32 depth attachment readback is unsupported");
+    }
+
+    capabilities_.loader_api_version = loader_api_version;
+    capabilities_.header_version = VK_HEADER_VERSION_COMPLETE;
+    capabilities_.sdk_version = MERLIN_VULKAN_SDK_VERSION;
+    capabilities_.device_name = properties.properties.deviceName;
+    capabilities_.driver_name = driver_properties.driverName;
+    capabilities_.driver_info = driver_properties.driverInfo;
+    capabilities_.api_version = properties.properties.apiVersion;
+    capabilities_.driver_version = properties.properties.driverVersion;
+    capabilities_.vendor_id = properties.properties.vendorID;
+    capabilities_.device_id = properties.properties.deviceID;
+    capabilities_.max_image_dimension_2d =
+        properties.properties.limits.maxImageDimension2D;
+    capabilities_.timeline_semaphore =
+        borrowed.timeline_semaphore_enabled;
+    capabilities_.validation_enabled = borrowed.validation_enabled;
+    capabilities_.graphics_queue = true;
+    capabilities_.compute_queue =
+        (queue_properties.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0U;
+    capabilities_.transfer_queue =
+        (queue_properties.queueFlags & VK_QUEUE_TRANSFER_BIT) != 0U;
+    capabilities_.async_transfer_queue = false;
+    capabilities_.queue_ownership_transfers = false;
+    capabilities_.borrowed_vulkan_context = true;
+    capabilities_.graphics_queue_family = queue_family_;
+    capabilities_.transfer_queue_family = queue_family_;
+    capabilities_.timestamp_queries =
+        properties.properties.limits.timestampPeriod > 0.0F &&
+        queue_properties.timestampValidBits != 0U;
+    capabilities_.external_presentation = false;
+    capabilities_.memory_budget_extension = false;
+    selected_timestamp_valid_bits_ = queue_properties.timestampValidBits;
+    timestamp_period_ns_ = properties.properties.limits.timestampPeriod;
+    uniform_buffer_alignment_ = std::max<VkDeviceSize>(
+        16U, properties.properties.limits.minUniformBufferOffsetAlignment);
+
+    DescriptorIndexingConfiguration descriptor_configuration;
+    descriptor_configuration.request =
+        DescriptorBackendRequest::Conventional;
+    descriptor_configuration.texture_capacity =
+        options.bindless_texture_capacity;
+    descriptor_configuration.sampler_capacity =
+        options.bindless_sampler_capacity;
+    descriptor_configuration.additional_sampler_allocation_count =
+        static_cast<std::uint64_t>(
+            descriptor_configuration.sampler_capacity) *
+        options.frames_in_flight;
+    descriptor_configuration.additional_per_stage_resource_count = 4;
+    capabilities_.descriptor_indexing_selection = SelectDescriptorBackend(
+        descriptor_configuration, {}, {});
+
+    transfer_queue_family_ = queue_family_;
+    transfer_queue_ = queue_;
+    owns_vulkan_context_ = false;
+
+    if (capabilities_.timeline_semaphore) {
+      VkSemaphoreTypeCreateInfo type_info{
+          VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+      type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+      type_info.initialValue = 0;
+      VkSemaphoreCreateInfo semaphore_info{
+          VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+      semaphore_info.pNext = &type_info;
+      Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
+                              &timeline_semaphore_),
+            "create frame timeline semaphore");
+    }
+  }
+
   void CreateDevice(const RendererOptions& options) {
+    if (options.borrowed_context) {
+      AdoptBorrowedContext(options);
+      return;
+    }
+
     constexpr const char* validation_layer = "VK_LAYER_KHRONOS_validation";
     const bool use_validation =
         options.enable_validation && HasLayer(validation_layer);
@@ -5548,6 +5760,7 @@ class Renderer::Impl {
   std::uint64_t active_aov_image_leases_{};
   std::uint64_t latest_completed_value_{};
   VkDeviceSize uniform_buffer_alignment_{16U};
+  bool owns_vulkan_context_{true};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};
   RendererCapabilities capabilities_;
