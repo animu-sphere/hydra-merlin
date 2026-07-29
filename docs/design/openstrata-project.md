@@ -23,9 +23,10 @@ layers.
 
 ## CLI and runtime policy
 
-OST 0.19.0 or newer is the operational baseline. It supplies atomic completion
-records for managed builds, explicit generator/timeout controls, strict runtime
-fingerprinting, and the managed `renderer view` lifecycle used by this project.
+OST 0.21.0 or newer is the operational baseline. It supplies atomic completion
+records for managed builds, child/phase/log-tail timeout diagnostics,
+profile-local preset generation, strict runtime fingerprinting, and the managed
+renderer launch lifecycle used by this project.
 Confirm the selected executable before diagnosing project behavior:
 
 ```console

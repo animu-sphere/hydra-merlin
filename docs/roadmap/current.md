@@ -96,17 +96,18 @@ failure.
 
 ### ⬜ Producer-session renderer evidence
 
-`ost 0.19.0` requires a renderer report to record a producer session that ran
-to completion and succeeded before it will accept a PASS. The generated
-`openstrata.renderer-report/v1alpha1` document emits bare `{id, status}` checks
-with no such field, so `ost validate` reports `renderer-evidence: fail` even
-after a managed build that OpenStrata performed itself.
+`ost 0.21.0` retains the producer-session validation boundary and improves
+managed configure recovery, but this repository has not yet produced a
+successful managed renderer session on the current Windows host. CMake still
+stops during the MSVC compiler ABI try-compile, so the complete renderer JSON
+envelope and the binding between managed completion evidence and generated
+renderer assertions remain unverified here.
 
-The report generator must bind each assertion to the outcome of the session
-that produced it, so a failed or partial run cannot leave a stale PASS behind.
-This depends on the upstream schema being published; the gap and the
-corresponding upstream ask are recorded in
-[OST report 9](../reports/ost/09-2026-07-23-v0.20.0-asks.md).
+Exit requires one successful managed `renderer view` or `renderer viewport`
+session followed by `ost validate`, plus a negative check showing that stale
+external renderer evidence cannot be promoted by a newer managed completion.
+The current recheck and exact remaining evidence are recorded in
+[OST report 11](../reports/ost/11-2026-07-29-v0.21.0-recheck-v0.22.0-asks.md).
 
 ### ⬜ Linux Vulkan validation
 
