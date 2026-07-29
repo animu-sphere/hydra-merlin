@@ -225,6 +225,8 @@ struct RendererStatistics {
   std::uint64_t scene_uploads{};
   std::uint64_t validation_messages{};
   std::uint32_t frame_context_count{};
+  std::uint64_t aov_image_export_count{};
+  std::uint64_t active_aov_image_leases{};
   // Suballocated geometry ranges reclaimed after their retire-frame completed,
   // and ranges still awaiting completion. Retirement is deterministic: a range
   // released while frame N is being prepared is reclaimed exactly when frame
@@ -288,6 +290,7 @@ struct FrameCounters {
   std::uint64_t requested_aov_count{};
   std::uint64_t rendered_aov_count{};
   std::uint64_t cpu_readback_aov_count{};
+  std::uint64_t aov_image_export_count{};
   std::uint64_t wait_count{};
   std::uint64_t resolve_count{};
   std::uint64_t map_count{};
@@ -437,6 +440,72 @@ class CompletionToken {
   std::uint64_t value_{};
 };
 
+// Pins one renderer-owned AOV image after submission so a host bridge can
+// complete a backend-local transfer before the frame target is reused.
+// Leases are move-only and must be returned to the Renderer that created them.
+class AovImageLease {
+ public:
+  AovImageLease() = default;
+  AovImageLease(AovImageLease&& other) noexcept
+      : owner_(other.owner_),
+        completion_(other.completion_),
+        aov_(other.aov_) {
+    other.owner_ = 0;
+    other.completion_ = 0;
+  }
+  AovImageLease& operator=(AovImageLease&& other) noexcept {
+    if (this != &other) {
+      owner_ = other.owner_;
+      completion_ = other.completion_;
+      aov_ = other.aov_;
+      other.owner_ = 0;
+      other.completion_ = 0;
+    }
+    return *this;
+  }
+  AovImageLease(const AovImageLease&) = delete;
+  AovImageLease& operator=(const AovImageLease&) = delete;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return completion_ != 0;
+  }
+  [[nodiscard]] std::uint64_t completion_value() const noexcept {
+    return completion_;
+  }
+  [[nodiscard]] Aov aov() const noexcept { return aov_; }
+
+ private:
+  friend class Renderer;
+  AovImageLease(std::uint64_t owner, std::uint64_t completion, Aov aov) noexcept
+      : owner_(owner), completion_(completion), aov_(aov) {}
+
+  std::uint64_t owner_{};
+  std::uint64_t completion_{};
+  Aov aov_{Aov::Color};
+};
+
+// Vulkan-native source state for one selected AOV. Handles and enum values are
+// integer encoded to keep Vulkan headers out of the public header; they map to
+// VkPhysicalDevice, VkDevice, VkImage, VkFormat, VkImageLayout,
+// VkPipelineStageFlags, VkAccessFlags, and VkImageAspectFlags respectively.
+// The image is single-sampled, exclusively owned by queue_family, and remains
+// valid until lease is returned with Renderer::ReleaseAovImage.
+struct AovImageExport {
+  AovImageLease lease;
+  RenderProduct product;
+  std::uintptr_t physical_device{};
+  std::uintptr_t device{};
+  std::uintptr_t image{};
+  std::uint32_t native_format{};
+  std::uint32_t native_layout{};
+  std::uint32_t native_stage_mask{};
+  std::uint32_t native_access_mask{};
+  std::uint32_t native_aspect_mask{};
+  std::uint32_t queue_family{};
+  std::uint32_t sample_count{1};
+  std::uint64_t renderer_completion{};
+};
+
 struct ImageRgba8 {
   RenderProduct product;
   std::uint32_t row_pitch_bytes{};
@@ -491,6 +560,12 @@ class Renderer {
   [[nodiscard]] RendererStatistics statistics() const noexcept;
   [[nodiscard]] CompletionToken Submit(const RenderRequest& request);
   [[nodiscard]] bool IsComplete(CompletionToken token) const;
+  // Acquire before Resolve consumes the completion token. The returned image
+  // may still be in flight; renderer_completion identifies the render stage
+  // that must complete before a bridge reads it. Resolve may run while the
+  // lease is held, but no frame target is reused until ReleaseAovImage.
+  [[nodiscard]] AovImageExport AcquireAovImage(CompletionToken token, Aov aov);
+  void ReleaseAovImage(AovImageLease lease);
   [[nodiscard]] RenderResult Resolve(
       CompletionToken token,
       std::chrono::nanoseconds timeout = std::chrono::nanoseconds::max());

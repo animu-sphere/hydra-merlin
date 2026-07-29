@@ -42,10 +42,14 @@ Implementation progress:
   retain the original CPU RenderBuffer and report structured selection,
   fallback, target, byte, and encode-time telemetry alongside a coarse-wait
   counter that stays at zero because no idle wait is introduced;
-- selected-AOV renderer image export, Vulkan GPU copy, distinct bridge
-  completion, host-consumption retirement, and smoke evidence against an
-  OpenUSD package that ships a Vulkan Hgi driver remain before the milestone
-  can exit.
+- the Vulkan backend now exports selected color, depth, `primId`, and
+  `instanceId` images with explicit native format, layout, stage/access,
+  aspect, queue-family, extent, and renderer-completion metadata; a move-only
+  lease pins each frame target across Resolve until the host bridge returns it,
+  and export/active-lease telemetry makes that lifetime observable;
+- Vulkan GPU copy, distinct bridge completion, host-consumption retirement,
+  and smoke evidence against an OpenUSD package that ships a Vulkan Hgi driver
+  remain before the milestone can exit.
 
 ## Active carry-over
 

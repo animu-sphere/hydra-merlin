@@ -121,13 +121,19 @@ The public APIs used by this slice are unchanged between OpenUSD 26.05 and
 capability, not a version guarantee: an OpenUSD 26.08 package can provide the
 public Hgi API without shipping `hgiVulkan`. The bridge therefore checks the
 runtime driver token and API name instead of inferring Vulkan support from
-`PXR_VERSION` or linking private HgiVulkan implementation classes. GPU copy
-remains rejected as `gpu-copy-unavailable` until Merlin exports its selected
-AOV image state and renderer completion and the adapter provides a distinct
-bridge completion. The current 26.05 and 26.08 package checks compile and
-exercise selection/fallback, but those packages do not ship a Vulkan Hgi
-driver; Hgi-owned target upload still requires runtime smoke evidence from a
-package that does.
+`PXR_VERSION` or linking private HgiVulkan implementation classes. Merlin now
+exposes selected color, depth, `primId`, and `instanceId` images through a
+Vulkan-only optional backend interface. Each export carries explicit native
+format, transfer-source layout, stage/access, aspect, queue family, extent,
+and renderer completion; its move-only lease prevents frame-target reuse after
+Resolve until the bridge returns it. This is the source-side lifetime contract
+only, so GPU copy remains rejected as `gpu-copy-unavailable` until the adapter
+adds a distinct bridge completion.
+
+The current 26.05 and 26.08 package checks compile and exercise
+selection/fallback, but those packages do not ship a Vulkan Hgi driver;
+Hgi-owned target upload still requires runtime smoke evidence from a package
+that does.
 
 The release exits only when color, depth, `primId`, and `instanceId` match Tier
 0 semantics; resize and target retirement are completion-safe; camera-only
