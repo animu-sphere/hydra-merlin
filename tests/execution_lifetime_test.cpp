@@ -3,7 +3,10 @@
 
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
+#include <merlin/vulkan/backend.hpp>
 #include <merlin/vulkan/renderer.hpp>
+
+#include <vulkan/vulkan.h>
 
 #include <cassert>
 #include <chrono>
@@ -12,10 +15,15 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace {
+
+static_assert(
+    !std::is_move_assignable_v<merlin::vulkan::AovImageLease>,
+    "an active AOV image lease must not be replaceable without release");
 
 merlin::MeshDescriptor Triangle(float x) {
   merlin::MeshDescriptor mesh;
@@ -145,7 +153,48 @@ int main(int argc, char** argv) {
                      {merlin::Aov::Depth, false}};
   const auto second_token = renderer->Submit(second);
   assert(second_token.value() > first_token.value());
+  auto second_color_export =
+      renderer->AcquireAovImage(second_token, merlin::Aov::Color);
+  assert(second_color_export.lease);
+  assert(second_color_export.lease.aov() == merlin::Aov::Color);
+  assert(second_color_export.renderer_completion == second_token.value());
+  assert(second_color_export.product.aov == merlin::Aov::Color);
+  assert(second_color_export.product.width == second.width);
+  assert(second_color_export.product.height == second.height);
+  assert(second_color_export.physical_device != 0);
+  assert(second_color_export.device != 0);
+  assert(second_color_export.image != 0);
+  assert(second_color_export.native_format == VK_FORMAT_R8G8B8A8_UNORM);
+  assert(second_color_export.native_layout ==
+         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  assert(second_color_export.native_stage_mask ==
+         VK_PIPELINE_STAGE_TRANSFER_BIT);
+  assert(second_color_export.native_access_mask ==
+         VK_ACCESS_TRANSFER_READ_BIT);
+  assert(second_color_export.native_aspect_mask ==
+         VK_IMAGE_ASPECT_COLOR_BIT);
+  assert(second_color_export.queue_family ==
+         capabilities.graphics_queue_family);
+  assert(second_color_export.sample_count == 1);
+  bool duplicate_export_busy{};
+  try {
+    (void)renderer->AcquireAovImage(second_token, merlin::Aov::Color);
+  } catch (const merlin::vulkan::RendererError& error) {
+    duplicate_export_busy =
+        IsCode(error, merlin::vulkan::RendererErrorCode::ResourceBusy);
+  }
+  assert(duplicate_export_busy);
+  bool unselected_export_rejected{};
+  try {
+    (void)renderer->AcquireAovImage(second_token, merlin::Aov::InstanceId);
+  } catch (const merlin::vulkan::RendererError& error) {
+    unselected_export_rejected =
+        IsCode(error, merlin::vulkan::RendererErrorCode::InvalidRequest);
+  }
+  assert(unselected_export_rejected);
   const auto in_flight_statistics = renderer->statistics();
+  assert(in_flight_statistics.aov_image_export_count == 1);
+  assert(in_flight_statistics.active_aov_image_leases == 1);
   assert(in_flight_statistics.pending_geometry_retirements ==
          first_in_flight_statistics.pending_geometry_retirements + 1);
   assert(in_flight_statistics.vertex_arena.retiring_ranges ==
@@ -190,6 +239,7 @@ int main(int argc, char** argv) {
   assert(second_result.counters.buffer_suballocation_count == 1);
   assert(second_result.counters.transfer_submission_count ==
          (capabilities.async_transfer_queue ? 1U : 0U));
+  assert(second_result.counters.aov_image_export_count == 1);
   assert(second_result.color.pixels.empty());
   const auto collected_statistics = renderer->statistics();
   assert(collected_statistics.pending_geometry_retirements == 0);
@@ -198,6 +248,24 @@ int main(int argc, char** argv) {
   assert(collected_statistics.vertex_arena.active_ranges == 1);
   assert(collected_statistics.upload_ring.active_regions == 0);
   assert(collected_statistics.upload_ring.in_flight_bytes == 0);
+  assert(collected_statistics.active_aov_image_leases == 1);
+
+  // Resolve consumes renderer completion but the exported target remains
+  // unavailable for reuse until the bridge returns its distinct lease.
+  bool export_pinned_busy{};
+  try {
+    (void)renderer->Submit(second);
+  } catch (const merlin::vulkan::RendererError& error) {
+    export_pinned_busy =
+        IsCode(error, merlin::vulkan::RendererErrorCode::ResourceBusy);
+  }
+  assert(export_pinned_busy);
+  renderer->ReleaseAovImage(std::move(second_color_export.lease));
+  assert(renderer->statistics().active_aov_image_leases == 0);
+  const auto reused_token = renderer->Submit(second);
+  const auto reused_result = renderer->Resolve(reused_token);
+  assert(reused_result.cpu_readback_aovs.empty());
+  assert(reused_result.counters.aov_image_export_count == 0);
 
   assert(renderer->IsComplete(first_token));
   const auto first_result = renderer->Resolve(first_token);
@@ -206,6 +274,45 @@ int main(int argc, char** argv) {
   assert(!first_result.color.pixels.empty());
   assert(!first_result.depth.pixels.empty());
   assert(!first_result.prim_id.pixels.empty());
+
+  // Factory-created Vulkan backends expose the same source contract through
+  // an optional interface without adding native handles to Core's Backend.
+  merlin::vulkan::BackendFactoryOptions factory_options;
+  factory_options.renderer.frames_in_flight = 2;
+  factory_options.shaders = shaders;
+  merlin::vulkan::BackendFactory factory(std::move(factory_options));
+  merlin::render::BackendCreateInfo create_info;
+  create_info.backend = merlin::render::BackendRequest::Vulkan;
+  create_info.frames_in_flight = 2;
+  auto backend = factory.Create(create_info);
+  auto* exporter =
+      dynamic_cast<merlin::vulkan::AovImageExporter*>(backend.get());
+  assert(exporter != nullptr);
+  merlin::render::RenderRequest backend_request;
+  backend_request.snapshot = first.snapshot;
+  backend_request.width = first.width;
+  backend_request.height = first.height;
+  backend_request.products = {{merlin::Aov::Color, false}};
+  const auto backend_token = backend->Submit(backend_request);
+  auto backend_export =
+      exporter->AcquireAovImage(backend_token, merlin::Aov::Color);
+  assert(backend_export.renderer_completion == backend_token.value());
+  const auto backend_result = backend->Resolve(backend_token);
+  assert(backend_result.telemetry.aov_image_export_count == 1);
+  assert(backend->statistics().active_aov_image_leases == 1);
+  bool wrong_renderer_rejected{};
+  try {
+    renderer->ReleaseAovImage(std::move(backend_export.lease));
+  } catch (const merlin::vulkan::RendererError& error) {
+    wrong_renderer_rejected =
+        IsCode(error, merlin::vulkan::RendererErrorCode::InvalidToken);
+  }
+  assert(wrong_renderer_rejected);
+  assert(backend_export.lease);
+  assert(backend->statistics().active_aov_image_leases == 1);
+  exporter->ReleaseAovImage(std::move(backend_export.lease));
+  assert(!backend_export.lease);
+  assert(backend->statistics().active_aov_image_leases == 0);
 
   bool consumed{};
   try {

@@ -7,6 +7,17 @@
 
 namespace merlin::vulkan {
 
+// Optional Vulkan-native bridge capability implemented by the Vulkan backend.
+// Host adapters discover it with dynamic_cast without adding native resource
+// handles to the backend-neutral Core contract.
+class AovImageExporter {
+ public:
+  virtual ~AovImageExporter() = default;
+  [[nodiscard]] virtual AovImageExport AcquireAovImage(
+      render::CompletionToken token, Aov aov) = 0;
+  virtual void ReleaseAovImage(AovImageLease&& lease) = 0;
+};
+
 struct BackendFactoryOptions {
   RendererOptions renderer;
   ShaderPaths shaders;

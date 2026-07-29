@@ -1647,6 +1647,8 @@ class SceneBridge {
                << result.telemetry.rendered_aov_mask
                << " cpu_readback_aov_mask="
                << result.telemetry.cpu_readback_aov_mask
+               << " aov_image_export_count="
+               << result.telemetry.aov_image_export_count
                << " upload_bytes=" << result.telemetry.upload_bytes
                << " readback_bytes=" << result.telemetry.readback_bytes
                << " allocation_count=" << result.telemetry.allocation_count

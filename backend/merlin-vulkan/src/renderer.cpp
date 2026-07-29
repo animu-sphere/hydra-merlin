@@ -1376,6 +1376,102 @@ class Renderer::Impl {
     return true;
   }
 
+  AovImageExport AcquireAovImage(std::uint64_t completion, Aov aov) {
+    auto& frame = FindFrame(completion);
+    if (!HasAov(frame.rendered_aovs, aov)) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "acquire AOV image",
+                          "AOV was not selected for this submission");
+    }
+    const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(aov);
+    if ((frame.exported_aov_mask & mask) != 0) {
+      throw RendererError(RendererErrorCode::ResourceBusy,
+                          "acquire AOV image",
+                          "AOV image already has an active export lease");
+    }
+
+    VkImage image{};
+    VkFormat format{VK_FORMAT_UNDEFINED};
+    VkImageAspectFlags aspect{};
+    switch (aov) {
+      case Aov::Color:
+        image = frame.target.color;
+        format = kColorFormat;
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        break;
+      case Aov::Depth:
+        image = frame.target.depth;
+        format = kDepthFormat;
+        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+        break;
+      case Aov::PrimId:
+        image = frame.target.prim_id;
+        format = kIdFormat;
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        break;
+      case Aov::InstanceId:
+        image = frame.target.instance_id;
+        format = kIdFormat;
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        break;
+      default:
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "acquire AOV image",
+                            "AOV has no Vulkan export image");
+    }
+    if (image == VK_NULL_HANDLE || format == VK_FORMAT_UNDEFINED) {
+      throw RendererError(RendererErrorCode::BackendFailure,
+                          "acquire AOV image",
+                          "selected AOV image is unavailable");
+    }
+
+    frame.exported_aov_mask |= mask;
+    ++frame.counters.aov_image_export_count;
+    ++aov_image_export_count_;
+    ++active_aov_image_leases_;
+
+    AovImageExport result;
+    result.product =
+        MakeRenderProduct(frame.target.width, frame.target.height, aov);
+    result.physical_device = EncodeHandle(physical_device_);
+    result.device = EncodeHandle(device_);
+    result.image = EncodeHandle(image);
+    result.native_format = static_cast<std::uint32_t>(format);
+    result.native_layout =
+        static_cast<std::uint32_t>(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    result.native_stage_mask =
+        static_cast<std::uint32_t>(VK_PIPELINE_STAGE_TRANSFER_BIT);
+    result.native_access_mask =
+        static_cast<std::uint32_t>(VK_ACCESS_TRANSFER_READ_BIT);
+    result.native_aspect_mask = static_cast<std::uint32_t>(aspect);
+    result.queue_family = queue_family_;
+    result.renderer_completion = completion;
+    return result;
+  }
+
+  void ReleaseAovImage(std::uint64_t completion, Aov aov) {
+    const auto found = std::find_if(
+        frames_.begin(), frames_.end(), [&](const FrameContext& frame) {
+          return frame.completion_value == completion;
+        });
+    if (found == frames_.end()) {
+      throw RendererError(RendererErrorCode::InvalidToken,
+                          "release AOV image",
+                          "lease completion is unknown");
+    }
+    const auto mask =
+        std::uint64_t{1} << static_cast<std::uint32_t>(aov);
+    if ((found->exported_aov_mask & mask) == 0) {
+      throw RendererError(RendererErrorCode::InvalidToken,
+                          "release AOV image",
+                          "lease is unknown or already released");
+    }
+    found->exported_aov_mask &= ~mask;
+    if (active_aov_image_leases_ != 0) {
+      --active_aov_image_leases_;
+    }
+  }
+
   RenderResult Resolve(std::uint64_t completion,
                        std::chrono::nanoseconds timeout) {
     auto& frame = FindFrame(completion);
@@ -1535,6 +1631,7 @@ class Renderer::Impl {
     bool present_pending{};
     std::uint64_t completion_value{};
     bool outstanding{};
+    std::uint64_t exported_aov_mask{};
     RenderTarget target;
     std::uint64_t scene_revision{};
     std::vector<Aov> rendered_aovs;
@@ -3976,7 +4073,8 @@ class Renderer::Impl {
                              const ShaderPaths& shaders,
                              const std::vector<Aov>& cpu_readback_aovs) {
     auto reusable = [&](FrameContext& frame) {
-      return !frame.outstanding && frame.target.width == width &&
+      return !frame.outstanding && frame.exported_aov_mask == 0 &&
+             frame.target.width == width &&
              frame.target.height == height &&
              frame.target.shaders == shaders &&
              frame.target.cpu_readback_aovs == cpu_readback_aovs;
@@ -3985,7 +4083,8 @@ class Renderer::Impl {
     if (found == frames_.end()) {
       found = std::find_if(frames_.begin(), frames_.end(),
                            [](const FrameContext& frame) {
-                             return !frame.outstanding;
+                             return !frame.outstanding &&
+                                    frame.exported_aov_mask == 0;
                            });
     }
     if (found == frames_.end()) {
@@ -5445,6 +5544,8 @@ class Renderer::Impl {
   std::uint64_t transfer_submission_count_{};
   std::uint64_t transfer_uploaded_bytes_{};
   std::uint64_t transfer_ownership_count_{};
+  std::uint64_t aov_image_export_count_{};
+  std::uint64_t active_aov_image_leases_{};
   std::uint64_t latest_completed_value_{};
   VkDeviceSize uniform_buffer_alignment_{16U};
   const std::uint64_t owner_id_{
@@ -5524,6 +5625,8 @@ RendererStatistics Renderer::statistics() const noexcept {
   auto result = impl_->statistics_;
   result.validation_messages =
       impl_->validation_messages_.load(std::memory_order_relaxed);
+  result.aov_image_export_count = impl_->aov_image_export_count_;
+  result.active_aov_image_leases = impl_->active_aov_image_leases_;
   result.pending_geometry_retirements =
       static_cast<std::uint32_t>(impl_->retired_ranges_.size());
   result.geometry_arena_blocks =
@@ -5648,6 +5751,30 @@ bool Renderer::IsComplete(CompletionToken token) const {
                         "token belongs to a different renderer");
   }
   return impl_->IsComplete(token.value_);
+}
+
+AovImageExport Renderer::AcquireAovImage(CompletionToken token, Aov aov) {
+  if (!token || token.owner_ != impl_->owner_id_) {
+    throw RendererError(RendererErrorCode::InvalidToken,
+                        "acquire AOV image",
+                        "token belongs to another renderer");
+  }
+  auto result = impl_->AcquireAovImage(token.value_, aov);
+  result.lease.owner_ = impl_->owner_id_;
+  result.lease.completion_ = token.value_;
+  result.lease.aov_ = aov;
+  return result;
+}
+
+void Renderer::ReleaseAovImage(AovImageLease&& lease) {
+  if (!lease || lease.owner_ != impl_->owner_id_) {
+    throw RendererError(RendererErrorCode::InvalidToken,
+                        "release AOV image",
+                        "lease belongs to another renderer");
+  }
+  impl_->ReleaseAovImage(lease.completion_, lease.aov_);
+  lease.owner_ = 0;
+  lease.completion_ = 0;
 }
 
 RenderResult Renderer::Resolve(CompletionToken token,

@@ -79,6 +79,8 @@ struct RendererStatistics {
   std::uint64_t uploaded_bytes{};
   std::uint64_t readback_bytes{};
   std::uint64_t presentation_copy_bytes{};
+  std::uint64_t aov_image_export_count{};
+  std::uint64_t active_aov_image_leases{};
   struct Residency {
     bool memory_budget_available{};
     bool bindless_tables{};
@@ -154,6 +156,7 @@ struct FrameTelemetry {
   std::uint64_t bindless_sampler_descriptor_update_count{};
   std::uint64_t generated_material_draw_count{};
   std::uint64_t generated_material_fallback_count{};
+  std::uint64_t aov_image_export_count{};
   MaterialFallbackEvidence material_fallbacks;
 };
 

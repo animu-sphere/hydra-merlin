@@ -37,7 +37,7 @@ render::RendererErrorCode ConvertErrorCode(RendererErrorCode code) noexcept {
                               error.native_code());
 }
 
-class VulkanBackend final : public render::Backend {
+class VulkanBackend final : public render::Backend, public AovImageExporter {
  public:
   VulkanBackend(RendererOptions options, ShaderPaths shaders)
       : renderer_(std::move(options)),
@@ -82,6 +82,8 @@ class VulkanBackend final : public render::Backend {
     result.uploaded_bytes = source.transfer_queue.uploaded_bytes;
     result.readback_bytes = readback_bytes_;
     result.presentation_copy_bytes = presentation_copy_bytes_;
+    result.aov_image_export_count = source.aov_image_export_count;
+    result.active_aov_image_leases = source.active_aov_image_leases;
     result.residency.memory_budget_available =
         source.memory_budget.extension_available;
     result.residency.bindless_tables = source.bindless_resource_tables;
@@ -188,6 +190,23 @@ class VulkanBackend final : public render::Backend {
     }
   }
 
+  AovImageExport AcquireAovImage(render::CompletionToken token,
+                                 Aov aov) override {
+    try {
+      return renderer_.AcquireAovImage(FindToken(token), aov);
+    } catch (const RendererError& error) {
+      Rethrow(error);
+    }
+  }
+
+  void ReleaseAovImage(AovImageLease&& lease) override {
+    try {
+      renderer_.ReleaseAovImage(std::move(lease));
+    } catch (const RendererError& error) {
+      Rethrow(error);
+    }
+  }
+
   render::RenderResult Resolve(
       render::CompletionToken token,
       std::chrono::nanoseconds timeout) override {
@@ -280,6 +299,8 @@ class VulkanBackend final : public render::Backend {
         native.counters.generated_material_draw_count;
     result.telemetry.generated_material_fallback_count =
         native.counters.generated_material_fallback_count;
+    result.telemetry.aov_image_export_count =
+        native.counters.aov_image_export_count;
     result.telemetry.material_fallbacks =
         native.counters.material_fallbacks;
     result.material_diagnostics = std::move(native.material_diagnostics);
