@@ -1018,49 +1018,57 @@ class Renderer::Impl {
                             "generated material module key is duplicated");
       }
     }
-    CreateDevice(options);
-    capabilities_.generated_materials =
-        !generated_material_artifacts_.empty() &&
-        capabilities_.descriptor_indexing_selection.selected_backend ==
-            DescriptorBackend::Conventional;
-    memory_budget_.Initialize(physical_device_, device_,
-                              capabilities_.memory_budget_extension,
-                              options.vram_limit_bytes);
-    const auto& initial_memory = memory_budget_.telemetry();
-    capabilities_.device_local_heap_capacity_bytes =
-        initial_memory.heap_capacity_bytes;
-    capabilities_.device_local_heap_budget_bytes =
-        initial_memory.heap_budget_bytes;
-    capabilities_.device_local_heap_usage_bytes = initial_memory.heap_usage_bytes;
-    capabilities_.configured_vram_limit_bytes = options.vram_limit_bytes;
-    if (capabilities_.descriptor_indexing_selection.selected_backend ==
-        DescriptorBackend::Bindless) {
-      const auto& selection = capabilities_.descriptor_indexing_selection;
-      bindless_texture_table_ =
-          std::make_unique<BindlessTextureTable>(selection.texture_capacity);
-      bindless_sampler_table_ =
-          std::make_unique<BindlessSamplerTable>(selection.sampler_capacity);
-      bindless_texture_views_.resize(selection.texture_capacity);
-      bindless_samplers_.resize(selection.sampler_capacity);
-      reserved_bindless_textures_.resize(kReservedBindlessTextureSlots);
-      statistics_.bindless_resource_tables = true;
+    try {
+      CreateDevice(options);
+      capabilities_.generated_materials =
+          !generated_material_artifacts_.empty() &&
+          capabilities_.descriptor_indexing_selection.selected_backend ==
+              DescriptorBackend::Conventional;
+      memory_budget_.Initialize(physical_device_, device_,
+                                capabilities_.memory_budget_extension,
+                                options.vram_limit_bytes);
+      const auto& initial_memory = memory_budget_.telemetry();
+      capabilities_.device_local_heap_capacity_bytes =
+          initial_memory.heap_capacity_bytes;
+      capabilities_.device_local_heap_budget_bytes =
+          initial_memory.heap_budget_bytes;
+      capabilities_.device_local_heap_usage_bytes =
+          initial_memory.heap_usage_bytes;
+      capabilities_.configured_vram_limit_bytes = options.vram_limit_bytes;
+      if (capabilities_.descriptor_indexing_selection.selected_backend ==
+          DescriptorBackend::Bindless) {
+        const auto& selection = capabilities_.descriptor_indexing_selection;
+        bindless_texture_table_ =
+            std::make_unique<BindlessTextureTable>(selection.texture_capacity);
+        bindless_sampler_table_ =
+            std::make_unique<BindlessSamplerTable>(selection.sampler_capacity);
+        bindless_texture_views_.resize(selection.texture_capacity);
+        bindless_samplers_.resize(selection.sampler_capacity);
+        reserved_bindless_textures_.resize(kReservedBindlessTextureSlots);
+        statistics_.bindless_resource_tables = true;
+      }
+      CreateFrameContexts(options.frames_in_flight);
+      statistics_.frame_context_count = options.frames_in_flight;
+      vertex_arena_.Initialize(
+          device_, physical_device_, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+          &memory_budget_, queue_family_, transfer_queue_family_);
+      index_arena_.Initialize(
+          device_, physical_device_, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+          &memory_budget_, queue_family_, transfer_queue_family_);
+      staging_.Initialize(device_, physical_device_, &memory_budget_);
+    } catch (...) {
+      Destroy(false);
+      throw;
     }
-    CreateFrameContexts(options.frames_in_flight);
-    statistics_.frame_context_count = options.frames_in_flight;
-    vertex_arena_.Initialize(device_, physical_device_,
-                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, &memory_budget_,
-                             queue_family_, transfer_queue_family_);
-    index_arena_.Initialize(device_, physical_device_,
-                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, &memory_budget_,
-                            queue_family_, transfer_queue_family_);
-    staging_.Initialize(device_, physical_device_, &memory_budget_);
   }
 
-  ~Impl() {
+  ~Impl() { Destroy(true); }
+
+  void Destroy(bool wait_for_submissions) noexcept {
     if (device_ != VK_NULL_HANDLE) {
-      if (owns_vulkan_context_) {
+      if (wait_for_submissions && owns_vulkan_context_) {
         (void)vkDeviceWaitIdle(device_);
-      } else {
+      } else if (wait_for_submissions) {
         // Waiting only for Merlin submissions avoids idling unrelated Hgi or
         // host work on the application-owned device.
         for (auto& frame : frames_) {
@@ -1730,6 +1738,9 @@ class Renderer::Impl {
 
   void AdoptBorrowedContext(const RendererOptions& options) {
     const auto& borrowed = *options.borrowed_context;
+    // From this point onward every decoded native handle remains host-owned,
+    // including exceptional construction paths.
+    owns_vulkan_context_ = false;
     instance_ = DecodeHandle<VkInstance>(borrowed.instance);
     physical_device_ =
         DecodeHandle<VkPhysicalDevice>(borrowed.physical_device);
@@ -1744,11 +1755,12 @@ class Renderer::Impl {
                           "instance, physical device, device, and graphics "
                           "queue handles must all be non-null");
     }
-    if (options.enable_validation && !borrowed.validation_enabled) {
+    if (options.enable_validation &&
+        (!borrowed.validation_enabled || !borrowed.debug_utils_enabled)) {
       throw RendererError(
           RendererErrorCode::Unsupported, "borrow Vulkan context",
-          "renderer validation was requested but the application did not "
-          "enable validation for the borrowed device");
+          "renderer validation requires validation and VK_EXT_debug_utils on "
+          "the borrowed instance");
     }
 
     std::uint32_t queue_count{};
@@ -1852,7 +1864,7 @@ class Renderer::Impl {
         properties.properties.limits.maxImageDimension2D;
     capabilities_.timeline_semaphore =
         borrowed.timeline_semaphore_enabled;
-    capabilities_.validation_enabled = borrowed.validation_enabled;
+    capabilities_.validation_enabled = options.enable_validation;
     capabilities_.graphics_queue = true;
     capabilities_.compute_queue =
         (queue_properties.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0U;
@@ -1890,7 +1902,30 @@ class Renderer::Impl {
 
     transfer_queue_family_ = queue_family_;
     transfer_queue_ = queue_;
-    owns_vulkan_context_ = false;
+
+    if (capabilities_.validation_enabled) {
+      const auto create =
+          reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+              vkGetInstanceProcAddr(instance_,
+                                    "vkCreateDebugUtilsMessengerEXT"));
+      if (create == nullptr) {
+        throw RendererError(
+            RendererErrorCode::Unsupported, "borrow Vulkan context",
+            "VK_EXT_debug_utils entry point is unavailable");
+      }
+      VkDebugUtilsMessengerCreateInfoEXT debug_info{
+          VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+      debug_info.messageSeverity =
+          VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+          VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+      debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+      debug_info.pfnUserCallback = ValidationCallback;
+      debug_info.pUserData = this;
+      Check(create(instance_, &debug_info, nullptr, &debug_messenger_),
+            "create borrowed validation debug messenger");
+    }
 
     if (capabilities_.timeline_semaphore) {
       VkSemaphoreTypeCreateInfo type_info{

@@ -2,7 +2,9 @@
 
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <type_traits>
 #include <vector>
@@ -37,12 +39,36 @@ struct VulkanContext {
 };
 
 bool CreateContext(VulkanContext& result) {
+  std::uint32_t extension_count{};
+  if (vkEnumerateInstanceExtensionProperties(nullptr, &extension_count,
+                                              nullptr) != VK_SUCCESS) {
+    return false;
+  }
+  std::vector<VkExtensionProperties> extensions(extension_count);
+  if (vkEnumerateInstanceExtensionProperties(nullptr, &extension_count,
+                                              extensions.data()) !=
+      VK_SUCCESS) {
+    return false;
+  }
+  const auto has_debug_utils =
+      std::any_of(extensions.begin(), extensions.end(), [](const auto& entry) {
+        return std::strcmp(entry.extensionName,
+                           VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
+      });
+  if (!has_debug_utils) {
+    return false;
+  }
+
   VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
   application.pApplicationName = "merlin-borrowed-context-test";
   application.apiVersion = VK_API_VERSION_1_4;
   VkInstanceCreateInfo instance_info{
       VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
   instance_info.pApplicationInfo = &application;
+  constexpr const char* enabled_extensions[] = {
+      VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+  instance_info.enabledExtensionCount = 1;
+  instance_info.ppEnabledExtensionNames = enabled_extensions;
   if (vkCreateInstance(&instance_info, nullptr, &result.instance) !=
       VK_SUCCESS) {
     return false;
@@ -121,6 +147,7 @@ merlin::vulkan::BorrowedVulkanContext Describe(
   result.graphics_queue_family = context.queue_family;
   result.graphics_queue_index = 0;
   result.timeline_semaphore_enabled = true;
+  result.debug_utils_enabled = true;
   return result;
 }
 
@@ -139,7 +166,7 @@ int main() {
   VulkanContext context;
   if (!CreateContext(context)) {
     std::cerr << "SKIP: Vulkan 1.4 graphics device with timeline semaphores "
-                 "is unavailable\n";
+                 "and VK_EXT_debug_utils is unavailable\n";
     return 77;
   }
 
@@ -159,6 +186,16 @@ int main() {
   validation_mismatch.enable_validation = true;
   if (!ThrowsRendererError(validation_mismatch)) {
     std::cerr << "unavailable borrowed validation was accepted\n";
+    return 1;
+  }
+
+  auto debug_utils_mismatch = invalid;
+  debug_utils_mismatch.borrowed_context = Describe(context);
+  debug_utils_mismatch.borrowed_context->validation_enabled = true;
+  debug_utils_mismatch.borrowed_context->debug_utils_enabled = false;
+  debug_utils_mismatch.enable_validation = true;
+  if (!ThrowsRendererError(debug_utils_mismatch)) {
+    std::cerr << "borrowed validation without debug utils was accepted\n";
     return 1;
   }
 
@@ -187,6 +224,36 @@ int main() {
         capabilities.descriptor_indexing_selection.selected_backend !=
             merlin::vulkan::DescriptorBackend::Conventional) {
       std::cerr << "borrowed Vulkan capability selection is incorrect\n";
+      return 1;
+    }
+  }
+
+  {
+    merlin::vulkan::RendererOptions options;
+    options.frames_in_flight = 2;
+    options.enable_validation = true;
+    options.borrowed_context = Describe(context);
+    options.borrowed_context->validation_enabled = true;
+    merlin::vulkan::Renderer renderer(options);
+    const auto submit_message =
+        reinterpret_cast<PFN_vkSubmitDebugUtilsMessageEXT>(
+            vkGetInstanceProcAddr(context.instance,
+                                  "vkSubmitDebugUtilsMessageEXT"));
+    if (submit_message == nullptr) {
+      std::cerr << "VK_EXT_debug_utils submit entry point is unavailable\n";
+      return 1;
+    }
+    const auto before = renderer.statistics().validation_messages;
+    VkDebugUtilsMessengerCallbackDataEXT callback_data{
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CALLBACK_DATA_EXT};
+    callback_data.pMessageIdName = "merlin-borrowed-context-test";
+    callback_data.pMessage = "borrowed validation telemetry probe";
+    submit_message(context.instance,
+                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
+                   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
+                   &callback_data);
+    if (renderer.statistics().validation_messages != before + 1) {
+      std::cerr << "borrowed validation message was not counted\n";
       return 1;
     }
   }

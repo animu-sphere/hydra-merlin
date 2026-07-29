@@ -117,6 +117,9 @@ struct BorrowedVulkanContext {
   std::uint32_t graphics_queue_index{};
   bool timeline_semaphore_enabled{};
   bool validation_enabled{};
+  // Required with validation_enabled when RendererOptions requests validation
+  // so renderer-owned validation telemetry can attach to the host instance.
+  bool debug_utils_enabled{};
 };
 
 struct RendererOptions {
