@@ -7,7 +7,12 @@ def _read_events():
     marker = os.environ["MERLIN_HYDRA2_REGRESSION_LOG"]
     if not os.path.exists(marker):
         return []
-    string_fields = {"phase", "material_effective_fallback"}
+    string_fields = {
+        "phase",
+        "material_effective_fallback",
+        "hgi_transfer_mode",
+        "hgi_direct_share_rejection",
+    }
     events = []
     with open(marker, encoding="utf-8") as stream:
         for line in stream:

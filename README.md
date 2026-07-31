@@ -158,7 +158,9 @@ work.
 Subdivision refinement remains future work. usdview presentation keeps Hydra's
 CPU RenderBuffer-to-Hgi upload as the universal reference and fallback, while
 v0.13.0 can select an HgiVulkan color GPU-copy path on validated OpenUSD
-packages and retains depth and ID AOVs on CPU readback.
+packages and retains depth and ID AOVs on CPU readback. v0.13.1 hardens the
+direct-share decision: OpenUSD 26.05/26.08 report
+`public-texture-import-unavailable`, so GPU copy remains selected.
 
 ## Capability boundaries and roadmap
 

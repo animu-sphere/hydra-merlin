@@ -1608,6 +1608,10 @@ class SceneBridge {
             hgi_vulkan_bridge_
                 ? hgi_vulkan_bridge_->telemetry()
                 : HdMerlinHgiVulkanBridgeTelemetry{};
+        const auto hgi_vulkan_status =
+            hgi_vulkan_bridge_
+                ? hgi_vulkan_bridge_->status()
+                : HdMerlinHgiVulkanBridgeStatus{};
         stream << "schema_version=4"
                << " phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
@@ -1732,6 +1736,16 @@ class SceneBridge {
                << hgi_vulkan_telemetry.gpu_copy_completion_count
                << " hgi_gpu_copy_pending_count="
                << hgi_vulkan_telemetry.gpu_copy_pending_count
+               << " hgi_transfer_mode="
+               << HdMerlinHgiVulkanTransferModeName(
+                      hgi_vulkan_status.selected_mode)
+               << " hgi_direct_share_rejection="
+               << HdMerlinHgiVulkanDirectShareRejectionName(
+                      hgi_vulkan_status.direct_share_rejection)
+               << " hgi_direct_share_evaluation_count="
+               << hgi_vulkan_telemetry.direct_share_evaluation_count
+               << " hgi_direct_share_rejection_count="
+               << hgi_vulkan_telemetry.direct_share_rejection_count
                << " hgi_coarse_wait_count="
                << hgi_vulkan_telemetry.coarse_wait_count
                << " upload_bytes=" << result.telemetry.upload_bytes

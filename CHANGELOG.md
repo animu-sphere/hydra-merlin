@@ -8,6 +8,24 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- A testable HgiVulkan direct-share capability contract covering physical and
+  logical device identity, queue ownership, API/extensions, format/usage,
+  sample count, tiling, memory constraints, public host import/consumption,
+  completion retention, resize retirement, and implementation availability.
+- Stable direct-share rejection codes and evaluation telemetry in Hydra
+  regression evidence, plus explicit Vulkan AOV usage, tiling, memory, and
+  sharing-mode export metadata.
+
+### Changed
+
+- Vulkan color AOV images now include sampled-image usage as a direct-host
+  prerequisite. OpenUSD 26.05 and 26.08 continue to select GPU copy because
+  their public Hgi APIs cannot import a Merlin-owned `VkImage`; the bridge
+  reports `public-texture-import-unavailable` instead of attempting private
+  Hgi ownership or lifetime workarounds.
+
 ## [0.13.0] - 2026-08-01
 
 ### Added

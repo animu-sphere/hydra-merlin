@@ -80,6 +80,47 @@ std::string_view HdMerlinHgiVulkanTransferModeName(
       return "cpu-readback";
     case HdMerlinHgiVulkanTransferMode::GpuCopy:
       return "gpu-copy";
+    case HdMerlinHgiVulkanTransferMode::DirectSharedResource:
+      return "direct-shared-resource";
+  }
+  return "unknown";
+}
+
+std::string_view HdMerlinHgiVulkanDirectShareRejectionName(
+    HdMerlinHgiVulkanDirectShareRejection reason) noexcept {
+  switch (reason) {
+    case HdMerlinHgiVulkanDirectShareRejection::None:
+      return "none";
+    case HdMerlinHgiVulkanDirectShareRejection::NotEvaluated:
+      return "not-evaluated";
+    case HdMerlinHgiVulkanDirectShareRejection::PhysicalDeviceMismatch:
+      return "physical-device-mismatch";
+    case HdMerlinHgiVulkanDirectShareRejection::LogicalDeviceMismatch:
+      return "logical-device-mismatch";
+    case HdMerlinHgiVulkanDirectShareRejection::QueueOwnershipUnsupported:
+      return "queue-ownership-unsupported";
+    case HdMerlinHgiVulkanDirectShareRejection::ApiIncompatible:
+      return "api-incompatible";
+    case HdMerlinHgiVulkanDirectShareRejection::RequiredExtensionMissing:
+      return "required-extension-missing";
+    case HdMerlinHgiVulkanDirectShareRejection::FormatUsageMismatch:
+      return "format-usage-mismatch";
+    case HdMerlinHgiVulkanDirectShareRejection::SampleCountUnsupported:
+      return "sample-count-unsupported";
+    case HdMerlinHgiVulkanDirectShareRejection::TilingUnsupported:
+      return "tiling-unsupported";
+    case HdMerlinHgiVulkanDirectShareRejection::MemoryConstraintsUnsupported:
+      return "memory-constraints-unsupported";
+    case HdMerlinHgiVulkanDirectShareRejection::PublicTextureImportUnavailable:
+      return "public-texture-import-unavailable";
+    case HdMerlinHgiVulkanDirectShareRejection::HostConsumptionUnretained:
+      return "host-consumption-unretained";
+    case HdMerlinHgiVulkanDirectShareRejection::CompletionRetentionUnavailable:
+      return "completion-retention-unavailable";
+    case HdMerlinHgiVulkanDirectShareRejection::ResizeRetirementUnsafe:
+      return "resize-retirement-unsafe";
+    case HdMerlinHgiVulkanDirectShareRejection::DirectPathUnavailable:
+      return "direct-path-unavailable";
   }
   return "unknown";
 }
@@ -148,6 +189,57 @@ HdMerlinHgiVulkanBridgeStatus HdMerlinEvaluateHgiVulkanBridgeSupport(
   return result;
 }
 
+HdMerlinHgiVulkanDirectShareSupport HdMerlinEvaluateHgiVulkanDirectShare(
+    const HdMerlinHgiVulkanDirectShareRequirements& requirements) noexcept {
+  using Rejection = HdMerlinHgiVulkanDirectShareRejection;
+  const auto reject = [](Rejection reason) noexcept {
+    return HdMerlinHgiVulkanDirectShareSupport{false, reason};
+  };
+  if (!requirements.physical_device_identity) {
+    return reject(Rejection::PhysicalDeviceMismatch);
+  }
+  if (!requirements.logical_device_identity) {
+    return reject(Rejection::LogicalDeviceMismatch);
+  }
+  if (!requirements.queue_ownership_compatible) {
+    return reject(Rejection::QueueOwnershipUnsupported);
+  }
+  if (!requirements.api_compatible) {
+    return reject(Rejection::ApiIncompatible);
+  }
+  if (!requirements.required_extensions_available) {
+    return reject(Rejection::RequiredExtensionMissing);
+  }
+  if (!requirements.format_usage_compatible) {
+    return reject(Rejection::FormatUsageMismatch);
+  }
+  if (!requirements.single_sampled) {
+    return reject(Rejection::SampleCountUnsupported);
+  }
+  if (!requirements.tiling_compatible) {
+    return reject(Rejection::TilingUnsupported);
+  }
+  if (!requirements.memory_constraints_compatible) {
+    return reject(Rejection::MemoryConstraintsUnsupported);
+  }
+  if (!requirements.public_texture_import_available) {
+    return reject(Rejection::PublicTextureImportUnavailable);
+  }
+  if (!requirements.host_consumption_retained) {
+    return reject(Rejection::HostConsumptionUnretained);
+  }
+  if (!requirements.completion_retention_available) {
+    return reject(Rejection::CompletionRetentionUnavailable);
+  }
+  if (!requirements.resize_retirement_safe) {
+    return reject(Rejection::ResizeRetirementUnsafe);
+  }
+  if (!requirements.direct_path_available) {
+    return reject(Rejection::DirectPathUnavailable);
+  }
+  return {true, Rejection::None};
+}
+
 HgiFormat HdMerlinHgiFormatForRenderBuffer(HdFormat format) noexcept {
   switch (format) {
     case HdFormatUNorm8Vec4:
@@ -212,7 +304,34 @@ void HdMerlinHgiVulkanBridge::SetDrivers(const HdDriverVector& drivers) {
     return;
   }
   status_.gpu_copy = true;
-  status_.selected_mode = HdMerlinHgiVulkanTransferMode::GpuCopy;
+  // OpenUSD 26.05 and 26.08 can create Hgi-owned textures but expose no
+  // public API that imports an existing VkImage into an HgiTextureHandle.
+  // Texture views alias only another Hgi texture. The remaining false fields
+  // also prevent a future import API from accidentally selecting a path before
+  // host-consumption completion and direct-path lifetime handling exist.
+  const auto direct_share = HdMerlinEvaluateHgiVulkanDirectShare({
+      .physical_device_identity = true,
+      .logical_device_identity = true,
+      .queue_ownership_compatible = true,
+      .api_compatible = true,
+      .required_extensions_available = true,
+      .format_usage_compatible = true,
+      .single_sampled = true,
+      .tiling_compatible = true,
+      .memory_constraints_compatible = true,
+      .public_texture_import_available = false,
+      .host_consumption_retained = false,
+      .completion_retention_available = false,
+      .resize_retirement_safe = false,
+      .direct_path_available = false,
+  });
+  ++telemetry_.direct_share_evaluation_count;
+  telemetry_.direct_share_rejection_count += direct_share.supported ? 0U : 1U;
+  status_.direct_shared_resource = direct_share.supported;
+  status_.direct_share_rejection = direct_share.rejection;
+  status_.selected_mode = direct_share.supported
+                              ? HdMerlinHgiVulkanTransferMode::DirectSharedResource
+                              : HdMerlinHgiVulkanTransferMode::GpuCopy;
   status_.fallback_reason = HdMerlinHgiVulkanFallbackReason::None;
 #endif
 }
@@ -450,6 +569,19 @@ bool HdMerlinHgiVulkanBridge::Copy(
           static_cast<std::uint32_t>(VK_ACCESS_TRANSFER_READ_BIT) &&
       source.native_aspect_mask ==
           static_cast<std::uint32_t>(VK_IMAGE_ASPECT_COLOR_BIT) &&
+      (source.native_usage_mask &
+       static_cast<std::uint32_t>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                  VK_IMAGE_USAGE_SAMPLED_BIT)) ==
+          static_cast<std::uint32_t>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                     VK_IMAGE_USAGE_SAMPLED_BIT) &&
+      source.native_tiling ==
+          static_cast<std::uint32_t>(VK_IMAGE_TILING_OPTIMAL) &&
+      (source.native_memory_property_mask &
+       static_cast<std::uint32_t>(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) != 0 &&
+      source.native_sharing_mode ==
+          static_cast<std::uint32_t>(VK_SHARING_MODE_EXCLUSIVE) &&
       source.queue_family == device->GetGfxQueueFamilyIndex() &&
       source.renderer_completion != 0 &&
       source.renderer_completion == lease->completion_value() &&
@@ -562,6 +694,7 @@ void HdMerlinHgiVulkanBridge::SetOperationalFallbackLocked(
     HdMerlinHgiVulkanFallbackReason reason) noexcept {
   status_.hgi_owned_targets = false;
   status_.gpu_copy = false;
+  status_.direct_shared_resource = false;
   status_.selected_mode = HdMerlinHgiVulkanTransferMode::CpuReadback;
   status_.fallback_reason = reason;
 }

@@ -167,6 +167,43 @@ External memory and semaphores are considered only when GPU copy is unavailable
 or materially slower, a supported host requires them, public APIs make the path
 maintainable, and recurring hardware evidence exists.
 
+The implemented capability evaluator keeps direct-share rejection independent
+from the selected transfer fallback. It requires every gate affirmatively:
+physical and logical device identity, compatible queue ownership, API and
+extensions, format/usage, single sampling, tiling and memory constraints,
+public texture import, retained host consumption, completion retention,
+resize-safe retirement, and an available direct implementation. Default or
+partially populated requirements reject the path, and every rejection has a
+stable diagnostic name.
+
+On the validated OpenUSD 26.05 and 26.08 packages, the evaluation stops at
+`public-texture-import-unavailable`. Public `Hgi::CreateTexture` allocates an
+Hgi-owned texture, and `CreateTextureView` aliases another Hgi texture; neither
+imports a renderer-owned `VkImage`. `GetRawResource` exposes an existing
+resource in the opposite direction and does not transfer Hgi ownership or
+provide a host-consumption completion contract. Constructing or mutating a
+private `HgiVulkanTexture` cannot be a maintained adapter contract. Merlin
+therefore keeps GPU copy selected and records this rejection rather than
+publishing a handle with ambiguous destruction or frame-target reuse.
+
+The color AOV now declares sampled usage and exports usage, optimal tiling,
+device-local memory, exclusive sharing, queue family, and the existing
+format/layout/access/completion metadata. GPU copy validates this expanded
+source contract as well, so the hardening does not create a less-checked
+fallback. External memory/semaphores remain unjustified: GPU copy is available,
+and the missing public host import/consumption contract would not be repaired by
+adding cross-device handle transport.
+
+Self-hosted GPU capability
+[run 30655056809](https://github.com/animu-sphere/hydra-merlin/actions/runs/30655056809)
+validated this decision at commit `8a2b4a4`. The OpenUSD 26.05 and 26.08 jobs
+both passed bridge/RenderBuffer tests and the paired 13-phase Tier 0/HgiVulkan
+usdview regressions. Vulkan 1.4 Debug and Release also passed the headless,
+viewport, lifetime, validation, descriptor, packaging, and evidence gates.
+Both HgiVulkan jobs retained GPU copy with the direct-share rejection present;
+no direct-path performance claim is made because no public consumable resource
+can be constructed.
+
 ## HgiMetal follow-up
 
 v0.14.0 implements the same logical contract for Metal: Tier 0 CPU fallback,

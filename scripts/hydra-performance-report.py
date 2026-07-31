@@ -99,7 +99,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_events(path: Path) -> list[dict]:
-    string_fields = {"phase", "material_effective_fallback"}
+    string_fields = {
+        "phase",
+        "material_effective_fallback",
+        "hgi_transfer_mode",
+        "hgi_direct_share_rejection",
+    }
     events = []
     for line_number, line in enumerate(
         path.read_text(encoding="utf-8").splitlines(), 1

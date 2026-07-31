@@ -173,6 +173,16 @@ int main(int argc, char** argv) {
          VK_ACCESS_TRANSFER_READ_BIT);
   assert(second_color_export.native_aspect_mask ==
          VK_IMAGE_ASPECT_COLOR_BIT);
+  assert((second_color_export.native_usage_mask &
+          (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+           VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)) ==
+         (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
+  assert(second_color_export.native_tiling == VK_IMAGE_TILING_OPTIMAL);
+  assert((second_color_export.native_memory_property_mask &
+          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0);
+  assert(second_color_export.native_sharing_mode ==
+         VK_SHARING_MODE_EXCLUSIVE);
   assert(second_color_export.queue_family ==
          capabilities.graphics_queue_family);
   assert(second_color_export.sample_count == 1);
