@@ -194,6 +194,16 @@ fallback. External memory/semaphores remain unjustified: GPU copy is available,
 and the missing public host import/consumption contract would not be repaired by
 adding cross-device handle transport.
 
+Self-hosted GPU capability
+[run 30655056809](https://github.com/animu-sphere/hydra-merlin/actions/runs/30655056809)
+validated this decision at commit `8a2b4a4`. The OpenUSD 26.05 and 26.08 jobs
+both passed bridge/RenderBuffer tests and the paired 13-phase Tier 0/HgiVulkan
+usdview regressions. Vulkan 1.4 Debug and Release also passed the headless,
+viewport, lifetime, validation, descriptor, packaging, and evidence gates.
+Both HgiVulkan jobs retained GPU copy with the direct-share rejection present;
+no direct-path performance claim is made because no public consumable resource
+can be constructed.
+
 ## HgiMetal follow-up
 
 v0.14.0 implements the same logical contract for Metal: Tier 0 CPU fallback,

@@ -11,6 +11,28 @@ Legend: ✅ done
 
 ---
 
+## v0.13.1 HgiVulkan direct-path hardening ✅
+
+- ✅ Added one affirmative direct-share gate covering physical/logical device
+  identity, queue ownership, API/extensions, format/usage, sample count,
+  tiling, memory constraints, public import and host consumption, completion
+  retention, resize retirement, and implementation availability.
+- ✅ Added stable per-gate rejection names and evaluation telemetry separately
+  from the selected transfer fallback, so rejecting Tier 2 does not misreport a
+  supported Tier 1 GPU-copy frame as an operational failure.
+- ✅ Added sampled usage plus explicit usage, tiling, device-local memory, and
+  exclusive-sharing metadata to exported color images, and made GPU copy
+  validate the expanded source contract.
+- ✅ Confirmed that OpenUSD 26.05/26.08 public Hgi creates Hgi-owned textures
+  and aliases Hgi-owned sources but cannot import a Merlin-owned `VkImage`;
+  both packages therefore report `public-texture-import-unavailable` and retain
+  GPU copy instead of depending on private Hgi ownership internals.
+- ✅ Passed self-hosted GPU capability
+  [run 30655056809](https://github.com/animu-sphere/hydra-merlin/actions/runs/30655056809)
+  at commit `8a2b4a4`: OpenUSD 26.05/26.08 HgiVulkan, Vulkan 1.4 Debug, and
+  Vulkan 1.4 Release all completed successfully, including both 13-phase
+  Tier 0/HgiVulkan usdview regressions.
+
 ## v0.13.0 HgiVulkan GPU-copy bridge ✅
 
 - ✅ Added public Hydra-driver discovery, Hgi-owned color targets, and selected
