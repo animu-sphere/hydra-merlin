@@ -96,14 +96,17 @@ are already mature on Windows and Linux.
 4. Report capability selection, source/destination metadata, bytes, encode and
    wait cost, fallbacks, target recreations, CPU transfers, and GPU-copy time.
 
-The first implementation slice establishes the public host boundary used by
-both validated OpenUSD lines. `HdRenderDelegate::SetDrivers` discovers the
-application-owned Hgi render driver, `HdRenderBuffer::GetResource` publishes
-an Hgi-owned destination texture, and Hgi blit commands perform the Tier 0
-CPU-to-Hgi upload without a queue- or device-idle wait. The adapter selects
-this target only for a Vulkan Hgi driver; a missing driver, a non-Vulkan
-driver, a disabled bridge, or a target failure retains the original CPU
-RenderBuffer path with a structured rejection.
+The implementation establishes the public host boundary used by both validated
+OpenUSD lines. `HdRenderDelegate::SetDrivers` discovers the application-owned
+Hgi render driver and `HdRenderBuffer::GetResource` publishes an Hgi-owned
+destination texture. Hgi blit commands provide the Tier 0 CPU-to-Hgi fallback
+without a queue- or device-idle wait. When the package also exports the
+validated native `hgiVulkan` target, the adapter borrows its Vulkan 1.3 device
+and graphics queue for Merlin's conventional renderer path and records a
+same-device color-image copy instead. A missing driver, non-Vulkan driver,
+disabled bridge, missing native package target, or operational failure retains
+the CPU RenderBuffer path with a structured rejection. Merlin-owned Vulkan
+contexts remain on the Vulkan 1.4 product baseline.
 
 The slice publishes a target for the 8-bit color AOV alone. Color is the AOV a
 host present task consumes as a texture, while depth, `primId`, and
@@ -116,24 +119,34 @@ one point at which an operational rejection is re-evaluated; otherwise a
 rejection holds for the delegate's lifetime instead of being retried per
 frame.
 
-The public APIs used by this slice are unchanged between OpenUSD 26.05 and
-26.08. Hgi backend availability is nevertheless a package-composition
-capability, not a version guarantee: an OpenUSD 26.08 package can provide the
-public Hgi API without shipping `hgiVulkan`. The bridge therefore checks the
-runtime driver token and API name instead of inferring Vulkan support from
-`PXR_VERSION` or linking private HgiVulkan implementation classes. Merlin now
-exposes selected color, depth, `primId`, and `instanceId` images through a
-Vulkan-only optional backend interface. Each export carries explicit native
-format, transfer-source layout, stage/access, aspect, queue family, extent,
-and renderer completion; its move-only lease prevents frame-target reuse after
-Resolve until the bridge returns it. This is the source-side lifetime contract
-only, so GPU copy remains rejected as `gpu-copy-unavailable` until the adapter
-adds a distinct bridge completion.
+Hgi backend availability remains a package-composition capability, not a
+version guarantee: a package can provide public Hgi without shipping
+`hgiVulkan`. The Tier 0 boundary therefore checks the runtime driver token and
+API name, while the native copy is compiled only when CMake can consume the
+package's `hgiVulkan` imported target. Merlin exposes selected color, depth,
+`primId`, and `instanceId` images through a Vulkan-only optional backend
+interface. Each export carries explicit native format, transfer-source layout,
+stage/access, aspect, queue family, extent, and renderer completion; its
+move-only lease prevents frame-target reuse after Resolve. The native bridge
+validates physical/logical device, queue family, format, extent, layout,
+aspect, and sample count, records `vkCmdCopyImage`, restores the Hgi target
+layout, and returns the lease only from the Hgi command-buffer completion
+callback.
 
-The current 26.05 and 26.08 package checks compile and exercise
-selection/fallback, but those packages do not ship a Vulkan Hgi driver;
-Hgi-owned target upload still requires runtime smoke evidence from a package
-that does.
+The OpenUSD 26.05 and 26.08 runtime smokes exercise this native path across the
+full regression and resize sequence. Each baseline reports one exported color
+AOV and three CPU-readback AOVs, host trace evidence for GPU copy, no color
+RenderBuffer Map or CPU upload, non-zero bridge completion, and zero coarse
+waits. Unsupported package compositions continue to compile the public Tier 0
+fallback without a native HgiVulkan dependency.
+
+The paired comparison fixture executes the same 13 phases through Tier 0 and
+HgiVulkan, records bounded image differences plus performance evidence in
+`merlin-hydra-presentation-comparison/v1`, and verifies every named GPU-copy
+phase avoids color Map/upload. The OpenUSD 26.08 Windows evidence reduced
+baseline CPU readback by 1,289,520 bytes per frame and measured representative
+median readback-plus-transfer time from about 19.1 ms to 14.2 ms while the
+maximum changed pixel fraction stayed at 0.1862% on rasterized triangle edges.
 
 The release exits only when color, depth, `primId`, and `instanceId` match Tier
 0 semantics; resize and target retirement are completion-safe; camera-only

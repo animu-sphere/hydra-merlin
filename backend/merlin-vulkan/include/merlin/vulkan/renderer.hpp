@@ -106,8 +106,10 @@ struct PresentationOptions {
 //
 // Feature enablement is stated explicitly because querying physical-device
 // support cannot prove which optional features the application enabled when it
-// created VkDevice. The initial host path deliberately uses the conventional
-// descriptor backend and one graphics queue.
+// created VkDevice. The initial host path accepts the Vulkan 1.3 contract used
+// by OpenUSD HgiVulkan, deliberately uses the conventional descriptor backend,
+// and uses one graphics queue. Merlin-owned Vulkan contexts retain the Vulkan
+// 1.4 product baseline.
 struct BorrowedVulkanContext {
   std::uintptr_t instance{};
   std::uintptr_t physical_device{};

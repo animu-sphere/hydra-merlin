@@ -137,6 +137,11 @@ const T* FindDeltaRecord(const extraction::PersistentTable<T>& table,
 
 constexpr std::uint32_t kMinimumVulkanApiVersion = VK_MAKE_API_VERSION(
     0, MERLIN_VULKAN_MIN_VERSION_MAJOR, MERLIN_VULKAN_MIN_VERSION_MINOR, 0);
+// OpenUSD 26.05 and 26.08 create HgiVulkan devices against Vulkan 1.3.
+// Borrowed mode uses the conventional descriptor path and only Vulkan 1.3
+// core functionality, while Merlin-owned contexts retain the Vulkan 1.4
+// product baseline.
+constexpr std::uint32_t kMinimumBorrowedVulkanApiVersion = VK_API_VERSION_1_3;
 
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
@@ -1799,12 +1804,10 @@ class Renderer::Impl {
       Check(enumerate_instance_version(&loader_api_version),
             "query Vulkan loader version");
     }
-    if (loader_api_version < kMinimumVulkanApiVersion) {
+    if (loader_api_version < kMinimumBorrowedVulkanApiVersion) {
       throw RendererError(RendererErrorCode::Unsupported,
                           "borrow Vulkan context",
-                          std::string("Vulkan ") +
-                              MERLIN_VULKAN_MIN_VERSION_STRING +
-                              " loader is required");
+                          "Vulkan 1.3 loader is required");
     }
 
     VkPhysicalDeviceDescriptorIndexingProperties descriptor_properties{
@@ -1816,11 +1819,11 @@ class Renderer::Impl {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     properties.pNext = &driver_properties;
     vkGetPhysicalDeviceProperties2(physical_device_, &properties);
-    if (properties.properties.apiVersion < kMinimumVulkanApiVersion) {
+    if (properties.properties.apiVersion <
+        kMinimumBorrowedVulkanApiVersion) {
       throw RendererError(RendererErrorCode::Unsupported,
                           "borrow Vulkan context",
-                          std::string("borrowed device does not provide Vulkan ") +
-                              MERLIN_VULKAN_MIN_VERSION_STRING);
+                          "borrowed device does not provide Vulkan 1.3");
     }
 
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline{

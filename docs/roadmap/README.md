@@ -36,7 +36,7 @@ presentation; its completed pre-release detail is retained in the changelog and
 delivery history. v0.10.0 released a MaterialXGenSlang material-function slice,
 and v0.11.0 released native Metal offscreen execution and residency while the
 active v0.10.x work finishes the renderer-development diagnostic surface.
-v0.12.0 released native Metal viewport presentation. v0.13.0 starts the
+v0.12.0 released native Metal viewport presentation. v0.13.0 delivers the
 HgiVulkan GPU-copy bridge, v0.14.0 follows with HgiMetal, and v0.14.1 establishes
 the Gaussian correctness MVP. The later Gaussian path advances through
 persistent resources, GPU-driven projection/sorting, contribution-aware and

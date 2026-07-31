@@ -10,8 +10,18 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <string_view>
+
+namespace merlin::render {
+class Backend;
+}
+
+namespace merlin::vulkan {
+struct AovImageExport;
+}
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -31,6 +41,9 @@ enum class HdMerlinHgiVulkanFallbackReason {
   InvalidTarget,
   TargetCreationFailed,
   TargetUploadFailed,
+  NativeContextUnavailable,
+  SourceMismatch,
+  GpuCopyFailed,
 };
 
 [[nodiscard]] std::string_view HdMerlinHgiVulkanTransferModeName(
@@ -65,9 +78,23 @@ struct HdMerlinHgiVulkanBridgeTelemetry {
   std::uint64_t cpu_upload_bytes{};
   std::uint64_t cpu_upload_encode_ns{};
   std::uint64_t gpu_copy_count{};
+  std::uint64_t gpu_copy_completion_count{};
+  std::uint64_t gpu_copy_pending_count{};
   std::uint64_t gpu_copy_bytes{};
   std::uint64_t gpu_copy_encode_ns{};
   std::uint64_t coarse_wait_count{};
+};
+
+struct HdMerlinBorrowedVulkanContext {
+  std::uintptr_t instance{};
+  std::uintptr_t physical_device{};
+  std::uintptr_t device{};
+  std::uintptr_t graphics_queue{};
+  std::uint32_t graphics_queue_family{};
+  std::uint32_t graphics_queue_index{};
+  bool timeline_semaphore_enabled{};
+  bool validation_enabled{};
+  bool debug_utils_enabled{};
 };
 
 // Kept separately testable so OpenUSD package composition (not merely its
@@ -88,18 +115,19 @@ HdMerlinEvaluateHgiVulkanBridgeSupport(bool enabled,
 
 class Hgi;
 
-// Hydra-adapter-owned Hgi target manager. This first v0.13.0 slice moves the
-// Tier 0 CPU upload into an Hgi-owned texture and exposes that texture through
-// HdRenderBuffer::GetResource. The selected mode remains CpuReadback until the
-// renderer image export and distinct GPU-copy completion path are connected.
+// Hydra-adapter-owned Hgi target manager. Tier 0 moves the CPU upload into an
+// Hgi-owned texture exposed through HdRenderBuffer::GetResource. Validated
+// packages that expose the native HgiVulkan target use the same-device GPU-copy
+// path and retain Tier 0 as the operational fallback.
 //
 // Threading: the internal mutex only serialises this bridge's own state. Hgi
 // itself is not thread-safe and is shared with the host, so CreateTarget,
-// DestroyTarget, and Upload must be reached from the Hydra execution thread:
+// DestroyTarget, Upload, and Copy must be reached from the Hydra execution thread:
 // the thread that runs HdEngine::Execute and on which the host drives the same
 // Hgi. Every current caller sits on the render-pass execution path, which
 // satisfies that.
-class HdMerlinHgiVulkanBridge final {
+class HdMerlinHgiVulkanBridge final
+    : public std::enable_shared_from_this<HdMerlinHgiVulkanBridge> {
  public:
   explicit HdMerlinHgiVulkanBridge(bool enabled);
   ~HdMerlinHgiVulkanBridge();
@@ -116,12 +144,17 @@ class HdMerlinHgiVulkanBridge final {
 
   [[nodiscard]] HdMerlinHgiVulkanBridgeStatus status() const;
   [[nodiscard]] HdMerlinHgiVulkanBridgeTelemetry telemetry() const;
+  [[nodiscard]] std::optional<HdMerlinBorrowedVulkanContext>
+  BorrowedContext() const;
 
   [[nodiscard]] HgiTextureHandle CreateTarget(const HgiTextureDesc& descriptor,
                                               bool recreation);
   void DestroyTarget(HgiTextureHandle* target);
   [[nodiscard]] bool Upload(HgiTextureHandle target, const void* data,
                             std::size_t byte_size);
+  [[nodiscard]] bool Copy(
+      HgiTextureHandle target, merlin::vulkan::AovImageExport&& source,
+      std::shared_ptr<merlin::render::Backend> backend);
 
  private:
   // A one-way latch for the delegate's lifetime, cleared only by a fresh

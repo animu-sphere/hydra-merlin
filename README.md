@@ -157,7 +157,7 @@ execution are present. Hydra MaterialX ingestion remains later integration
 work.
 Subdivision refinement and Vulkan/Hgi host bridging remain future work;
 usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi upload
-path. v0.13.0 starts with a Vulkan GPU-copy bridge while preserving that path
+path. v0.13.0 adds a Vulkan GPU-copy bridge while preserving that path
 as the universal reference and fallback.
 
 ## Capability boundaries and roadmap
@@ -191,7 +191,7 @@ MaterialXGenSlang material-function slice, and v0.11.0 released native Metal
 offscreen execution, heap residency, argument-buffer tables, and the matching
 backend-neutral AOV/readback contract. v0.12.0 released native Metal viewport
 presentation with GPU-only drawable output, resize-safe pacing, and the matching
-developer UI path. v0.13.0 starts HgiVulkan with safe GPU copy; optional direct
+developer UI path. v0.13.0 adds HgiVulkan with safe GPU copy; optional direct
 sharing is a separate evidence gate, and v0.14.0 brings the equivalent HgiMetal
 bridge. v0.14.1 establishes the CPU-sorted Gaussian MVP, then v0.15.0–v0.22.0
 advance persistent resources, GPU projection/sorting, contribution-aware and
@@ -211,8 +211,11 @@ separate FileFormat plugins or importers. Mesh and Gaussian resources share the
 persistent RenderWorld, camera, transforms, visibility, allocation, lifetime,
 and profiling infrastructure while retaining separate rendering algorithms.
 
-The Vulkan path requires a Vulkan 1.4-capable graphics queue and Slang
-2026.8.x (`slangc`) from the Vulkan SDK at build time.
+The Merlin-owned Vulkan path requires a Vulkan 1.4-capable graphics queue and
+Slang 2026.8.x (`slangc`) from the Vulkan SDK at build time. The HgiVulkan
+integration may instead borrow the host's Vulkan 1.3 device and graphics queue;
+that path is limited to the conventional descriptor backend validated with
+OpenUSD 26.05 and 26.08.
 
 ## MaterialX prototype
 

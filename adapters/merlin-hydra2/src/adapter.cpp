@@ -950,8 +950,11 @@ bool HasRequestedRenderTag(const SdfPath& path,
 
 class SceneBridge {
  public:
-  explicit SceneBridge(std::shared_ptr<merlin::render::Backend> backend = {})
-      : renderer_(std::move(backend)) {
+  explicit SceneBridge(
+      std::shared_ptr<merlin::render::Backend> backend = {},
+      std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {})
+      : renderer_(std::move(backend)),
+        hgi_vulkan_bridge_(std::move(hgi_vulkan_bridge)) {
     merlin::MaterialDescriptor material;
     material.label = "Hydra fallback material";
     // Unbound Hydra meshes use displayColor as their authored viewport color.
@@ -1358,6 +1361,24 @@ class SceneBridge {
       const auto shader_dir =
           PluginDirectory() / merlin::vulkan::shader_abi::ArtifactDirectory();
       merlin::vulkan::BackendFactoryOptions factory_options;
+      if (hgi_vulkan_bridge_) {
+        if (const auto borrowed = hgi_vulkan_bridge_->BorrowedContext()) {
+          factory_options.renderer.borrowed_context =
+              merlin::vulkan::BorrowedVulkanContext{
+                  borrowed->instance,
+                  borrowed->physical_device,
+                  borrowed->device,
+                  borrowed->graphics_queue,
+                  borrowed->graphics_queue_family,
+                  borrowed->graphics_queue_index,
+                  borrowed->timeline_semaphore_enabled,
+                  borrowed->validation_enabled,
+                  borrowed->debug_utils_enabled};
+          factory_options.renderer.descriptor_backend =
+              merlin::vulkan::DescriptorBackendRequest::Conventional;
+          factory_options.renderer.enable_async_transfer = false;
+        }
+      }
       factory_options.shaders = {
           shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
           shader_dir / "triangle.bindless.vert.spv",
@@ -1400,7 +1421,27 @@ class SceneBridge {
       request.presentation = *presentation;
       request.products.push_back({merlin::Aov::Color, false});
     }
-    const auto request_product = [&](merlin::Aov aov, bool cpu_readback = true) {
+    std::vector<HdMerlinRenderBuffer*> gpu_color_candidates;
+    for (const auto& binding : bindings) {
+      if (binding.aovName != HdAovTokens->color) {
+        continue;
+      }
+      HdRenderBuffer* base = binding.renderBuffer;
+      if (base == nullptr && !binding.renderBufferId.IsEmpty()) {
+        base = dynamic_cast<HdRenderBuffer*>(render_index->GetBprim(
+            HdPrimTypeTokens->renderBuffer, binding.renderBufferId));
+      }
+      auto* buffer = dynamic_cast<HdMerlinRenderBuffer*>(base);
+      if (buffer != nullptr && buffer->CanGpuCopyColor()) {
+        gpu_color_candidates.push_back(buffer);
+      }
+    }
+    HdMerlinRenderBuffer* gpu_color_buffer =
+        gpu_color_candidates.size() == 1 ? gpu_color_candidates.front()
+                                         : nullptr;
+
+    const auto request_product = [&](merlin::Aov aov,
+                                     bool cpu_readback = true) {
       const auto found = std::find_if(
           request.products.begin(), request.products.end(),
           [aov](const merlin::render::RenderProductRequest& product) {
@@ -1414,7 +1455,7 @@ class SceneBridge {
     };
     for (const auto& binding : bindings) {
       if (binding.aovName == HdAovTokens->color) {
-        request_product(merlin::Aov::Color);
+        request_product(merlin::Aov::Color, gpu_color_buffer == nullptr);
       } else if (HdAovHasDepthSemantic(binding.aovName)) {
         request_product(merlin::Aov::Depth);
       } else if (binding.aovName == HdAovTokens->primId) {
@@ -1428,7 +1469,27 @@ class SceneBridge {
     if (!presentation) {
       request_product(merlin::Aov::Depth);
     }
-    const auto result = renderer_->Resolve(renderer_->Submit(request));
+    auto token = renderer_->Submit(request);
+    bool gpu_color_copied{};
+#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
+    if (gpu_color_buffer != nullptr) {
+      if (auto* exporter = dynamic_cast<merlin::vulkan::AovImageExporter*>(
+              renderer_.get())) {
+        try {
+          gpu_color_copied = gpu_color_buffer->CopyColor(
+              exporter->AcquireAovImage(token, merlin::Aov::Color),
+              renderer_);
+        } catch (const merlin::render::RendererError&) {
+          gpu_color_copied = false;
+        }
+      }
+    }
+#endif
+    auto result = renderer_->Resolve(token);
+    if (gpu_color_buffer != nullptr && !gpu_color_copied) {
+      request_product(merlin::Aov::Color, true);
+      result = renderer_->Resolve(renderer_->Submit(request));
+    }
     latest_viewport_frame_.timings = result.timings;
     latest_viewport_frame_.telemetry = result.telemetry;
     latest_viewport_frame_.material_diagnostics =
@@ -1460,9 +1521,13 @@ class SceneBridge {
       buffer->SetConverged(false);
       bool written{};
       if (binding.aovName == HdAovTokens->color) {
-        written = buffer->WriteColor(result.color.pixels,
-                                     result.color.product.width,
-                                     result.color.product.height);
+        if (gpu_color_copied && buffer == gpu_color_buffer) {
+          written = true;
+        } else {
+          written = buffer->WriteColor(result.color.pixels,
+                                       result.color.product.width,
+                                       result.color.product.height);
+        }
       } else if (HdAovHasDepthSemantic(binding.aovName)) {
         written = buffer->WriteDepth(result.depth.pixels,
                                      result.depth.product.width,
@@ -1532,6 +1597,10 @@ class SceneBridge {
                           }));
         const auto missing_texcoord_geometries =
             snapshot->geometries.size() - texcoord_geometries;
+        const auto hgi_vulkan_telemetry =
+            hgi_vulkan_bridge_
+                ? hgi_vulkan_bridge_->telemetry()
+                : HdMerlinHgiVulkanBridgeTelemetry{};
         stream << "schema_version=4"
                << " phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
@@ -1633,6 +1702,7 @@ class SceneBridge {
                << " render_buffer_map_ns_available=0"
                << " host_upload_bytes=0 host_upload_bytes_available=0"
                << " host_upload_ns=0 host_upload_ns_available=0"
+               << " gpu_copy_ns=0 gpu_copy_ns_available=0"
                << " host_composite_ns=0 host_composite_ns_available=0"
                << " presentation_ns=0 presentation_ns_available=0"
                << " requested_aov_count="
@@ -1649,6 +1719,14 @@ class SceneBridge {
                << result.telemetry.cpu_readback_aov_mask
                << " aov_image_export_count="
                << result.telemetry.aov_image_export_count
+               << " hgi_gpu_copy_count="
+               << hgi_vulkan_telemetry.gpu_copy_count
+               << " hgi_gpu_copy_completion_count="
+               << hgi_vulkan_telemetry.gpu_copy_completion_count
+               << " hgi_gpu_copy_pending_count="
+               << hgi_vulkan_telemetry.gpu_copy_pending_count
+               << " hgi_coarse_wait_count="
+               << hgi_vulkan_telemetry.coarse_wait_count
                << " upload_bytes=" << result.telemetry.upload_bytes
                << " readback_bytes=" << result.telemetry.readback_bytes
                << " allocation_count=" << result.telemetry.allocation_count
@@ -1790,6 +1868,7 @@ class SceneBridge {
       merlin::FrontFaceWinding::Clockwise};
   merlin::extraction::SceneExtractor extractor_;
   std::shared_ptr<merlin::render::Backend> renderer_;
+  std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
   merlin::MaterialHandle fallback_material_;
   merlin::RenderSettingsHandle render_settings_;
   merlin::RenderSettingsDescriptor render_settings_descriptor_;
@@ -2807,6 +2886,7 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   dimensions_ = dimensions;
   format_ = format;
   multi_sampled_ = multi_sampled;
+  gpu_only_ = false;
   converged_ = false;
   data_.assign(pixels * pixel_size, 0);
   // Only the 8-bit color AOV is published as an Hgi target. It is the buffer a
@@ -2861,7 +2941,7 @@ bool HdMerlinRenderBuffer::IsMultiSampled() const {
 void* HdMerlinRenderBuffer::Map() {
   TRACE_SCOPE("HdMerlinRenderBuffer::Map");
   std::scoped_lock lock(mutex_);
-  if (data_.empty()) {
+  if (data_.empty() || gpu_only_) {
     return nullptr;
   }
   ++map_count_;
@@ -2908,6 +2988,7 @@ bool HdMerlinRenderBuffer::WriteColor(
     return false;
   }
   data_ = rgba8;
+  gpu_only_ = false;
   UploadHgiTargetLocked();
   return true;
 }
@@ -2944,6 +3025,30 @@ bool HdMerlinRenderBuffer::WriteId(const std::vector<std::uint32_t>& ids,
   return true;
 }
 
+bool HdMerlinRenderBuffer::CanGpuCopyColor() const {
+  std::scoped_lock lock(mutex_);
+  return format_ == HdFormatUNorm8Vec4 && !multi_sampled_ &&
+         static_cast<bool>(hgi_target_) && hgi_vulkan_bridge_ &&
+         hgi_vulkan_bridge_->status().gpu_copy;
+}
+
+bool HdMerlinRenderBuffer::CopyColor(
+    merlin::vulkan::AovImageExport&& source,
+    std::shared_ptr<merlin::render::Backend> backend) {
+  std::scoped_lock lock(mutex_);
+  if (!hgi_target_ || !hgi_vulkan_bridge_) {
+    return false;
+  }
+  if (!hgi_vulkan_bridge_->Copy(hgi_target_, std::move(source),
+                                std::move(backend))) {
+    DestroyHgiTargetLocked();
+    gpu_only_ = false;
+    return false;
+  }
+  gpu_only_ = true;
+  return true;
+}
+
 void HdMerlinRenderBuffer::SetConverged(bool converged) {
   std::scoped_lock lock(mutex_);
   converged_ = converged;
@@ -2958,6 +3063,7 @@ void HdMerlinRenderBuffer::_Deallocate() {
   dimensions_ = GfVec3i(0);
   format_ = HdFormatInvalid;
   multi_sampled_ = false;
+  gpu_only_ = false;
   converged_ = false;
   data_.clear();
 }
@@ -2994,17 +3100,25 @@ constexpr bool kHgiVulkanBridgeEnabled = false;
 
 class HdMerlinRenderDelegate::Impl {
  public:
-  Impl() : bridge(std::make_shared<SceneBridge>()) {}
-  explicit Impl(std::shared_ptr<merlin::render::Backend> backend) {
+  Impl()
+      : hgi_vulkan_bridge(
+            std::make_shared<HdMerlinHgiVulkanBridge>(
+                kHgiVulkanBridgeEnabled)),
+        bridge(std::make_shared<SceneBridge>(nullptr, hgi_vulkan_bridge)) {}
+  explicit Impl(std::shared_ptr<merlin::render::Backend> backend)
+      : hgi_vulkan_bridge(
+            std::make_shared<HdMerlinHgiVulkanBridge>(
+                kHgiVulkanBridgeEnabled)) {
     if (!backend) {
       throw std::invalid_argument("Hydra renderer backend is null");
     }
-    bridge = std::make_shared<SceneBridge>(std::move(backend));
+    bridge = std::make_shared<SceneBridge>(std::move(backend),
+                                           hgi_vulkan_bridge);
   }
 
-  std::shared_ptr<SceneBridge> bridge;
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge{
       std::make_shared<HdMerlinHgiVulkanBridge>(kHgiVulkanBridgeEnabled)};
+  std::shared_ptr<SceneBridge> bridge;
   HydraDirtyTracker dirty_tracker;
   HdSceneIndexBaseRefPtr terminal_scene_index;
 };
