@@ -152,7 +152,7 @@ endif()
 set(required_trace_stages render_buffer_resolve)
 if(MERLIN_FORCE_HGI_VULKAN)
   list(APPEND required_trace_stages gpu_copy)
-else()
+elseif(NOT MERLIN_HGI_METAL_BRIDGE_ENABLED)
   list(APPEND required_trace_stages host_upload)
 endif()
 foreach(stage IN LISTS required_trace_stages)
@@ -224,6 +224,38 @@ if(MERLIN_FORCE_HGI_VULKAN)
       if(available)
         message(FATAL_ERROR
           "Vulkan Hgi ${phase_name} phase unexpectedly used ${stage}")
+      endif()
+    endforeach()
+  endforeach()
+elseif(MERLIN_HGI_METAL_BRIDGE_ENABLED)
+  if(map_available)
+    message(FATAL_ERROR
+      "HgiMetal target path unexpectedly mapped the color RenderBuffer")
+  endif()
+  if(NOT marker_contents MATCHES
+     "hgi_metal_gpu_copy_completion_count=[1-9][0-9]*" OR
+     NOT marker_contents MATCHES "hgi_metal_transfer_mode=gpu-copy" OR
+     NOT marker_contents MATCHES
+       "hgi_metal_direct_share_rejection=completion-retention-unavailable" OR
+     NOT marker_contents MATCHES
+       "hgi_metal_direct_share_evaluation_count=[1-9][0-9]*" OR
+     NOT marker_contents MATCHES
+       "hgi_metal_direct_share_rejection_count=[1-9][0-9]*" OR
+     NOT marker_contents MATCHES "hgi_metal_coarse_wait_count=0")
+    message(FATAL_ERROR
+      "HgiMetal GPU-copy path did not report the expected bridge telemetry")
+  endif()
+  foreach(index RANGE 0 ${performance_last_phase})
+    string(JSON phase_name GET "${performance_json}" phases ${index} name)
+    if(phase_name STREQUAL "unlabeled")
+      continue()
+    endif()
+    foreach(stage IN ITEMS render_buffer_map host_upload)
+      string(JSON available GET "${performance_json}" phases ${index}
+             stages ${stage} available)
+      if(available)
+        message(FATAL_ERROR
+          "HgiMetal ${phase_name} phase unexpectedly used ${stage}")
       endif()
     endforeach()
   endforeach()
