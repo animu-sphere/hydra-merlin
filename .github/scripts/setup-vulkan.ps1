@@ -8,19 +8,24 @@ $sdkRoot = Join-Path $workspace ".ci/vulkan-sdk/$version"
 $sdkBin = Join-Path $sdkRoot "Bin"
 $slangc = Join-Path $sdkBin "slangc.exe"
 
-# Tools the capability jobs rely on. A restored cache is only trusted when all
-# of them are present, so a partially populated prefix triggers a reinstall.
-$requiredTools = @("slangc.exe", "vulkaninfoSDK.exe")
-function Get-MissingVulkanTool {
-  foreach ($tool in $requiredTools) {
-    if (-not (Test-Path -LiteralPath (Join-Path $sdkBin $tool))) {
-      return $tool
+# Files the capability jobs rely on. HgiVulkan's public vk_mem_alloc.h wrapper
+# includes the SDK-provided vma/vk_mem_alloc.h, so an executable-only cache is
+# not a complete development SDK.
+$requiredFiles = @(
+  "Bin/slangc.exe",
+  "Bin/vulkaninfoSDK.exe",
+  "Include/vma/vk_mem_alloc.h"
+)
+function Get-MissingVulkanFile {
+  foreach ($file in $requiredFiles) {
+    if (-not (Test-Path -LiteralPath (Join-Path $sdkRoot $file))) {
+      return $file
     }
   }
   return $null
 }
 
-if (Get-MissingVulkanTool) {
+if (Get-MissingVulkanFile) {
   $downloads = Join-Path $workspace ".ci/downloads"
   $installer = Join-Path $downloads "vulkan-sdk-$version.exe"
   New-Item -ItemType Directory -Force $downloads | Out-Null
@@ -39,9 +44,9 @@ if (Get-MissingVulkanTool) {
   }
 }
 
-$missingTool = Get-MissingVulkanTool
-if ($missingTool) {
-  throw "LunarG Vulkan SDK installation is missing $(Join-Path $sdkBin $missingTool)"
+$missingFile = Get-MissingVulkanFile
+if ($missingFile) {
+  throw "LunarG Vulkan SDK installation is missing $(Join-Path $sdkRoot $missingFile)"
 }
 
 $env:VULKAN_SDK = $sdkRoot
