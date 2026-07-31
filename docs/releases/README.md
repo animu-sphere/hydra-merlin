@@ -10,6 +10,7 @@ lives in the [roadmap](../roadmap/).
 
 | Version | Record | Theme |
 | --- | --- | --- |
+| v0.13.0 | [v0.13.0](v0.13.0.md) | HgiVulkan GPU-copy host presentation |
 | v0.12.0 | [v0.12.0](v0.12.0.md) | Native Metal viewport presentation |
 | v0.11.0 | [v0.11.0](v0.11.0.md) | Native Metal offscreen backend and residency |
 | v0.10.0 | [v0.10.0](v0.10.0.md) | MaterialX shader-generation boundary |

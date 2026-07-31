@@ -83,60 +83,20 @@ jobs:
           }
           exit 0
 
-      - name: Check out the v0.7.0 benchmark baseline
-        if: matrix.build_type == 'Release'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: v0.7.0
-          path: .ci/baseline-v0.7.0
-          persist-credentials: false
-
-      - name: Build the v0.7.0 benchmark baseline
-        if: matrix.build_type == 'Release'
-        shell: pwsh
-        run: |
-          cmake -S .ci/baseline-v0.7.0 -B build-v0.7.0 `
-            -G "Visual Studio 17 2022" -A x64
-          if ($LASTEXITCODE -ne 0) { throw "v0.7.0 configure failed" }
-          cmake --build build-v0.7.0 --config Release `
-            --target merlin-benchmark --parallel 4 -- /nodeReuse:false
-          if ($LASTEXITCODE -ne 0) { throw "v0.7.0 benchmark build failed" }
-
-      - name: Compare v0.7.0 and current Release benchmarks
+      - name: Record the current Release renderer benchmark
         if: matrix.build_type == 'Release'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force `
-            build-native/evidence/benchmark-v0.7.0 | Out-Null
-          $evidence = "build-native/evidence/benchmark-v0.7.0"
-          $baseline = "build-v0.7.0/adapters/merlin-benchmark/Release/merlin-benchmark.exe"
+            build-native/evidence/benchmark-current | Out-Null
+          $evidence = "build-native/evidence/benchmark-current"
           $current = "build-native/adapters/merlin-benchmark/Release/merlin-benchmark.exe"
           $arguments = @(
             "--fixture", "reference", "--width", "512", "--height", "512",
             "--steady-frames", "120"
           )
-          & $baseline @arguments --output "$evidence/v0.7.0.json"
-          if ($LASTEXITCODE -ne 0) { throw "v0.7.0 benchmark failed" }
           & $current @arguments --output "$evidence/current.json"
           if ($LASTEXITCODE -ne 0) { throw "current benchmark failed" }
-          python scripts/compare-benchmarks.py `
-            "$evidence/v0.7.0.json" "$evidence/current.json" `
-            --output "$evidence/structural-comparison.json"
-          if ($LASTEXITCODE -ne 0) {
-            throw "v0.7.0 structural benchmark comparison failed"
-          }
-          python scripts/compare-benchmarks.py `
-            "$evidence/v0.7.0.json" "$evidence/current.json" `
-            --timing-threshold-percent 20 `
-            --output "$evidence/timing-observation.json"
-          $timingExit = $LASTEXITCODE
-          if ($timingExit -notin 0, 2) {
-            throw "v0.7.0 timing comparison could not be evaluated"
-          }
-          if ($timingExit -eq 2) {
-            Write-Warning "observed timing deltas exceeded 20%; retained as non-gating evidence"
-          }
-          exit 0
 
       - name: Validate the OpenStrata renderer lifecycle
         if: matrix.build_type == 'Release'

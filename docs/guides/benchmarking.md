@@ -232,8 +232,13 @@ ranges. Static baseline still asserts zero upload, allocation, shader-module
 miss, geometry-cache miss, and pipeline creation. Diagnostic/recovery verifies
 the versioned unsupported-topology path, while remove/readd verifies that path
 caches and generations do not survive Rprim lifetime. The capability workflow
-retains benchmark JSON/comparisons, explicit automatic and forced-conventional
+retains a full current Release renderer benchmark, the CTest schema/structural
+self-comparison, explicit automatic and forced-conventional
 descriptor-selection capability JSON, an expected undersized-bindless-table
 failure log, Hydra JSON/log/trace, images, validation logs, and dependency/
-runtime provenance. `merlin-headless --descriptor-backend` and the bindless
-capacity options reproduce those selection cases locally.
+runtime provenance. It does not treat an old release tag as a permanent timing
+baseline. The Hydra job instead compares Tier 0 and HgiVulkan over the same
+current 13-phase fixture, so image parity, transfer bytes, and
+readback/upload/copy timing describe the paths being selected now.
+`merlin-headless --descriptor-backend` and the bindless capacity options
+reproduce those selection cases locally.

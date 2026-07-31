@@ -74,4 +74,8 @@ or package issue in a new patch version rather than moving an existing tag.
 The hosted workflow publishes the portable Core SDK baseline. Vulkan, headless,
 benchmark, and Hydra products remain capability-dependent source-build products.
 The manually dispatched GPU capability workflow exercises Vulkan/headless in
-Debug and Release and Hydra in Release on a runner labeled `vulkan-1.4`.
+Debug and Release and Hydra in Release on a runner labeled `vulkan-1.4`. Its
+performance evidence is a current Release renderer snapshot plus the same-run
+Tier 0/HgiVulkan 13-phase comparison; release-to-release timing claims require
+an intentionally selected controlled-hardware baseline rather than an embedded
+historical tag.

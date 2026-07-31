@@ -11,6 +11,24 @@ Legend: ✅ done
 
 ---
 
+## v0.13.0 HgiVulkan GPU-copy bridge ✅
+
+- ✅ Added public Hydra-driver discovery, Hgi-owned color targets, and selected
+  color GPU copy on the validated OpenUSD 26.05 and 26.08 packages while
+  retaining Tier 0 CPU RenderBuffers as the universal fallback.
+- ✅ Added a borrowed Vulkan 1.3 device/graphics-queue path for HgiVulkan hosts,
+  with explicit image layout/ownership metadata and no device- or queue-idle
+  wait; Merlin-owned Vulkan remains at the Vulkan 1.4 baseline.
+- ✅ Exported selected renderer AOV images through move-only leases that retain
+  frame targets through Resolve and return from Hgi command-buffer completion;
+  depth and ID AOVs remain on CPU readback.
+- ✅ Added structured selection, fallback, copy, byte, completion, and
+  coarse-wait telemetry plus fallback coverage for missing, disabled,
+  non-Vulkan, swapped, and operationally rejected host paths.
+- ✅ Exercised Tier 0 and HgiVulkan through the same 13 scene/camera/material/
+  diagnostic/lifetime/resize phases with bounded image differences and
+  versioned readback/upload/copy performance evidence.
+
 ## v0.12.0 native Metal presentation ✅
 
 - ✅ Added a private Cocoa/GLFW adapter that creates the `CAMetalLayer` while

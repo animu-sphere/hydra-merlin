@@ -1,6 +1,6 @@
 # Backlog
 
-Ordered work after the released v0.12.0 native Metal viewport presentation,
+Ordered work after the released v0.13.0 HgiVulkan GPU-copy bridge,
 alongside active foundation work in
 [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
@@ -13,30 +13,6 @@ benchmark evidence. Scope may move when that evidence changes the justified
 order.
 
 ## Phase B — Cross-platform backend and presentation parity
-
-### ✅ v0.13.0 — HgiVulkan GPU-copy bridge
-
-Implement `HgiVulkanBridge` in the Hydra adapter, not the renderer RHI. Create
-Hgi-owned destination targets, retain Tier 0 CPU RenderBuffers as the reference
-path, then copy selected color/depth/`primId`/`instanceId` AOVs from
-`merlin-vulkan` images with explicit layout/ownership transitions and a distinct
-bridge completion token. Validate public HgiVulkan device, texture, format,
-usage, resize, target-lifetime, and host-composite contracts for each supported
-OpenUSD/host version.
-
-Exit requires CPU fallback and GPU copy to work; camera-only GPU-copy frames to
-avoid CPU readback/upload; resize and frames-in-flight retirement to be safe;
-unsupported configurations to report structured fallback reasons; independent
-presentation telemetry; no coarse device/queue idle wait; and Tier 0 comparison
-evidence. Direct native sharing and external interop are not v0.13.0 claims.
-
-### ⬜ v0.13.1 — HgiVulkan direct-path hardening
-
-Consider same-logical-device sharing only after physical/logical device identity,
-queue ownership, format/usage, public host consumption, completion retention,
-resize/destruction, and vendor/driver evidence are all verified. GPU copy remains
-the fallback. External memory/semaphores require a demonstrated supported-host
-need and a measured advantage over GPU copy.
 
 ### ⬜ v0.14.0 — HgiMetal bridge
 

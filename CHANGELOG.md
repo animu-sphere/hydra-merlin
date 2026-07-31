@@ -8,6 +8,32 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-01
+
+### Added
+
+- HgiVulkan host presentation through Hgi-owned color targets and selected-AOV
+  GPU copy on the validated OpenUSD 26.05 and 26.08 packages, while retaining
+  Tier 0 CPU RenderBuffers as the universal reference and fallback.
+- Borrowed Vulkan-context execution and move-only exported-image leases with
+  explicit layout, queue-family, completion, resize, and retirement metadata;
+  depth, `primId`, and `instanceId` remain available through CPU readback.
+- A 13-phase Tier 0/HgiVulkan image and performance comparison covering scene,
+  camera, material, diagnostic, lifetime, and resize changes, with structured
+  copy/readback/upload timing and byte evidence.
+
+### Changed
+
+- Hydra presentation selection now reports structured capability, fallback,
+  target, transfer, and coarse-wait telemetry; supported HgiVulkan color frames
+  avoid color Map/upload and release renderer image leases from Hgi command
+  completion without a device- or queue-idle wait.
+- Self-hosted GPU CI now records the current renderer benchmark and the current
+  Tier 0/HgiVulkan path comparison instead of rebuilding and comparing the
+  historical v0.7.0 benchmark.
+- OpenStrata CI and renderer integration are pinned to 0.21.0, including
+  package-backed OpenUSD runtime provenance and verification.
+
 ## [0.12.0] - 2026-07-27
 
 ### Added
@@ -503,7 +529,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.12.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.0...main
+[0.13.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.9.0...v0.10.0

@@ -155,10 +155,10 @@ same `MaterialIR` used by headless rendering. The optional graph-only
 MaterialXGenSlang compiler and generated Vulkan Forward parameter/resource
 execution are present. Hydra MaterialX ingestion remains later integration
 work.
-Subdivision refinement and Vulkan/Hgi host bridging remain future work;
-usdview presentation currently uses Hydra's CPU RenderBuffer-to-Hgi upload
-path. v0.13.0 adds a Vulkan GPU-copy bridge while preserving that path
-as the universal reference and fallback.
+Subdivision refinement remains future work. usdview presentation keeps Hydra's
+CPU RenderBuffer-to-Hgi upload as the universal reference and fallback, while
+v0.13.0 can select an HgiVulkan color GPU-copy path on validated OpenUSD
+packages and retains depth and ID AOVs on CPU readback.
 
 ## Capability boundaries and roadmap
 
@@ -170,10 +170,10 @@ The current renderer intentionally does not yet provide:
   Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
 - advanced viewport features such as alpha blending, dome lighting, shadows,
   selection, or production culling;
-- Vulkan/Hgi GPU-copy, direct-share, and external-interop presentation; Hydra
-  currently uses CPU RenderBuffer readback followed by the host's Hgi upload
-  path. These paths are capability- and evidence-gated rather than implied by
-  the Vulkan backend.
+- Vulkan/Hgi direct-share and external-interop presentation. HgiVulkan GPU copy
+  is available for color on validated packages, with Tier 0 CPU transfer as the
+  fallback; broader sharing paths remain capability- and evidence-gated rather
+  than implied by the Vulkan backend.
 
 These are roadmap boundaries, not implicit compatibility claims. See the
 [support matrix](docs/reference/support-matrix.md) for current platform and
