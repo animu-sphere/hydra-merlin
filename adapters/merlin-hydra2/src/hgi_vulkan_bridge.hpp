@@ -28,6 +28,29 @@ PXR_NAMESPACE_OPEN_SCOPE
 enum class HdMerlinHgiVulkanTransferMode {
   CpuReadback,
   GpuCopy,
+  DirectSharedResource,
+};
+
+// A direct-share rejection is reported separately from fallback_reason:
+// rejecting Tier 2 while selecting the supported Tier 1 GPU-copy path is a
+// capability decision, not an operational bridge failure.
+enum class HdMerlinHgiVulkanDirectShareRejection {
+  None,
+  NotEvaluated,
+  PhysicalDeviceMismatch,
+  LogicalDeviceMismatch,
+  QueueOwnershipUnsupported,
+  ApiIncompatible,
+  RequiredExtensionMissing,
+  FormatUsageMismatch,
+  SampleCountUnsupported,
+  TilingUnsupported,
+  MemoryConstraintsUnsupported,
+  PublicTextureImportUnavailable,
+  HostConsumptionUnretained,
+  CompletionRetentionUnavailable,
+  ResizeRetirementUnsafe,
+  DirectPathUnavailable,
 };
 
 enum class HdMerlinHgiVulkanFallbackReason {
@@ -48,8 +71,41 @@ enum class HdMerlinHgiVulkanFallbackReason {
 
 [[nodiscard]] std::string_view HdMerlinHgiVulkanTransferModeName(
     HdMerlinHgiVulkanTransferMode mode) noexcept;
+[[nodiscard]] std::string_view HdMerlinHgiVulkanDirectShareRejectionName(
+    HdMerlinHgiVulkanDirectShareRejection reason) noexcept;
 [[nodiscard]] std::string_view HdMerlinHgiVulkanFallbackReasonName(
     HdMerlinHgiVulkanFallbackReason reason) noexcept;
+
+// Every field is affirmative: default construction rejects direct sharing.
+// Keeping this evaluator independent of native headers lets package and host
+// tests prove that no single same-GPU observation can bypass the remaining
+// ownership, compatibility, public-API, or lifetime gates.
+struct HdMerlinHgiVulkanDirectShareRequirements {
+  bool physical_device_identity{};
+  bool logical_device_identity{};
+  bool queue_ownership_compatible{};
+  bool api_compatible{};
+  bool required_extensions_available{};
+  bool format_usage_compatible{};
+  bool single_sampled{};
+  bool tiling_compatible{};
+  bool memory_constraints_compatible{};
+  bool public_texture_import_available{};
+  bool host_consumption_retained{};
+  bool completion_retention_available{};
+  bool resize_retirement_safe{};
+  bool direct_path_available{};
+};
+
+struct HdMerlinHgiVulkanDirectShareSupport {
+  bool supported{};
+  HdMerlinHgiVulkanDirectShareRejection rejection{
+      HdMerlinHgiVulkanDirectShareRejection::NotEvaluated};
+};
+
+[[nodiscard]] HdMerlinHgiVulkanDirectShareSupport
+HdMerlinEvaluateHgiVulkanDirectShare(
+    const HdMerlinHgiVulkanDirectShareRequirements& requirements) noexcept;
 
 struct HdMerlinHgiVulkanBridgeStatus {
   std::uint32_t openusd_version{};
@@ -58,8 +114,11 @@ struct HdMerlinHgiVulkanBridgeStatus {
   bool vulkan_render_driver{};
   bool hgi_owned_targets{};
   bool gpu_copy{};
+  bool direct_shared_resource{};
   HdMerlinHgiVulkanTransferMode selected_mode{
       HdMerlinHgiVulkanTransferMode::CpuReadback};
+  HdMerlinHgiVulkanDirectShareRejection direct_share_rejection{
+      HdMerlinHgiVulkanDirectShareRejection::NotEvaluated};
   HdMerlinHgiVulkanFallbackReason fallback_reason{
       HdMerlinHgiVulkanFallbackReason::BridgeDisabled};
 };
@@ -82,6 +141,8 @@ struct HdMerlinHgiVulkanBridgeTelemetry {
   std::uint64_t gpu_copy_pending_count{};
   std::uint64_t gpu_copy_bytes{};
   std::uint64_t gpu_copy_encode_ns{};
+  std::uint64_t direct_share_evaluation_count{};
+  std::uint64_t direct_share_rejection_count{};
   std::uint64_t coarse_wait_count{};
 };
 

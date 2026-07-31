@@ -190,6 +190,16 @@ if(MERLIN_FORCE_HGI_VULKAN)
     message(FATAL_ERROR
       "Vulkan Hgi GPU copy did not report host-consumption completion")
   endif()
+  if(NOT marker_contents MATCHES "hgi_transfer_mode=gpu-copy" OR
+     NOT marker_contents MATCHES
+       "hgi_direct_share_rejection=public-texture-import-unavailable" OR
+     NOT marker_contents MATCHES
+       "hgi_direct_share_evaluation_count=[1-9][0-9]*" OR
+     NOT marker_contents MATCHES
+       "hgi_direct_share_rejection_count=[1-9][0-9]*")
+    message(FATAL_ERROR
+      "Vulkan Hgi did not report the v0.13.1 direct-share rejection")
+  endif()
   if(NOT marker_contents MATCHES "hgi_coarse_wait_count=0" OR
      marker_contents MATCHES "hgi_coarse_wait_count=[1-9][0-9]*")
     message(FATAL_ERROR

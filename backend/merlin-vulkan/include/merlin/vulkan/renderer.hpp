@@ -507,9 +507,10 @@ class AovImageLease {
 // Vulkan-native source state for one selected AOV. Handles and enum values are
 // integer encoded to keep Vulkan headers out of the public header; they map to
 // VkPhysicalDevice, VkDevice, VkImage, VkFormat, VkImageLayout,
-// VkPipelineStageFlags, VkAccessFlags, and VkImageAspectFlags respectively.
-// The image is single-sampled, exclusively owned by queue_family, and remains
-// valid until lease is returned with Renderer::ReleaseAovImage.
+// VkPipelineStageFlags, VkAccessFlags, VkImageAspectFlags, VkImageUsageFlags,
+// VkImageTiling, VkMemoryPropertyFlags, and VkSharingMode respectively. The
+// image is single-sampled, exclusively owned by queue_family, and remains valid
+// until lease is returned with Renderer::ReleaseAovImage.
 struct AovImageExport {
   AovImageLease lease;
   RenderProduct product;
@@ -521,6 +522,10 @@ struct AovImageExport {
   std::uint32_t native_stage_mask{};
   std::uint32_t native_access_mask{};
   std::uint32_t native_aspect_mask{};
+  std::uint32_t native_usage_mask{};
+  std::uint32_t native_tiling{};
+  std::uint32_t native_memory_property_mask{};
+  std::uint32_t native_sharing_mode{};
   std::uint32_t queue_family{};
   std::uint32_t sample_count{1};
   std::uint64_t renderer_completion{};

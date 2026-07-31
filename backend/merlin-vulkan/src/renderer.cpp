@@ -1435,26 +1435,36 @@ class Renderer::Impl {
     VkImage image{};
     VkFormat format{VK_FORMAT_UNDEFINED};
     VkImageAspectFlags aspect{};
+    VkImageUsageFlags usage{};
     switch (aov) {
       case Aov::Color:
         image = frame.target.color;
         format = kColorFormat;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                VK_IMAGE_USAGE_SAMPLED_BIT;
         break;
       case Aov::Depth:
         image = frame.target.depth;
         format = kDepthFormat;
         aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+        usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         break;
       case Aov::PrimId:
         image = frame.target.prim_id;
         format = kIdFormat;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         break;
       case Aov::InstanceId:
         image = frame.target.instance_id;
         format = kIdFormat;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         break;
       default:
         throw RendererError(RendererErrorCode::Unsupported,
@@ -1486,6 +1496,12 @@ class Renderer::Impl {
     result.native_access_mask =
         static_cast<std::uint32_t>(VK_ACCESS_TRANSFER_READ_BIT);
     result.native_aspect_mask = static_cast<std::uint32_t>(aspect);
+    result.native_usage_mask = static_cast<std::uint32_t>(usage);
+    result.native_tiling = static_cast<std::uint32_t>(VK_IMAGE_TILING_OPTIMAL);
+    result.native_memory_property_mask =
+        static_cast<std::uint32_t>(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    result.native_sharing_mode =
+        static_cast<std::uint32_t>(VK_SHARING_MODE_EXCLUSIVE);
     result.queue_family = queue_family_;
     result.renderer_completion = completion;
     return result;
@@ -4452,7 +4468,8 @@ class Renderer::Impl {
     try {
       active_target_->color = CreateImage(
           width, height, kColorFormat,
-          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+              VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
           active_target_->color_memory);
       active_target_->color_view =
           CreateImageView(active_target_->color, kColorFormat,

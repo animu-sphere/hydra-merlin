@@ -9,6 +9,7 @@
 #include <pxr/imaging/hgi/tokens.h>
 #include <pxr/imaging/hgi/types.h>
 
+#include <array>
 #include <iostream>
 #include <string_view>
 
@@ -84,6 +85,113 @@ int main() {
              HdMerlinHgiVulkanTransferMode::GpuCopy) ==
              std::string_view("gpu-copy"),
          "gpu-copy mode name is unstable");
+  Expect(HdMerlinHgiVulkanTransferModeName(
+             HdMerlinHgiVulkanTransferMode::DirectSharedResource) ==
+             std::string_view("direct-shared-resource"),
+         "direct-share mode name is unstable");
+
+  HdMerlinHgiVulkanDirectShareRequirements direct_requirements{
+      .physical_device_identity = true,
+      .logical_device_identity = true,
+      .queue_ownership_compatible = true,
+      .api_compatible = true,
+      .required_extensions_available = true,
+      .format_usage_compatible = true,
+      .single_sampled = true,
+      .tiling_compatible = true,
+      .memory_constraints_compatible = true,
+      .public_texture_import_available = true,
+      .host_consumption_retained = true,
+      .completion_retention_available = true,
+      .resize_retirement_safe = true,
+      .direct_path_available = true,
+  };
+  const auto direct_supported =
+      HdMerlinEvaluateHgiVulkanDirectShare(direct_requirements);
+  Expect(direct_supported.supported &&
+             direct_supported.rejection ==
+                 HdMerlinHgiVulkanDirectShareRejection::None,
+         "complete direct-share requirements were rejected");
+
+  struct DirectGate {
+    bool HdMerlinHgiVulkanDirectShareRequirements::*requirement;
+    HdMerlinHgiVulkanDirectShareRejection rejection;
+    std::string_view name;
+  };
+  const std::array direct_gates{
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     physical_device_identity,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     PhysicalDeviceMismatch,
+                 "physical-device-mismatch"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     logical_device_identity,
+                 HdMerlinHgiVulkanDirectShareRejection::LogicalDeviceMismatch,
+                 "logical-device-mismatch"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     queue_ownership_compatible,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     QueueOwnershipUnsupported,
+                 "queue-ownership-unsupported"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::api_compatible,
+                 HdMerlinHgiVulkanDirectShareRejection::ApiIncompatible,
+                 "api-incompatible"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     required_extensions_available,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     RequiredExtensionMissing,
+                 "required-extension-missing"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     format_usage_compatible,
+                 HdMerlinHgiVulkanDirectShareRejection::FormatUsageMismatch,
+                 "format-usage-mismatch"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::single_sampled,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     SampleCountUnsupported,
+                 "sample-count-unsupported"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::tiling_compatible,
+                 HdMerlinHgiVulkanDirectShareRejection::TilingUnsupported,
+                 "tiling-unsupported"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     memory_constraints_compatible,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     MemoryConstraintsUnsupported,
+                 "memory-constraints-unsupported"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     public_texture_import_available,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     PublicTextureImportUnavailable,
+                 "public-texture-import-unavailable"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     host_consumption_retained,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     HostConsumptionUnretained,
+                 "host-consumption-unretained"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     completion_retention_available,
+                 HdMerlinHgiVulkanDirectShareRejection::
+                     CompletionRetentionUnavailable,
+                 "completion-retention-unavailable"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     resize_retirement_safe,
+                 HdMerlinHgiVulkanDirectShareRejection::ResizeRetirementUnsafe,
+                 "resize-retirement-unsafe"},
+      DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
+                     direct_path_available,
+                 HdMerlinHgiVulkanDirectShareRejection::DirectPathUnavailable,
+                 "direct-path-unavailable"},
+  };
+  for (const auto& gate : direct_gates) {
+    auto rejected_requirements = direct_requirements;
+    rejected_requirements.*gate.requirement = false;
+    const auto rejected =
+        HdMerlinEvaluateHgiVulkanDirectShare(rejected_requirements);
+    Expect(!rejected.supported && rejected.rejection == gate.rejection,
+           "a direct-share gate did not produce its rejection");
+    Expect(HdMerlinHgiVulkanDirectShareRejectionName(gate.rejection) ==
+               gate.name,
+           "a direct-share rejection name is unstable");
+  }
   Expect(HdMerlinHgiVulkanFallbackReasonName(
              HdMerlinHgiVulkanFallbackReason::GpuCopyUnavailable) ==
              std::string_view("gpu-copy-unavailable"),
@@ -175,6 +283,8 @@ int main() {
   Expect(telemetry.gpu_copy_count == 0 &&
              telemetry.gpu_copy_completion_count == 0 &&
              telemetry.gpu_copy_pending_count == 0 &&
+             telemetry.direct_share_evaluation_count == 0 &&
+             telemetry.direct_share_rejection_count == 0 &&
              telemetry.coarse_wait_count == 0,
          "Tier 0 reported GPU-copy or coarse-wait activity");
 
