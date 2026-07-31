@@ -4,23 +4,29 @@ $PSNativeCommandUseErrorActionPreference = $true
 $version = "1.4.350.0"
 $expectedSha256 = "855b27ba05d2d8119c5114c5d4ff870ca38f2c632b11e1bb9923b9b7e6ecfe7b"
 $workspace = if ($env:GITHUB_WORKSPACE) { $env:GITHUB_WORKSPACE } else { (Get-Location).Path }
+$hostSdkRoot = $env:VULKAN_SDK
 $sdkRoot = Join-Path $workspace ".ci/vulkan-sdk/$version"
 $sdkBin = Join-Path $sdkRoot "Bin"
 $slangc = Join-Path $sdkBin "slangc.exe"
 
-# Tools the capability jobs rely on. A restored cache is only trusted when all
-# of them are present, so a partially populated prefix triggers a reinstall.
-$requiredTools = @("slangc.exe", "vulkaninfoSDK.exe")
-function Get-MissingVulkanTool {
-  foreach ($tool in $requiredTools) {
-    if (-not (Test-Path -LiteralPath (Join-Path $sdkBin $tool))) {
-      return $tool
+# Files the capability jobs rely on. HgiVulkan's public vk_mem_alloc.h wrapper
+# includes the SDK-provided vma/vk_mem_alloc.h, so an executable-only cache is
+# not a complete development SDK.
+$requiredFiles = @(
+  "Bin/slangc.exe",
+  "Bin/vulkaninfoSDK.exe",
+  "Include/vma/vk_mem_alloc.h"
+)
+function Get-MissingVulkanFile {
+  foreach ($file in $requiredFiles) {
+    if (-not (Test-Path -LiteralPath (Join-Path $sdkRoot $file))) {
+      return $file
     }
   }
   return $null
 }
 
-if (Get-MissingVulkanTool) {
+if (Get-MissingVulkanFile) {
   $downloads = Join-Path $workspace ".ci/downloads"
   $installer = Join-Path $downloads "vulkan-sdk-$version.exe"
   New-Item -ItemType Directory -Force $downloads | Out-Null
@@ -39,9 +45,29 @@ if (Get-MissingVulkanTool) {
   }
 }
 
-$missingTool = Get-MissingVulkanTool
-if ($missingTool) {
-  throw "LunarG Vulkan SDK installation is missing $(Join-Path $sdkBin $missingTool)"
+# LunarG's copy-only component omits the VMA header even though the full SDK of
+# the same pinned version contains it. Seed that external development header
+# from the prepared self-host toolchain, then cache the complete SDK prefix.
+$vmaRelativePath = "Include/vma/vk_mem_alloc.h"
+$vmaPath = Join-Path $sdkRoot $vmaRelativePath
+if (-not (Test-Path -LiteralPath $vmaPath)) {
+  $hostSdkCandidates = @($hostSdkRoot, "C:/VulkanSDK/$version") |
+    Where-Object { $_ } |
+    Select-Object -Unique
+  foreach ($candidate in $hostSdkCandidates) {
+    $hostVma = Join-Path $candidate $vmaRelativePath
+    if (Test-Path -LiteralPath $hostVma) {
+      New-Item -ItemType Directory -Force (Split-Path $vmaPath) | Out-Null
+      Copy-Item -LiteralPath $hostVma -Destination $vmaPath
+      Write-Host "Seeded VMA from the prepared Vulkan SDK $candidate"
+      break
+    }
+  }
+}
+
+$missingFile = Get-MissingVulkanFile
+if ($missingFile) {
+  throw "LunarG Vulkan SDK installation is missing $(Join-Path $sdkRoot $missingFile)"
 }
 
 $env:VULKAN_SDK = $sdkRoot

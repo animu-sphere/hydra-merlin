@@ -21,8 +21,16 @@ set(host_trace "${MERLIN_STAGE_DIR}/merlin-usdview-trace.json")
 cmake_path(CONVERT "${MERLIN_PXR_ROOT}/bin;${MERLIN_PXR_ROOT}/lib;$ENV{PATH}"
            TO_NATIVE_PATH_LIST runtime_path NORMALIZE)
 
+set(hgi_environment)
+if(MERLIN_FORCE_HGI_VULKAN)
+  list(APPEND hgi_environment
+    "HGI_ENABLE_VULKAN=1"
+    "HGIVULKAN_DEBUG=1")
+endif()
+
 execute_process(
   COMMAND "${MERLIN_CMAKE_COMMAND}" -E env
+    ${hgi_environment}
     "PXR_PLUGINPATH_NAME=${plugin_path}"
     "PYTHONPATH=${MERLIN_PXR_ROOT}/lib/python"
     "PATH=${runtime_path}"
@@ -124,9 +132,10 @@ if(NOT performance_schema STREQUAL "merlin-hydra-performance/v1")
     "Unexpected Hydra performance schema: ${performance_schema}")
 endif()
 
-# RenderBuffer resolve/map and CPU-to-Hgi upload occur after the delegate
-# render pass returns, so their current-frame samples must come from the host
-# trace rather than lagged delegate telemetry.
+# RenderBuffer resolve/map, CPU-to-Hgi upload, and GPU copy require current-frame
+# host trace evidence rather than lagged delegate telemetry. A Vulkan Hgi
+# consumes the bridge-owned texture directly, so unlike the GL fallback it must
+# not Map the color RenderBuffer.
 string(JSON performance_phase_count LENGTH "${performance_json}" phases)
 math(EXPR performance_last_phase "${performance_phase_count} - 1")
 set(baseline_phase_index "")
@@ -140,7 +149,13 @@ endforeach()
 if(baseline_phase_index STREQUAL "")
   message(FATAL_ERROR "Hydra performance report has no baseline phase")
 endif()
-foreach(stage IN ITEMS render_buffer_resolve render_buffer_map host_upload)
+set(required_trace_stages render_buffer_resolve)
+if(MERLIN_FORCE_HGI_VULKAN)
+  list(APPEND required_trace_stages gpu_copy)
+else()
+  list(APPEND required_trace_stages host_upload)
+endif()
+foreach(stage IN LISTS required_trace_stages)
   string(JSON sample_kind GET "${performance_json}" phases
          ${baseline_phase_index} stages ${stage} sample_kind)
   string(JSON available GET "${performance_json}" phases
@@ -150,3 +165,61 @@ foreach(stage IN ITEMS render_buffer_resolve render_buffer_map host_upload)
       "Hydra ${stage} evidence is not sourced from the host trace")
   endif()
 endforeach()
+
+string(JSON map_sample_kind GET "${performance_json}" phases
+       ${baseline_phase_index} stages render_buffer_map sample_kind)
+string(JSON map_available GET "${performance_json}" phases
+       ${baseline_phase_index} stages render_buffer_map available)
+file(READ "${host_trace}" host_trace_json)
+if(MERLIN_FORCE_HGI_VULKAN)
+  if(NOT host_trace_json MATCHES "HgiVulkan::_SubmitCmds")
+    message(FATAL_ERROR
+      "Forced Vulkan Hgi smoke did not execute the HgiVulkan driver")
+  endif()
+  if(map_available)
+    message(FATAL_ERROR
+      "Vulkan Hgi target path unexpectedly mapped the color RenderBuffer")
+  endif()
+  if(NOT marker_contents MATCHES
+     "cpu_readback_aov_count=3 .*aov_image_export_count=1")
+    message(FATAL_ERROR
+      "Vulkan Hgi GPU copy did not replace exactly one CPU AOV readback")
+  endif()
+  if(NOT marker_contents MATCHES
+     "hgi_gpu_copy_completion_count=[1-9][0-9]*")
+    message(FATAL_ERROR
+      "Vulkan Hgi GPU copy did not report host-consumption completion")
+  endif()
+  if(NOT marker_contents MATCHES "hgi_coarse_wait_count=0" OR
+     marker_contents MATCHES "hgi_coarse_wait_count=[1-9][0-9]*")
+    message(FATAL_ERROR
+      "Vulkan Hgi GPU copy did not report its coarse-wait counter")
+  endif()
+  foreach(index RANGE 0 ${performance_last_phase})
+    string(JSON phase_name GET "${performance_json}" phases ${index} name)
+    if(phase_name STREQUAL "unlabeled")
+      continue()
+    endif()
+    foreach(stage IN ITEMS gpu_copy)
+      string(JSON available GET "${performance_json}" phases ${index}
+             stages ${stage} available)
+      if(NOT available)
+        message(FATAL_ERROR
+          "Vulkan Hgi ${phase_name} phase has no ${stage} evidence")
+      endif()
+    endforeach()
+    foreach(stage IN ITEMS render_buffer_map host_upload)
+      string(JSON available GET "${performance_json}" phases ${index}
+             stages ${stage} available)
+      if(available)
+        message(FATAL_ERROR
+          "Vulkan Hgi ${phase_name} phase unexpectedly used ${stage}")
+      endif()
+    endforeach()
+  endforeach()
+else()
+  if(NOT map_sample_kind STREQUAL "trace_scope" OR NOT map_available)
+    message(FATAL_ERROR
+      "Hydra render_buffer_map evidence is not sourced from the host trace")
+  endif()
+endif()

@@ -23,6 +23,7 @@ STAGES = (
     "render_buffer_resolve_ns",
     "render_buffer_map_ns",
     "host_upload_ns",
+    "gpu_copy_ns",
     "host_composite_ns",
     "presentation_ns",
     "render_pass_execute_ns",
@@ -32,6 +33,7 @@ AVAILABILITY = {
     "render_buffer_resolve_ns": "render_buffer_resolve_ns_available",
     "render_buffer_map_ns": "render_buffer_map_ns_available",
     "host_upload_ns": "host_upload_ns_available",
+    "gpu_copy_ns": "gpu_copy_ns_available",
     "host_composite_ns": "host_composite_ns_available",
     "presentation_ns": "presentation_ns_available",
 }
@@ -180,7 +182,11 @@ TRACE_STAGE_NAMES = {
         "UsdImagingStageSceneIndex::ApplyPendingUpdates",
         "HdNoticeBatchingSceneIndex::Flush",
     ),
-    "host_upload_ns": ("HgiGLOps::CopyTextureCpuToGpu",),
+    "host_upload_ns": (
+        "HdMerlinHgiVulkanBridge::Upload",
+        "HgiGLOps::CopyTextureCpuToGpu",
+    ),
+    "gpu_copy_ns": ("HdMerlinHgiVulkanBridge::Copy",),
     "host_composite_ns": (
         "HdxColorCorrectionTask::Execute",
         "HdxColorizeSelectionTask::Execute",

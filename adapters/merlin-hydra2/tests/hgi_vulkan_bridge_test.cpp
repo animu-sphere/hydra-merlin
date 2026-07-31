@@ -92,6 +92,18 @@ int main() {
              HdMerlinHgiVulkanFallbackReason::DriverSwapRejected) ==
              std::string_view("driver-swap-rejected"),
          "driver-swap-rejected reason name is unstable");
+  Expect(HdMerlinHgiVulkanFallbackReasonName(
+             HdMerlinHgiVulkanFallbackReason::NativeContextUnavailable) ==
+             std::string_view("native-context-unavailable"),
+         "native-context-unavailable reason name is unstable");
+  Expect(HdMerlinHgiVulkanFallbackReasonName(
+             HdMerlinHgiVulkanFallbackReason::SourceMismatch) ==
+             std::string_view("source-mismatch"),
+         "source-mismatch reason name is unstable");
+  Expect(HdMerlinHgiVulkanFallbackReasonName(
+             HdMerlinHgiVulkanFallbackReason::GpuCopyFailed) ==
+             std::string_view("gpu-copy-failed"),
+         "gpu-copy-failed reason name is unstable");
 
   // The format table drives both the RenderBuffer descriptor and the byte size
   // of the CPU buffer feeding it, so an unimplemented format must stay
@@ -160,7 +172,10 @@ int main() {
              telemetry.target_orphans == 0 && telemetry.cpu_upload_count == 0 &&
              telemetry.cpu_upload_bytes == 0,
          "a driverless bridge reported target or upload activity");
-  Expect(telemetry.gpu_copy_count == 0 && telemetry.coarse_wait_count == 0,
+  Expect(telemetry.gpu_copy_count == 0 &&
+             telemetry.gpu_copy_completion_count == 0 &&
+             telemetry.gpu_copy_pending_count == 0 &&
+             telemetry.coarse_wait_count == 0,
          "Tier 0 reported GPU-copy or coarse-wait activity");
 
   return g_failures == 0 ? 0 : 1;

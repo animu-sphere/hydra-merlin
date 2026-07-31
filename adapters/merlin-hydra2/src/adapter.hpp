@@ -36,6 +36,13 @@ struct HdMerlinViewportFrame {
   bool available{};
 };
 
+// A renderer submission has one color product. It can omit CPU readback only
+// when that product has exactly one RenderBuffer consumer and that consumer
+// accepts the native GPU copy.
+[[nodiscard]] bool HdMerlinCanUseExclusiveGpuColorCopy(
+    std::size_t color_buffer_count,
+    std::size_t gpu_copy_candidate_count) noexcept;
+
 class HdMerlinRenderBuffer final : public HdRenderBuffer {
  public:
   explicit HdMerlinRenderBuffer(
@@ -63,6 +70,10 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
                   std::uint32_t height);
   bool WriteId(const std::vector<std::uint32_t>& ids, std::uint32_t width,
                std::uint32_t height);
+  [[nodiscard]] bool CanGpuCopyColor() const;
+  [[nodiscard]] bool CopyColor(
+      merlin::vulkan::AovImageExport&& source,
+      std::shared_ptr<merlin::render::Backend> backend);
   void SetConverged(bool converged);
 
  protected:
@@ -78,6 +89,7 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   GfVec3i dimensions_{0};
   HdFormat format_{HdFormatInvalid};
   bool multi_sampled_{};
+  bool gpu_only_{};
   bool converged_{};
   std::size_t map_count_{};
   std::vector<std::uint8_t> data_;

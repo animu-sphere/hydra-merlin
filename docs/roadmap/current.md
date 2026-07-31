@@ -30,14 +30,17 @@ gated v0.13.1 hardening path, and HgiMetal follows in v0.14.0. The full
 contract, forbidden synchronization, validation matrix, and dependency rules
 are in the [Hgi host presentation policy](../design/hgi-host-presentation.md).
 
-Implementation progress:
+Completed implementation:
 
 - the adapter now discovers the application-owned Hgi render driver through
   the public Hydra driver contract on OpenUSD 26.05 and 26.08;
 - when a Vulkan Hgi driver is supplied, the color RenderBuffer creates an
-  Hgi-owned target and submits Tier 0 CPU-to-Hgi upload; depth and id buffers
-  stay on `Map` readback, target destruction is handed back to the Hgi that
-  created it, and the adapter introduces no coarse idle wait;
+  Hgi-owned target. Packages exposing the validated native `hgiVulkan` target
+  lend their Vulkan 1.3 device and graphics queue to Merlin's conventional
+  renderer path, then copy the color AOV directly between same-device images;
+  depth and id buffers stay on `Map` readback, target destruction is handed
+  back to the Hgi that created it, and the adapter introduces no coarse idle
+  wait. Merlin-owned Vulkan contexts retain the Vulkan 1.4 baseline;
 - missing, disabled, non-Vulkan, driver-swap, and operationally rejected paths
   retain the original CPU RenderBuffer and report structured selection,
   fallback, target, byte, and encode-time telemetry alongside a coarse-wait
@@ -47,9 +50,24 @@ Implementation progress:
   aspect, queue-family, extent, and renderer-completion metadata; a move-only
   lease pins each frame target across Resolve until the host bridge returns it,
   and export/active-lease telemetry makes that lifetime observable;
-- Vulkan GPU copy, distinct bridge completion, host-consumption retirement,
-  and smoke evidence against an OpenUSD package that ships a Vulkan Hgi driver
-  remain before the milestone can exit.
+- native HgiVulkan copy records explicit source/destination layouts and a
+  same-queue `vkCmdCopyImage`, restores the host target layout, and returns the
+  source lease only from Hgi command-buffer completion. OpenUSD 26.05 and 26.08
+  runtime smoke both prove one exported color AOV, three retained CPU-readback
+  AOVs, no color `Map`/host upload, non-zero host-consumption completion, and a
+  zero coarse-wait counter across the regression and resize sequence;
+- the comparison fixture runs Tier 0 and HgiVulkan through the same 13-phase
+  regression, bounds raster-edge differences to 0.25% of pixels and a 0.25
+  mean channel error, and writes versioned image/performance evidence. On the
+  OpenUSD 26.08 Windows baseline the maximum observed values are 0.1862% and
+  0.1819; color GPU copy removes 1,289,520 CPU-readback bytes per frame and the
+  representative median readback-plus-transfer time falls from about 19.1 ms
+  to 14.2 ms;
+- the milestone exit audit is complete pending release metadata. Tier 0 remains
+  the universal fallback, all named phases including camera and resize prove
+  GPU copy without color Map/upload, unsupported paths retain structured
+  fallback reasons, retirement reaches Hgi completion, and the coarse-wait
+  counter remains zero.
 
 ## Active carry-over
 

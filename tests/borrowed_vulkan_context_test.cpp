@@ -61,7 +61,7 @@ bool CreateContext(VulkanContext& result) {
 
   VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
   application.pApplicationName = "merlin-borrowed-context-test";
-  application.apiVersion = VK_API_VERSION_1_4;
+  application.apiVersion = VK_API_VERSION_1_3;
   VkInstanceCreateInfo instance_info{
       VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
   instance_info.pApplicationInfo = &application;
@@ -88,7 +88,7 @@ bool CreateContext(VulkanContext& result) {
   for (const auto candidate : devices) {
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(candidate, &properties);
-    if (properties.apiVersion < VK_API_VERSION_1_4) {
+    if (properties.apiVersion < VK_API_VERSION_1_3) {
       continue;
     }
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline{
@@ -165,7 +165,7 @@ bool ThrowsRendererError(const merlin::vulkan::RendererOptions& options) {
 int main() {
   VulkanContext context;
   if (!CreateContext(context)) {
-    std::cerr << "SKIP: Vulkan 1.4 graphics device with timeline semaphores "
+    std::cerr << "SKIP: Vulkan 1.3 graphics device with timeline semaphores "
                  "and VK_EXT_debug_utils is unavailable\n";
     return 77;
   }

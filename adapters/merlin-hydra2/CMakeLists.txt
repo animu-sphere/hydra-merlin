@@ -1,3 +1,8 @@
+if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
+  # Vulkan-enabled OpenUSD packages expose hgiVulkan through pxrTargets.cmake,
+  # whose imported link interface names Vulkan::Vulkan.
+  find_package(Vulkan REQUIRED COMPONENTS shaderc_combined)
+endif()
 find_package(pxr CONFIG REQUIRED)
 include(GNUInstallDirs)
 
@@ -125,6 +130,12 @@ if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
   target_compile_definitions(merlin-hydra2-runtime PRIVATE
     MERLIN_HYDRA2_ENABLE_HGI_VULKAN_BRIDGE=1
   )
+  if(TARGET hgiVulkan)
+    target_link_libraries(merlin-hydra2-runtime PRIVATE hgiVulkan)
+    target_compile_definitions(merlin-hydra2-runtime PRIVATE
+      MERLIN_HYDRA2_HAVE_HGI_VULKAN_NATIVE=1
+    )
+  endif()
 endif()
 target_compile_features(merlin-hydra2-runtime PUBLIC cxx_std_20)
 target_compile_definitions(merlin-hydra2-runtime PRIVATE
@@ -292,5 +303,50 @@ if(MERLIN_BUILD_TESTS)
       TIMEOUT 60
       RUN_SERIAL TRUE
     )
+    if(TARGET Merlin::Vulkan AND TARGET hgiVulkan)
+      add_test(
+        NAME merlin-hydra2-usdview-hgi-vulkan-smoke
+        COMMAND ${CMAKE_COMMAND}
+          "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+          "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+          "-DMERLIN_CONFIG=$<CONFIG>"
+          "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/usdview-hgi-vulkan-install"
+          "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+          "-DMERLIN_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}"
+          "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+          "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+          "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+          "-DMERLIN_HYDRA2_TEST_BACKEND=vulkan"
+          "-DMERLIN_FORCE_HGI_VULKAN=ON"
+          "-DMERLIN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/usdview_smoke_test.py"
+          "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake"
+      )
+      set_tests_properties(merlin-hydra2-usdview-hgi-vulkan-smoke PROPERTIES
+        LABELS "host-smoke;gpu;hgi;vulkan;presentation"
+        TIMEOUT 60
+        RUN_SERIAL TRUE
+        FIXTURES_SETUP merlin-hydra2-usdview-hgi-vulkan
+      )
+      set_tests_properties(merlin-hydra2-usdview-smoke PROPERTIES
+        FIXTURES_SETUP merlin-hydra2-usdview-tier0
+      )
+      add_test(
+        NAME merlin-hydra2-usdview-hgi-vulkan-comparison
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_usdview_smoke.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/usdview-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/usdview-hgi-vulkan-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/usdview-hgi-vulkan-comparison.json"
+      )
+      set_tests_properties(
+        merlin-hydra2-usdview-hgi-vulkan-comparison PROPERTIES
+        LABELS "host-smoke;gpu;hgi;vulkan;presentation;comparison"
+        TIMEOUT 15
+        RUN_SERIAL TRUE
+        FIXTURES_REQUIRED
+          "merlin-hydra2-usdview-tier0;merlin-hydra2-usdview-hgi-vulkan"
+      )
+    endif()
   endif()
 endif()

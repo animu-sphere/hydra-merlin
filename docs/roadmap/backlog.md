@@ -14,7 +14,7 @@ order.
 
 ## Phase B — Cross-platform backend and presentation parity
 
-### ⬜ v0.13.0 — HgiVulkan GPU-copy bridge
+### ✅ v0.13.0 — HgiVulkan GPU-copy bridge
 
 Implement `HgiVulkanBridge` in the Hydra adapter, not the renderer RHI. Create
 Hgi-owned destination targets, retain Tier 0 CPU RenderBuffers as the reference
