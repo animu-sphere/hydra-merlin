@@ -4,6 +4,7 @@ $PSNativeCommandUseErrorActionPreference = $true
 $version = "1.4.350.0"
 $expectedSha256 = "855b27ba05d2d8119c5114c5d4ff870ca38f2c632b11e1bb9923b9b7e6ecfe7b"
 $workspace = if ($env:GITHUB_WORKSPACE) { $env:GITHUB_WORKSPACE } else { (Get-Location).Path }
+$hostSdkRoot = $env:VULKAN_SDK
 $sdkRoot = Join-Path $workspace ".ci/vulkan-sdk/$version"
 $sdkBin = Join-Path $sdkRoot "Bin"
 $slangc = Join-Path $sdkBin "slangc.exe"
@@ -41,6 +42,26 @@ if (Get-MissingVulkanFile) {
     --confirm-command install copy_only=1
   if ($LASTEXITCODE -ne 0) {
     throw "LunarG Vulkan SDK installer exited with $LASTEXITCODE"
+  }
+}
+
+# LunarG's copy-only component omits the VMA header even though the full SDK of
+# the same pinned version contains it. Seed that external development header
+# from the prepared self-host toolchain, then cache the complete SDK prefix.
+$vmaRelativePath = "Include/vma/vk_mem_alloc.h"
+$vmaPath = Join-Path $sdkRoot $vmaRelativePath
+if (-not (Test-Path -LiteralPath $vmaPath)) {
+  $hostSdkCandidates = @($hostSdkRoot, "C:/VulkanSDK/$version") |
+    Where-Object { $_ } |
+    Select-Object -Unique
+  foreach ($candidate in $hostSdkCandidates) {
+    $hostVma = Join-Path $candidate $vmaRelativePath
+    if (Test-Path -LiteralPath $hostVma) {
+      New-Item -ItemType Directory -Force (Split-Path $vmaPath) | Out-Null
+      Copy-Item -LiteralPath $hostVma -Destination $vmaPath
+      Write-Host "Seeded VMA from the prepared Vulkan SDK $candidate"
+      break
+    }
   }
 }
 
