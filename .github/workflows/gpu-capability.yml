@@ -175,7 +175,7 @@ jobs:
   hydra:
     name: OpenUSD ${{ matrix.openusd }} HgiVulkan
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       OST_HOME: ${{ github.workspace }}/.ost-ci-home
       MSBUILDDISABLENODEREUSE: 1
@@ -214,6 +214,18 @@ jobs:
         shell: pwsh
         run: .github/scripts/setup-ost.ps1 -Version 0.21.0
 
+      - name: Verify the OCI package clients
+        shell: pwsh
+        run: |
+          oras version
+          if ($LASTEXITCODE -ne 0) {
+            throw "ORAS is required to inspect the pinned Animu-sphere runtime package"
+          }
+          curl.exe --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "curl is required to resume the pinned Animu-sphere runtime package"
+          }
+
       - name: Restore the pinned runtime cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -230,11 +242,18 @@ jobs:
               Out-File -Encoding utf8 .ost-ci/runtime-cache-verify.json
             if ($LASTEXITCODE -ne 0) { throw "cached OpenUSD runtime verification failed" }
           } else {
-            ost artifact pull $env:OST_RUNTIME_REMOTE `
-              --expect-artifact $env:OST_RUNTIME_ARTIFACT `
-              --require-kind runtime --json |
-              Tee-Object -FilePath .ost-ci/runtime-pull.json
-            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime pull failed" }
+            $packageDir = ".ost-ci/runtime-package"
+            .github/scripts/pull-ghcr-oci-artifact.ps1 `
+              -Reference $env:OST_RUNTIME_REMOTE `
+              -OutputDirectory $packageDir 2>&1 |
+              Tee-Object -FilePath .ost-ci/runtime-package-pull.log
+            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime package pull failed" }
+            ost artifact import $packageDir --json |
+              Tee-Object -FilePath .ost-ci/runtime-import.json
+            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime package import failed" }
+            ost artifact verify $env:OST_RUNTIME_ARTIFACT --json |
+              Tee-Object -FilePath .ost-ci/runtime-pull-verify.json
+            if ($LASTEXITCODE -ne 0) { throw "pulled OpenUSD runtime verification failed" }
           }
           ost runtime pull cy2026 --profile usd `
             --from-artifact $env:OST_RUNTIME_ARTIFACT --force
