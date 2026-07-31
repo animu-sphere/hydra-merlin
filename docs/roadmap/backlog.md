@@ -1,6 +1,6 @@
 # Backlog
 
-Ordered work after the released v0.13.0 HgiVulkan GPU-copy bridge,
+Ordered work after the released v0.13.1 HgiVulkan direct-path hardening,
 alongside active foundation work in
 [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
