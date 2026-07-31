@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-08-01
+
 ### Added
 
 - A testable HgiVulkan direct-share capability contract covering physical and
@@ -547,7 +549,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.1...main
+[0.13.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.10.0...v0.11.0

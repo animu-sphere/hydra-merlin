@@ -15,28 +15,9 @@ compatibility, limitations, and evidence are recorded in
 Metal viewport presentation; its objective, compatibility, limitations, and
 evidence are recorded in [docs/releases/v0.12.0.md](../releases/v0.12.0.md).
 v0.13.0 shipped the HgiVulkan GPU-copy bridge; its release boundary is recorded
-in [docs/releases/v0.13.0.md](../releases/v0.13.0.md).
-
-## ✅ v0.13.1 — HgiVulkan direct-path hardening
-
-Consider same-logical-device sharing only after physical/logical device
-identity, queue ownership, format/usage, public host consumption, completion
-retention, resize/destruction, and vendor/driver evidence are all verified. GPU
-copy remains the fallback. External memory/semaphores require a demonstrated
-supported-host need and a measured advantage over GPU copy. The full contract,
-forbidden synchronization, validation matrix, and dependency rules are in the
-[Hgi host presentation policy](../design/hgi-host-presentation.md).
-
-The direct-share gate and stable rejection telemetry are implemented. The
-validated OpenUSD 26.05/26.08 public Hgi APIs create Hgi-owned textures and
-alias Hgi-owned source textures, but do not import an existing Merlin-owned
-`VkImage` into an `HgiTextureHandle`. Both local package builds and HgiVulkan
-usdview smokes therefore report `public-texture-import-unavailable` and retain
-GPU copy without color Map/upload or a coarse wait. Self-hosted GPU capability
-[run 30655056809](https://github.com/animu-sphere/hydra-merlin/actions/runs/30655056809)
-validated commit `8a2b4a4` across OpenUSD 26.05/26.08 HgiVulkan and Vulkan 1.4
-Debug/Release. The milestone is complete pending release; direct sharing is not
-enabled merely to satisfy the milestone label.
+in [docs/releases/v0.13.0.md](../releases/v0.13.0.md). v0.13.1 shipped the
+direct-path hardening boundary; its capability decision and evidence are in
+[docs/releases/v0.13.1.md](../releases/v0.13.1.md).
 
 ## Active carry-over
 
