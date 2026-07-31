@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hgi_vulkan_bridge.hpp"
+#include "hgi_metal_bridge.hpp"
 
 #include <pxr/pxr.h>
 
@@ -33,6 +34,8 @@ struct HdMerlinViewportFrame {
   std::uint64_t lights{};
   HdMerlinHgiVulkanBridgeStatus hgi_vulkan_bridge;
   HdMerlinHgiVulkanBridgeTelemetry hgi_vulkan_telemetry;
+  HdMerlinHgiMetalBridgeStatus hgi_metal_bridge;
+  HdMerlinHgiMetalBridgeTelemetry hgi_metal_telemetry;
   bool available{};
 };
 
@@ -47,7 +50,8 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
  public:
   explicit HdMerlinRenderBuffer(
       const SdfPath& id,
-      std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {});
+      std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {},
+      std::shared_ptr<HdMerlinHgiMetalBridge> hgi_metal_bridge = {});
   ~HdMerlinRenderBuffer() override;
 
   bool Allocate(const GfVec3i& dimensions, HdFormat format,
@@ -74,6 +78,9 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   [[nodiscard]] bool CopyColor(
       merlin::vulkan::AovImageExport&& source,
       std::shared_ptr<merlin::render::Backend> backend);
+  [[nodiscard]] bool CopyColor(
+      merlin::metal::AovImageExport&& source,
+      std::shared_ptr<merlin::render::Backend> backend);
   void SetConverged(bool converged);
 
  protected:
@@ -85,7 +92,9 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
 
   mutable std::mutex mutex_;
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
-  HgiTextureHandle hgi_target_;
+  std::shared_ptr<HdMerlinHgiMetalBridge> hgi_metal_bridge_;
+  HgiTextureHandle hgi_vulkan_target_;
+  HgiTextureHandle hgi_metal_target_;
   GfVec3i dimensions_{0};
   HdFormat format_{HdFormatInvalid};
   bool multi_sampled_{};

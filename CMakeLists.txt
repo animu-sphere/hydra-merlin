@@ -71,6 +71,9 @@ include(CMakeDependentOption)
 cmake_dependent_option(MERLIN_ENABLE_HGI_VULKAN_BRIDGE
   "Build the Hydra-owned HgiVulkan presentation bridge" ON
   "MERLIN_ENABLE_HYDRA2;MERLIN_ENABLE_VULKAN" OFF)
+cmake_dependent_option(MERLIN_ENABLE_HGI_METAL_BRIDGE
+  "Build the Hydra-owned HgiMetal presentation bridge" ON
+  "MERLIN_ENABLE_HYDRA2;MERLIN_ENABLE_METAL" OFF)
 option(MERLIN_ENABLE_MATERIALX
   "Build the MaterialXGenSlang material-function compiler" OFF)
 option(MERLIN_FETCH_MATERIALX
@@ -411,6 +414,11 @@ if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
 else()
   set(_merlin_metadata_hgi_vulkan_bridge_enabled false)
 endif()
+if(MERLIN_ENABLE_HGI_METAL_BRIDGE)
+  set(_merlin_metadata_hgi_metal_bridge_enabled true)
+else()
+  set(_merlin_metadata_hgi_metal_bridge_enabled false)
+endif()
 
 if(_merlin_metadata_runtime_products)
   set(_merlin_metadata_runtime_products
@@ -462,6 +470,7 @@ if(MERLIN_BUILD_TESTS)
       "-DMERLIN_EXPECTED_METAL:BOOL=${MERLIN_ENABLE_METAL}"
       "-DMERLIN_EXPECTED_HYDRA2:BOOL=${MERLIN_ENABLE_HYDRA2}"
       "-DMERLIN_EXPECTED_HGI_VULKAN_BRIDGE:BOOL=${MERLIN_ENABLE_HGI_VULKAN_BRIDGE}"
+      "-DMERLIN_EXPECTED_HGI_METAL_BRIDGE:BOOL=${MERLIN_ENABLE_HGI_METAL_BRIDGE}"
       "-DMERLIN_EXPECTED_MATERIALX:BOOL=${MERLIN_ENABLE_MATERIALX}"
       "-DMERLIN_EXPECTED_VIEWPORT:BOOL=${_merlin_metadata_viewport_enabled}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify-release-metadata.cmake"

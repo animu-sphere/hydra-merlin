@@ -155,6 +155,13 @@ driver; missing and non-Vulkan drivers retain the CPU RenderBuffer path and
 report the rejection. Disable the option to build only that universal
 fallback.
 
+`MERLIN_ENABLE_HGI_METAL_BRIDGE` is offered only when both `MERLIN_ENABLE_HYDRA2`
+and `MERLIN_ENABLE_METAL` are on, and defaults to `ON` there. It publishes an
+Hgi-owned Metal target, selects a same-device Metal-local copy when the native
+HgiMetal target is available, and retains CPU readback for unsupported package
+compositions or operational failures. HDR is rejected; SDR sRGB and Display P3
+remain explicit target contracts.
+
 ## Optional MaterialX compiler
 
 `MERLIN_ENABLE_MATERIALX=ON` builds the independent `Merlin::MaterialX`
@@ -222,6 +229,7 @@ contract.
 | `MERLIN_ENABLE_METAL` | `ON` on Apple, otherwise `OFF` | Build the optional native Metal offscreen backend. |
 | `MERLIN_ENABLE_HYDRA2` | `OFF` | Build the OpenUSD Hydra 2 adapter; requires Vulkan or Metal. |
 | `MERLIN_ENABLE_HGI_VULKAN_BRIDGE` | `ON` when Hydra 2 and Vulkan are both on, otherwise unavailable | Build HgiVulkan driver discovery and the Hgi-owned color presentation target. |
+| `MERLIN_ENABLE_HGI_METAL_BRIDGE` | `ON` when Hydra 2 and Metal are both on, otherwise unavailable | Build HgiMetal driver discovery, Metal-local color copy, and the Hgi-owned presentation target. |
 | `MERLIN_ENABLE_MATERIALX` | `OFF` | Build the optional `Merlin::MaterialX` graph-only compiler. |
 | `MERLIN_FETCH_MATERIALX` | `OFF` | Fetch the pinned MaterialX source when no compatible package/source tree is supplied. |
 | `MERLIN_MATERIALX_SOURCE_DIR` | empty | Use an existing compatible MaterialX source tree. |

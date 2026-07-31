@@ -89,6 +89,15 @@ add_library(merlin-hydra2-runtime STATIC
   src/adapter.cpp
   src/hgi_vulkan_bridge.cpp
 )
+if(MERLIN_ENABLE_HGI_METAL_BRIDGE)
+  target_sources(merlin-hydra2-runtime PRIVATE src/hgi_metal_bridge.mm)
+  set_source_files_properties(src/hgi_metal_bridge.mm PROPERTIES
+    COMPILE_OPTIONS "-fobjc-arc")
+  set_target_properties(merlin-hydra2-runtime PROPERTIES
+    OBJCXX_STANDARD 20
+    OBJCXX_STANDARD_REQUIRED ON
+    OBJCXX_EXTENSIONS OFF)
+endif()
 
 # Keeps OpenUSD imported-target lookup in the directory where find_package(pxr)
 # created those non-GLOBAL targets, while allowing the sibling viewport product
@@ -134,6 +143,22 @@ if(MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
     target_link_libraries(merlin-hydra2-runtime PRIVATE hgiVulkan)
     target_compile_definitions(merlin-hydra2-runtime PRIVATE
       MERLIN_HYDRA2_HAVE_HGI_VULKAN_NATIVE=1
+    )
+  endif()
+endif()
+if(MERLIN_ENABLE_HGI_METAL_BRIDGE)
+  if(TARGET Merlin::Metal)
+    # The Hydra renderer may select Vulkan when both native backends are
+    # enabled, but the Metal bridge still needs the Metal AOV-export ABI.
+    target_link_libraries(merlin-hydra2-runtime PRIVATE Merlin::Metal)
+  endif()
+  target_compile_definitions(merlin-hydra2-runtime PRIVATE
+    MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE=1
+  )
+  if(TARGET hgiMetal)
+    target_link_libraries(merlin-hydra2-runtime PRIVATE hgiMetal)
+    target_compile_definitions(merlin-hydra2-runtime PRIVATE
+      MERLIN_HYDRA2_HAVE_HGI_METAL_NATIVE=1
     )
   endif()
 endif()
@@ -271,6 +296,27 @@ if(MERLIN_BUILD_TESTS)
     ENVIRONMENT_MODIFICATION
       "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
   )
+
+  if(MERLIN_ENABLE_HGI_METAL_BRIDGE)
+    add_executable(merlin-hydra2-hgi-metal-bridge-test
+      tests/hgi_metal_bridge_test.cpp
+    )
+    target_link_libraries(merlin-hydra2-hgi-metal-bridge-test
+      PRIVATE merlin-hydra2-runtime)
+    target_compile_features(merlin-hydra2-hgi-metal-bridge-test
+      PRIVATE cxx_std_20)
+    target_compile_definitions(merlin-hydra2-hgi-metal-bridge-test PRIVATE
+      NOMINMAX
+      _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING
+    )
+    add_test(NAME merlin-hydra2-hgi-metal-bridge
+      COMMAND merlin-hydra2-hgi-metal-bridge-test)
+    set_tests_properties(merlin-hydra2-hgi-metal-bridge PROPERTIES
+      LABELS "hydra;hgi;metal;presentation"
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
+    )
+  endif()
 
   find_package(Python3 COMPONENTS Interpreter QUIET)
   find_program(MERLIN_TESTUSDVIEW_SCRIPT testusdview

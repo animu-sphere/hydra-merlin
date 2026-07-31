@@ -9,6 +9,61 @@
 
 namespace merlin::metal {
 
+// Optional Metal-native AOV export used by the Hydra HgiMetal bridge. Native
+// Objective-C handles remain encoded here so the backend-neutral contract does
+// not acquire a Metal dependency; the lease keeps the frame texture alive
+// until the bridge command buffer has completed.
+class AovImageLease {
+ public:
+  AovImageLease() = default;
+  AovImageLease(AovImageLease&& other) noexcept;
+  AovImageLease& operator=(AovImageLease&&) = delete;
+  AovImageLease(const AovImageLease&) = delete;
+  AovImageLease& operator=(const AovImageLease&) = delete;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return completion_ != 0;
+  }
+  [[nodiscard]] std::uint64_t completion_value() const noexcept {
+    return completion_;
+  }
+  [[nodiscard]] Aov aov() const noexcept { return aov_; }
+  void Reset() noexcept {
+    owner_ = 0;
+    completion_ = 0;
+  }
+
+ private:
+  friend class Backend;
+  AovImageLease(std::uint64_t owner, std::uint64_t completion, Aov aov)
+      : owner_(owner), completion_(completion), aov_(aov) {}
+
+  std::uint64_t owner_{};
+  std::uint64_t completion_{};
+  Aov aov_{Aov::Color};
+};
+
+struct AovImageExport {
+  AovImageLease lease;
+  RenderProduct product;
+  std::uintptr_t device{};
+  std::uintptr_t command_queue{};
+  std::uintptr_t texture{};
+  std::uintptr_t completion_event{};
+  std::uint32_t native_format{};
+  std::uint32_t native_usage{};
+  std::uint32_t native_storage_mode{};
+  std::uint64_t renderer_completion{};
+};
+
+class AovImageExporter {
+ public:
+  virtual ~AovImageExporter() = default;
+  [[nodiscard]] virtual AovImageExport AcquireAovImage(
+      render::CompletionToken token, Aov aov) = 0;
+  virtual void ReleaseAovImage(AovImageLease&& lease) = 0;
+};
+
 enum class PresentationColorSpace {
   Srgb,
   DisplayP3,
@@ -72,7 +127,7 @@ struct MetalStatistics {
   ResourceTableTelemetry sampler_slots;
 };
 
-class Backend final : public render::Backend {
+class Backend final : public render::Backend, public AovImageExporter {
 public:
   Backend(const render::BackendCreateInfo &info, BackendOptions options);
   ~Backend() override;
@@ -94,6 +149,9 @@ public:
   [[nodiscard]] render::CompletionToken
   Submit(const render::RenderRequest &request) override;
   [[nodiscard]] bool IsComplete(render::CompletionToken token) const override;
+  [[nodiscard]] AovImageExport AcquireAovImage(
+      render::CompletionToken token, Aov aov) override;
+  void ReleaseAovImage(AovImageLease&& lease) override;
   [[nodiscard]] render::RenderResult
   Resolve(render::CompletionToken token,
           std::chrono::nanoseconds timeout =
