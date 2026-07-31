@@ -1421,6 +1421,7 @@ class SceneBridge {
       request.presentation = *presentation;
       request.products.push_back({merlin::Aov::Color, false});
     }
+    std::vector<HdMerlinRenderBuffer*> color_buffers;
     std::vector<HdMerlinRenderBuffer*> gpu_color_candidates;
     for (const auto& binding : bindings) {
       if (binding.aovName != HdAovTokens->color) {
@@ -1432,13 +1433,19 @@ class SceneBridge {
             HdPrimTypeTokens->renderBuffer, binding.renderBufferId));
       }
       auto* buffer = dynamic_cast<HdMerlinRenderBuffer*>(base);
-      if (buffer != nullptr && buffer->CanGpuCopyColor()) {
+      if (buffer == nullptr) {
+        continue;
+      }
+      color_buffers.push_back(buffer);
+      if (buffer->CanGpuCopyColor()) {
         gpu_color_candidates.push_back(buffer);
       }
     }
     HdMerlinRenderBuffer* gpu_color_buffer =
-        gpu_color_candidates.size() == 1 ? gpu_color_candidates.front()
-                                         : nullptr;
+        HdMerlinCanUseExclusiveGpuColorCopy(color_buffers.size(),
+                                             gpu_color_candidates.size())
+            ? gpu_color_candidates.front()
+            : nullptr;
 
     const auto request_product = [&](merlin::Aov aov,
                                      bool cpu_readback = true) {
@@ -2833,6 +2840,12 @@ class HdMerlinRenderPass final : public HdRenderPass {
 };
 
 }  // namespace
+
+bool HdMerlinCanUseExclusiveGpuColorCopy(
+    std::size_t color_buffer_count,
+    std::size_t gpu_copy_candidate_count) noexcept {
+  return color_buffer_count == 1 && gpu_copy_candidate_count == 1;
+}
 
 HdMerlinRenderBuffer::HdMerlinRenderBuffer(
     const SdfPath& id,

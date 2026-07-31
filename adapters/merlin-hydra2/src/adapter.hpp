@@ -36,6 +36,13 @@ struct HdMerlinViewportFrame {
   bool available{};
 };
 
+// A renderer submission has one color product. It can omit CPU readback only
+// when that product has exactly one RenderBuffer consumer and that consumer
+// accepts the native GPU copy.
+[[nodiscard]] bool HdMerlinCanUseExclusiveGpuColorCopy(
+    std::size_t color_buffer_count,
+    std::size_t gpu_copy_candidate_count) noexcept;
+
 class HdMerlinRenderBuffer final : public HdRenderBuffer {
  public:
   explicit HdMerlinRenderBuffer(

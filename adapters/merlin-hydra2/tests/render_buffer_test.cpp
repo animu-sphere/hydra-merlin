@@ -21,6 +21,17 @@ bool Check(bool condition, const char* message) {
 }  // namespace
 
 int main() {
+  if (!Check(HdMerlinCanUseExclusiveGpuColorCopy(1, 1),
+             "one GPU-capable color binding was rejected") ||
+      !Check(!HdMerlinCanUseExclusiveGpuColorCopy(2, 1),
+             "mixed GPU/CPU color bindings suppressed CPU readback") ||
+      !Check(!HdMerlinCanUseExclusiveGpuColorCopy(2, 2),
+             "multiple GPU color bindings selected only one destination") ||
+      !Check(!HdMerlinCanUseExclusiveGpuColorCopy(1, 0),
+             "CPU-only color binding selected GPU copy")) {
+    return 1;
+  }
+
   HdMerlinRenderBuffer color(SdfPath("/color"));
   if (!Check(color.Allocate(GfVec3i(2, 2, 1), HdFormatUNorm8Vec4, false),
              "color allocation failed") ||

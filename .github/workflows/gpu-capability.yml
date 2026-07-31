@@ -173,14 +173,24 @@ jobs:
             build-native/Testing/Temporary/LastTest.log
 
   hydra:
-    name: OpenUSD 26.05 Hydra
+    name: OpenUSD ${{ matrix.openusd }} HgiVulkan
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 30
     env:
       OST_HOME: ${{ github.workspace }}/.ost-ci-home
       MSBUILDDISABLENODEREUSE: 1
-      OST_RUNTIME_ARTIFACT: sha256:c1c54f1e8a31983ad24f2997e419b000d4ad5d030c392d592d20fd6c8ac8b227
-      OST_RUNTIME_REMOTE: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:bf24d8b6af28d3b3be0fc780803da0ae1181fca8f336ee0c79c1b1607073f724
+      OST_RUNTIME_ARTIFACT: ${{ matrix.artifact_digest }}
+      OST_RUNTIME_REMOTE: ${{ matrix.oci_reference }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - openusd: "26.05"
+            artifact_digest: sha256:c69f605f5b2f6689badbb1ccb9e1fa4b0d65dd5aeaf22df5603b2e334f8103ea
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:6408e31c1906105e1523af6aa9f597286e5328bc7dc6e6d25e2a41ade7e082b5
+          - openusd: "26.08"
+            artifact_digest: sha256:913446515149cb32e2dfe23114c09f58c8f23aeed491bcff377bd6a1de142375
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:0f8129aa905cb6db85895de36c5dfd1fc8e89c6d9de434d5ff55e6b32055ed54
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -210,7 +220,7 @@ jobs:
           path: .ost-ci-home/artifacts
           key: ost-runtime-windows-cy2026-usd-${{ env.OST_RUNTIME_ARTIFACT }}
 
-      - name: Pull and materialize the Animusphere OpenUSD runtime
+      - name: Pull and materialize the HgiVulkan runtime
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force .ost-ci | Out-Null
@@ -250,22 +260,26 @@ jobs:
           cmake --build build --config Release
           --parallel 4 -- /nodeReuse:false
 
-      - name: Run discovery, RenderBuffer, and viewport tests
-        run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer)|viewport-(vulkan|hydra))$" --output-on-failure
+      - name: Run discovery, bridge, RenderBuffer, and viewport tests
+        run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer|hgi-vulkan-bridge)|viewport-(vulkan|hydra))$" --output-on-failure
 
-      - name: Run install-tree usdview regression
-        run: ctest --test-dir build -C Release -R "^merlin-hydra2-usdview-smoke$" --output-on-failure --verbose
+      - name: Run Tier 0 and HgiVulkan usdview regressions
+        run: ctest --test-dir build -C Release -R "^merlin-hydra2-usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)$" --output-on-failure --verbose
 
       - name: Upload usdview evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: hydra-usdview-evidence-${{ github.run_id }}
+          name: hydra-usdview-${{ matrix.openusd }}-evidence-${{ github.run_id }}
           if-no-files-found: warn
           path: |
             .ost-ci/*.json
             build/adapters/merlin-hydra2/usdview-install/*.log
             build/adapters/merlin-hydra2/usdview-install/*.json
             build/adapters/merlin-hydra2/usdview-install/*.png
+            build/adapters/merlin-hydra2/usdview-hgi-vulkan-install/*.log
+            build/adapters/merlin-hydra2/usdview-hgi-vulkan-install/*.json
+            build/adapters/merlin-hydra2/usdview-hgi-vulkan-install/*.png
+            build/adapters/merlin-hydra2/usdview-hgi-vulkan-comparison.json
             build/adapters/merlin-viewport/viewport*.json
             build/Testing/Temporary/LastTest.log
