@@ -97,7 +97,7 @@ The long-term ownership invariants are:
 | A — Renderer foundation | Complete material, diagnostics, and renderer-development foundations. | v0.10.0, v0.10.x, and foundation gates |
 | B — Backend parity | Establish native and Hgi host-presentation parity. | v0.11.0–v0.14.0 |
 | C — Scene breadth | Establish the Gaussian correctness and persistent-resource baselines. | v0.14.1–v0.15.0 and lighting tiers |
-| D — GPU scalability | Scale Mesh and Gaussian execution through measured GPU-driven paths. | v0.16.0–v0.20.0 |
+| D — GPU scalability | Scale Mesh and Gaussian execution through measured GPU-driven paths, while hardening Forward lighting and shading quality from late v0.16.x onward. | v0.16.0–v0.20.0 |
 | E — Production readiness | Productize streaming, backend parity, DCC hosts, runtime composition, and v1.0 contracts. | v0.21.0–v1.0.0 |
 
 ## Quality bar
@@ -183,6 +183,11 @@ Every milestone defines its release gates in six categories:
 - **Keep Visibility scoped.** The Visibility Buffer initially handles supported
   opaque indexed Mesh only. Forward remains the image reference and fallback;
   transparent Mesh, Gaussian primitives, and overlays keep specialized passes.
+- **Harden the reference image before alternate shading expands.** Beginning in
+  late v0.16.x, Forward lighting, color management, tone mapping, and
+  camera-motion stability receive fixture-backed quality work before broader
+  MaterialX and Visibility shading claims. Host camera lights remain explicit
+  inputs rather than a hidden or renderer-specific exposure override.
 - **Keep the reference path.** Tier 0 CPU readback remains available for
   headless execution, image comparison, debugging, and unsupported-host
   fallback even when a lower-copy path exists.

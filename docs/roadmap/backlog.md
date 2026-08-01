@@ -105,6 +105,40 @@ render preparations to complete in a small number of GPU dispatches/draws.
 Conventional Forward output remains the image reference, and candidate/visible
 counts plus culling cost are retained as benchmark evidence.
 
+### ⬜ Late v0.16.x onward — Forward lighting and shading quality
+
+Begin a dedicated visual-quality hardening track after the v0.16.0 GPU-driven
+foundation is stable, and continue it through the production MaterialX and
+lighting work in v0.18.0. Preserve conventional Forward as the correctness
+reference while improving both native and Hydra-hosted presentation.
+
+The first scope covers:
+
+- define and validate the usdview/Hydra camera-light contract so enabling the
+  camera light does not wash the frame toward white, while Camera Light OFF
+  remains a valid authored-light/environment mode;
+- calibrate direct-light and environment energy, linear/sRGB boundaries,
+  exposure, and tone mapping so SDR output retains highlight and color
+  headroom instead of saturating the UNorm target;
+- make handwritten and generated material functions agree on normal,
+  base-color, metallic, roughness, emissive, and opacity interpretation for
+  the supported subset;
+- eliminate camera-motion flicker and other view-dependent instability caused
+  by light transforms, stale frame state, resource updates, or presentation;
+- expose selected lighting mode, light counts, exposure/tone-mapping policy,
+  saturation diagnostics, and relevant CPU/GPU costs through renderer
+  diagnostics and telemetry.
+
+Exit requires deterministic differential fixtures against Storm or another
+declared reference for the Kitchen set and smaller dielectric, metallic,
+textured, and normal-mapped scenes. Tests cover Camera Light ON and OFF, static
+frames and camera motion, native and Hydra presentation, Tier 0 readback and
+HgiVulkan delivery, and Vulkan/Metal where both backends are available. No
+supported mode may require disabling the camera light merely to avoid global
+white clipping or temporal flicker. Declared tolerances and unsupported light
+features remain explicit; v0.18.0 still owns the broader L1/L2 light types,
+shadows, and production MaterialX breadth.
+
 ### ⬜ v0.17.0 — Contribution-aware Gaussian culling and adaptive bounds
 
 Add conservative Gaussian and Gaussian–tile contribution bounds, tighter

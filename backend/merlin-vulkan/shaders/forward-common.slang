@@ -110,7 +110,12 @@ float4 ShadeForwardSurface(
                 (1.0925484306f * x * z) +
             material.diffuse_environment[8].rgb *
                 (0.5462742153f * (x * x - y * y));
-        light_scale = max(light_scale, float3(0.0f, 0.0f, 0.0f));
+        // Treat the packaged environment as ambient fill rather than adding
+        // its full HDR irradiance on top of usdview's camera light. Keeping
+        // the 0.15/0.85 split used by the Metal path prevents camera-facing
+        // albedo from clipping to white in an UNorm color target.
+        light_scale =
+            0.15f * max(light_scale, float3(0.0f, 0.0f, 0.0f));
         float n_dot_l = max(
             dot(normal,
                 normalize(material.light_direction_intensity.xyz)),
@@ -118,6 +123,10 @@ float4 ShadeForwardSurface(
         light_scale += material.light_color_alpha_cutoff.rgb *
             (0.85f * n_dot_l * material.light_direction_intensity.w);
         shaded.rgb *= light_scale;
+        // The color AOV is currently UNorm rather than floating point. Compress
+        // HDR lighting before attachment conversion so camera-facing surfaces
+        // retain detail instead of clipping every channel to white.
+        shaded.rgb = shaded.rgb / (float3(1.0f, 1.0f, 1.0f) + shaded.rgb);
     }
     if ((draw_constants.feature_mask & kMaskedAlphaFlag) != 0u &&
         shaded.a < material.light_color_alpha_cutoff.a)
