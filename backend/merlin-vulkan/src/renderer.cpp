@@ -3589,21 +3589,21 @@ class Renderer::Impl {
                           "upload prepared Gaussian stream",
                           "visible Gaussian count exceeds uint32 draw limit");
     }
-    frame.gaussian_instance_count =
-        static_cast<std::uint32_t>(prepared_gaussians_.gaussians.size());
-    frame.gaussian_preparation_generation = gaussian_preparation_generation_;
     if (prepared_gaussians_.gaussians.empty()) {
+      frame.gaussian_instance_count = 0;
+      frame.gaussian_preparation_generation = gaussian_preparation_generation_;
       return;
     }
     const auto bytes = static_cast<VkDeviceSize>(
         prepared_gaussians_.gaussians.size() * sizeof(GaussianGpuInstance));
     if (frame.gaussian_instances.handle == VK_NULL_HANDLE ||
         frame.gaussian_instances.size < bytes) {
-      DestroyBuffer(frame.gaussian_instances);
-      frame.gaussian_instances = CreateBuffer(
+      auto replacement = CreateBuffer(
           bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      DestroyBuffer(frame.gaussian_instances);
+      frame.gaussian_instances = replacement;
     }
     void* mapped{};
     Check(vkMapMemory(device_, frame.gaussian_instances.memory, 0, bytes, 0,
@@ -3623,6 +3623,9 @@ class Renderer::Impl {
       };
     }
     vkUnmapMemory(device_, frame.gaussian_instances.memory);
+    frame.gaussian_instance_count =
+        static_cast<std::uint32_t>(prepared_gaussians_.gaussians.size());
+    frame.gaussian_preparation_generation = gaussian_preparation_generation_;
     frame_counters_.gaussian_upload_bytes += bytes;
     frame_counters_.upload_bytes += bytes;
   }
@@ -4759,6 +4762,11 @@ class Renderer::Impl {
     gaussian_subpass.colorAttachmentCount = 1;
     gaussian_subpass.pColorAttachments = &gaussian_color_reference;
     gaussian_subpass.pDepthStencilAttachment = &depth_reference;
+    const std::array<std::uint32_t, 2> gaussian_preserved_attachments{2, 3};
+    gaussian_subpass.preserveAttachmentCount =
+        static_cast<std::uint32_t>(gaussian_preserved_attachments.size());
+    gaussian_subpass.pPreserveAttachments =
+        gaussian_preserved_attachments.data();
     const std::array<VkSubpassDescription, 2> subpasses{
         mesh_subpass, gaussian_subpass};
     std::array<VkSubpassDependency, 4> dependencies{};

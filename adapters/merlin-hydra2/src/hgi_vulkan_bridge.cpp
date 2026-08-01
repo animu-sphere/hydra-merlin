@@ -20,6 +20,7 @@
 #include <merlin/vulkan/backend.hpp>
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <type_traits>
@@ -505,8 +506,10 @@ bool HdMerlinHgiVulkanBridge::Upload(HgiTextureHandle target, const void* data,
 
 bool HdMerlinHgiVulkanBridge::Copy(
     HgiTextureHandle target, merlin::vulkan::AovImageExport&& source,
-    std::shared_ptr<merlin::render::Backend> backend) {
+    std::shared_ptr<merlin::render::Backend> backend,
+    std::uint64_t& submission_serial) {
   TRACE_SCOPE("HdMerlinHgiVulkanBridge::Copy");
+  submission_serial = 0;
 #if defined(MERLIN_HYDRA2_HAVE_HGI_VULKAN_NATIVE)
   auto* exporter = backend == nullptr
                        ? nullptr
@@ -525,6 +528,7 @@ bool HdMerlinHgiVulkanBridge::Copy(
   };
 
   Hgi* hgi = nullptr;
+  std::uint64_t copy_serial{};
   {
     std::scoped_lock lock(mutex_);
     if (hgi_ == nullptr || !status_.gpu_copy || !target ||
@@ -535,6 +539,7 @@ bool HdMerlinHgiVulkanBridge::Copy(
       return false;
     }
     hgi = hgi_;
+    copy_serial = ++next_copy_serial_;
   }
 
   const auto set_fallback = [&](HdMerlinHgiVulkanFallbackReason reason) {
@@ -645,8 +650,8 @@ bool HdMerlinHgiVulkanBridge::Copy(
 
     const auto weak_bridge = weak_from_this();
     command_buffer->AddCompletedHandler(
-        [backend = std::move(backend), lease,
-         weak_bridge]() mutable noexcept {
+        [backend = std::move(backend), lease, weak_bridge,
+         copy_serial]() mutable noexcept {
           if (auto* completed_exporter =
                   dynamic_cast<merlin::vulkan::AovImageExporter*>(
                       backend.get());
@@ -658,10 +663,15 @@ bool HdMerlinHgiVulkanBridge::Copy(
           }
           if (const auto bridge = weak_bridge.lock()) {
             std::scoped_lock completion_lock(bridge->mutex_);
+            bridge->completed_copy_serial_ =
+                std::max(bridge->completed_copy_serial_, copy_serial);
             ++bridge->telemetry_.gpu_copy_completion_count;
-            if (bridge->telemetry_.gpu_copy_pending_count != 0) {
-              --bridge->telemetry_.gpu_copy_pending_count;
-            }
+            bridge->telemetry_.gpu_copy_pending_count =
+                bridge->telemetry_.gpu_copy_count >
+                        bridge->telemetry_.gpu_copy_completion_count
+                    ? bridge->telemetry_.gpu_copy_count -
+                          bridge->telemetry_.gpu_copy_completion_count
+                    : 0;
           }
         });
     hgi->SubmitCmds(commands.get(), HgiSubmitWaitTypeNoWait);
@@ -673,11 +683,15 @@ bool HdMerlinHgiVulkanBridge::Copy(
 
   std::scoped_lock lock(mutex_);
   ++telemetry_.gpu_copy_count;
-  ++telemetry_.gpu_copy_pending_count;
+  telemetry_.gpu_copy_pending_count =
+      telemetry_.gpu_copy_count > telemetry_.gpu_copy_completion_count
+          ? telemetry_.gpu_copy_count - telemetry_.gpu_copy_completion_count
+          : 0;
   telemetry_.gpu_copy_bytes +=
       static_cast<std::uint64_t>(source.product.width) *
       source.product.height * 4U;
   telemetry_.gpu_copy_encode_ns += ElapsedNanoseconds(encode_start);
+  submission_serial = copy_serial;
   return true;
 #else
   (void)target;
@@ -688,6 +702,15 @@ bool HdMerlinHgiVulkanBridge::Copy(
       HdMerlinHgiVulkanFallbackReason::GpuCopyUnavailable);
   return false;
 #endif
+}
+
+bool HdMerlinHgiVulkanBridge::IsCopyComplete(
+    std::uint64_t submission_serial) const {
+  if (submission_serial == 0) {
+    return false;
+  }
+  std::scoped_lock lock(mutex_);
+  return completed_copy_serial_ >= submission_serial;
 }
 
 void HdMerlinHgiVulkanBridge::SetOperationalFallbackLocked(

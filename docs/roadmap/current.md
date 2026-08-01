@@ -64,10 +64,12 @@ The external fixture selected with `MERLIN_GAUSSIAN_SAMPLE` validates both the
 OpenUSD schema payload and the usdview/Hydra path. Current local evidence uses
 `/Asset/Splat` from the 8192-particle SOG sample: degree 3, 131072 RGB SH
 coefficients, no ingestion diagnostics, and one Gaussian snapshot resource.
-The Vulkan usdview smoke retains and sorts all 8192 particles, uploads 425984
-bytes, emits one procedural draw, produces Gaussian color in the captured
-frame, reports zero validation diagnostics, and reaches zero Gaussian upload
-bytes on a static cached frame.
+The Tier 0 and forced-HgiVulkan usdview smokes retain and sort all 8192
+particles, upload 425984 bytes, emit one procedural draw, produce Gaussian
+color in the captured frame, report zero validation diagnostics, and reach
+zero Gaussian upload bytes on a static cached frame. HgiVulkan keeps its
+asynchronous GPU-copy path without a coarse wait and holds the RenderBuffer
+unconverged until a completed copy makes the retained target displayable.
 
 Remaining work is changed-range upload from normalized particle edits,
 Gaussian-specific ID/picking semantics, external-fixture reference-image

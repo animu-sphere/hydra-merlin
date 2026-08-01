@@ -374,6 +374,29 @@ if(MERLIN_BUILD_TESTS)
         LABELS "gaussian;hydra;host-smoke;half"
         TIMEOUT 60
         RUN_SERIAL TRUE)
+      if(TARGET hgiVulkan)
+        add_test(
+          NAME merlin-hydra2-gaussian-half-hgi-vulkan-usdview-smoke
+          COMMAND ${CMAKE_COMMAND}
+            "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+            "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "-DMERLIN_CONFIG=$<CONFIG>"
+            "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/gaussian-half-hgi-vulkan-usdview-install"
+            "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+            "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+            "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+            "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+            "-DMERLIN_GAUSSIAN_SAMPLE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/gaussian_half.usda"
+            "-DMERLIN_FORCE_HGI_VULKAN=ON"
+            "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"
+        )
+        set_tests_properties(
+          merlin-hydra2-gaussian-half-hgi-vulkan-usdview-smoke PROPERTIES
+          LABELS "gaussian;hydra;host-smoke;hgi;vulkan;presentation;half"
+          TIMEOUT 60
+          RUN_SERIAL TRUE)
+      endif()
     endif()
     if(MERLIN_GAUSSIAN_SAMPLE AND TARGET Merlin::Vulkan)
       add_test(
@@ -395,6 +418,29 @@ if(MERLIN_BUILD_TESTS)
         LABELS "gaussian;hydra;host-smoke"
         TIMEOUT 60
         RUN_SERIAL TRUE)
+      if(TARGET hgiVulkan)
+        add_test(
+          NAME merlin-hydra2-gaussian-hgi-vulkan-usdview-smoke
+          COMMAND ${CMAKE_COMMAND}
+            "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+            "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "-DMERLIN_CONFIG=$<CONFIG>"
+            "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/gaussian-hgi-vulkan-usdview-install"
+            "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+            "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+            "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+            "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+            "-DMERLIN_GAUSSIAN_SAMPLE=${MERLIN_GAUSSIAN_SAMPLE}"
+            "-DMERLIN_FORCE_HGI_VULKAN=ON"
+            "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"
+        )
+        set_tests_properties(
+          merlin-hydra2-gaussian-hgi-vulkan-usdview-smoke PROPERTIES
+          LABELS "gaussian;hydra;host-smoke;hgi;vulkan;presentation"
+          TIMEOUT 60
+          RUN_SERIAL TRUE)
+      endif()
     endif()
     add_test(
       NAME merlin-hydra2-usdview-smoke
