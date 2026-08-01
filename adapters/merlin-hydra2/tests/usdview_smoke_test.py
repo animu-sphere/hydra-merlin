@@ -12,6 +12,8 @@ def _read_events():
         "material_effective_fallback",
         "hgi_transfer_mode",
         "hgi_direct_share_rejection",
+        "hgi_metal_transfer_mode",
+        "hgi_metal_direct_share_rejection",
     }
     events = []
     with open(marker, encoding="utf-8") as stream:

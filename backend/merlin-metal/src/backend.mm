@@ -350,6 +350,12 @@ MTLHeapDescriptor *SceneHeapDescriptor(std::uint64_t capacity_bytes) {
 
 } // namespace
 
+AovImageLease::AovImageLease(AovImageLease&& other) noexcept
+    : owner_(other.owner_), completion_(other.completion_), aov_(other.aov_) {
+  other.owner_ = 0;
+  other.completion_ = 0;
+}
+
 class Backend::Impl {
 public:
   Impl(const render::BackendCreateInfo &info, BackendOptions options)
@@ -412,6 +418,12 @@ public:
       if (options_.presentation) {
         ConfigurePresentation(*options_.presentation);
       }
+      completion_event_ = [device_ newSharedEvent];
+      if (completion_event_ == nil) {
+        throw render::RendererError(
+            render::RendererErrorCode::BackendFailure,
+            "create Metal completion event", "newSharedEvent returned nil");
+      }
 
       frames_.resize(info.frames_in_flight);
       for (auto &frame : frames_) {
@@ -471,6 +483,8 @@ public:
     result.uploaded_bytes = uploaded_bytes_;
     result.readback_bytes = readback_bytes_;
     result.presentation_copy_bytes = presentation_copy_bytes_;
+    result.aov_image_export_count = aov_image_export_count_;
+    result.active_aov_image_leases = active_aov_image_leases_;
     result.residency.bindless_tables = bindless_;
     result.residency.vram_heap_capacity_bytes = metal.heap_capacity_bytes;
     result.residency.vram_heap_budget_bytes = metal.heap_capacity_bytes;
@@ -596,6 +610,9 @@ public:
         completed->store(value, std::memory_order_release);
         dispatch_semaphore_signal(completion);
       }];
+      if (completion_event_ != nil) {
+        [command encodeSignalEvent:completion_event_ value:value];
+      }
 
       const auto queue_begin = Clock::now();
       [command commit];
@@ -641,6 +658,102 @@ public:
            pending.command.status == MTLCommandBufferStatusError;
   }
 
+  AovImageExport AcquireAovImage(render::CompletionToken token, Aov aov) {
+    @autoreleasepool {
+      auto &pending = ValidateToken(token, "acquire Metal AOV image");
+      const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(aov);
+      auto &frame = frames_[pending.context_index];
+      if (frame.exported_aov_mask & mask) {
+        throw render::RendererError(
+            render::RendererErrorCode::ResourceBusy,
+            "acquire Metal AOV image", "AOV image already has an active export lease");
+      }
+      if (!HasAov(pending.rendered_aovs, aov)) {
+        throw render::RendererError(
+            render::RendererErrorCode::InvalidRequest,
+            "acquire Metal AOV image", "AOV was not selected for this submission");
+      }
+      id<MTLTexture> texture = nil;
+      MTLPixelFormat format = MTLPixelFormatInvalid;
+      MTLTextureUsage usage = MTLTextureUsageUnknown;
+      switch (aov) {
+      case Aov::Color:
+        texture = frame.color;
+        format = MTLPixelFormatRGBA8Unorm;
+        usage = MTLTextureUsageRenderTarget;
+        break;
+      case Aov::Depth:
+        texture = frame.depth;
+        format = MTLPixelFormatDepth32Float;
+        usage = MTLTextureUsageRenderTarget;
+        break;
+      case Aov::PrimId:
+        texture = frame.prim_id;
+        format = MTLPixelFormatR32Uint;
+        usage = MTLTextureUsageRenderTarget;
+        break;
+      case Aov::InstanceId:
+        texture = frame.instance_id;
+        format = MTLPixelFormatR32Uint;
+        usage = MTLTextureUsageRenderTarget;
+        break;
+      default:
+        throw render::RendererError(
+            render::RendererErrorCode::Unsupported,
+            "acquire Metal AOV image", "AOV has no Metal export image");
+      }
+      if (texture == nil) {
+        throw render::RendererError(
+            render::RendererErrorCode::BackendFailure,
+            "acquire Metal AOV image", "selected AOV image is unavailable");
+      }
+      frame.exported_aov_mask |= mask;
+      ++aov_image_export_count_;
+      ++active_aov_image_leases_;
+      ++pending.result.telemetry.aov_image_export_count;
+      return AovImageExport{
+          AovImageLease(owner_, pending.result.completion_value, aov),
+          MakeRenderProduct(pending.width, pending.height, aov),
+          reinterpret_cast<std::uintptr_t>((__bridge void*)device_),
+          reinterpret_cast<std::uintptr_t>((__bridge void*)queue_),
+          reinterpret_cast<std::uintptr_t>((__bridge void*)texture),
+          reinterpret_cast<std::uintptr_t>((__bridge void*)completion_event_),
+          static_cast<std::uint32_t>(format),
+          static_cast<std::uint32_t>(usage),
+          static_cast<std::uint32_t>(texture.storageMode),
+          pending.result.completion_value};
+    }
+  }
+
+  void ReleaseAovImage(AovImageLease&& lease) {
+    @autoreleasepool {
+      if (!lease) {
+        return;
+      }
+      for (auto &frame : frames_) {
+        if (frame.completion_value != lease.completion_value()) {
+          continue;
+        }
+        const auto mask = std::uint64_t{1} <<
+                          static_cast<std::uint32_t>(lease.aov());
+        if ((frame.exported_aov_mask & mask) == 0) {
+          return;
+        }
+        frame.exported_aov_mask &= ~mask;
+        if (active_aov_image_leases_ != 0) {
+          --active_aov_image_leases_;
+        }
+        if (frame.exported_aov_mask == 0 &&
+            pending_.find(frame.completion_value) == pending_.end()) {
+          frame.busy = false;
+          frame.completion_value = 0;
+        }
+        lease.Reset();
+        return;
+      }
+    }
+  }
+
   render::RenderResult Resolve(render::CompletionToken token,
                                std::chrono::nanoseconds timeout) {
     @autoreleasepool {
@@ -669,8 +782,12 @@ public:
                 ? std::string("Metal command buffer failed")
                 : String(pending.command.error.localizedDescription);
         auto &failed_frame = frames_[pending.context_index];
-        failed_frame.busy = false;
-        failed_frame.completion_value = 0;
+        // A bridge blit may still be waiting on this frame's completion event.
+        // Keep the frame identified until that lease callback releases it.
+        failed_frame.busy = failed_frame.exported_aov_mask != 0;
+        if (!failed_frame.busy) {
+          failed_frame.completion_value = 0;
+        }
         const auto native_code =
             static_cast<std::int32_t>(pending.command.error.code);
         pending_.erase(token.value());
@@ -696,8 +813,13 @@ public:
           pending.result.timings.readback_ns;
 
       auto result = std::move(pending.result);
-      frame.busy = false;
-      frame.completion_value = 0;
+      // An exported texture is retained until the bridge command buffer
+      // completes. Resolve may return before that callback, so the frame
+      // context remains unavailable for reuse while any lease is active.
+      frame.busy = frame.exported_aov_mask != 0;
+      if (!frame.busy) {
+        frame.completion_value = 0;
+      }
       readback_bytes_ += result.telemetry.readback_bytes;
       if (pending.drawable != nil) {
         ++statistics_.frames_presented;
@@ -741,6 +863,7 @@ private:
   struct FrameContext {
     bool busy{};
     std::uint64_t completion_value{};
+    std::uint64_t exported_aov_mask{};
     std::uint32_t width{};
     std::uint32_t height{};
     id<MTLTexture> color;
@@ -1814,6 +1937,7 @@ private:
   BackendOptions options_;
   id<MTLDevice> device_;
   id<MTLCommandQueue> queue_;
+  id<MTLSharedEvent> completion_event_;
   id<MTLLibrary> library_;
   id<MTLRenderPipelineState> pipeline_;
   id<MTLRenderPipelineState> presentation_pipeline_;
@@ -1845,6 +1969,8 @@ private:
   std::uint64_t uploaded_bytes_{};
   std::uint64_t readback_bytes_{};
   std::uint64_t presentation_copy_bytes_{};
+  std::uint64_t aov_image_export_count_{};
+  std::uint64_t active_aov_image_leases_{};
   std::uint64_t geometry_peak_resident_bytes_{};
 };
 
@@ -1884,6 +2010,15 @@ render::CompletionToken Backend::Submit(const render::RenderRequest &request) {
 
 bool Backend::IsComplete(render::CompletionToken token) const {
   return impl_->IsComplete(token);
+}
+
+AovImageExport Backend::AcquireAovImage(render::CompletionToken token,
+                                        Aov aov) {
+  return impl_->AcquireAovImage(token, aov);
+}
+
+void Backend::ReleaseAovImage(AovImageLease&& lease) {
+  impl_->ReleaseAovImage(std::move(lease));
 }
 
 render::RenderResult Backend::Resolve(render::CompletionToken token,

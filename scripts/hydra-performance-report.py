@@ -104,6 +104,8 @@ def parse_events(path: Path) -> list[dict]:
         "material_effective_fallback",
         "hgi_transfer_mode",
         "hgi_direct_share_rejection",
+        "hgi_metal_transfer_mode",
+        "hgi_metal_direct_share_rejection",
     }
     events = []
     for line_number, line in enumerate(

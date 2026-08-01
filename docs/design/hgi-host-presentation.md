@@ -208,10 +208,19 @@ can be constructed.
 
 v0.14.0 implements the same logical contract for Metal: Tier 0 CPU fallback,
 Metal-local texture copy, then optionally same-`MTLDevice` texture sharing.
+The adapter publishes an Hgi-owned color target, while the Metal renderer
+exports a leased AOV texture plus an `MTLSharedEvent`; the Hgi command buffer
+waits on that event before copying and releases the lease only from its own
+completion callback. This keeps renderer completion, bridge completion, and
+host consumption distinct without a per-frame queue/device idle wait.
+
 Metal device identity, texture storage/usage/pixel format, command queue and
 buffer completion, target lifetime, resize generation, SDR sRGB/Display P3,
-and HDR rejection are validated independently. Native Metal viewport and Hydra
-presentation remain separate consumers of the same renderer output.
+and HDR rejection are validated independently. Public HgiMetal exposes no
+maintained renderer-texture import contract, so direct sharing remains a
+diagnosed rejection and Metal-local copy remains the selected native path.
+Native Metal viewport and Hydra presentation remain separate consumers of the
+same renderer output.
 
 ## Verification and release evidence
 

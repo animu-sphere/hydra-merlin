@@ -565,6 +565,28 @@ bool ValidationRequested() {
 #endif
 }
 
+#ifdef MERLIN_HYDRA2_ENABLE_METAL
+std::optional<std::uint64_t> MetalHeapCapacityBytesFromEnvironment() {
+  const char* value = std::getenv("MERLIN_METAL_HEAP_MIB");
+  if (value == nullptr || *value == '\0') {
+    return std::nullopt;
+  }
+  std::uint64_t capacity_mib{};
+  const auto* begin = value;
+  const auto* end = value + std::strlen(value);
+  const auto [parsed_end, error] =
+      std::from_chars(begin, end, capacity_mib);
+  constexpr std::uint64_t bytes_per_mib = 1024ULL * 1024ULL;
+  if (error != std::errc{} || parsed_end != end || capacity_mib == 0 ||
+      capacity_mib > std::numeric_limits<std::uint64_t>::max() /
+                          bytes_per_mib) {
+    throw std::invalid_argument(
+        "MERLIN_METAL_HEAP_MIB must be a positive in-range integer");
+  }
+  return capacity_mib * bytes_per_mib;
+}
+#endif
+
 const VtValue* FindParameter(const HdMaterialNode2& node, const char* name) {
   const auto found = node.parameters.find(TfToken(name));
   return found == node.parameters.end() ? nullptr : &found->second;
@@ -952,9 +974,11 @@ class SceneBridge {
  public:
   explicit SceneBridge(
       std::shared_ptr<merlin::render::Backend> backend = {},
-      std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {})
+      std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {},
+      std::shared_ptr<HdMerlinHgiMetalBridge> hgi_metal_bridge = {})
       : renderer_(std::move(backend)),
-        hgi_vulkan_bridge_(std::move(hgi_vulkan_bridge)) {
+        hgi_vulkan_bridge_(std::move(hgi_vulkan_bridge)),
+        hgi_metal_bridge_(std::move(hgi_metal_bridge)) {
     merlin::MaterialDescriptor material;
     material.label = "Hydra fallback material";
     // Unbound Hydra meshes use displayColor as their authored viewport color.
@@ -971,6 +995,11 @@ class SceneBridge {
   void SetCameraFrontFaceWinding(merlin::FrontFaceWinding winding) {
     std::scoped_lock lock(mutex_);
     camera_front_face_ = winding;
+  }
+
+  void SetHgiProjectionYReflection(bool reflect) {
+    std::scoped_lock lock(mutex_);
+    reflect_hgi_projection_y_ = reflect;
   }
 
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const {
@@ -1234,15 +1263,27 @@ class SceneBridge {
     if (const HdCamera* camera = state.GetCamera()) {
       const auto key = camera->GetId().GetString();
       const auto view = ToMerlinMatrix(state.GetWorldToViewMatrix());
-      const auto projection = ToMerlinMatrix(state.GetProjectionMatrix());
+      auto projection_matrix = state.GetProjectionMatrix();
+      if (reflect_hgi_projection_y_) {
+        GfMatrix4d reflection(1.0);
+        reflection[1][1] = -1.0;
+        projection_matrix *= reflection;
+      }
+      const auto projection = ToMerlinMatrix(projection_matrix);
       const auto camera_update_start = CpuClock::now();
       active_camera = SyncCameraLocked(key, view, projection);
       render_world_update_ns += ElapsedNanoseconds(camera_update_start);
     } else {
       const auto camera_update_start = CpuClock::now();
+      auto projection_matrix = state.GetProjectionMatrix();
+      if (reflect_hgi_projection_y_) {
+        GfMatrix4d reflection(1.0);
+        reflection[1][1] = -1.0;
+        projection_matrix *= reflection;
+      }
       active_camera = SyncCameraLocked(
           "__merlinViewportCamera", ToMerlinMatrix(state.GetWorldToViewMatrix()),
-          ToMerlinMatrix(state.GetProjectionMatrix()));
+          ToMerlinMatrix(projection_matrix));
       render_world_update_ns += ElapsedNanoseconds(camera_update_start);
     }
     extractor_.SetActiveCamera(active_camera);
@@ -1392,7 +1433,11 @@ class SceneBridge {
       renderer_ = std::shared_ptr<merlin::render::Backend>(
           merlin::render::CreateBackend(create_info, factories));
 #elif defined(MERLIN_HYDRA2_ENABLE_METAL)
-      merlin::metal::BackendFactory factory;
+      merlin::metal::BackendOptions backend_options;
+      if (const auto capacity = MetalHeapCapacityBytesFromEnvironment()) {
+        backend_options.heap_capacity_bytes = *capacity;
+      }
+      merlin::metal::BackendFactory factory(backend_options);
       std::vector<merlin::render::BackendFactory*> factories{&factory};
       merlin::render::BackendCreateInfo create_info;
       create_info.backend = merlin::render::BackendRequest::Metal;
@@ -1481,6 +1526,19 @@ class SceneBridge {
 #ifdef MERLIN_HYDRA2_ENABLE_VULKAN
     if (gpu_color_buffer != nullptr) {
       if (auto* exporter = dynamic_cast<merlin::vulkan::AovImageExporter*>(
+              renderer_.get())) {
+        try {
+          gpu_color_copied = gpu_color_buffer->CopyColor(
+              exporter->AcquireAovImage(token, merlin::Aov::Color),
+              renderer_);
+        } catch (const merlin::render::RendererError&) {
+          gpu_color_copied = false;
+        }
+    }
+  }
+#elif defined(MERLIN_HYDRA2_ENABLE_METAL)
+    if (gpu_color_buffer != nullptr) {
+      if (auto* exporter = dynamic_cast<merlin::metal::AovImageExporter*>(
               renderer_.get())) {
         try {
           gpu_color_copied = gpu_color_buffer->CopyColor(
@@ -1612,6 +1670,17 @@ class SceneBridge {
             hgi_vulkan_bridge_
                 ? hgi_vulkan_bridge_->status()
                 : HdMerlinHgiVulkanBridgeStatus{};
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+        const auto hgi_metal_telemetry =
+            hgi_metal_bridge_ ? hgi_metal_bridge_->telemetry()
+                              : HdMerlinHgiMetalBridgeTelemetry{};
+        const auto hgi_metal_status =
+            hgi_metal_bridge_ ? hgi_metal_bridge_->status()
+                              : HdMerlinHgiMetalBridgeStatus{};
+#else
+        const HdMerlinHgiMetalBridgeTelemetry hgi_metal_telemetry{};
+        const HdMerlinHgiMetalBridgeStatus hgi_metal_status{};
+#endif
         stream << "schema_version=4"
                << " phase=" << RegressionPhase()
                << " scene_revision=" << result.scene_revision
@@ -1748,6 +1817,26 @@ class SceneBridge {
                << hgi_vulkan_telemetry.direct_share_rejection_count
                << " hgi_coarse_wait_count="
                << hgi_vulkan_telemetry.coarse_wait_count
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+               << " hgi_metal_gpu_copy_count="
+               << hgi_metal_telemetry.gpu_copy_count
+               << " hgi_metal_gpu_copy_completion_count="
+               << hgi_metal_telemetry.gpu_copy_completion_count
+               << " hgi_metal_gpu_copy_pending_count="
+               << hgi_metal_telemetry.gpu_copy_pending_count
+               << " hgi_metal_transfer_mode="
+               << HdMerlinHgiMetalTransferModeName(
+                      hgi_metal_status.selected_mode)
+               << " hgi_metal_direct_share_rejection="
+               << HdMerlinHgiMetalDirectShareRejectionName(
+                      hgi_metal_status.direct_share_rejection)
+               << " hgi_metal_direct_share_evaluation_count="
+               << hgi_metal_telemetry.direct_share_evaluation_count
+               << " hgi_metal_direct_share_rejection_count="
+               << hgi_metal_telemetry.direct_share_rejection_count
+               << " hgi_metal_coarse_wait_count="
+               << hgi_metal_telemetry.coarse_wait_count
+#endif
                << " upload_bytes=" << result.telemetry.upload_bytes
                << " readback_bytes=" << result.telemetry.readback_bytes
                << " allocation_count=" << result.telemetry.allocation_count
@@ -1887,9 +1976,11 @@ class SceneBridge {
   merlin::RenderWorld world_;
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};
+  bool reflect_hgi_projection_y_{};
   merlin::extraction::SceneExtractor extractor_;
   std::shared_ptr<merlin::render::Backend> renderer_;
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
+  std::shared_ptr<HdMerlinHgiMetalBridge> hgi_metal_bridge_;
   merlin::MaterialHandle fallback_material_;
   merlin::RenderSettingsHandle render_settings_;
   merlin::RenderSettingsDescriptor render_settings_descriptor_;
@@ -2863,9 +2954,11 @@ bool HdMerlinCanUseExclusiveGpuColorCopy(
 
 HdMerlinRenderBuffer::HdMerlinRenderBuffer(
     const SdfPath& id,
-    std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge)
+    std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge,
+    std::shared_ptr<HdMerlinHgiMetalBridge> hgi_metal_bridge)
     : HdRenderBuffer(id),
-      hgi_vulkan_bridge_(std::move(hgi_vulkan_bridge)) {}
+      hgi_vulkan_bridge_(std::move(hgi_vulkan_bridge)),
+      hgi_metal_bridge_(std::move(hgi_metal_bridge)) {}
 
 HdMerlinRenderBuffer::~HdMerlinRenderBuffer() {
   std::scoped_lock lock(mutex_);
@@ -2902,11 +2995,13 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   // unchanged description keeps its target: retiring and recreating identical
   // GPU memory every frame would also make target_recreations report something
   // other than resizes.
-  const bool reusable_target = static_cast<bool>(hgi_target_) &&
+  const bool has_target = static_cast<bool>(hgi_vulkan_target_) ||
+                          static_cast<bool>(hgi_metal_target_);
+  const bool reusable_target = has_target &&
                                dimensions_ == dimensions &&
                                format_ == format &&
                                multi_sampled_ == multi_sampled;
-  const bool recreation = static_cast<bool>(hgi_target_) && !reusable_target;
+  const bool recreation = has_target && !reusable_target;
   if (!reusable_target) {
     DestroyHgiTargetLocked();
   }
@@ -2921,9 +3016,8 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   // read back through Map(); uploading those every frame would spend bandwidth
   // no consumer collects.
   const HgiFormat hgi_format = HdMerlinHgiFormatForRenderBuffer(format);
-  if (!hgi_target_ && hgi_vulkan_bridge_ && pixels != 0 &&
-      format == HdFormatUNorm8Vec4 && hgi_format != HgiFormatInvalid &&
-      dimensions[2] == 1) {
+  if (!reusable_target && pixels != 0 && format == HdFormatUNorm8Vec4 &&
+      hgi_format != HgiFormatInvalid && dimensions[2] == 1) {
     HgiTextureDesc descriptor;
     descriptor.debugName = GetId().GetString();
     descriptor.usage = HgiTextureUsageBitsShaderRead;
@@ -2934,8 +3028,16 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
     descriptor.mipLevels = 1;
     descriptor.sampleCount = HgiSampleCount1;
     descriptor.pixelsByteSize = data_.size();
-    hgi_target_ =
-        hgi_vulkan_bridge_->CreateTarget(descriptor, recreation);
+    if (hgi_vulkan_bridge_) {
+      hgi_vulkan_target_ =
+          hgi_vulkan_bridge_->CreateTarget(descriptor, recreation);
+    }
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+    if (hgi_metal_bridge_) {
+      hgi_metal_target_ =
+          hgi_metal_bridge_->CreateTarget(descriptor, recreation);
+    }
+#endif
   }
   return true;
 }
@@ -2998,10 +3100,11 @@ bool HdMerlinRenderBuffer::IsConverged() const {
 
 VtValue HdMerlinRenderBuffer::GetResource(bool multi_sampled) const {
   std::scoped_lock lock(mutex_);
-  if (multi_sampled || multi_sampled_ || !hgi_target_) {
+  if (multi_sampled || multi_sampled_ ||
+      (!hgi_vulkan_target_ && !hgi_metal_target_)) {
     return {};
   }
-  return VtValue(hgi_target_);
+  return VtValue(hgi_metal_target_ ? hgi_metal_target_ : hgi_vulkan_target_);
 }
 
 bool HdMerlinRenderBuffer::WriteColor(
@@ -3055,25 +3158,54 @@ bool HdMerlinRenderBuffer::WriteId(const std::vector<std::uint32_t>& ids,
 bool HdMerlinRenderBuffer::CanGpuCopyColor() const {
   std::scoped_lock lock(mutex_);
   return format_ == HdFormatUNorm8Vec4 && !multi_sampled_ &&
-         static_cast<bool>(hgi_target_) && hgi_vulkan_bridge_ &&
-         hgi_vulkan_bridge_->status().gpu_copy;
+         ((hgi_vulkan_target_ && hgi_vulkan_bridge_ &&
+           hgi_vulkan_bridge_->status().gpu_copy) ||
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+          (hgi_metal_target_ && hgi_metal_bridge_ &&
+           hgi_metal_bridge_->status().gpu_copy));
+#else
+          false);
+#endif
 }
 
 bool HdMerlinRenderBuffer::CopyColor(
     merlin::vulkan::AovImageExport&& source,
     std::shared_ptr<merlin::render::Backend> backend) {
   std::scoped_lock lock(mutex_);
-  if (!hgi_target_ || !hgi_vulkan_bridge_) {
+  if (!hgi_vulkan_target_ || !hgi_vulkan_bridge_) {
     return false;
   }
-  if (!hgi_vulkan_bridge_->Copy(hgi_target_, std::move(source),
+  if (!hgi_vulkan_bridge_->Copy(hgi_vulkan_target_, std::move(source),
                                 std::move(backend))) {
-    DestroyHgiTargetLocked();
+    hgi_vulkan_bridge_->DestroyTarget(&hgi_vulkan_target_);
     gpu_only_ = false;
     return false;
   }
   gpu_only_ = true;
   return true;
+}
+
+bool HdMerlinRenderBuffer::CopyColor(
+    merlin::metal::AovImageExport&& source,
+    std::shared_ptr<merlin::render::Backend> backend) {
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+  std::scoped_lock lock(mutex_);
+  if (!hgi_metal_target_ || !hgi_metal_bridge_) {
+    return false;
+  }
+  if (!hgi_metal_bridge_->Copy(hgi_metal_target_, std::move(source),
+                               std::move(backend))) {
+    hgi_metal_bridge_->DestroyTarget(&hgi_metal_target_);
+    gpu_only_ = false;
+    return false;
+  }
+  gpu_only_ = true;
+  return true;
+#else
+  (void)source;
+  (void)backend;
+  return false;
+#endif
 }
 
 void HdMerlinRenderBuffer::SetConverged(bool converged) {
@@ -3096,23 +3228,48 @@ void HdMerlinRenderBuffer::_Deallocate() {
 }
 
 void HdMerlinRenderBuffer::UploadHgiTargetLocked() {
-  if (!hgi_target_) {
+  if (!hgi_vulkan_target_ && !hgi_metal_target_) {
     return;
   }
   // A failed upload retires the target so GetResource stops advertising a
   // stale texture; the bridge records why and the CPU buffer stays the truth.
-  if (!hgi_vulkan_bridge_ ||
-      !hgi_vulkan_bridge_->Upload(hgi_target_, data_.data(), data_.size())) {
-    DestroyHgiTargetLocked();
+  if (hgi_vulkan_target_ &&
+      (!hgi_vulkan_bridge_ || !hgi_vulkan_bridge_->Upload(
+           hgi_vulkan_target_, data_.data(), data_.size()))) {
+    if (hgi_vulkan_bridge_) {
+      hgi_vulkan_bridge_->DestroyTarget(&hgi_vulkan_target_);
+    } else {
+      hgi_vulkan_target_ = {};
+    }
   }
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+  if (hgi_metal_target_ &&
+      (!hgi_metal_bridge_ || !hgi_metal_bridge_->Upload(
+           hgi_metal_target_, data_.data(), data_.size()))) {
+    if (hgi_metal_bridge_) {
+      hgi_metal_bridge_->DestroyTarget(&hgi_metal_target_);
+    } else {
+      hgi_metal_target_ = {};
+    }
+  }
+#endif
 }
 
 void HdMerlinRenderBuffer::DestroyHgiTargetLocked() {
-  if (hgi_vulkan_bridge_ && hgi_target_) {
-    hgi_vulkan_bridge_->DestroyTarget(&hgi_target_);
+  if (hgi_vulkan_bridge_ && hgi_vulkan_target_) {
+    hgi_vulkan_bridge_->DestroyTarget(&hgi_vulkan_target_);
   } else {
-    hgi_target_ = {};
+    hgi_vulkan_target_ = {};
   }
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+  if (hgi_metal_bridge_ && hgi_metal_target_) {
+    hgi_metal_bridge_->DestroyTarget(&hgi_metal_target_);
+  } else {
+    hgi_metal_target_ = {};
+  }
+#else
+  hgi_metal_target_ = {};
+#endif
 }
 
 namespace {
@@ -3121,6 +3278,11 @@ namespace {
 constexpr bool kHgiVulkanBridgeEnabled = true;
 #else
 constexpr bool kHgiVulkanBridgeEnabled = false;
+#endif
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+constexpr bool kHgiMetalBridgeEnabled = true;
+#else
+constexpr bool kHgiMetalBridgeEnabled = false;
 #endif
 
 }  // namespace
@@ -3131,20 +3293,33 @@ class HdMerlinRenderDelegate::Impl {
       : hgi_vulkan_bridge(
             std::make_shared<HdMerlinHgiVulkanBridge>(
                 kHgiVulkanBridgeEnabled)),
-        bridge(std::make_shared<SceneBridge>(nullptr, hgi_vulkan_bridge)) {}
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+        hgi_metal_bridge(std::make_shared<HdMerlinHgiMetalBridge>(
+            kHgiMetalBridgeEnabled)),
+#endif
+        bridge(std::make_shared<SceneBridge>(nullptr, hgi_vulkan_bridge,
+                                             hgi_metal_bridge)) {}
   explicit Impl(std::shared_ptr<merlin::render::Backend> backend)
       : hgi_vulkan_bridge(
             std::make_shared<HdMerlinHgiVulkanBridge>(
-                kHgiVulkanBridgeEnabled)) {
+                kHgiVulkanBridgeEnabled)),
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+        hgi_metal_bridge(std::make_shared<HdMerlinHgiMetalBridge>(
+            kHgiMetalBridgeEnabled)) {
+#else
+        hgi_metal_bridge{} {
+#endif
     if (!backend) {
       throw std::invalid_argument("Hydra renderer backend is null");
     }
     bridge = std::make_shared<SceneBridge>(std::move(backend),
-                                           hgi_vulkan_bridge);
+                                           hgi_vulkan_bridge,
+                                           hgi_metal_bridge);
   }
 
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge{
       std::make_shared<HdMerlinHgiVulkanBridge>(kHgiVulkanBridgeEnabled)};
+  std::shared_ptr<HdMerlinHgiMetalBridge> hgi_metal_bridge;
   std::shared_ptr<SceneBridge> bridge;
   HydraDirtyTracker dirty_tracker;
   HdSceneIndexBaseRefPtr terminal_scene_index;
@@ -3168,6 +3343,16 @@ HdMerlinRenderDelegate::~HdMerlinRenderDelegate() = default;
 void HdMerlinRenderDelegate::SetDrivers(const HdDriverVector& drivers) {
   HdRenderDelegate::SetDrivers(drivers);
   impl_->hgi_vulkan_bridge->SetDrivers(drivers);
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+  impl_->hgi_metal_bridge->SetDrivers(drivers);
+#endif
+  const bool hgi_projection_y_reflection =
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+      impl_->hgi_metal_bridge->status().hgi_owned_targets;
+#else
+      false;
+#endif
+  impl_->bridge->SetHgiProjectionYReflection(hgi_projection_y_reflection);
 }
 
 void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
@@ -3177,11 +3362,19 @@ void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
                         : merlin::FrontFaceWinding::Clockwise);
 }
 
+void HdMerlinRenderDelegate::SetHgiProjectionYReflection(bool reflect) {
+  impl_->bridge->SetHgiProjectionYReflection(reflect);
+}
+
 HdMerlinViewportFrame
 HdMerlinRenderDelegate::GetLatestViewportFrame() const {
   auto frame = impl_->bridge->GetLatestViewportFrame();
   frame.hgi_vulkan_bridge = impl_->hgi_vulkan_bridge->status();
   frame.hgi_vulkan_telemetry = impl_->hgi_vulkan_bridge->telemetry();
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+  frame.hgi_metal_bridge = impl_->hgi_metal_bridge->status();
+  frame.hgi_metal_telemetry = impl_->hgi_metal_bridge->telemetry();
+#endif
   return frame;
 }
 
@@ -3266,7 +3459,8 @@ void HdMerlinRenderDelegate::DestroySprim(HdSprim* sprim) { delete sprim; }
 HdBprim* HdMerlinRenderDelegate::CreateBprim(const TfToken& type_id,
                                              const SdfPath& bprim_id) {
   if (type_id == HdPrimTypeTokens->renderBuffer) {
-    return new HdMerlinRenderBuffer(bprim_id, impl_->hgi_vulkan_bridge);
+    return new HdMerlinRenderBuffer(bprim_id, impl_->hgi_vulkan_bridge,
+                                    impl_->hgi_metal_bridge);
   }
   return nullptr;
 }
@@ -3274,7 +3468,8 @@ HdBprim* HdMerlinRenderDelegate::CreateBprim(const TfToken& type_id,
 HdBprim* HdMerlinRenderDelegate::CreateFallbackBprim(const TfToken& type_id) {
   if (type_id == HdPrimTypeTokens->renderBuffer) {
     return new HdMerlinRenderBuffer(SdfPath("/__merlinFallbackRenderBuffer"),
-                                    impl_->hgi_vulkan_bridge);
+                                    impl_->hgi_vulkan_bridge,
+                                    impl_->hgi_metal_bridge);
   }
   return nullptr;
 }
