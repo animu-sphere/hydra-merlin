@@ -3347,11 +3347,11 @@ void HdMerlinRenderDelegate::SetDrivers(const HdDriverVector& drivers) {
   impl_->hgi_metal_bridge->SetDrivers(drivers);
 #endif
   const bool hgi_projection_y_reflection =
-      impl_->hgi_vulkan_bridge->status().hgi_owned_targets
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-      || impl_->hgi_metal_bridge->status().hgi_owned_targets
+      impl_->hgi_metal_bridge->status().hgi_owned_targets;
+#else
+      false;
 #endif
-      ;
   impl_->bridge->SetHgiProjectionYReflection(hgi_projection_y_reflection);
 }
 
