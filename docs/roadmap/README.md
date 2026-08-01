@@ -38,8 +38,8 @@ and v0.11.0 released native Metal offscreen execution and residency while the
 active v0.10.x work finishes the renderer-development diagnostic surface.
 v0.12.0 released native Metal viewport presentation, v0.13.0 released the
 HgiVulkan GPU-copy bridge, and v0.13.1 released its direct-path hardening
-boundary. v0.14.0 follows with HgiMetal, and v0.14.1 establishes the Gaussian
-correctness MVP. The later Gaussian path advances through
+boundary. v0.14.0 released HgiMetal GPU-copy host presentation, and v0.14.1
+establishes the Gaussian correctness MVP. The later Gaussian path advances through
 persistent resources, GPU-driven projection/sorting, contribution-aware and
 hierarchical tiling, temporal reuse, LOD/compression, and streaming; Mesh
 Visibility, MaterialX/lighting, meshlets, Mesh Shader, and Hi-Z remain

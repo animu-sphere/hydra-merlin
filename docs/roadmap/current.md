@@ -18,6 +18,9 @@ v0.13.0 shipped the HgiVulkan GPU-copy bridge; its release boundary is recorded
 in [docs/releases/v0.13.0.md](../releases/v0.13.0.md). v0.13.1 shipped the
 direct-path hardening boundary; its capability decision and evidence are in
 [docs/releases/v0.13.1.md](../releases/v0.13.1.md).
+v0.14.0 shipped HgiMetal GPU-copy host presentation; its objective,
+compatibility, limitations, and evidence are recorded in
+[docs/releases/v0.14.0.md](../releases/v0.14.0.md).
 
 ## Active carry-over
 

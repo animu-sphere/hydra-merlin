@@ -10,6 +10,7 @@ lives in the [roadmap](../roadmap/).
 
 | Version | Record | Theme |
 | --- | --- | --- |
+| v0.14.0 | [v0.14.0](v0.14.0.md) | HgiMetal GPU-copy host presentation |
 | v0.13.1 | [v0.13.1](v0.13.1.md) | HgiVulkan direct-path hardening |
 | v0.13.0 | [v0.13.0](v0.13.0.md) | HgiVulkan GPU-copy host presentation |
 | v0.12.0 | [v0.12.0](v0.12.0.md) | Native Metal viewport presentation |

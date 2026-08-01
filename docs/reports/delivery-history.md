@@ -11,6 +11,22 @@ Legend: ✅ done
 
 ---
 
+## v0.14.0 HgiMetal GPU-copy host presentation ✅
+
+- ✅ Added HgiMetal render-driver discovery, Hgi-owned color targets, and
+  same-`MTLDevice` GPU copy from leased Merlin color AOVs on validated OpenUSD
+  26.05/26.08 packages, while preserving Tier 0 CPU RenderBuffers as the
+  universal fallback.
+- ✅ Added explicit capability, fallback, target-lifetime, copy, upload,
+  completion, and direct-share evaluation telemetry, with completion-safe
+  target retirement across resize and driver changes.
+- ✅ Kept direct sharing affirmatively gated on device, storage, usage, pixel
+  format, queue, completion, retirement, public-import, and implementation
+  requirements; validated packages reject unavailable public texture import and
+  select GPU copy.
+- ✅ Hardened Forward lighting for stable signed normals and camera-light
+  contribution without changing the Vulkan projection orientation.
+
 ## v0.13.1 HgiVulkan direct-path hardening ✅
 
 - ✅ Added one affirmative direct-share gate covering physical/logical device

@@ -8,6 +8,27 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-02
+
+### Added
+
+- HgiMetal host presentation for validated OpenUSD 26.05 and 26.08 packages:
+  Hgi-owned color targets receive same-device Metal GPU copies from leased
+  Merlin color AOVs, while Tier 0 CPU RenderBuffers remain the universal
+  fallback.
+- Structured HgiMetal capability, fallback, transfer, direct-share evaluation,
+  target-lifetime, copy, upload, and completion telemetry, including
+  completion-safe target retirement across resize and driver changes.
+- A direct-share gate that requires compatible Metal device, texture storage,
+  usage, pixel format, command queue, completion retention, resize retirement,
+  public texture import, and an available direct implementation.
+
+### Changed
+
+- Forward lighting now keeps the camera-light contribution and signed normal
+  handling stable, preventing the Hydra path from washing frames toward white
+  while preserving the Vulkan projection convention.
+
 ## [0.13.1] - 2026-08-01
 
 ### Added
@@ -549,7 +570,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.1...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.0...main
+[0.14.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.11.0...v0.12.0

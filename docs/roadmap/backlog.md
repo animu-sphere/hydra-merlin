@@ -1,6 +1,6 @@
 # Backlog
 
-Ordered work after the released v0.13.1 HgiVulkan direct-path hardening,
+Ordered work after the released v0.14.0 HgiMetal GPU-copy host presentation,
 alongside active foundation work in
 [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
@@ -13,14 +13,6 @@ benchmark evidence. Scope may move when that evidence changes the justified
 order.
 
 ## Phase B — Cross-platform backend and presentation parity
-
-### ⬜ v0.14.0 — HgiMetal bridge
-
-Implement the equivalent HgiMetal adapter with Tier 0 CPU fallback, Metal-local
-copy, and optional same-`MTLDevice` sharing. Preserve independent Metal resource
-ownership and synchronization, validate SDR sRGB/Display P3 target contracts and
-HDR rejection, and compare native Metal viewport and Hydra output from the same
-renderer AOVs. See the [Hgi host presentation policy](../design/hgi-host-presentation.md).
 
 ## Phase C — Scene breadth and lighting quality
 
