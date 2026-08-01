@@ -131,6 +131,16 @@ struct FrameTelemetry {
   std::uint64_t present_count{};
   std::uint64_t presentation_copy_bytes{};
   std::uint64_t visible_primitive_count{};
+  std::uint64_t gaussian_candidate_count{};
+  std::uint64_t gaussian_visible_count{};
+  std::uint64_t gaussian_hidden_count{};
+  std::uint64_t gaussian_opacity_culled_count{};
+  std::uint64_t gaussian_frustum_culled_count{};
+  std::uint64_t gaussian_invalid_culled_count{};
+  std::uint64_t gaussian_sorted_count{};
+  std::uint64_t gaussian_sorting_policy_fallback_count{};
+  std::uint64_t gaussian_preparation_cache_hits{};
+  std::uint64_t gaussian_preparation_cache_misses{};
   std::uint64_t requested_aov_mask{};
   std::uint64_t rendered_aov_mask{};
   std::uint64_t cpu_readback_aov_mask{};

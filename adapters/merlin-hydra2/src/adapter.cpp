@@ -1738,6 +1738,26 @@ class SceneBridge {
                << " completion_value=" << result.completion_value
                << " draw_count=" << snapshot->draws.size()
                << " gaussian_resources=" << snapshot->gaussians.size()
+               << " gaussian_candidate_count="
+               << result.telemetry.gaussian_candidate_count
+               << " gaussian_visible_count="
+               << result.telemetry.gaussian_visible_count
+               << " gaussian_hidden_count="
+               << result.telemetry.gaussian_hidden_count
+               << " gaussian_opacity_culled_count="
+               << result.telemetry.gaussian_opacity_culled_count
+               << " gaussian_frustum_culled_count="
+               << result.telemetry.gaussian_frustum_culled_count
+               << " gaussian_invalid_culled_count="
+               << result.telemetry.gaussian_invalid_culled_count
+               << " gaussian_sorted_count="
+               << result.telemetry.gaussian_sorted_count
+               << " gaussian_sorting_policy_fallback_count="
+               << result.telemetry.gaussian_sorting_policy_fallback_count
+               << " gaussian_preparation_cache_hits="
+               << result.telemetry.gaussian_preparation_cache_hits
+               << " gaussian_preparation_cache_misses="
+               << result.telemetry.gaussian_preparation_cache_misses
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height

@@ -514,6 +514,7 @@ int main(int argc, char** argv) {
       ui_snapshot.scene = {
           true,
           scene_snapshot->geometries.size(),
+          scene_snapshot->gaussians.size(),
           scene_snapshot->textures.size(),
           scene_snapshot->samplers.size(),
           scene_snapshot->materials.size(),
