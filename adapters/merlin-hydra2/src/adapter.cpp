@@ -997,6 +997,11 @@ class SceneBridge {
     camera_front_face_ = winding;
   }
 
+  void SetHgiProjectionYReflection(bool reflect) {
+    std::scoped_lock lock(mutex_);
+    reflect_hgi_projection_y_ = reflect;
+  }
+
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const {
     std::scoped_lock lock(mutex_);
     return latest_viewport_frame_;
@@ -1258,15 +1263,27 @@ class SceneBridge {
     if (const HdCamera* camera = state.GetCamera()) {
       const auto key = camera->GetId().GetString();
       const auto view = ToMerlinMatrix(state.GetWorldToViewMatrix());
-      const auto projection = ToMerlinMatrix(state.GetProjectionMatrix());
+      auto projection_matrix = state.GetProjectionMatrix();
+      if (reflect_hgi_projection_y_) {
+        GfMatrix4d reflection(1.0);
+        reflection[1][1] = -1.0;
+        projection_matrix *= reflection;
+      }
+      const auto projection = ToMerlinMatrix(projection_matrix);
       const auto camera_update_start = CpuClock::now();
       active_camera = SyncCameraLocked(key, view, projection);
       render_world_update_ns += ElapsedNanoseconds(camera_update_start);
     } else {
       const auto camera_update_start = CpuClock::now();
+      auto projection_matrix = state.GetProjectionMatrix();
+      if (reflect_hgi_projection_y_) {
+        GfMatrix4d reflection(1.0);
+        reflection[1][1] = -1.0;
+        projection_matrix *= reflection;
+      }
       active_camera = SyncCameraLocked(
           "__merlinViewportCamera", ToMerlinMatrix(state.GetWorldToViewMatrix()),
-          ToMerlinMatrix(state.GetProjectionMatrix()));
+          ToMerlinMatrix(projection_matrix));
       render_world_update_ns += ElapsedNanoseconds(camera_update_start);
     }
     extractor_.SetActiveCamera(active_camera);
@@ -1959,6 +1976,7 @@ class SceneBridge {
   merlin::RenderWorld world_;
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};
+  bool reflect_hgi_projection_y_{};
   merlin::extraction::SceneExtractor extractor_;
   std::shared_ptr<merlin::render::Backend> renderer_;
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
@@ -3328,6 +3346,13 @@ void HdMerlinRenderDelegate::SetDrivers(const HdDriverVector& drivers) {
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
   impl_->hgi_metal_bridge->SetDrivers(drivers);
 #endif
+  const bool hgi_projection_y_reflection =
+      impl_->hgi_vulkan_bridge->status().hgi_owned_targets
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+      || impl_->hgi_metal_bridge->status().hgi_owned_targets
+#endif
+      ;
+  impl_->bridge->SetHgiProjectionYReflection(hgi_projection_y_reflection);
 }
 
 void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
@@ -3335,6 +3360,10 @@ void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
   impl_->bridge->SetCameraFrontFaceWinding(
       counter_clockwise ? merlin::FrontFaceWinding::CounterClockwise
                         : merlin::FrontFaceWinding::Clockwise);
+}
+
+void HdMerlinRenderDelegate::SetHgiProjectionYReflection(bool reflect) {
+  impl_->bridge->SetHgiProjectionYReflection(reflect);
 }
 
 HdMerlinViewportFrame

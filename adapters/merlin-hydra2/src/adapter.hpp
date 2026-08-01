@@ -142,6 +142,10 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
   // its positive-height framebuffer viewport. Other Hydra hosts keep the
   // renderer's conventional clockwise default.
   void SetCameraFrontFaceCounterClockwise(bool counter_clockwise);
+  // Hydra hosts provide a projection with OpenGL's lower-left image
+  // convention. Hgi targets are consumed as top-left images, so their
+  // projection needs the corresponding Y reflection.
+  void SetHgiProjectionYReflection(bool reflect);
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const;
 
  private:
