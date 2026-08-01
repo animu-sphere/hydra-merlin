@@ -7,6 +7,7 @@ namespace merlin {
 
 enum class ObjectKind {
   Mesh,
+  Gaussian,
   Material,
   Texture,
   Sampler,
@@ -38,7 +39,12 @@ enum class ChangeAspect : std::uint32_t {
   VertexLayout = 1U << 14U,
   MaterialModule = 1U << 15U,
   MaterialResources = 1U << 16U,
-  All = (1U << 17U) - 1U
+  GaussianPositions = 1U << 17U,
+  GaussianCovariance = 1U << 18U,
+  GaussianOpacity = 1U << 19U,
+  GaussianRadiance = 1U << 20U,
+  GaussianPolicy = 1U << 21U,
+  All = (1U << 22U) - 1U
 };
 
 [[nodiscard]] constexpr ChangeAspect operator|(ChangeAspect lhs,
@@ -71,6 +77,13 @@ constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
       return ChangeAspect::Topology | ChangeAspect::Points |
              ChangeAspect::Primvars | ChangeAspect::MaterialPartition |
              ChangeAspect::VertexLayout;
+    case ObjectKind::Gaussian:
+      return ChangeAspect::GaussianPositions |
+             ChangeAspect::GaussianCovariance |
+             ChangeAspect::GaussianOpacity |
+             ChangeAspect::GaussianRadiance |
+             ChangeAspect::GaussianPolicy | ChangeAspect::Transform |
+             ChangeAspect::Visibility;
     case ObjectKind::Material:
       return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures |
              ChangeAspect::MaterialModule | ChangeAspect::MaterialResources;
@@ -91,8 +104,8 @@ constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
   return ChangeAspect::None;
 }
 
-// Half-open element range [first, first + count). Mesh adapters may attach
-// normalized vertex/index ranges to a Change so extraction and a backend can
+// Half-open element range [first, first + count). Mesh and Gaussian adapters
+// may attach normalized ranges to a Change so extraction and a backend can
 // preserve unchanged payload. A false *_ranges_known flag means the complete
 // sub-resource may have changed; a true flag with an empty list means its
 // derived payload is unchanged even though source metadata was revised.
@@ -113,6 +126,8 @@ struct Change {
   bool index_ranges_known{};
   std::vector<ElementRange> vertex_ranges;
   std::vector<ElementRange> index_ranges;
+  bool particle_ranges_known{};
+  std::vector<ElementRange> particle_ranges;
 
   [[nodiscard]] constexpr bool HasAspect(ChangeAspect aspect) const noexcept {
     return HasAnyAspect(aspects, aspect);

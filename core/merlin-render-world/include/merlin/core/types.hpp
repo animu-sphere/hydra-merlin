@@ -31,6 +31,24 @@ struct Vec4 {
   float w{};
 };
 
+// Host-neutral quaternion matching OpenUSD's real + imaginary component
+// convention. Gaussian ingestion normalizes authored values before using them
+// to derive covariance.
+struct Quaternion {
+  float real{1.0F};
+  Vec3 imaginary{};
+};
+
+// Symmetric 3x3 covariance stored without redundant lower-triangle values.
+struct Covariance3 {
+  float xx{};
+  float xy{};
+  float xz{};
+  float yy{};
+  float yz{};
+  float zz{};
+};
+
 struct Mat4 {
   std::array<float, 16> values{
       1.0F, 0.0F, 0.0F, 0.0F,
@@ -68,6 +86,7 @@ class Handle {
 };
 
 struct MeshTag;
+struct GaussianTag;
 struct MaterialTag;
 struct TextureTag;
 struct SamplerTag;
@@ -77,6 +96,7 @@ struct LightTag;
 struct RenderSettingsTag;
 
 using MeshHandle = Handle<MeshTag>;
+using GaussianHandle = Handle<GaussianTag>;
 using MaterialHandle = Handle<MaterialTag>;
 using TextureHandle = Handle<TextureTag>;
 using SamplerHandle = Handle<SamplerTag>;
@@ -94,6 +114,26 @@ struct MeshDescriptor {
   std::vector<Vec4> colors;
   std::vector<Vec2> texcoords;
   std::vector<std::uint32_t> indices;
+};
+
+enum class GaussianProjectionMode { Perspective, Tangential };
+enum class GaussianSortingMode { ZDepth, CameraDistance };
+
+// Fully normalized Gaussian data accepted by RenderWorld. Source adapters
+// resolve precision preference, fallback arrays, quaternion normalization, and
+// covariance before this descriptor crosses into renderer-neutral Core.
+struct GaussianDescriptor {
+  std::string label;
+  std::vector<Vec3> positions;
+  std::vector<Covariance3> covariances;
+  std::vector<float> opacities;
+  std::uint32_t spherical_harmonics_degree{};
+  // Particle-major coefficients. Each particle owns (degree + 1)^2 entries.
+  std::vector<Vec3> spherical_harmonics_coefficients;
+  GaussianProjectionMode projection_mode{GaussianProjectionMode::Perspective};
+  GaussianSortingMode sorting_mode{GaussianSortingMode::ZDepth};
+  Mat4 transform;
+  bool visible{true};
 };
 
 enum class AlphaMode { Opaque, Masked, Blended };

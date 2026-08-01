@@ -1,5 +1,7 @@
 #include <merlin/core/render_world.hpp>
 
+#include <merlin/core/gaussian.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -52,6 +54,66 @@ void ValidateMesh(const MeshDescriptor& descriptor) {
   validate_primvar_size(descriptor.normals.size(), "normal");
   validate_primvar_size(descriptor.colors.size(), "color");
   validate_primvar_size(descriptor.texcoords.size(), "texcoord");
+}
+
+bool IsFinite(const Vec3& value) {
+  return std::isfinite(value.x) && std::isfinite(value.y) &&
+         std::isfinite(value.z);
+}
+
+bool IsFinite(const Covariance3& value) {
+  return std::isfinite(value.xx) && std::isfinite(value.xy) &&
+         std::isfinite(value.xz) && std::isfinite(value.yy) &&
+         std::isfinite(value.yz) && std::isfinite(value.zz);
+}
+
+void ValidateGaussian(const GaussianDescriptor& descriptor) {
+  const auto count = descriptor.positions.size();
+  if (count == 0U) {
+    throw std::invalid_argument("Gaussian resource requires positions");
+  }
+  if (descriptor.spherical_harmonics_degree >
+      kMaxGaussianSphericalHarmonicsDegree) {
+    throw std::invalid_argument(
+        "Gaussian spherical-harmonic degree exceeds the supported range");
+  }
+  if (descriptor.covariances.size() != count ||
+      descriptor.opacities.size() != count) {
+    throw std::invalid_argument(
+        "Gaussian covariance and opacity counts must match positions");
+  }
+  const auto degree_plus_one =
+      static_cast<std::size_t>(descriptor.spherical_harmonics_degree) + 1U;
+  if (degree_plus_one >
+      std::numeric_limits<std::size_t>::max() / degree_plus_one) {
+    throw std::invalid_argument("Gaussian radiance layout overflows");
+  }
+  const auto coefficients_per_particle = degree_plus_one * degree_plus_one;
+  if (count != 0U && coefficients_per_particle >
+                         std::numeric_limits<std::size_t>::max() / count) {
+    throw std::invalid_argument("Gaussian radiance payload overflows");
+  }
+  if (descriptor.spherical_harmonics_coefficients.size() !=
+      count * coefficients_per_particle) {
+    throw std::invalid_argument(
+        "Gaussian radiance count must match positions and degree");
+  }
+  if (std::any_of(descriptor.positions.begin(), descriptor.positions.end(),
+                  [](const Vec3& value) { return !IsFinite(value); }) ||
+      std::any_of(descriptor.covariances.begin(),
+                  descriptor.covariances.end(),
+                  [](const Covariance3& value) { return !IsFinite(value); }) ||
+      std::any_of(descriptor.opacities.begin(), descriptor.opacities.end(),
+                  [](float value) {
+                    return !std::isfinite(value) || value < 0.0F ||
+                           value > 1.0F;
+                  }) ||
+      std::any_of(descriptor.spherical_harmonics_coefficients.begin(),
+                  descriptor.spherical_harmonics_coefficients.end(),
+                  [](const Vec3& value) { return !IsFinite(value); })) {
+    throw std::invalid_argument(
+        "Gaussian positions, covariance, opacity, and radiance must be finite; opacity must be in [0, 1]");
+  }
 }
 
 void ValidateTexture(const TextureDescriptor& descriptor) {
@@ -513,6 +575,7 @@ class RenderWorld::Impl {
   }
 
   Store<MeshDescriptor, MeshHandle> meshes;
+  Store<GaussianDescriptor, GaussianHandle> gaussians;
   Store<MaterialDescriptor, MaterialHandle> materials;
   Store<TextureDescriptor, TextureHandle> textures;
   Store<SamplerDescriptor, SamplerHandle> samplers;
@@ -532,6 +595,12 @@ RenderWorld& RenderWorld::operator=(RenderWorld&&) noexcept = default;
 MeshHandle RenderWorld::CreateMesh(MeshDescriptor descriptor) {
   ValidateMesh(descriptor);
   return impl_->Create(impl_->meshes, ObjectKind::Mesh, std::move(descriptor));
+}
+
+GaussianHandle RenderWorld::CreateGaussian(GaussianDescriptor descriptor) {
+  ValidateGaussian(descriptor);
+  return impl_->Create(impl_->gaussians, ObjectKind::Gaussian,
+                       std::move(descriptor));
 }
 
 MaterialHandle RenderWorld::CreateMaterial(MaterialDescriptor descriptor) {
@@ -618,6 +687,40 @@ void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
                             index_ranges ? std::move(*index_ranges)
                                          : std::vector<ElementRange>{}});
 }
+void RenderWorld::UpdateGaussian(
+    GaussianHandle h, GaussianDescriptor d, ChangeAspect aspects,
+    std::optional<std::vector<ElementRange>> particle_ranges) {
+  ValidateGaussian(d);
+  const auto& previous = impl_->gaussians.Get(h);
+  constexpr auto payload_aspects =
+      ChangeAspect::GaussianPositions | ChangeAspect::GaussianCovariance |
+      ChangeAspect::GaussianOpacity | ChangeAspect::GaussianRadiance;
+  if (particle_ranges && !HasAnyAspect(aspects, payload_aspects)) {
+    throw std::invalid_argument(
+        "particle change ranges require a Gaussian payload aspect");
+  }
+  if (particle_ranges) {
+    const bool shape_changed =
+        previous.positions.size() != d.positions.size() ||
+        (HasAnyAspect(aspects, ChangeAspect::GaussianRadiance) &&
+         previous.spherical_harmonics_degree !=
+             d.spherical_harmonics_degree);
+    if (shape_changed) {
+      particle_ranges.reset();
+    } else {
+      *particle_ranges = NormalizeRanges(std::move(*particle_ranges),
+                                         d.positions.size(), "particle");
+    }
+  }
+  ValidateChangeAspects(ObjectKind::Gaussian, aspects);
+  const auto resource_revision = impl_->gaussians.Update(h, std::move(d));
+  impl_->pending.push_back(
+      {ObjectKind::Gaussian, ChangeKind::Updated, h.value(), aspects,
+       resource_revision, false, false, {}, {},
+       particle_ranges.has_value(),
+       particle_ranges ? std::move(*particle_ranges)
+                       : std::vector<ElementRange>{}});
+}
 void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d,
                                  ChangeAspect aspects) {
   ValidateMaterialParameters(d);
@@ -657,6 +760,7 @@ void RenderWorld::UpdateRenderSettings(RenderSettingsHandle h,
 }
 
 void RenderWorld::Remove(MeshHandle h) { impl_->Remove(impl_->meshes, ObjectKind::Mesh, h); }
+void RenderWorld::Remove(GaussianHandle h) { impl_->Remove(impl_->gaussians, ObjectKind::Gaussian, h); }
 void RenderWorld::Remove(MaterialHandle h) { impl_->Remove(impl_->materials, ObjectKind::Material, h); }
 void RenderWorld::Remove(TextureHandle h) { impl_->Remove(impl_->textures, ObjectKind::Texture, h); }
 void RenderWorld::Remove(SamplerHandle h) { impl_->Remove(impl_->samplers, ObjectKind::Sampler, h); }
@@ -668,6 +772,7 @@ void RenderWorld::Remove(RenderSettingsHandle h) {
 }
 
 const MeshDescriptor& RenderWorld::Get(MeshHandle h) const { return impl_->meshes.Get(h); }
+const GaussianDescriptor& RenderWorld::Get(GaussianHandle h) const { return impl_->gaussians.Get(h); }
 const MaterialDescriptor& RenderWorld::Get(MaterialHandle h) const { return impl_->materials.Get(h); }
 const TextureDescriptor& RenderWorld::Get(TextureHandle h) const { return impl_->textures.Get(h); }
 const SamplerDescriptor& RenderWorld::Get(SamplerHandle h) const { return impl_->samplers.Get(h); }
@@ -681,6 +786,9 @@ const RenderSettingsDescriptor& RenderWorld::Get(
 
 std::uint64_t RenderWorld::resource_revision(MeshHandle h) const {
   return impl_->meshes.Revision(h);
+}
+std::uint64_t RenderWorld::resource_revision(GaussianHandle h) const {
+  return impl_->gaussians.Revision(h);
 }
 std::uint64_t RenderWorld::resource_revision(MaterialHandle h) const {
   return impl_->materials.Revision(h);
@@ -763,6 +871,28 @@ ChangeSet RenderWorld::Commit() {
       } else {
         existing.index_ranges_known = change.index_ranges_known;
         existing.index_ranges = change.index_ranges;
+      }
+    }
+    if (HasAnyAspect(change.aspects,
+                     ChangeAspect::GaussianPositions |
+                         ChangeAspect::GaussianCovariance |
+                         ChangeAspect::GaussianOpacity |
+                         ChangeAspect::GaussianRadiance)) {
+      if (HasAnyAspect(old_aspects,
+                       ChangeAspect::GaussianPositions |
+                           ChangeAspect::GaussianCovariance |
+                           ChangeAspect::GaussianOpacity |
+                           ChangeAspect::GaussianRadiance)) {
+        if (existing.particle_ranges_known &&
+            change.particle_ranges_known) {
+          MergeKnownRanges(existing.particle_ranges, change.particle_ranges);
+        } else {
+          existing.particle_ranges_known = false;
+          existing.particle_ranges.clear();
+        }
+      } else {
+        existing.particle_ranges_known = change.particle_ranges_known;
+        existing.particle_ranges = change.particle_ranges;
       }
     }
     existing.aspects |= change.aspects;

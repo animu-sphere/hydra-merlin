@@ -42,6 +42,28 @@ struct MeshEntry {
   bool has_texcoords{};
 };
 
+struct GaussianEntry {
+  std::uint64_t revision{};
+  std::uint64_t positions_revision{};
+  std::uint64_t covariance_revision{};
+  std::uint64_t opacity_revision{};
+  std::uint64_t radiance_revision{};
+  std::uint64_t policy_revision{};
+  std::uint64_t transform_revision{};
+  std::uint64_t visibility_revision{};
+  std::uint64_t particle_base_revision{};
+  std::vector<ElementRange> particle_ranges;
+  std::shared_ptr<const std::vector<Vec3>> positions;
+  std::shared_ptr<const std::vector<Covariance3>> covariances;
+  std::shared_ptr<const std::vector<float>> opacities;
+  std::uint32_t spherical_harmonics_degree{};
+  std::shared_ptr<const std::vector<Vec3>> spherical_harmonics_coefficients;
+  GaussianProjectionMode projection_mode{GaussianProjectionMode::Perspective};
+  GaussianSortingMode sorting_mode{GaussianSortingMode::ZDepth};
+  Mat4 transform;
+  bool visible{true};
+};
+
 struct MaterialEntry {
   std::uint64_t revision{};
   std::uint64_t parameter_revision{};
@@ -80,6 +102,7 @@ struct InstanceEntry {
 ResourceDelta& DeltaFor(SnapshotDelta& delta, ObjectKind kind) {
   switch (kind) {
     case ObjectKind::Mesh: return delta.geometries;
+    case ObjectKind::Gaussian: return delta.gaussians;
     case ObjectKind::Material: return delta.materials;
     case ObjectKind::Texture: return delta.textures;
     case ObjectKind::Sampler: return delta.samplers;
@@ -110,6 +133,7 @@ void SortAndUnique(ResourceDelta& delta) {
 
 void Normalize(SnapshotDelta& delta) {
   SortAndUnique(delta.geometries);
+  SortAndUnique(delta.gaussians);
   SortAndUnique(delta.textures);
   SortAndUnique(delta.samplers);
   SortAndUnique(delta.materials);
@@ -274,6 +298,57 @@ class SceneExtractor::Impl {
     if (created ||
         change.HasAspect(ChangeAspect::MaterialPartition)) {
       entry.material_partition_revision = change.resource_revision;
+    }
+  }
+
+  void ApplyGaussian(const RenderWorld& world, const Change& change) {
+    if (change.change_kind == ChangeKind::Removed) {
+      gaussians.erase(change.handle);
+      return;
+    }
+    auto& entry = gaussians[change.handle];
+    entry.particle_base_revision = entry.revision;
+    entry.revision = change.resource_revision;
+    entry.particle_ranges = change.particle_ranges;
+    const auto& descriptor =
+        world.Get(GaussianHandle::FromValue(change.handle));
+    const bool created = change.change_kind == ChangeKind::Created;
+    if (created || change.HasAspect(ChangeAspect::GaussianPositions)) {
+      entry.positions_revision = change.resource_revision;
+      entry.positions = std::make_shared<const std::vector<Vec3>>(
+          descriptor.positions);
+    }
+    if (created || change.HasAspect(ChangeAspect::GaussianCovariance)) {
+      entry.covariance_revision = change.resource_revision;
+      entry.covariances =
+          std::make_shared<const std::vector<Covariance3>>(
+              descriptor.covariances);
+    }
+    if (created || change.HasAspect(ChangeAspect::GaussianOpacity)) {
+      entry.opacity_revision = change.resource_revision;
+      entry.opacities = std::make_shared<const std::vector<float>>(
+          descriptor.opacities);
+    }
+    if (created || change.HasAspect(ChangeAspect::GaussianRadiance)) {
+      entry.radiance_revision = change.resource_revision;
+      entry.spherical_harmonics_degree =
+          descriptor.spherical_harmonics_degree;
+      entry.spherical_harmonics_coefficients =
+          std::make_shared<const std::vector<Vec3>>(
+              descriptor.spherical_harmonics_coefficients);
+    }
+    if (created || change.HasAspect(ChangeAspect::GaussianPolicy)) {
+      entry.policy_revision = change.resource_revision;
+      entry.projection_mode = descriptor.projection_mode;
+      entry.sorting_mode = descriptor.sorting_mode;
+    }
+    if (created || change.HasAspect(ChangeAspect::Transform)) {
+      entry.transform_revision = change.resource_revision;
+      entry.transform = descriptor.transform;
+    }
+    if (created || change.HasAspect(ChangeAspect::Visibility)) {
+      entry.visibility_revision = change.resource_revision;
+      entry.visible = descriptor.visible;
     }
   }
 
@@ -691,6 +766,39 @@ class SceneExtractor::Impl {
         geometry_update.displaced_handles.begin(),
         geometry_update.displaced_handles.end());
     SortAndUnique(next->delta->geometries);
+    const auto gaussian_update = UpdateTable(
+        next->gaussians, gaussian_indices, gaussians,
+        next->delta->gaussians,
+        [](const GaussianRecord& record) { return record.gaussian; },
+        [](std::uint64_t handle, const GaussianEntry& entry) {
+          return GaussianRecord{
+              handle,
+              entry.revision,
+              entry.positions_revision,
+              entry.covariance_revision,
+              entry.opacity_revision,
+              entry.radiance_revision,
+              entry.policy_revision,
+              entry.transform_revision,
+              entry.visibility_revision,
+              entry.particle_base_revision,
+              entry.particle_ranges,
+              entry.positions,
+              entry.covariances,
+              entry.opacities,
+              entry.spherical_harmonics_degree,
+              entry.spherical_harmonics_coefficients,
+              entry.projection_mode,
+              entry.sorting_mode,
+              entry.transform,
+              entry.visible};
+        },
+        next->build_counters, initialize);
+    next->delta->gaussians.upserts.insert(
+        next->delta->gaussians.upserts.end(),
+        gaussian_update.displaced_handles.begin(),
+        gaussian_update.displaced_handles.end());
+    SortAndUnique(next->delta->gaussians);
     const auto texture_update = UpdateTable(
         next->textures, texture_indices, textures, next->delta->textures,
         [](const TextureRecord& record) { return record.texture; },
@@ -798,6 +906,7 @@ class SceneExtractor::Impl {
         light_update.displaced_handles.end());
     SortAndUnique(next->delta->lights);
     SetUpsertIndices(next->delta->geometries, geometry_indices);
+    SetUpsertIndices(next->delta->gaussians, gaussian_indices);
     SetUpsertIndices(next->delta->textures, texture_indices);
     SetUpsertIndices(next->delta->samplers, sampler_indices);
     SetUpsertIndices(next->delta->materials, material_indices);
@@ -807,6 +916,7 @@ class SceneExtractor::Impl {
   }
 
   std::map<std::uint64_t, MeshEntry> meshes;
+  std::map<std::uint64_t, GaussianEntry> gaussians;
   std::map<std::uint64_t, MaterialEntry> materials;
   std::map<std::uint64_t, TextureEntry> textures;
   std::map<std::uint64_t, SamplerEntry> samplers;
@@ -814,6 +924,7 @@ class SceneExtractor::Impl {
   std::map<std::uint64_t, CameraDescriptor> cameras;
   std::map<std::uint64_t, LightEntry> lights;
   std::map<std::uint64_t, std::size_t> geometry_indices;
+  std::map<std::uint64_t, std::size_t> gaussian_indices;
   std::map<std::uint64_t, std::size_t> texture_indices;
   std::map<std::uint64_t, std::size_t> sampler_indices;
   std::map<std::uint64_t, std::size_t> material_indices;
@@ -881,6 +992,9 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
     switch (change.object_kind) {
       case ObjectKind::Mesh:
         impl_->ApplyMesh(world, change);
+        break;
+      case ObjectKind::Gaussian:
+        impl_->ApplyGaussian(world, change);
         break;
       case ObjectKind::Material:
         if (erase) {

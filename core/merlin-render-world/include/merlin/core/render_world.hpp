@@ -20,6 +20,7 @@ class RenderWorld {
   RenderWorld& operator=(const RenderWorld&) = delete;
 
   MeshHandle CreateMesh(MeshDescriptor descriptor);
+  GaussianHandle CreateGaussian(GaussianDescriptor descriptor);
   MaterialHandle CreateMaterial(MaterialDescriptor descriptor);
   TextureHandle CreateTexture(TextureDescriptor descriptor);
   SamplerHandle CreateSampler(SamplerDescriptor descriptor);
@@ -34,6 +35,10 @@ class RenderWorld {
       ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Mesh),
       std::optional<std::vector<ElementRange>> vertex_ranges = std::nullopt,
       std::optional<std::vector<ElementRange>> index_ranges = std::nullopt);
+  void UpdateGaussian(
+      GaussianHandle handle, GaussianDescriptor descriptor,
+      ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Gaussian),
+      std::optional<std::vector<ElementRange>> particle_ranges = std::nullopt);
   void UpdateMaterial(
       MaterialHandle handle, MaterialDescriptor descriptor,
       ChangeAspect aspects = DefaultChangeAspects(ObjectKind::Material));
@@ -58,6 +63,7 @@ class RenderWorld {
           DefaultChangeAspects(ObjectKind::RenderSettings));
 
   void Remove(MeshHandle handle);
+  void Remove(GaussianHandle handle);
   void Remove(MaterialHandle handle);
   void Remove(TextureHandle handle);
   void Remove(SamplerHandle handle);
@@ -67,6 +73,7 @@ class RenderWorld {
   void Remove(RenderSettingsHandle handle);
 
   [[nodiscard]] const MeshDescriptor& Get(MeshHandle handle) const;
+  [[nodiscard]] const GaussianDescriptor& Get(GaussianHandle handle) const;
   [[nodiscard]] const MaterialDescriptor& Get(MaterialHandle handle) const;
   [[nodiscard]] const TextureDescriptor& Get(TextureHandle handle) const;
   [[nodiscard]] const SamplerDescriptor& Get(SamplerHandle handle) const;
@@ -77,6 +84,7 @@ class RenderWorld {
       RenderSettingsHandle handle) const;
 
   [[nodiscard]] std::uint64_t resource_revision(MeshHandle handle) const;
+  [[nodiscard]] std::uint64_t resource_revision(GaussianHandle handle) const;
   [[nodiscard]] std::uint64_t resource_revision(MaterialHandle handle) const;
   [[nodiscard]] std::uint64_t resource_revision(TextureHandle handle) const;
   [[nodiscard]] std::uint64_t resource_revision(SamplerHandle handle) const;

@@ -48,6 +48,31 @@ struct GeometryRecord {
   bool has_texcoords{};
 };
 
+struct GaussianRecord {
+  std::uint64_t gaussian{};
+  std::uint64_t revision{};
+  std::uint64_t positions_revision{};
+  std::uint64_t covariance_revision{};
+  std::uint64_t opacity_revision{};
+  std::uint64_t radiance_revision{};
+  std::uint64_t policy_revision{};
+  std::uint64_t transform_revision{};
+  std::uint64_t visibility_revision{};
+  // Particle ranges cover every payload aspect changed at `revision`. A GPU
+  // consumer may use them only when resident at particle_base_revision.
+  std::uint64_t particle_base_revision{};
+  std::vector<ElementRange> particle_ranges;
+  std::shared_ptr<const std::vector<Vec3>> positions;
+  std::shared_ptr<const std::vector<Covariance3>> covariances;
+  std::shared_ptr<const std::vector<float>> opacities;
+  std::uint32_t spherical_harmonics_degree{};
+  std::shared_ptr<const std::vector<Vec3>> spherical_harmonics_coefficients;
+  GaussianProjectionMode projection_mode{GaussianProjectionMode::Perspective};
+  GaussianSortingMode sorting_mode{GaussianSortingMode::ZDepth};
+  Mat4 transform;
+  bool visible{true};
+};
+
 struct TextureRecord {
   std::uint64_t texture{};
   std::uint64_t revision{};
@@ -152,6 +177,7 @@ struct ResourceDelta {
 struct SnapshotDelta {
   std::uint64_t base_revision{};
   ResourceDelta geometries;
+  ResourceDelta gaussians;
   ResourceDelta textures;
   ResourceDelta samplers;
   ResourceDelta materials;
@@ -183,6 +209,7 @@ struct FrameSnapshot {
   std::optional<SnapshotDelta> delta;
   SnapshotBuildCounters build_counters;
   PersistentTable<GeometryRecord> geometries;
+  PersistentTable<GaussianRecord> gaussians;
   PersistentTable<TextureRecord> textures;
   PersistentTable<SamplerRecord> samplers;
   PersistentTable<MaterialRecord> materials;

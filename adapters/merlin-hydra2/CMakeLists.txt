@@ -238,6 +238,33 @@ install(FILES tests/usdview-smoke.usda tests/checker.ppm
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/tests")
 
 if(MERLIN_BUILD_TESTS)
+  get_filename_component(_merlin_pxr_root
+    "${_merlin_pxr_include_dir_selected}/.." ABSOLUTE)
+  if(MERLIN_GAUSSIAN_SAMPLE)
+    if(NOT EXISTS "${MERLIN_GAUSSIAN_SAMPLE}")
+      message(FATAL_ERROR
+        "MERLIN_GAUSSIAN_SAMPLE does not exist: ${MERLIN_GAUSSIAN_SAMPLE}")
+    endif()
+    add_executable(merlin-hydra2-gaussian-usd-test
+      tests/gaussian_usd_test.cpp
+    )
+    target_link_libraries(merlin-hydra2-gaussian-usd-test PRIVATE
+      Merlin::RenderWorld usd usdGeom usdVol)
+    target_compile_features(merlin-hydra2-gaussian-usd-test PRIVATE cxx_std_20)
+    target_compile_definitions(merlin-hydra2-gaussian-usd-test PRIVATE
+      NOMINMAX
+      _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING
+    )
+    add_test(NAME merlin-hydra2-gaussian-usd
+      COMMAND merlin-hydra2-gaussian-usd-test
+              "${MERLIN_GAUSSIAN_SAMPLE}")
+    set_tests_properties(merlin-hydra2-gaussian-usd PROPERTIES
+      LABELS "gaussian;hydra;fixture"
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
+    )
+  endif()
+
   add_executable(merlin-hydra2-discovery-test
     tests/plugin_discovery_test.cpp
   )
@@ -253,8 +280,6 @@ if(MERLIN_BUILD_TESTS)
     COMMAND merlin-hydra2-discovery-test
             "$<TARGET_FILE_DIR:hdMerlin>/resources"
   )
-  get_filename_component(_merlin_pxr_root
-    "${_merlin_pxr_include_dir_selected}/.." ABSOLUTE)
   set(MERLIN_OPENUSD_RUNTIME_ROOT "${_merlin_pxr_root}" PARENT_SCOPE)
   set_tests_properties(merlin-hydra2-discovery PROPERTIES
     ENVIRONMENT_MODIFICATION
@@ -326,6 +351,27 @@ if(MERLIN_BUILD_TESTS)
       set(_merlin_hydra2_test_backend vulkan)
     else()
       set(_merlin_hydra2_test_backend metal)
+    endif()
+    if(MERLIN_GAUSSIAN_SAMPLE AND TARGET Merlin::Vulkan)
+      add_test(
+        NAME merlin-hydra2-gaussian-usdview-smoke
+        COMMAND ${CMAKE_COMMAND}
+          "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+          "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+          "-DMERLIN_CONFIG=$<CONFIG>"
+          "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/gaussian-usdview-install"
+          "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+          "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+          "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+          "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+          "-DMERLIN_GAUSSIAN_SAMPLE=${MERLIN_GAUSSIAN_SAMPLE}"
+          "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"
+      )
+      set_tests_properties(merlin-hydra2-gaussian-usdview-smoke PROPERTIES
+        LABELS "gaussian;hydra;host-smoke"
+        TIMEOUT 60
+        RUN_SERIAL TRUE)
     endif()
     add_test(
       NAME merlin-hydra2-usdview-smoke
