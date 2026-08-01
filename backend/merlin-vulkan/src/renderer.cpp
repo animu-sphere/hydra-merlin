@@ -312,6 +312,27 @@ std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
 using PushConstants = shader_abi::DrawConstants;
 using MaterialUniforms = shader_abi::MaterialConstants;
 
+struct GaussianGpuInstance {
+  Vec2 center_pixels;
+  Vec3 inverse_conic;
+  Vec3 radiance;
+  float opacity{};
+  float radius_pixels{};
+  float depth{};
+  std::uint32_t resource_id{};
+  std::uint32_t particle_id{};
+};
+
+struct GaussianPushConstants {
+  Vec2 inverse_viewport_size;
+};
+
+static_assert(sizeof(GaussianGpuInstance) == 52U);
+static_assert(offsetof(GaussianGpuInstance, inverse_conic) == 8U);
+static_assert(offsetof(GaussianGpuInstance, radiance) == 20U);
+static_assert(offsetof(GaussianGpuInstance, opacity) == 32U);
+static_assert(offsetof(GaussianGpuInstance, resource_id) == 44U);
+
 static_assert(shader_abi::kArtifactSchemaVersion ==
                   MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION,
               "shader artifact schema version drifted from the build system");
@@ -1062,6 +1083,7 @@ class Renderer::Impl {
           device_, physical_device_, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
           &memory_budget_, queue_family_, transfer_queue_family_);
       staging_.Initialize(device_, physical_device_, &memory_budget_);
+      CreateGaussianCornerBuffer();
     } catch (...) {
       Destroy(false);
       throw;
@@ -1143,10 +1165,12 @@ class Renderer::Impl {
       staging_.Destroy();
       vertex_arena_.Destroy();
       index_arena_.Destroy();
+      DestroyBuffer(gaussian_corner_vertices_);
       for (auto& frame : frames_) {
         DestroyTarget(frame.target);
         DestroyBuffer(frame.material_uniforms);
         DestroyBuffer(frame.generated_parameter_uniforms);
+        DestroyBuffer(frame.gaussian_instances);
         if (frame.image_available != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, frame.image_available, nullptr);
         }
@@ -1305,6 +1329,13 @@ class Renderer::Impl {
       gaussian_preparation_width_ = request.width;
       gaussian_preparation_height_ = request.height;
       gaussian_preparation_cache_valid_ = true;
+      ++gaussian_preparation_generation_;
+      if (gaussian_preparation_generation_ == 0) {
+        ++gaussian_preparation_generation_;
+        for (auto& candidate_frame : frames_) {
+          candidate_frame.gaussian_preparation_generation = 0;
+        }
+      }
       ++frame_counters_.gaussian_preparation_cache_misses;
     }
     frame_counters_.gaussian_candidate_count =
@@ -1343,6 +1374,7 @@ class Renderer::Impl {
     SyncSamplers(*request.snapshot, resource_sync_mode);
     PrepareMaterialDescriptors(frame, *request.snapshot);
     PrepareBindlessDescriptors();
+    PrepareGaussianInstances(frame);
     if (frame_counters_.upload_bytes != 0) {
       ++statistics_.scene_uploads;
     }
@@ -1708,6 +1740,7 @@ class Renderer::Impl {
     std::map<std::string, VkPipelineLayout> generated_pipeline_layouts;
     std::map<std::pair<std::string, std::uint32_t>, VkPipeline>
         generated_pipelines;
+    VkPipeline gaussian_pipeline{};
     Buffer color_readback;
     Buffer depth_readback;
     Buffer prim_id_readback;
@@ -1743,6 +1776,9 @@ class Renderer::Impl {
     Buffer material_uniforms;
     std::vector<VkDeviceSize> generated_parameter_offsets;
     Buffer generated_parameter_uniforms;
+    Buffer gaussian_instances;
+    std::uint64_t gaussian_preparation_generation{};
+    std::uint32_t gaussian_instance_count{};
     std::vector<MaterialDiagnostic> material_diagnostics;
   };
 
@@ -2412,6 +2448,27 @@ class Renderer::Impl {
 
   void DestroyBuffer(Buffer& buffer) noexcept {
     DestroyBufferRaw(device_, buffer, &memory_budget_);
+  }
+
+  void CreateGaussianCornerBuffer() {
+    constexpr std::array<Vec2, 6> corners{{
+        {-1.0F, -1.0F},
+        {1.0F, -1.0F},
+        {1.0F, 1.0F},
+        {-1.0F, -1.0F},
+        {1.0F, 1.0F},
+        {-1.0F, 1.0F},
+    }};
+    gaussian_corner_vertices_ = CreateBuffer(
+        sizeof(corners), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    void* mapped{};
+    Check(vkMapMemory(device_, gaussian_corner_vertices_.memory, 0,
+                      sizeof(corners), 0, &mapped),
+          "map Gaussian corner vertices");
+    std::memcpy(mapped, corners.data(), sizeof(corners));
+    vkUnmapMemory(device_, gaussian_corner_vertices_.memory);
   }
 
   void DestroyTexture(TextureSlot& texture) noexcept {
@@ -3519,6 +3576,58 @@ class Renderer::Impl {
                   &uniforms, sizeof(uniforms));
     }
     vkUnmapMemory(device_, frame.material_uniforms.memory);
+  }
+
+  void PrepareGaussianInstances(FrameContext& frame) {
+    if (frame.gaussian_preparation_generation ==
+        gaussian_preparation_generation_) {
+      return;
+    }
+    if (prepared_gaussians_.gaussians.size() >
+        std::numeric_limits<std::uint32_t>::max()) {
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "upload prepared Gaussian stream",
+                          "visible Gaussian count exceeds uint32 draw limit");
+    }
+    if (prepared_gaussians_.gaussians.empty()) {
+      frame.gaussian_instance_count = 0;
+      frame.gaussian_preparation_generation = gaussian_preparation_generation_;
+      return;
+    }
+    const auto bytes = static_cast<VkDeviceSize>(
+        prepared_gaussians_.gaussians.size() * sizeof(GaussianGpuInstance));
+    if (frame.gaussian_instances.handle == VK_NULL_HANDLE ||
+        frame.gaussian_instances.size < bytes) {
+      auto replacement = CreateBuffer(
+          bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      DestroyBuffer(frame.gaussian_instances);
+      frame.gaussian_instances = replacement;
+    }
+    void* mapped{};
+    Check(vkMapMemory(device_, frame.gaussian_instances.memory, 0, bytes, 0,
+                      &mapped),
+          "map prepared Gaussian stream");
+    auto* destination = static_cast<GaussianGpuInstance*>(mapped);
+    for (const auto& source : prepared_gaussians_.gaussians) {
+      *destination++ = {
+          source.center_pixels,
+          source.inverse_conic,
+          source.radiance,
+          source.opacity,
+          source.radius_pixels,
+          source.depth,
+          static_cast<std::uint32_t>(source.resource),
+          source.particle,
+      };
+    }
+    vkUnmapMemory(device_, frame.gaussian_instances.memory);
+    frame.gaussian_instance_count =
+        static_cast<std::uint32_t>(prepared_gaussians_.gaussians.size());
+    frame.gaussian_preparation_generation = gaussian_preparation_generation_;
+    frame_counters_.gaussian_upload_bytes += bytes;
+    frame_counters_.upload_bytes += bytes;
   }
 
   void ValidateMaterialTextureBindings() const {
@@ -4640,13 +4749,27 @@ class Renderer::Impl {
     }};
     const VkAttachmentReference depth_reference{
         1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount =
+    VkSubpassDescription mesh_subpass{};
+    mesh_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    mesh_subpass.colorAttachmentCount =
         static_cast<std::uint32_t>(color_references.size());
-    subpass.pColorAttachments = color_references.data();
-    subpass.pDepthStencilAttachment = &depth_reference;
-    std::array<VkSubpassDependency, 2> dependencies{};
+    mesh_subpass.pColorAttachments = color_references.data();
+    mesh_subpass.pDepthStencilAttachment = &depth_reference;
+    const VkAttachmentReference gaussian_color_reference{
+        0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription gaussian_subpass{};
+    gaussian_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    gaussian_subpass.colorAttachmentCount = 1;
+    gaussian_subpass.pColorAttachments = &gaussian_color_reference;
+    gaussian_subpass.pDepthStencilAttachment = &depth_reference;
+    const std::array<std::uint32_t, 2> gaussian_preserved_attachments{2, 3};
+    gaussian_subpass.preserveAttachmentCount =
+        static_cast<std::uint32_t>(gaussian_preserved_attachments.size());
+    gaussian_subpass.pPreserveAttachments =
+        gaussian_preserved_attachments.data();
+    const std::array<VkSubpassDescription, 2> subpasses{
+        mesh_subpass, gaussian_subpass};
+    std::array<VkSubpassDependency, 4> dependencies{};
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
     dependencies[0].srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -4655,18 +4778,38 @@ class Renderer::Impl {
     dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     dependencies[1].srcSubpass = 0;
-    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].dstSubpass = 1;
     dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                                    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dependencies[1].dstStageMask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dependencies[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                                    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    dependencies[2].srcSubpass = 0;
+    dependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[2].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[2].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    dependencies[3].srcSubpass = 1;
+    dependencies[3].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[3].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[3].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dependencies[3].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[3].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     VkRenderPassCreateInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
     info.attachmentCount = static_cast<std::uint32_t>(attachments.size());
     info.pAttachments = attachments.data();
-    info.subpassCount = 1;
-    info.pSubpasses = &subpass;
+    info.subpassCount = static_cast<std::uint32_t>(subpasses.size());
+    info.pSubpasses = subpasses.data();
     info.dependencyCount = static_cast<std::uint32_t>(dependencies.size());
     info.pDependencies = dependencies.data();
     Check(vkCreateRenderPass(device_, &info, nullptr, &active_target_->render_pass),
@@ -4812,6 +4955,123 @@ class Renderer::Impl {
     return pipeline;
   }
 
+  VkPipeline EnsureGaussianPipeline(const ShaderPaths& shaders) {
+    if (active_target_->gaussian_pipeline != VK_NULL_HANDLE) {
+      return active_target_->gaussian_pipeline;
+    }
+    const auto vertex_path =
+        shaders.gaussian_vertex.empty()
+            ? shaders.vertex.parent_path() / "gaussian.vert.spv"
+            : shaders.gaussian_vertex;
+    const auto fragment_path =
+        shaders.gaussian_fragment.empty()
+            ? shaders.fragment.parent_path() / "gaussian.frag.spv"
+            : shaders.gaussian_fragment;
+    ++frame_counters_.pipeline_creation_count;
+    const auto vertex_shader = GetShaderModule(vertex_path);
+    const auto fragment_shader = GetShaderModule(fragment_path);
+    const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+         VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+         VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, "main", nullptr},
+    }};
+    const std::array<VkVertexInputBindingDescription, 2> bindings{{
+        {0, sizeof(Vec2), VK_VERTEX_INPUT_RATE_VERTEX},
+        {1, sizeof(GaussianGpuInstance), VK_VERTEX_INPUT_RATE_INSTANCE},
+    }};
+    const std::array<VkVertexInputAttributeDescription, 7> attributes{{
+        {0, 0, VK_FORMAT_R32G32_SFLOAT, 0},
+        {1, 1, VK_FORMAT_R32G32_SFLOAT,
+         static_cast<std::uint32_t>(
+             offsetof(GaussianGpuInstance, center_pixels))},
+        {2, 1, VK_FORMAT_R32G32B32_SFLOAT,
+         static_cast<std::uint32_t>(
+             offsetof(GaussianGpuInstance, inverse_conic))},
+        {3, 1, VK_FORMAT_R32G32B32_SFLOAT,
+         static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, radiance))},
+        {4, 1, VK_FORMAT_R32_SFLOAT,
+         static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, opacity))},
+        {5, 1, VK_FORMAT_R32_SFLOAT,
+         static_cast<std::uint32_t>(
+             offsetof(GaussianGpuInstance, radius_pixels))},
+        {6, 1, VK_FORMAT_R32_SFLOAT,
+         static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, depth))},
+    }};
+    VkPipelineVertexInputStateCreateInfo vertex_input{
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertex_input.vertexBindingDescriptionCount =
+        static_cast<std::uint32_t>(bindings.size());
+    vertex_input.pVertexBindingDescriptions = bindings.data();
+    vertex_input.vertexAttributeDescriptionCount =
+        static_cast<std::uint32_t>(attributes.size());
+    vertex_input.pVertexAttributeDescriptions = attributes.data();
+    VkPipelineInputAssemblyStateCreateInfo input_assembly{
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport_state{
+        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo raster{
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode = VK_CULL_MODE_NONE;
+    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    raster.lineWidth = 1.0F;
+    VkPipelineMultisampleStateCreateInfo multisample{
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo depth{
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depth.depthTestEnable = VK_TRUE;
+    depth.depthWriteEnable = VK_FALSE;
+    depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    VkPipelineColorBlendAttachmentState color_blend{};
+    color_blend.blendEnable = VK_TRUE;
+    color_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    color_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    color_blend.colorBlendOp = VK_BLEND_OP_ADD;
+    color_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    color_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    color_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+    color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
+                                 VK_COLOR_COMPONENT_G_BIT |
+                                 VK_COLOR_COMPONENT_B_BIT |
+                                 VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo blend{
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blend.attachmentCount = 1;
+    blend.pAttachments = &color_blend;
+    const std::array<VkDynamicState, 2> dynamic_states{
+        VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic{
+        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamic.dynamicStateCount =
+        static_cast<std::uint32_t>(dynamic_states.size());
+    dynamic.pDynamicStates = dynamic_states.data();
+    VkGraphicsPipelineCreateInfo pipeline_info{
+        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipeline_info.stageCount = static_cast<std::uint32_t>(stages.size());
+    pipeline_info.pStages = stages.data();
+    pipeline_info.pVertexInputState = &vertex_input;
+    pipeline_info.pInputAssemblyState = &input_assembly;
+    pipeline_info.pViewportState = &viewport_state;
+    pipeline_info.pRasterizationState = &raster;
+    pipeline_info.pMultisampleState = &multisample;
+    pipeline_info.pDepthStencilState = &depth;
+    pipeline_info.pColorBlendState = &blend;
+    pipeline_info.pDynamicState = &dynamic;
+    pipeline_info.layout = active_target_->pipeline_layout;
+    pipeline_info.renderPass = active_target_->render_pass;
+    pipeline_info.subpass = 1;
+    Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
+                                    &pipeline_info, nullptr,
+                                    &active_target_->gaussian_pipeline),
+          "create Gaussian graphics pipeline");
+    return active_target_->gaussian_pipeline;
+  }
+
   VkPipeline EnsureGeneratedPipeline(
       const ShaderPaths& shaders, const GeneratedMaterialArtifact& artifact,
       std::uint32_t variant_key) {
@@ -4844,6 +5104,10 @@ class Renderer::Impl {
       vkDestroyPipeline(device_, pipeline, nullptr);
     }
     target.generated_pipelines.clear();
+    if (target.gaussian_pipeline != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device_, target.gaussian_pipeline, nullptr);
+      target.gaussian_pipeline = VK_NULL_HANDLE;
+    }
     for (const auto& [key, layout] : target.generated_pipeline_layouts) {
       (void)key;
       vkDestroyPipelineLayout(device_, layout, nullptr);
@@ -5585,6 +5849,27 @@ class Renderer::Impl {
                          0, sizeof(push), &push);
       vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
     }
+    vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
+    if (frame.gaussian_instance_count != 0) {
+      const auto pipeline = EnsureGaussianPipeline(active_target_->shaders);
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+      const std::array<VkBuffer, 2> vertex_buffers{
+          gaussian_corner_vertices_.handle, frame.gaussian_instances.handle};
+      const std::array<VkDeviceSize, 2> offsets{};
+      vkCmdBindVertexBuffers(command, 0,
+                             static_cast<std::uint32_t>(vertex_buffers.size()),
+                             vertex_buffers.data(), offsets.data());
+      const GaussianPushConstants push{{
+          1.0F / static_cast<float>(active_target_->width),
+          1.0F / static_cast<float>(active_target_->height),
+      }};
+      vkCmdPushConstants(command, active_target_->pipeline_layout,
+                         VK_SHADER_STAGE_VERTEX_BIT |
+                             VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(push), &push);
+      vkCmdDraw(command, 6, frame.gaussian_instance_count, 0, 0);
+      ++frame_counters_.gaussian_draw_count;
+    }
     vkCmdEndRenderPass(command);
 
     if (HasAov(cpu_readback_aovs, Aov::Color)) {
@@ -5875,6 +6160,7 @@ class Renderer::Impl {
   std::uint32_t gaussian_preparation_width_{};
   std::uint32_t gaussian_preparation_height_{};
   bool gaussian_preparation_cache_valid_{};
+  std::uint64_t gaussian_preparation_generation_{};
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
   std::vector<RetiredTexture> retired_textures_;
@@ -5884,6 +6170,7 @@ class Renderer::Impl {
   DeviceArena vertex_arena_;
   DeviceArena index_arena_;
   StagingRing staging_;
+  Buffer gaussian_corner_vertices_;
   std::map<std::uint64_t, GeometrySlot> geometry_slots_;
   std::map<std::uint64_t, TextureSlot> texture_slots_;
   std::map<std::uint64_t, SamplerSlot> sampler_slots_;

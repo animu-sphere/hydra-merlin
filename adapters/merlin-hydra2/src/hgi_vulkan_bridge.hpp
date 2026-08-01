@@ -215,7 +215,9 @@ class HdMerlinHgiVulkanBridge final
                             std::size_t byte_size);
   [[nodiscard]] bool Copy(
       HgiTextureHandle target, merlin::vulkan::AovImageExport&& source,
-      std::shared_ptr<merlin::render::Backend> backend);
+      std::shared_ptr<merlin::render::Backend> backend,
+      std::uint64_t& submission_serial);
+  [[nodiscard]] bool IsCopyComplete(std::uint64_t submission_serial) const;
 
  private:
   // A one-way latch for the delegate's lifetime, cleared only by a fresh
@@ -229,6 +231,8 @@ class HdMerlinHgiVulkanBridge final
   mutable std::mutex mutex_;
   Hgi* hgi_{};
   std::uint64_t outstanding_targets_{};
+  std::uint64_t next_copy_serial_{};
+  std::uint64_t completed_copy_serial_{};
   HdMerlinHgiVulkanBridgeStatus status_;
   HdMerlinHgiVulkanBridgeTelemetry telemetry_;
 };

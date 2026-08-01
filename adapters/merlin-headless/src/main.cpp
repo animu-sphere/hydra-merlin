@@ -647,7 +647,9 @@ int main(int argc, char** argv) {
           shader_dir / "triangle.frag.spv",
           shader_dir / "triangle.bindless.vert.spv",
           shader_dir / "triangle.bindless.frag.spv",
-          shader_dir / "environment.hdr"};
+          shader_dir / "environment.hdr",
+          shader_dir / "gaussian.vert.spv",
+          shader_dir / "gaussian.frag.spv"};
       merlin::vulkan::RenderRequest request;
       request.snapshot = extractor.snapshot();
       request.width = arguments.width;

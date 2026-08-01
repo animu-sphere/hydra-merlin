@@ -48,16 +48,36 @@ sorting policies use one diagnosed Z-depth fallback so incomparable key domains
 never enter a global blend order. Static Gaussian tables reuse their prepared
 stream while camera, projection, and viewport remain unchanged.
 
+Vulkan now uploads that prepared stream into completion-safe frame-owned
+instance buffers and renders it as one instanced procedural draw. A dedicated
+color subpass expands six fixed corner vertices to each conservative
+three-sigma bound, evaluates the inverse-conic ellipse and Gaussian falloff per
+fragment, and composites authored opacity and SH radiance back-to-front without
+writing depth. Opaque Mesh depth and ID AOVs remain intact while Gaussian color
+composes against the shared target. Static frames reuse both CPU preparation
+and the frame-local upload; draw and upload telemetry are exposed through the
+backend, benchmark report, and development viewport. The shader artifacts,
+reflection, manifest identities, packaging list, and Vulkan validation/image
+tests cover this raster boundary.
+
 The external fixture selected with `MERLIN_GAUSSIAN_SAMPLE` validates both the
 OpenUSD schema payload and the usdview/Hydra path. Current local evidence uses
 `/Asset/Splat` from the 8192-particle SOG sample: degree 3, 131072 RGB SH
 coefficients, no ingestion diagnostics, and one Gaussian snapshot resource.
+The Tier 0 and forced-HgiVulkan usdview smokes retain and sort all 8192
+particles, upload 425984 bytes, emit one procedural draw, produce Gaussian
+color in the captured frame, report zero validation diagnostics, and reach
+zero Gaussian upload bytes on a static cached frame. HgiVulkan keeps its
+asynchronous GPU-copy path without a coarse wait and holds the RenderBuffer
+unconverged until a completed copy makes the retained target displayable.
 
-Remaining work is Vulkan upload of the prepared stream, procedural elliptical
-rasterization and falloff, alpha compositing of the prepared opacity/SH
-appearance, changed-range upload, mixed Mesh/Gaussian composition, and native-
-viewport performance evidence. A successful ingestion smoke currently
-produces no Gaussian pixels and is not rendering evidence.
+Remaining work is changed-range upload from normalized particle edits,
+Gaussian-specific ID/picking semantics, external-fixture reference-image
+evidence through usdview, and native-viewport performance evidence. The local
+GPU image fixture covers ellipse rejection, falloff, alpha/SH appearance,
+opaque Mesh depth composition, static upload reuse, and zero renderer-owned
+Vulkan validation diagnostics; it does not replace evidence from the external
+8192-particle stage.
 
 ## Active carry-over
 

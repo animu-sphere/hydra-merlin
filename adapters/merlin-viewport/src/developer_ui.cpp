@@ -448,6 +448,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    snapshot.telemetry.gaussian_preparation_cache_hits);
         LabelValue("Gaussian preparation cache misses",
                    snapshot.telemetry.gaussian_preparation_cache_misses);
+        LabelValue("Gaussian draws", snapshot.telemetry.gaussian_draw_count);
+        LabelBytes("Gaussian upload",
+                   snapshot.telemetry.gaussian_upload_bytes);
         LabelBytes("Frame upload", snapshot.telemetry.upload_bytes);
         LabelBytes("Buffer allocations",
                    snapshot.telemetry.buffer_allocation_bytes);

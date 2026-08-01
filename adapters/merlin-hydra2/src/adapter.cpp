@@ -1474,7 +1474,8 @@ class SceneBridge {
           shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
           shader_dir / "triangle.bindless.vert.spv",
           shader_dir / "triangle.bindless.frag.spv",
-          shader_dir / "environment.hdr"};
+          shader_dir / "environment.hdr", shader_dir / "gaussian.vert.spv",
+          shader_dir / "gaussian.frag.spv"};
       merlin::vulkan::BackendFactory factory(std::move(factory_options));
       std::vector<merlin::render::BackendFactory*> factories{&factory};
       merlin::render::BackendCreateInfo create_info;
@@ -1758,6 +1759,10 @@ class SceneBridge {
                << result.telemetry.gaussian_preparation_cache_hits
                << " gaussian_preparation_cache_misses="
                << result.telemetry.gaussian_preparation_cache_misses
+               << " gaussian_draw_count="
+               << result.telemetry.gaussian_draw_count
+               << " gaussian_upload_bytes="
+               << result.telemetry.gaussian_upload_bytes
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height
@@ -3522,11 +3527,13 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   const bool recreation = has_target && !reusable_target;
   if (!reusable_target) {
     DestroyHgiTargetLocked();
+    hgi_vulkan_copy_submission_serial_ = 0;
   }
   dimensions_ = dimensions;
   format_ = format;
   multi_sampled_ = multi_sampled;
   gpu_only_ = false;
+  gpu_copy_ready_ = false;
   converged_ = false;
   data_.assign(pixels * pixel_size, 0);
   // Only the 8-bit color AOV is published as an Hgi target. It is the buffer a
@@ -3637,6 +3644,7 @@ bool HdMerlinRenderBuffer::WriteColor(
   }
   data_ = rgba8;
   gpu_only_ = false;
+  gpu_copy_ready_ = false;
   UploadHgiTargetLocked();
   return true;
 }
@@ -3693,13 +3701,25 @@ bool HdMerlinRenderBuffer::CopyColor(
   if (!hgi_vulkan_target_ || !hgi_vulkan_bridge_) {
     return false;
   }
+  const bool previous_copy_complete =
+      hgi_vulkan_copy_submission_serial_ != 0 &&
+      hgi_vulkan_bridge_->IsCopyComplete(
+          hgi_vulkan_copy_submission_serial_);
+  std::uint64_t submission_serial{};
   if (!hgi_vulkan_bridge_->Copy(hgi_vulkan_target_, std::move(source),
-                                std::move(backend))) {
+                                std::move(backend), submission_serial)) {
     hgi_vulkan_bridge_->DestroyTarget(&hgi_vulkan_target_);
     gpu_only_ = false;
+    gpu_copy_ready_ = false;
+    hgi_vulkan_copy_submission_serial_ = 0;
     return false;
   }
+  hgi_vulkan_copy_submission_serial_ = submission_serial;
   gpu_only_ = true;
+  // The copy submitted above is intentionally asynchronous. Keep the buffer
+  // unconverged until an earlier copy into the same retained target has
+  // completed, so a host cannot stop on the target's initial black contents.
+  gpu_copy_ready_ = previous_copy_complete;
   return true;
 }
 
@@ -3718,6 +3738,7 @@ bool HdMerlinRenderBuffer::CopyColor(
     return false;
   }
   gpu_only_ = true;
+  gpu_copy_ready_ = true;
   return true;
 #else
   (void)source;
@@ -3728,7 +3749,7 @@ bool HdMerlinRenderBuffer::CopyColor(
 
 void HdMerlinRenderBuffer::SetConverged(bool converged) {
   std::scoped_lock lock(mutex_);
-  converged_ = converged;
+  converged_ = converged && (!gpu_only_ || gpu_copy_ready_);
 }
 
 void HdMerlinRenderBuffer::_Deallocate() {
@@ -3741,7 +3762,9 @@ void HdMerlinRenderBuffer::_Deallocate() {
   format_ = HdFormatInvalid;
   multi_sampled_ = false;
   gpu_only_ = false;
+  gpu_copy_ready_ = false;
   converged_ = false;
+  hgi_vulkan_copy_submission_serial_ = 0;
   data_.clear();
 }
 
@@ -3788,6 +3811,8 @@ void HdMerlinRenderBuffer::DestroyHgiTargetLocked() {
 #else
   hgi_metal_target_ = {};
 #endif
+  hgi_vulkan_copy_submission_serial_ = 0;
+  gpu_copy_ready_ = false;
 }
 
 namespace {

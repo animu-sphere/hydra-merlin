@@ -4,12 +4,39 @@ import os
 def testUsdviewInputFunction(appController):
     appController._dataModel.viewSettings.showBBoxes = False
     appController._dataModel.viewSettings.showHUD = False
+    appController._dataModel.selection.clearPrims()
     appController._stageView.SetForceRefresh(True)
     appController._stageView.updateView()
     appController._takeShot(
         os.environ["MERLIN_HYDRA2_SMOKE_IMAGE"],
-        iterations=4,
+        iterations=int(os.environ.get(
+            "MERLIN_GAUSSIAN_USDVIEW_ITERATIONS", "4")),
         waitForConvergence=True,
+    )
+
+    image = appController.GrabViewportShot()
+    background = image.pixel(0, 0)
+    background_rgb = (
+        (background >> 16) & 0xff,
+        (background >> 8) & 0xff,
+        background & 0xff,
+    )
+    changed_pixels = 0
+    for y in range(0, image.height(), 2):
+        for x in range(0, image.width(), 2):
+            pixel = image.pixel(x, y)
+            red = (pixel >> 16) & 0xff
+            green = (pixel >> 8) & 0xff
+            blue = pixel & 0xff
+            if max(abs(red - background_rgb[0]),
+                   abs(green - background_rgb[1]),
+                   abs(blue - background_rgb[2])) > 20:
+                changed_pixels += 1
+    # usdview's origin axes account for only a narrow pair of lines. Requiring
+    # a wider non-background footprint proves that the Gaussian color target,
+    # rather than an overlay, reached host composition.
+    assert changed_pixels > 200, (
+        "usdview captured no visible Gaussian color"
     )
 
     marker = os.environ["MERLIN_HYDRA2_REGRESSION_LOG"]
@@ -55,3 +82,21 @@ def testUsdviewInputFunction(appController):
         int(event.get("gaussian_preparation_cache_misses", "0")) > 0
         for event in prepared
     ), "Gaussian preparation never recorded initial work"
+    rasterized = [
+        event for event in prepared
+        if int(event.get("gaussian_visible_count", "0")) > 0
+    ]
+    assert rasterized, "Gaussian projection retained no rasterizable particles"
+    assert any(
+        int(event.get("gaussian_draw_count", "0")) == 1
+        for event in rasterized
+    ), "Visible Gaussian stream did not reach the procedural Vulkan draw"
+    assert any(
+        int(event.get("gaussian_upload_bytes", "0")) > 0
+        for event in rasterized
+    ), "Prepared Gaussian stream was never uploaded"
+    assert any(
+        int(event.get("gaussian_preparation_cache_hits", "0")) > 0
+        and int(event.get("gaussian_upload_bytes", "0")) == 0
+        for event in rasterized
+    ), "Static Gaussian frame did not reuse its frame-local upload"

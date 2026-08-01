@@ -100,7 +100,9 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   HdFormat format_{HdFormatInvalid};
   bool multi_sampled_{};
   bool gpu_only_{};
+  bool gpu_copy_ready_{};
   bool converged_{};
+  std::uint64_t hgi_vulkan_copy_submission_serial_{};
   std::size_t map_count_{};
   std::vector<std::uint8_t> data_;
 };
