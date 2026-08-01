@@ -39,6 +39,16 @@ if(NOT usdview_result EQUAL 0)
     "Gaussian usdview smoke failed (${usdview_result}):\n"
     "${usdview_output}\n${usdview_error}")
 endif()
+if(MERLIN_GAUSSIAN_EXPECT_POLICY_FALLBACK)
+  if(NOT usdview_error MATCHES
+       "hydra.gaussian.projection-hint-unavailable" OR
+     NOT usdview_error MATCHES
+       "hydra.gaussian.sorting-hint-unavailable")
+    message(FATAL_ERROR
+      "Gaussian policy fallback diagnostics were not reported:\n"
+      "${usdview_output}\n${usdview_error}")
+  endif()
+endif()
 if(NOT EXISTS "${marker}" OR NOT EXISTS "${image}")
   message(FATAL_ERROR
     "Gaussian usdview smoke produced incomplete evidence:\n"

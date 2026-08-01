@@ -149,6 +149,34 @@ int main() {
   assert(rejected_result.diagnostics.front().disposition ==
          merlin::DiagnosticDisposition::Rejected);
 
+  auto huge_orientation = source;
+  const auto max_float = std::numeric_limits<float>::max();
+  huge_orientation.orientations.assign(
+      huge_orientation.positions.size(),
+      merlin::Quaternion{max_float, {max_float, max_float, max_float}});
+  const auto huge_orientation_result =
+      merlin::NormalizeGaussianSource(huge_orientation);
+  assert(huge_orientation_result.accepted());
+  for (const auto covariance :
+       huge_orientation_result.resource->covariances) {
+    assert(std::isfinite(covariance.xx));
+    assert(std::isfinite(covariance.xy));
+    assert(std::isfinite(covariance.xz));
+    assert(std::isfinite(covariance.yy));
+    assert(std::isfinite(covariance.yz));
+    assert(std::isfinite(covariance.zz));
+  }
+
+  auto overflowing_scale = source;
+  overflowing_scale.scales.assign(
+      overflowing_scale.positions.size(),
+      merlin::Vec3{max_float, max_float, max_float});
+  const auto overflowing_scale_result =
+      merlin::NormalizeGaussianSource(overflowing_scale);
+  assert(!overflowing_scale_result.accepted());
+  assert(overflowing_scale_result.diagnostics.back().code ==
+         "gaussian.covariance.non-finite");
+
   world.Remove(handle);
   changes = world.Commit();
   assert(changes.revision == 5);

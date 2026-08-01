@@ -20,19 +20,35 @@ bool IsFinite(Quaternion value) {
   return std::isfinite(value.real) && IsFinite(value.imaginary);
 }
 
+bool IsFinite(Covariance3 value) {
+  return std::isfinite(value.xx) && std::isfinite(value.xy) &&
+         std::isfinite(value.xz) && std::isfinite(value.yy) &&
+         std::isfinite(value.yz) && std::isfinite(value.zz);
+}
+
+double LengthSquared(Quaternion value) {
+  const auto real = static_cast<double>(value.real);
+  const auto x = static_cast<double>(value.imaginary.x);
+  const auto y = static_cast<double>(value.imaginary.y);
+  const auto z = static_cast<double>(value.imaginary.z);
+  return real * real + x * x + y * y + z * z;
+}
+
 Quaternion Normalize(Quaternion value) {
-  const auto length_squared = value.real * value.real +
-                              value.imaginary.x * value.imaginary.x +
-                              value.imaginary.y * value.imaginary.y +
-                              value.imaginary.z * value.imaginary.z;
-  if (length_squared <= std::numeric_limits<float>::min()) {
+  const auto length_squared = LengthSquared(value);
+  if (length_squared <=
+      static_cast<double>(std::numeric_limits<float>::min())) {
     return {};
   }
-  const auto inverse_length = 1.0F / std::sqrt(length_squared);
-  value.real *= inverse_length;
-  value.imaginary.x *= inverse_length;
-  value.imaginary.y *= inverse_length;
-  value.imaginary.z *= inverse_length;
+  const auto inverse_length = 1.0 / std::sqrt(length_squared);
+  value.real = static_cast<float>(static_cast<double>(value.real) *
+                                  inverse_length);
+  value.imaginary.x = static_cast<float>(
+      static_cast<double>(value.imaginary.x) * inverse_length);
+  value.imaginary.y = static_cast<float>(
+      static_cast<double>(value.imaginary.y) * inverse_length);
+  value.imaginary.z = static_cast<float>(
+      static_cast<double>(value.imaginary.z) * inverse_length);
   return value;
 }
 
@@ -91,17 +107,17 @@ Covariance3 EvaluateGaussianCovariance(Quaternion orientation,
       {{2.0F * (x * z - y * w), 2.0F * (y * z + x * w),
         1.0F - 2.0F * (x * x + y * y)}},
   }};
-  const std::array<float, 3> variance{
-      linear_scale.x * linear_scale.x,
-      linear_scale.y * linear_scale.y,
-      linear_scale.z * linear_scale.z};
+  const std::array<double, 3> variance{
+      static_cast<double>(linear_scale.x) * linear_scale.x,
+      static_cast<double>(linear_scale.y) * linear_scale.y,
+      static_cast<double>(linear_scale.z) * linear_scale.z};
   const auto element = [&](std::size_t row, std::size_t column) {
-    float value{};
+    double value{};
     for (std::size_t axis = 0; axis < 3; ++axis) {
-      value += rotation[row][axis] * variance[axis] *
+      value += static_cast<double>(rotation[row][axis]) * variance[axis] *
                rotation[column][axis];
     }
-    return value;
+    return static_cast<float>(value);
   };
   return {element(0, 0), element(0, 1), element(0, 2),
           element(1, 1), element(1, 2), element(2, 2)};
@@ -208,10 +224,9 @@ GaussianNormalizationResult NormalizeGaussianSource(
       std::any_of(source.orientations.begin(),
                   source.orientations.begin() + count,
                   [](Quaternion value) {
-                    const auto& i = value.imaginary;
-                    return value.real * value.real + i.x * i.x + i.y * i.y +
-                               i.z * i.z <=
-                           std::numeric_limits<float>::min();
+                    return LengthSquared(value) <=
+                           static_cast<double>(
+                               std::numeric_limits<float>::min());
                   })) {
     Report(result, sink, "gaussian.orientation.zero-length",
            DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
@@ -240,8 +255,13 @@ GaussianNormalizationResult NormalizeGaussianSource(
         use_orientations ? source.orientations[index] : Quaternion{};
     const auto scale = use_scales ? source.scales[index]
                                   : Vec3{1.0F, 1.0F, 1.0F};
-    normalized.covariances.push_back(
-        EvaluateGaussianCovariance(orientation, scale));
+    const auto covariance = EvaluateGaussianCovariance(orientation, scale);
+    if (!IsFinite(covariance)) {
+      reject("gaussian.covariance.non-finite",
+             "orientation and scale produce a non-finite covariance");
+      return result;
+    }
+    normalized.covariances.push_back(covariance);
     normalized.opacities.push_back(
         use_opacities ? std::clamp(source.opacities[index], 0.0F, 1.0F)
                       : 1.0F);

@@ -1,0 +1,21 @@
+#usda 1.0
+(
+    defaultPrim = "Asset"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "Asset"
+{
+    def ParticleField3DGaussianSplat "Splat"
+    {
+        half[] opacitiesh = [0.75]
+        quath[] orientationsh = [(1, 0, 0, 0)]
+        point3h[] positionsh = [(0, 0, 0)]
+        uniform token projectionModeHint = "tangential"
+        half3[] radiance:sphericalHarmonicsCoefficientsh = [(0.25, 0.5, 0.75)]
+        uniform int radiance:sphericalHarmonicsDegree = 0
+        half3[] scalesh = [(1, 2, 3)]
+        uniform token sortingModeHint = "cameraDistance"
+    }
+}
