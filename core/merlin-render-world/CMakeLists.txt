@@ -1,4 +1,5 @@
 add_library(merlin-render-world STATIC
+  src/gaussian.cpp
   src/identity.cpp
   src/material_abi.cpp
   src/material_diagnostic.cpp

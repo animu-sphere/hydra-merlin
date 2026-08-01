@@ -22,6 +22,31 @@ v0.14.0 shipped HgiMetal GPU-copy host presentation; its objective,
 compatibility, limitations, and evidence are recorded in
 [docs/releases/v0.14.0.md](../releases/v0.14.0.md).
 
+## 🟨 v0.14.1 — Gaussian MVP
+
+The ingestion and host-neutral resource slice is implemented. The render
+delegate advertises Hydra's standard `particleField` Rprim, prefers float over
+half attributes, applies the OpenUSD length/fallback policy, normalizes
+quaternions, evaluates `R·diag(scale²)·Rᵀ` covariance, clamps linear opacity,
+and retains particle-major degree-0–3 spherical-harmonic coefficients without
+applying importer-specific log, sigmoid, or coordinate conversions.
+
+Core now tracks Gaussian positions, covariance, opacity, radiance, policy,
+transform, and visibility revisions. Extraction shares unchanged immutable
+arrays and carries normalized changed-particle ranges for later partial GPU
+upload. Rejection and fallback paths use `merlin-diagnostic/v1`.
+
+The external fixture selected with `MERLIN_GAUSSIAN_SAMPLE` validates both the
+OpenUSD schema payload and the usdview/Hydra path. Current local evidence uses
+`/Asset/Splat` from the 8192-particle SOG sample: degree 3, 131072 RGB SH
+coefficients, no ingestion diagnostics, and one Gaussian snapshot resource.
+
+Remaining work is Vulkan upload, camera-space projection and CPU sorting,
+procedural elliptical rasterization and falloff, opacity/SH appearance,
+changed-range upload, mixed Mesh/Gaussian composition, and native-viewport
+performance evidence. A successful ingestion smoke currently produces no
+Gaussian pixels and is not rendering evidence.
+
 ## Active carry-over
 
 ### ⬜ v0.10.x — Development viewport and diagnostic surface

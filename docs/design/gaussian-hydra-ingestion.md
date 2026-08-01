@@ -87,10 +87,20 @@ OpenUSD notice is coarser than one attribute, the adapter may fetch the enclosin
 data source but must compare it with cached values before advancing a semantic
 revision or uploading. This is the v0.6.0 Mesh primvar contract as well.
 
+OpenUSD 26.05 and 26.08 do not transport `projectionModeHint` or
+`sortingModeHint` through the ParticleField scene-index data source. hdMerlin
+consumes them when the host delegate exposes them. Otherwise it reports stable
+`projection-hint-unavailable` and `sorting-hint-unavailable` fallback
+diagnostics and uses `perspective` plus `zDepth`; it does not silently claim
+that authored non-default policy survived the Hydra boundary.
+
 ## Compatibility and fallback policy
 
 - v0.14.1 adds `HdPrimTypeTokens->particleField` to the supported Rprim list and
   creates an adapter-owned Rprim. No `usdVol` type crosses into Core.
+- Hydra's canonical ParticleField primvar names carry either float or half
+  `VtValue` arrays. The adapter reads each canonical name once, then selects by
+  runtime type; it does not query the USD-only `*h` attribute name.
 - A host missing `usdVolImaging` or the `particleField` Rprim receives a
   rejection diagnostic naming the plugin or incompatible SDK.
 - A points approximation is opt-in and diagnostic-bearing; it is not evidence

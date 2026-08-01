@@ -60,6 +60,8 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
+set(MERLIN_GAUSSIAN_SAMPLE "" CACHE FILEPATH
+  "Optional standard OpenUSD Gaussian stage used by integration tests")
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)

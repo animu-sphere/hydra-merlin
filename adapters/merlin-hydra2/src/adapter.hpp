@@ -27,6 +27,7 @@ struct HdMerlinViewportFrame {
   merlin::render::FrameTelemetry telemetry;
   std::vector<merlin::MaterialDiagnostic> material_diagnostics;
   std::uint64_t geometries{};
+  std::uint64_t gaussians{};
   std::uint64_t textures{};
   std::uint64_t samplers{};
   std::uint64_t materials{};

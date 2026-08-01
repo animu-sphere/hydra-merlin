@@ -8,6 +8,27 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- The first v0.14.1 Gaussian MVP slice: standard Hydra `particleField`
+  ingestion, float-over-half attribute selection, host-neutral normalized
+  resources, covariance evaluation, per-aspect revisions, changed-particle
+  ranges, immutable snapshot sharing, and structured fallback/rejection
+  diagnostics.
+- Optional OpenUSD Gaussian fixture and usdview host-smoke coverage through
+  `MERLIN_GAUSSIAN_SAMPLE`; the initial evidence uses an 8192-particle,
+  degree-3 SOG-authored standard USD stage.
+- Hardened the Gaussian Hydra boundary after review: canonical primvar reads
+  now accept float or half payloads, scene-index locators drive semantic
+  revisions and changed-particle ranges, rejected payloads cannot reappear from
+  stale descriptors, covariance overflow is rejected diagnostically, and
+  unavailable OpenUSD policy hints produce explicit fallbacks.
+
+### Known limitations
+
+- Gaussian resources reach the renderer snapshot but are not uploaded or
+  rasterized yet. GPU upload, CPU depth sorting, procedural splats, spherical-
+  harmonic evaluation, and mixed Mesh/Gaussian output remain v0.14.1 work.
 ## [0.14.0] - 2026-08-02
 
 ### Added

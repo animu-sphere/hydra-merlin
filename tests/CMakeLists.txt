@@ -15,6 +15,15 @@ target_link_libraries(merlin-render-world-tests PRIVATE Merlin::RenderWorld)
 
 add_test(NAME merlin-render-world COMMAND merlin-render-world-tests)
 
+add_executable(merlin-gaussian-resource-tests
+  gaussian_resource_test.cpp
+)
+target_link_libraries(merlin-gaussian-resource-tests
+  PRIVATE Merlin::RenderExtraction)
+add_test(NAME merlin-gaussian-resource COMMAND merlin-gaussian-resource-tests)
+set_tests_properties(merlin-gaussian-resource PROPERTIES
+  LABELS "gaussian;core")
+
 add_executable(merlin-shader-contract-tests
   shader_contract_test.cpp
 )

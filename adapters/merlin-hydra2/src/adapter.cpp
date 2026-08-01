@@ -1,11 +1,14 @@
 #include "adapter.hpp"
 
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/gf/quath.h>
+#include <pxr/base/gf/quatf.h>
 #include <pxr/base/gf/quaternion.h>
 #include <pxr/base/gf/rotation.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3d.h>
 #include <pxr/base/gf/vec3f.h>
+#include <pxr/base/gf/vec3h.h>
 #include <pxr/base/gf/vec4d.h>
 #include <pxr/base/gf/vec4f.h>
 #include <pxr/base/tf/diagnostic.h>
@@ -40,6 +43,7 @@
 
 #include <merlin/core/render_world.hpp>
 #include <merlin/core/diagnostic.hpp>
+#include <merlin/core/gaussian.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
 #ifdef MERLIN_HYDRA2_ENABLE_VULKAN
@@ -930,6 +934,11 @@ struct MeshState {
   bool authored_visible{true};
 };
 
+struct GaussianState {
+  merlin::GaussianHandle gaussian;
+  merlin::GaussianDescriptor descriptor;
+};
+
 // Shared material tracked by authored path so the render-world material and its
 // map entry are released once no mesh references it.
 struct MaterialEntry {
@@ -1118,6 +1127,47 @@ class SceneBridge {
     world_.Remove(found->second.mesh);
     ReleaseMaterialLocked(found->second.material_key);
     meshes_.erase(found);
+  }
+
+  void SyncGaussian(
+      const SdfPath& path, merlin::GaussianDescriptor descriptor,
+      merlin::ChangeAspect aspects,
+      std::optional<std::vector<merlin::ElementRange>> particle_ranges =
+          std::nullopt) {
+    ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
+    std::scoped_lock lock(mutex_);
+    const auto key = path.GetString();
+    auto found = gaussians_.find(key);
+    if (descriptor.positions.empty()) {
+      if (found != gaussians_.end()) {
+        world_.Remove(found->second.gaussian);
+        gaussians_.erase(found);
+      }
+      return;
+    }
+    if (found == gaussians_.end()) {
+      GaussianState state;
+      state.descriptor = std::move(descriptor);
+      state.gaussian = world_.CreateGaussian(state.descriptor);
+      gaussians_.emplace(key, std::move(state));
+      return;
+    }
+    found->second.descriptor = std::move(descriptor);
+    if (aspects != merlin::ChangeAspect::None) {
+      world_.UpdateGaussian(found->second.gaussian,
+                            found->second.descriptor, aspects,
+                            std::move(particle_ranges));
+    }
+  }
+
+  void RemoveGaussian(const SdfPath& path) {
+    std::scoped_lock lock(mutex_);
+    const auto found = gaussians_.find(path.GetString());
+    if (found == gaussians_.end()) {
+      return;
+    }
+    world_.Remove(found->second.gaussian);
+    gaussians_.erase(found);
   }
 
   void RemoveCamera(const SdfPath& path) {
@@ -1560,6 +1610,7 @@ class SceneBridge {
     latest_viewport_frame_.material_diagnostics =
         result.material_diagnostics;
     latest_viewport_frame_.geometries = snapshot->geometries.size();
+    latest_viewport_frame_.gaussians = snapshot->gaussians.size();
     latest_viewport_frame_.textures = snapshot->textures.size();
     latest_viewport_frame_.samplers = snapshot->samplers.size();
     latest_viewport_frame_.materials = snapshot->materials.size();
@@ -1686,6 +1737,7 @@ class SceneBridge {
                << " scene_revision=" << result.scene_revision
                << " completion_value=" << result.completion_value
                << " draw_count=" << snapshot->draws.size()
+               << " gaussian_resources=" << snapshot->gaussians.size()
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height
@@ -1985,6 +2037,7 @@ class SceneBridge {
   merlin::RenderSettingsHandle render_settings_;
   merlin::RenderSettingsDescriptor render_settings_descriptor_;
   std::unordered_map<std::string, MeshState> meshes_;
+  std::unordered_map<std::string, GaussianState> gaussians_;
   std::unordered_map<std::string, MaterialEntry> materials_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
   std::unordered_map<std::string, merlin::LightHandle> lights_;
@@ -2908,6 +2961,451 @@ class HdMerlinMesh final : public HdMesh {
   bool triangulation_initialized_{};
 };
 
+class HdMerlinGaussian final : public HdRprim {
+ public:
+  HdMerlinGaussian(const SdfPath& id, std::shared_ptr<SceneBridge> bridge,
+                   HydraDirtyTracker* dirty_tracker)
+      : HdRprim(id),
+        bridge_(std::move(bridge)),
+        dirty_tracker_(dirty_tracker) {
+    source_.label = id.GetString();
+    source_.source = source_.label;
+  }
+
+  ~HdMerlinGaussian() override { bridge_->RemoveGaussian(GetId()); }
+
+  HdDirtyBits GetInitialDirtyBitsMask() const override {
+    return HdChangeTracker::DirtyPrimvar |
+           HdChangeTracker::DirtyTransform |
+           HdChangeTracker::DirtyVisibility |
+           HdChangeTracker::DirtyRenderTag;
+  }
+
+  const TfTokenVector& GetBuiltinPrimvarNames() const override {
+    static const TfTokenVector names{
+        TfToken("positions"),
+        TfToken("orientations"),
+        TfToken("scales"),
+        TfToken("opacities"),
+        TfToken("radiance:sphericalHarmonicsCoefficients"),
+        TfToken("radiance:sphericalHarmonicsDegree")};
+    return names;
+  }
+
+  void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
+            HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
+    ScopedHydraSync sync_timer;
+    (void)render_param;
+    (void)repr_token;
+    merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
+    std::optional<std::vector<merlin::ElementRange>> particle_ranges;
+    const auto dirty_locators =
+        dirty_tracker_ == nullptr ? std::nullopt
+                                  : dirty_tracker_->Consume(GetId());
+    const bool primvar_bit =
+        (*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0;
+    auto& change_tracker = delegate->GetRenderIndex().GetChangeTracker();
+    const auto is_primvar_dirty = [&](const TfToken& name) {
+      if (!payload_initialized_) {
+        return true;
+      }
+      if (dirty_locators) {
+        return dirty_locators->Intersects(
+            HdPrimvarsSchema::GetDefaultLocator().Append(name));
+      }
+      return primvar_bit && change_tracker.IsPrimvarDirty(GetId(), name);
+    };
+    const TfToken positions_token("positions");
+    const TfToken orientations_token("orientations");
+    const TfToken scales_token("scales");
+    const TfToken opacities_token("opacities");
+    const TfToken radiance_token(
+        "radiance:sphericalHarmonicsCoefficients");
+    const TfToken degree_token("radiance:sphericalHarmonicsDegree");
+    const TfToken projection_token("projectionModeHint");
+    const TfToken sorting_token("sortingModeHint");
+    bool positions_dirty = is_primvar_dirty(positions_token);
+    bool orientations_dirty = is_primvar_dirty(orientations_token);
+    bool scales_dirty = is_primvar_dirty(scales_token);
+    bool opacities_dirty = is_primvar_dirty(opacities_token);
+    bool radiance_dirty = is_primvar_dirty(radiance_token);
+    bool degree_dirty = is_primvar_dirty(degree_token);
+    bool policy_dirty = !payload_initialized_;
+    if (!dirty_locators && primvar_bit) {
+      policy_dirty = policy_dirty ||
+                     change_tracker.IsPrimvarDirty(GetId(), projection_token) ||
+                     change_tracker.IsPrimvarDirty(GetId(), sorting_token);
+      const bool recognized =
+          positions_dirty || orientations_dirty || scales_dirty ||
+          opacities_dirty || radiance_dirty || degree_dirty || policy_dirty;
+      if (!recognized) {
+        positions_dirty = true;
+        orientations_dirty = true;
+        scales_dirty = true;
+        opacities_dirty = true;
+        radiance_dirty = true;
+        degree_dirty = true;
+        policy_dirty = true;
+        g_hydra_telemetry.coarse_primvar_invalidation_count.fetch_add(
+            1, std::memory_order_relaxed);
+      }
+    }
+    const bool source_dirty =
+        positions_dirty || orientations_dirty || scales_dirty ||
+        opacities_dirty || radiance_dirty || degree_dirty;
+    if ((*dirty_bits & HdChangeTracker::DirtyTransform) != 0) {
+      const auto transform = ToMerlinMatrix(delegate->GetTransform(GetId()));
+      if (!payload_valid_ || transform.values != transform_.values) {
+        aspects |= merlin::ChangeAspect::Transform;
+      }
+      transform_ = transform;
+    }
+    if ((*dirty_bits & (HdChangeTracker::DirtyVisibility |
+                        HdChangeTracker::DirtyRenderTag)) != 0) {
+      const bool visible = delegate->GetVisible(GetId());
+      if (!payload_valid_ || visible != visible_) {
+        aspects |= merlin::ChangeAspect::Visibility;
+      }
+      visible_ = visible;
+    }
+    if (policy_dirty) {
+      FetchPolicy(delegate);
+    }
+    if (source_dirty) {
+      if (!FetchSource(delegate, positions_dirty, orientations_dirty,
+                       scales_dirty, opacities_dirty, radiance_dirty,
+                       degree_dirty)) {
+        InvalidatePayload();
+        *dirty_bits = HdChangeTracker::Clean;
+        return;
+      }
+      const auto normalized =
+          merlin::NormalizeGaussianSource(source_, &g_diagnostic_sink);
+      if (!normalized.accepted()) {
+        InvalidatePayload();
+        *dirty_bits = HdChangeTracker::Clean;
+        return;
+      }
+      auto descriptor = *normalized.resource;
+      if (!payload_valid_) {
+        aspects |= merlin::ChangeAspect::GaussianPositions |
+                   merlin::ChangeAspect::GaussianCovariance |
+                   merlin::ChangeAspect::GaussianOpacity |
+                   merlin::ChangeAspect::GaussianRadiance |
+                   merlin::ChangeAspect::GaussianPolicy;
+      } else {
+        if (!Same(descriptor_.positions, descriptor.positions)) {
+          aspects |= merlin::ChangeAspect::GaussianPositions;
+        }
+        if (!Same(descriptor_.covariances, descriptor.covariances)) {
+          aspects |= merlin::ChangeAspect::GaussianCovariance;
+        }
+        if (descriptor_.opacities != descriptor.opacities) {
+          aspects |= merlin::ChangeAspect::GaussianOpacity;
+        }
+        if (descriptor_.spherical_harmonics_degree !=
+                descriptor.spherical_harmonics_degree ||
+            !Same(descriptor_.spherical_harmonics_coefficients,
+                  descriptor.spherical_harmonics_coefficients)) {
+          aspects |= merlin::ChangeAspect::GaussianRadiance;
+        }
+        if (descriptor_.projection_mode != descriptor.projection_mode ||
+            descriptor_.sorting_mode != descriptor.sorting_mode) {
+          aspects |= merlin::ChangeAspect::GaussianPolicy;
+        }
+        particle_ranges = ChangedParticleRanges(descriptor_, descriptor,
+                                                aspects);
+      }
+      descriptor_ = std::move(descriptor);
+      payload_valid_ = true;
+      payload_initialized_ = true;
+    } else if (policy_dirty && payload_valid_) {
+      if (descriptor_.projection_mode != source_.projection_mode ||
+          descriptor_.sorting_mode != source_.sorting_mode) {
+        descriptor_.projection_mode = source_.projection_mode;
+        descriptor_.sorting_mode = source_.sorting_mode;
+        aspects |= merlin::ChangeAspect::GaussianPolicy;
+      }
+    }
+    if (!payload_valid_) {
+      *dirty_bits = HdChangeTracker::Clean;
+      return;
+    }
+    descriptor_.transform = transform_;
+    descriptor_.visible = visible_;
+    bridge_->SyncGaussian(GetId(), descriptor_, aspects,
+                          std::move(particle_ranges));
+    *dirty_bits = HdChangeTracker::Clean;
+  }
+
+ protected:
+  HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override {
+    return bits;
+  }
+
+  void _InitRepr(const TfToken& repr_token,
+                 HdDirtyBits* dirty_bits) override {
+    (void)repr_token;
+    *dirty_bits |= GetInitialDirtyBitsMask();
+  }
+
+ private:
+  VtValue Read(HdSceneDelegate* delegate, const char* name) const {
+    g_hydra_telemetry.primvar_fetch_count.fetch_add(
+        1, std::memory_order_relaxed);
+    return GetPrimvar(delegate, TfToken(name));
+  }
+
+  template <typename FloatArray, typename HalfArray, typename Convert>
+  bool ReadPreferredArray(HdSceneDelegate* delegate, const char* name,
+                          Convert convert) {
+    const auto value = Read(delegate, name);
+    if (value.IsHolding<FloatArray>()) {
+      convert(value.UncheckedGet<FloatArray>());
+      return true;
+    }
+    if (value.IsHolding<HalfArray>()) {
+      convert(value.UncheckedGet<HalfArray>());
+      return true;
+    }
+    return false;
+  }
+
+  bool FetchSource(HdSceneDelegate* delegate, bool positions_dirty,
+                   bool orientations_dirty, bool scales_dirty,
+                   bool opacities_dirty, bool radiance_dirty,
+                   bool degree_dirty) {
+    const auto copy_vec3 = [](auto& destination) {
+      return [&destination](const auto& values) {
+        destination.reserve(values.size());
+        for (const auto& value : values) {
+          destination.push_back(
+              {static_cast<float>(value[0]), static_cast<float>(value[1]),
+               static_cast<float>(value[2])});
+        }
+      };
+    };
+    const auto copy_quaternion = [&](const auto& values) {
+      source_.orientations.reserve(values.size());
+      for (const auto& value : values) {
+        const auto imaginary = value.GetImaginary();
+        source_.orientations.push_back(
+            {static_cast<float>(value.GetReal()),
+             {static_cast<float>(imaginary[0]),
+              static_cast<float>(imaginary[1]),
+              static_cast<float>(imaginary[2])}});
+      }
+    };
+    const auto copy_scalar = [&](const auto& values) {
+      source_.opacities.reserve(values.size());
+      for (const auto value : values) {
+        source_.opacities.push_back(static_cast<float>(value));
+      }
+    };
+
+    bool positions = true;
+    if (positions_dirty) {
+      source_.positions.clear();
+      positions = ReadPreferredArray<VtVec3fArray, VtVec3hArray>(
+          delegate, "positions", copy_vec3(source_.positions));
+    }
+    if (orientations_dirty) {
+      source_.orientations.clear();
+      (void)ReadPreferredArray<VtQuatfArray, VtQuathArray>(
+          delegate, "orientations", copy_quaternion);
+    }
+    if (scales_dirty) {
+      source_.scales.clear();
+      (void)ReadPreferredArray<VtVec3fArray, VtVec3hArray>(
+          delegate, "scales", copy_vec3(source_.scales));
+    }
+    if (opacities_dirty) {
+      source_.opacities.clear();
+      (void)ReadPreferredArray<VtFloatArray, VtArray<GfHalf>>(
+          delegate, "opacities", copy_scalar);
+    }
+    if (radiance_dirty) {
+      source_.spherical_harmonics_coefficients.clear();
+      (void)ReadPreferredArray<VtVec3fArray, VtVec3hArray>(
+          delegate, "radiance:sphericalHarmonicsCoefficients",
+          copy_vec3(source_.spherical_harmonics_coefficients));
+    }
+    if (degree_dirty) {
+      source_.spherical_harmonics_degree = 3;
+      const auto degree = Read(
+          delegate, "radiance:sphericalHarmonicsDegree");
+      if (degree.IsHolding<int>()) {
+        const int value = degree.UncheckedGet<int>();
+        if (value < 0) {
+          ReportHydraDiagnostic(
+              "hydra.gaussian.negative-sh-degree", GetId(),
+              "spherical-harmonic degree is negative",
+              merlin::DiagnosticDisposition::Rejected,
+              "reject-particle-field");
+          return false;
+        }
+        source_.spherical_harmonics_degree =
+            static_cast<std::uint32_t>(value);
+      }
+    }
+    if (!positions) {
+      ReportHydraDiagnostic(
+          "hydra.gaussian.positions-type", GetId(),
+          "positions value is not a float3 or half3 array",
+          merlin::DiagnosticDisposition::Rejected,
+          "reject-particle-field");
+    }
+    return positions;
+  }
+
+  void FetchPolicy(HdSceneDelegate* delegate) {
+    source_.projection_mode = merlin::GaussianProjectionMode::Perspective;
+    const auto projection =
+        delegate->Get(GetId(), TfToken("projectionModeHint"));
+    if (projection.IsHolding<TfToken>() &&
+        projection.UncheckedGet<TfToken>() == TfToken("tangential")) {
+      source_.projection_mode = merlin::GaussianProjectionMode::Tangential;
+    } else if (projection.IsHolding<TfToken>() &&
+               projection.UncheckedGet<TfToken>() != TfToken("perspective")) {
+      ReportHydraDiagnostic(
+          "hydra.gaussian.unsupported-projection-hint", GetId(),
+          "unsupported Gaussian projection hint",
+          merlin::DiagnosticDisposition::Fallback, "perspective");
+    } else if (projection.IsEmpty()) {
+      ReportHydraDiagnostic(
+          "hydra.gaussian.projection-hint-unavailable", GetId(),
+          "Hydra did not transport the Gaussian projection hint",
+          merlin::DiagnosticDisposition::Fallback, "perspective");
+    }
+    source_.sorting_mode = merlin::GaussianSortingMode::ZDepth;
+    const auto sorting = delegate->Get(GetId(), TfToken("sortingModeHint"));
+    if (sorting.IsHolding<TfToken>() &&
+        sorting.UncheckedGet<TfToken>() == TfToken("cameraDistance")) {
+      source_.sorting_mode = merlin::GaussianSortingMode::CameraDistance;
+    } else if (sorting.IsHolding<TfToken>() &&
+               sorting.UncheckedGet<TfToken>() != TfToken("zDepth")) {
+      ReportHydraDiagnostic(
+          "hydra.gaussian.unsupported-sorting-hint", GetId(),
+          "unsupported Gaussian sorting hint",
+          merlin::DiagnosticDisposition::Fallback, "zDepth");
+    } else if (sorting.IsEmpty()) {
+      ReportHydraDiagnostic(
+          "hydra.gaussian.sorting-hint-unavailable", GetId(),
+          "Hydra did not transport the Gaussian sorting hint",
+          merlin::DiagnosticDisposition::Fallback, "zDepth");
+    }
+  }
+
+  static bool Same(merlin::Vec3 lhs, merlin::Vec3 rhs) {
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+  }
+
+  static bool Same(merlin::Covariance3 lhs, merlin::Covariance3 rhs) {
+    return lhs.xx == rhs.xx && lhs.xy == rhs.xy && lhs.xz == rhs.xz &&
+           lhs.yy == rhs.yy && lhs.yz == rhs.yz && lhs.zz == rhs.zz;
+  }
+
+  template <typename Value>
+  static bool Same(const std::vector<Value>& lhs,
+                   const std::vector<Value>& rhs) {
+    return lhs.size() == rhs.size() &&
+           std::equal(lhs.begin(), lhs.end(), rhs.begin(),
+                      [](const Value& a, const Value& b) {
+                        return Same(a, b);
+                      });
+  }
+
+  static std::optional<std::vector<merlin::ElementRange>>
+  ChangedParticleRanges(const merlin::GaussianDescriptor& previous,
+                        const merlin::GaussianDescriptor& next,
+                        merlin::ChangeAspect aspects) {
+    constexpr auto payload_aspects =
+        merlin::ChangeAspect::GaussianPositions |
+        merlin::ChangeAspect::GaussianCovariance |
+        merlin::ChangeAspect::GaussianOpacity |
+        merlin::ChangeAspect::GaussianRadiance;
+    if (!merlin::HasAnyAspect(aspects, payload_aspects)) {
+      return std::nullopt;
+    }
+    if (previous.positions.size() != next.positions.size() ||
+        previous.spherical_harmonics_degree !=
+            next.spherical_harmonics_degree) {
+      return std::nullopt;
+    }
+    const auto count = next.positions.size();
+    const auto coefficient_count =
+        static_cast<std::size_t>(next.spherical_harmonics_degree + 1U) *
+        (next.spherical_harmonics_degree + 1U);
+    std::vector<merlin::ElementRange> ranges;
+    std::size_t first = count;
+    for (std::size_t index = 0; index < count; ++index) {
+      bool changed{};
+      if (merlin::HasAnyAspect(
+              aspects, merlin::ChangeAspect::GaussianPositions)) {
+        changed = !Same(previous.positions[index], next.positions[index]);
+      }
+      if (!changed && merlin::HasAnyAspect(
+                          aspects,
+                          merlin::ChangeAspect::GaussianCovariance)) {
+        changed = !Same(previous.covariances[index],
+                        next.covariances[index]);
+      }
+      if (!changed && merlin::HasAnyAspect(
+                          aspects, merlin::ChangeAspect::GaussianOpacity)) {
+        changed = previous.opacities[index] != next.opacities[index];
+      }
+      if (!changed && merlin::HasAnyAspect(
+                          aspects, merlin::ChangeAspect::GaussianRadiance)) {
+        const auto offset = index * coefficient_count;
+        for (std::size_t coefficient = 0;
+             coefficient < coefficient_count; ++coefficient) {
+          if (!Same(previous.spherical_harmonics_coefficients[
+                        offset + coefficient],
+                    next.spherical_harmonics_coefficients[
+                        offset + coefficient])) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (changed && first == count) {
+        first = index;
+      } else if (!changed && first != count) {
+        ranges.push_back(
+            {static_cast<std::uint32_t>(first),
+             static_cast<std::uint32_t>(index - first)});
+        first = count;
+      }
+    }
+    if (first != count) {
+      ranges.push_back({static_cast<std::uint32_t>(first),
+                        static_cast<std::uint32_t>(count - first)});
+    }
+    return ranges;
+  }
+
+  void InvalidatePayload() {
+    bridge_->RemoveGaussian(GetId());
+    descriptor_ = {};
+    source_.positions.clear();
+    source_.orientations.clear();
+    source_.scales.clear();
+    source_.opacities.clear();
+    source_.spherical_harmonics_coefficients.clear();
+    payload_valid_ = false;
+    payload_initialized_ = false;
+  }
+
+  std::shared_ptr<SceneBridge> bridge_;
+  HydraDirtyTracker* dirty_tracker_{};
+  merlin::GaussianSourceData source_;
+  merlin::GaussianDescriptor descriptor_;
+  merlin::Mat4 transform_;
+  bool visible_{true};
+  bool payload_valid_{};
+  bool payload_initialized_{};
+};
+
 class HdMerlinCamera final : public HdCamera {
  public:
   HdMerlinCamera(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
@@ -3379,7 +3877,8 @@ HdMerlinRenderDelegate::GetLatestViewportFrame() const {
 }
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
-  static const TfTokenVector types{HdPrimTypeTokens->mesh};
+  static const TfTokenVector types{HdPrimTypeTokens->mesh,
+                                   HdPrimTypeTokens->particleField};
   return types;
 }
 
@@ -3418,6 +3917,10 @@ HdRprim* HdMerlinRenderDelegate::CreateRprim(const TfToken& type_id,
                                              const SdfPath& rprim_id) {
   if (type_id == HdPrimTypeTokens->mesh) {
     return new HdMerlinMesh(rprim_id, impl_->bridge, &impl_->dirty_tracker);
+  }
+  if (type_id == HdPrimTypeTokens->particleField) {
+    return new HdMerlinGaussian(rprim_id, impl_->bridge,
+                                &impl_->dirty_tracker);
   }
   return nullptr;
 }
