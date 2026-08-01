@@ -20,6 +20,7 @@ class Window;
 struct DeveloperUiScene {
   bool available{};
   std::uint64_t geometries{};
+  std::uint64_t gaussians{};
   std::uint64_t textures{};
   std::uint64_t samplers{};
   std::uint64_t materials{};

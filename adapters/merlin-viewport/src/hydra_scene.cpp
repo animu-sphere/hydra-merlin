@@ -596,6 +596,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
     ui_snapshot.scene = {
         latest_viewport_frame.available,
         latest_viewport_frame.geometries,
+        latest_viewport_frame.gaussians,
         latest_viewport_frame.textures,
         latest_viewport_frame.samplers,
         latest_viewport_frame.materials,
