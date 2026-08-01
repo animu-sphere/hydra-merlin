@@ -340,7 +340,6 @@ if(MERLIN_BUILD_TESTS)
         "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
         "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
         "-DMERLIN_HYDRA2_TEST_BACKEND=${_merlin_hydra2_test_backend}"
-        "-DMERLIN_HGI_METAL_BRIDGE_ENABLED:BOOL=${MERLIN_ENABLE_HGI_METAL_BRIDGE}"
         "-DMERLIN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/usdview_smoke_test.py"
         "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake"

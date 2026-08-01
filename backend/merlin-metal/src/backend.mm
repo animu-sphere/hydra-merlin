@@ -710,6 +710,7 @@ public:
       frame.exported_aov_mask |= mask;
       ++aov_image_export_count_;
       ++active_aov_image_leases_;
+      ++pending.result.telemetry.aov_image_export_count;
       return AovImageExport{
           AovImageLease(owner_, pending.result.completion_value, aov),
           MakeRenderProduct(pending.width, pending.height, aov),
@@ -781,8 +782,12 @@ public:
                 ? std::string("Metal command buffer failed")
                 : String(pending.command.error.localizedDescription);
         auto &failed_frame = frames_[pending.context_index];
-        failed_frame.busy = false;
-        failed_frame.completion_value = 0;
+        // A bridge blit may still be waiting on this frame's completion event.
+        // Keep the frame identified until that lease callback releases it.
+        failed_frame.busy = failed_frame.exported_aov_mask != 0;
+        if (!failed_frame.busy) {
+          failed_frame.completion_value = 0;
+        }
         const auto native_code =
             static_cast<std::int32_t>(pending.command.error.code);
         pending_.erase(token.value());
