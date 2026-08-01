@@ -312,6 +312,9 @@ struct FrameCounters {
   std::uint64_t gaussian_frustum_culled_count{};
   std::uint64_t gaussian_invalid_culled_count{};
   std::uint64_t gaussian_sorted_count{};
+  std::uint64_t gaussian_sorting_policy_fallback_count{};
+  std::uint64_t gaussian_preparation_cache_hits{};
+  std::uint64_t gaussian_preparation_cache_misses{};
   std::uint64_t upload_bytes{};
   // Upload payload split by resource class. The sum equals upload_bytes for
   // the current Mesh/material implementation.

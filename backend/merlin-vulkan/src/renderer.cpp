@@ -1285,8 +1285,28 @@ class Renderer::Impl {
     material_records_.Sync(request.snapshot->materials);
     instance_records_.Sync(request.snapshot->instances);
     draw_records_.Sync(request.snapshot->draws);
-    prepared_gaussians_ = detail::PrepareGaussianFrame(
-        *request.snapshot, {request.width, request.height});
+    const bool gaussian_preparation_cache_hit =
+        gaussian_preparation_cache_valid_ &&
+        gaussian_preparation_source_.table_identity() ==
+            request.snapshot->gaussians.table_identity() &&
+        gaussian_preparation_view_.values == request.snapshot->view.values &&
+        gaussian_preparation_projection_.values ==
+            request.snapshot->projection.values &&
+        gaussian_preparation_width_ == request.width &&
+        gaussian_preparation_height_ == request.height;
+    if (gaussian_preparation_cache_hit) {
+      ++frame_counters_.gaussian_preparation_cache_hits;
+    } else {
+      prepared_gaussians_ = detail::PrepareGaussianFrame(
+          *request.snapshot, {request.width, request.height});
+      gaussian_preparation_source_ = request.snapshot->gaussians;
+      gaussian_preparation_view_ = request.snapshot->view;
+      gaussian_preparation_projection_ = request.snapshot->projection;
+      gaussian_preparation_width_ = request.width;
+      gaussian_preparation_height_ = request.height;
+      gaussian_preparation_cache_valid_ = true;
+      ++frame_counters_.gaussian_preparation_cache_misses;
+    }
     frame_counters_.gaussian_candidate_count =
         prepared_gaussians_.counters.candidate_count;
     frame_counters_.gaussian_visible_count =
@@ -1301,6 +1321,8 @@ class Renderer::Impl {
         prepared_gaussians_.counters.invalid_culled_count;
     frame_counters_.gaussian_sorted_count =
         prepared_gaussians_.counters.sorted_count;
+    frame_counters_.gaussian_sorting_policy_fallback_count =
+        prepared_gaussians_.counters.sorting_policy_fallback_count;
     SelectGeneratedMaterials();
     PreflightGeneratedMaterialPipelines(*request.snapshot);
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
@@ -5846,6 +5868,13 @@ class Renderer::Impl {
   IndexedTableView<extraction::InstanceRecord> instance_records_;
   DenseTableView<extraction::DrawRecord> draw_records_;
   detail::GaussianPreparationResult prepared_gaussians_;
+  extraction::PersistentTable<extraction::GaussianRecord>
+      gaussian_preparation_source_;
+  Mat4 gaussian_preparation_view_;
+  Mat4 gaussian_preparation_projection_;
+  std::uint32_t gaussian_preparation_width_{};
+  std::uint32_t gaussian_preparation_height_{};
+  bool gaussian_preparation_cache_valid_{};
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
   std::vector<RetiredTexture> retired_textures_;

@@ -1752,6 +1752,12 @@ class SceneBridge {
                << result.telemetry.gaussian_invalid_culled_count
                << " gaussian_sorted_count="
                << result.telemetry.gaussian_sorted_count
+               << " gaussian_sorting_policy_fallback_count="
+               << result.telemetry.gaussian_sorting_policy_fallback_count
+               << " gaussian_preparation_cache_hits="
+               << result.telemetry.gaussian_preparation_cache_hits
+               << " gaussian_preparation_cache_misses="
+               << result.telemetry.gaussian_preparation_cache_misses
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height

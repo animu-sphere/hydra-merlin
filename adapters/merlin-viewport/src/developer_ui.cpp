@@ -442,6 +442,12 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    snapshot.telemetry.gaussian_frustum_culled_count);
         LabelValue("Gaussian invalid culled",
                    snapshot.telemetry.gaussian_invalid_culled_count);
+        LabelValue("Gaussian sorting fallbacks",
+                   snapshot.telemetry.gaussian_sorting_policy_fallback_count);
+        LabelValue("Gaussian preparation cache hits",
+                   snapshot.telemetry.gaussian_preparation_cache_hits);
+        LabelValue("Gaussian preparation cache misses",
+                   snapshot.telemetry.gaussian_preparation_cache_misses);
         LabelBytes("Frame upload", snapshot.telemetry.upload_bytes);
         LabelBytes("Buffer allocations",
                    snapshot.telemetry.buffer_allocation_bytes);

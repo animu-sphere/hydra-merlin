@@ -41,6 +41,10 @@ struct GaussianPreparationCounters {
   std::uint64_t frustum_culled_count{};
   std::uint64_t invalid_culled_count{};
   std::uint64_t sorted_count{};
+  // A frame containing both authored sorting policies cannot compare their
+  // native key domains globally. The CPU reference falls back to Z depth for
+  // every participating resource and reports how many resources were affected.
+  std::uint64_t sorting_policy_fallback_count{};
 };
 
 struct GaussianPreparationResult {

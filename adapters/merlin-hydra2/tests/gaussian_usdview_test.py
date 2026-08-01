@@ -47,3 +47,11 @@ def testUsdviewInputFunction(appController):
         assert int(event["gaussian_sorted_count"]) == int(
             event["gaussian_visible_count"]
         )
+    assert any(
+        int(event.get("gaussian_preparation_cache_hits", "0")) > 0
+        for event in prepared
+    ), "Static Gaussian frames did not reuse CPU preparation"
+    assert any(
+        int(event.get("gaussian_preparation_cache_misses", "0")) > 0
+        for event in prepared
+    ), "Gaussian preparation never recorded initial work"

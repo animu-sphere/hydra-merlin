@@ -474,6 +474,13 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.gaussian_invalid_culled_count);
   WriteCounter(stream, counter_indent, "gaussian_sorted_count",
                count.gaussian_sorted_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_sorting_policy_fallback_count",
+               count.gaussian_sorting_policy_fallback_count);
+  WriteCounter(stream, counter_indent, "gaussian_preparation_cache_hits",
+               count.gaussian_preparation_cache_hits);
+  WriteCounter(stream, counter_indent, "gaussian_preparation_cache_misses",
+               count.gaussian_preparation_cache_misses);
   WriteCounter(stream, counter_indent, "upload_bytes", count.upload_bytes);
   WriteCounter(stream, counter_indent, "vertex_upload_bytes",
                count.vertex_upload_bytes);

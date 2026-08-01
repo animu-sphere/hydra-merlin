@@ -113,5 +113,48 @@ int main() {
   assert(by_distance.gaussians[0].sort_key >
          by_distance.gaussians[1].sort_key);
 
+  // Tangential footprints under an orthographic projection must not acquire
+  // perspective distance attenuation.
+  merlin::extraction::FrameSnapshot orthographic_snapshot;
+  orthographic_snapshot.gaussians.push_back(MakeRecord(
+      12, {{0.0F, 0.0F, 0.2F}, {0.0F, 0.0F, 0.8F}}, {1.0F, 1.0F},
+      merlin::GaussianProjectionMode::Tangential));
+  const auto orthographic =
+      PrepareGaussianFrame(orthographic_snapshot, {100, 100});
+  assert(orthographic.gaussians.size() == 2);
+  assert(Near(orthographic.gaussians[0].radius_pixels,
+              orthographic.gaussians[1].radius_pixels));
+
+  // Three-sigma depth bounds conservatively retain a kernel crossing the
+  // near plane, while rejecting one whose complete bound remains outside.
+  merlin::extraction::FrameSnapshot depth_boundary_snapshot;
+  depth_boundary_snapshot.gaussians.push_back(MakeRecord(
+      13, {{0.0F, 0.0F, -0.01F}, {0.0F, 0.0F, -0.04F}}, {1.0F, 1.0F}));
+  const auto depth_boundary =
+      PrepareGaussianFrame(depth_boundary_snapshot, {100, 100});
+  assert(depth_boundary.gaussians.size() == 1);
+  assert(depth_boundary.gaussians[0].particle == 0);
+  assert(depth_boundary.gaussians[0].depth == 0.0F);
+  assert(depth_boundary.counters.frustum_culled_count == 1);
+
+  // Per-resource Z-depth and camera-distance values are incomparable. Mixed
+  // policy frames use one diagnosed Z-depth fallback for global composition.
+  merlin::extraction::FrameSnapshot mixed_sorting_snapshot;
+  mixed_sorting_snapshot.projection.values[0] = 0.1F;
+  mixed_sorting_snapshot.gaussians.push_back(MakeRecord(
+      21, {{0.0F, 0.0F, 0.9F}}, {1.0F},
+      merlin::GaussianProjectionMode::Perspective,
+      merlin::GaussianSortingMode::ZDepth));
+  mixed_sorting_snapshot.gaussians.push_back(MakeRecord(
+      22, {{2.0F, 0.0F, 0.2F}}, {1.0F},
+      merlin::GaussianProjectionMode::Perspective,
+      merlin::GaussianSortingMode::CameraDistance));
+  const auto mixed_sorting =
+      PrepareGaussianFrame(mixed_sorting_snapshot, {100, 100});
+  assert(mixed_sorting.gaussians.size() == 2);
+  assert(mixed_sorting.counters.sorting_policy_fallback_count == 2);
+  assert(mixed_sorting.gaussians[0].resource == 21);
+  assert(mixed_sorting.gaussians[1].resource == 22);
+
   return 0;
 }

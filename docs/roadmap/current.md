@@ -43,7 +43,10 @@ and off-screen particles, evaluates degree-0–3 real spherical harmonics, and
 produces a stable back-to-front stream using the authored Z-depth or camera-
 distance policy. Shader-ready screen centers, inverse conics, three-sigma
 bounds, radiance, opacity, depth, and sort keys are retained together with
-candidate, visible, rejection, and sort counters.
+candidate, visible, rejection, fallback, cache, and sort counters. Mixed
+sorting policies use one diagnosed Z-depth fallback so incomparable key domains
+never enter a global blend order. Static Gaussian tables reuse their prepared
+stream while camera, projection, and viewport remain unchanged.
 
 The external fixture selected with `MERLIN_GAUSSIAN_SAMPLE` validates both the
 OpenUSD schema payload and the usdview/Hydra path. Current local evidence uses

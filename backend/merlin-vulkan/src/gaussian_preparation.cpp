@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 namespace merlin::vulkan::detail {
 namespace {
@@ -189,8 +190,27 @@ std::array<Vec3, 2> PerspectiveJacobian(const Mat4& projection,
   return {quotient_row(row_x, clip.x), quotient_row(row_y, clip.y)};
 }
 
+Vec3 DepthJacobian(const Mat4& projection, Vec3 camera, float clip_w) {
+  const auto clip = TransformPoint4(projection, camera);
+  const Vec3 row_z{projection.values[2], projection.values[6],
+                   projection.values[10]};
+  const Vec3 row_w{projection.values[3], projection.values[7],
+                   projection.values[11]};
+  const auto inverse_w_squared = 1.0F / (clip_w * clip_w);
+  return {(row_z.x * clip_w - clip.z * row_w.x) * inverse_w_squared,
+          (row_z.y * clip_w - clip.z * row_w.y) * inverse_w_squared,
+          (row_z.z * clip_w - clip.z * row_w.z) * inverse_w_squared};
+}
+
 std::array<Vec3, 2> TangentialJacobian(const Mat4& projection,
-                                       Vec3 camera) {
+                                       Vec3 camera, float clip_w) {
+  const Vec3 row_w{projection.values[3], projection.values[7],
+                   projection.values[11]};
+  // Orthographic projection is already tangential to its image plane. Its
+  // exact derivative preserves authored scale independently of camera depth.
+  if (LengthSquared(row_w) <= kProjectionEpsilon * kProjectionEpsilon) {
+    return PerspectiveJacobian(projection, camera, clip_w);
+  }
   const auto distance = std::sqrt(LengthSquared(camera));
   const auto direction = Normalize(camera);
   if (distance <= kProjectionEpsilon || !IsFinite(direction)) {
@@ -250,6 +270,18 @@ bool ProjectCovariance(const Matrix3& camera_covariance,
   inverse_conic = {yy / determinant, -xy / determinant, xx / determinant};
   return std::isfinite(radius_pixels) && radius_pixels > 0.0F &&
          IsFinite(inverse_conic);
+}
+
+bool ProjectDepthExtent(const Matrix3& camera_covariance,
+                        Vec3 depth_jacobian, float sigma_extent,
+                        float& radius) {
+  const auto variance =
+      Dot(depth_jacobian, Multiply(camera_covariance, depth_jacobian));
+  if (!std::isfinite(variance) || variance < -kProjectionEpsilon) {
+    return false;
+  }
+  radius = sigma_extent * std::sqrt(std::max(variance, 0.0F));
+  return std::isfinite(radius);
 }
 
 Vec3 LocalCameraDirection(const Matrix3& local_to_camera, Vec3 camera_point) {
@@ -348,6 +380,28 @@ GaussianPreparationResult PrepareGaussianFrame(
   }
   result.gaussians.reserve(total_particles);
 
+  std::optional<GaussianSortingMode> authored_sorting_mode;
+  std::uint64_t sorting_resource_count{};
+  bool mixed_sorting_policy{};
+  for (const auto& record : snapshot.gaussians) {
+    if (!record.visible || !record.positions || record.positions->empty()) {
+      continue;
+    }
+    ++sorting_resource_count;
+    if (!authored_sorting_mode) {
+      authored_sorting_mode = record.sorting_mode;
+    } else if (*authored_sorting_mode != record.sorting_mode) {
+      mixed_sorting_policy = true;
+    }
+  }
+  const auto effective_sorting_mode =
+      mixed_sorting_policy
+          ? GaussianSortingMode::ZDepth
+          : authored_sorting_mode.value_or(GaussianSortingMode::ZDepth);
+  if (mixed_sorting_policy) {
+    result.counters.sorting_policy_fallback_count = sorting_resource_count;
+  }
+
   for (const auto& record : snapshot.gaussians) {
     const auto count = record.positions ? record.positions->size() : 0U;
     result.counters.candidate_count += count;
@@ -382,17 +436,31 @@ GaussianPreparationResult PrepareGaussianFrame(
       const auto projected = ProjectPoint(
           local_to_camera, snapshot.projection, (*record.positions)[particle]);
       if (projected.clip_w <= kProjectionEpsilon ||
-          !IsFinite(projected.camera) || !IsFinite(projected.ndc) ||
-          projected.ndc.z < 0.0F || projected.ndc.z > 1.0F) {
+          !IsFinite(projected.camera) || !IsFinite(projected.ndc)) {
         ++result.counters.frustum_culled_count;
         continue;
       }
       const auto camera_covariance = TransformCovariance(
           local_to_camera_linear,
           CovarianceMatrix((*record.covariances)[particle]));
+      float depth_radius{};
+      if (!ProjectDepthExtent(
+              camera_covariance,
+              DepthJacobian(snapshot.projection, projected.camera,
+                            projected.clip_w),
+              options.sigma_extent, depth_radius)) {
+        ++result.counters.invalid_culled_count;
+        continue;
+      }
+      if (projected.ndc.z + depth_radius < 0.0F ||
+          projected.ndc.z - depth_radius > 1.0F) {
+        ++result.counters.frustum_culled_count;
+        continue;
+      }
       const auto jacobian =
           record.projection_mode == GaussianProjectionMode::Tangential
-              ? TangentialJacobian(snapshot.projection, projected.camera)
+              ? TangentialJacobian(snapshot.projection, projected.camera,
+                                   projected.clip_w)
               : PerspectiveJacobian(snapshot.projection, projected.camera,
                                     projected.clip_w);
       Vec3 inverse_conic;
@@ -420,16 +488,17 @@ GaussianPreparationResult PrepareGaussianFrame(
       const auto local_direction = LocalCameraDirection(
           local_to_camera_linear, projected.camera);
       const auto sort_key =
-          record.sorting_mode == GaussianSortingMode::CameraDistance
+          effective_sorting_mode == GaussianSortingMode::CameraDistance
               ? LengthSquared(projected.camera)
               : projected.ndc.z;
+      const auto raster_depth = std::clamp(projected.ndc.z, 0.0F, 1.0F);
       result.gaussians.push_back(
           {record.gaussian, static_cast<std::uint32_t>(particle), center,
            inverse_conic,
            EvaluateGaussianRadiance(coefficient_span,
                                     record.spherical_harmonics_degree,
                                     local_direction),
-           opacity, radius_pixels, projected.ndc.z, sort_key});
+           opacity, radius_pixels, raster_depth, sort_key});
     }
   }
 
