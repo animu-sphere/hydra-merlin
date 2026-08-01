@@ -36,16 +36,25 @@ transform, and visibility revisions. Extraction shares unchanged immutable
 arrays and carries normalized changed-particle ranges for later partial GPU
 upload. Rejection and fallback paths use `merlin-diagnostic/v1`.
 
+The Vulkan path now has a deterministic CPU reference preparation stage. It
+transforms positions and covariance into camera space, implements perspective
+and tangential covariance projection, rejects hidden, transparent, invalid,
+and off-screen particles, evaluates degree-0–3 real spherical harmonics, and
+produces a stable back-to-front stream using the authored Z-depth or camera-
+distance policy. Shader-ready screen centers, inverse conics, three-sigma
+bounds, radiance, opacity, depth, and sort keys are retained together with
+candidate, visible, rejection, and sort counters.
+
 The external fixture selected with `MERLIN_GAUSSIAN_SAMPLE` validates both the
 OpenUSD schema payload and the usdview/Hydra path. Current local evidence uses
 `/Asset/Splat` from the 8192-particle SOG sample: degree 3, 131072 RGB SH
 coefficients, no ingestion diagnostics, and one Gaussian snapshot resource.
 
-Remaining work is Vulkan upload, camera-space projection and CPU sorting,
-procedural elliptical rasterization and falloff, opacity/SH appearance,
-changed-range upload, mixed Mesh/Gaussian composition, and native-viewport
-performance evidence. A successful ingestion smoke currently produces no
-Gaussian pixels and is not rendering evidence.
+Remaining work is Vulkan upload of the prepared stream, procedural elliptical
+rasterization and falloff, alpha compositing of the prepared opacity/SH
+appearance, changed-range upload, mixed Mesh/Gaussian composition, and native-
+viewport performance evidence. A successful ingestion smoke currently
+produces no Gaussian pixels and is not rendering evidence.
 
 ## Active carry-over
 

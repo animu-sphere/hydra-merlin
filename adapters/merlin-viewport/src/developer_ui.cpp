@@ -417,6 +417,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       TwoColumnTable("scene-residency", [&] {
         if (snapshot.scene.available) {
           LabelValue("Geometry", snapshot.scene.geometries);
+          LabelValue("Gaussian resources", snapshot.scene.gaussians);
           LabelValue("Textures", snapshot.scene.textures);
           LabelValue("Samplers", snapshot.scene.samplers);
           LabelValue("Materials", snapshot.scene.materials);
@@ -427,6 +428,20 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    snapshot.telemetry.visible_primitive_count);
         LabelValue("Draws", snapshot.telemetry.draw_count);
         LabelValue("Triangles", snapshot.telemetry.triangle_count);
+        LabelValue("Gaussian candidates",
+                   snapshot.telemetry.gaussian_candidate_count);
+        LabelValue("Gaussian visible",
+                   snapshot.telemetry.gaussian_visible_count);
+        LabelValue("Gaussian sorted",
+                   snapshot.telemetry.gaussian_sorted_count);
+        LabelValue("Gaussian hidden",
+                   snapshot.telemetry.gaussian_hidden_count);
+        LabelValue("Gaussian opacity culled",
+                   snapshot.telemetry.gaussian_opacity_culled_count);
+        LabelValue("Gaussian frustum culled",
+                   snapshot.telemetry.gaussian_frustum_culled_count);
+        LabelValue("Gaussian invalid culled",
+                   snapshot.telemetry.gaussian_invalid_culled_count);
         LabelBytes("Frame upload", snapshot.telemetry.upload_bytes);
         LabelBytes("Buffer allocations",
                    snapshot.telemetry.buffer_allocation_bytes);

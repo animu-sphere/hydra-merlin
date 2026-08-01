@@ -302,6 +302,16 @@ struct FrameCounters {
   std::uint64_t draw_count{};
   std::uint64_t visible_primitive_count{};
   std::uint64_t triangle_count{};
+  // CPU reference preparation for the Gaussian MVP. These counters remain
+  // distinct from draw_count until the procedural Vulkan raster pass consumes
+  // the sorted stream.
+  std::uint64_t gaussian_candidate_count{};
+  std::uint64_t gaussian_visible_count{};
+  std::uint64_t gaussian_hidden_count{};
+  std::uint64_t gaussian_opacity_culled_count{};
+  std::uint64_t gaussian_frustum_culled_count{};
+  std::uint64_t gaussian_invalid_culled_count{};
+  std::uint64_t gaussian_sorted_count{};
   std::uint64_t upload_bytes{};
   // Upload payload split by resource class. The sum equals upload_bytes for
   // the current Mesh/material implementation.

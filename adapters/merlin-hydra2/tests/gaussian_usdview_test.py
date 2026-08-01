@@ -24,3 +24,26 @@ def testUsdviewInputFunction(appController):
         int(event.get("gaussian_resources", "0")) == 1
         for event in events
     ), "Hydra particleField did not reach the Gaussian snapshot"
+    prepared = [
+        event for event in events
+        if int(event.get("gaussian_candidate_count", "0")) > 0
+    ]
+    assert prepared, "Gaussian particles did not reach CPU projection"
+    for event in prepared:
+        candidates = int(event["gaussian_candidate_count"])
+        accounted = sum(
+            int(event.get(field, "0"))
+            for field in (
+                "gaussian_visible_count",
+                "gaussian_hidden_count",
+                "gaussian_opacity_culled_count",
+                "gaussian_frustum_culled_count",
+                "gaussian_invalid_culled_count",
+            )
+        )
+        assert accounted == candidates, (
+            "Gaussian preparation did not account for every particle"
+        )
+        assert int(event["gaussian_sorted_count"]) == int(
+            event["gaussian_visible_count"]
+        )

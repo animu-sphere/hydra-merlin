@@ -1,5 +1,6 @@
 #include <merlin/vulkan/renderer.hpp>
 #include "environment_lighting.hpp"
+#include "gaussian_preparation.hpp"
 
 #include <merlin/vulkan/shader_abi.hpp>
 
@@ -1284,6 +1285,22 @@ class Renderer::Impl {
     material_records_.Sync(request.snapshot->materials);
     instance_records_.Sync(request.snapshot->instances);
     draw_records_.Sync(request.snapshot->draws);
+    prepared_gaussians_ = detail::PrepareGaussianFrame(
+        *request.snapshot, {request.width, request.height});
+    frame_counters_.gaussian_candidate_count =
+        prepared_gaussians_.counters.candidate_count;
+    frame_counters_.gaussian_visible_count =
+        prepared_gaussians_.counters.visible_count;
+    frame_counters_.gaussian_hidden_count =
+        prepared_gaussians_.counters.hidden_count;
+    frame_counters_.gaussian_opacity_culled_count =
+        prepared_gaussians_.counters.opacity_culled_count;
+    frame_counters_.gaussian_frustum_culled_count =
+        prepared_gaussians_.counters.frustum_culled_count;
+    frame_counters_.gaussian_invalid_culled_count =
+        prepared_gaussians_.counters.invalid_culled_count;
+    frame_counters_.gaussian_sorted_count =
+        prepared_gaussians_.counters.sorted_count;
     SelectGeneratedMaterials();
     PreflightGeneratedMaterialPipelines(*request.snapshot);
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
@@ -5828,6 +5845,7 @@ class Renderer::Impl {
   IndexedTableView<extraction::MaterialRecord> material_records_;
   IndexedTableView<extraction::InstanceRecord> instance_records_;
   DenseTableView<extraction::DrawRecord> draw_records_;
+  detail::GaussianPreparationResult prepared_gaussians_;
   std::vector<FrameContext> frames_;
   std::vector<RetiredBuffer> deferred_;
   std::vector<RetiredTexture> retired_textures_;

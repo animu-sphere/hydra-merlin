@@ -460,6 +460,20 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
   WriteCounter(stream, counter_indent, "visible_primitive_count",
                count.visible_primitive_count);
   WriteCounter(stream, counter_indent, "triangle_count", count.triangle_count);
+  WriteCounter(stream, counter_indent, "gaussian_candidate_count",
+               count.gaussian_candidate_count);
+  WriteCounter(stream, counter_indent, "gaussian_visible_count",
+               count.gaussian_visible_count);
+  WriteCounter(stream, counter_indent, "gaussian_hidden_count",
+               count.gaussian_hidden_count);
+  WriteCounter(stream, counter_indent, "gaussian_opacity_culled_count",
+               count.gaussian_opacity_culled_count);
+  WriteCounter(stream, counter_indent, "gaussian_frustum_culled_count",
+               count.gaussian_frustum_culled_count);
+  WriteCounter(stream, counter_indent, "gaussian_invalid_culled_count",
+               count.gaussian_invalid_culled_count);
+  WriteCounter(stream, counter_indent, "gaussian_sorted_count",
+               count.gaussian_sorted_count);
   WriteCounter(stream, counter_indent, "upload_bytes", count.upload_bytes);
   WriteCounter(stream, counter_indent, "vertex_upload_bytes",
                count.vertex_upload_bytes);

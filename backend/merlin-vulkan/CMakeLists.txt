@@ -56,6 +56,7 @@ add_library(merlin-vulkan STATIC
   src/bindless_resource_table.cpp
   src/descriptor_indexing.cpp
   src/environment_lighting.cpp
+  src/gaussian_preparation.cpp
   src/render_artifacts.cpp
   src/renderer.cpp
 )

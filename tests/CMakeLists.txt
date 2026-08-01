@@ -325,6 +325,19 @@ set_tests_properties(merlin-mesh-scale-regression PROPERTIES
   TIMEOUT 60)
 
 if(TARGET Merlin::Vulkan)
+  add_executable(merlin-gaussian-preparation-tests
+    gaussian_preparation_test.cpp
+  )
+  target_include_directories(merlin-gaussian-preparation-tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/src"
+  )
+  target_link_libraries(merlin-gaussian-preparation-tests
+    PRIVATE Merlin::Vulkan)
+  add_test(NAME merlin-vulkan-gaussian-preparation
+           COMMAND merlin-gaussian-preparation-tests)
+  set_tests_properties(merlin-vulkan-gaussian-preparation PROPERTIES
+    LABELS "gaussian;vulkan;cpu-reference")
+
   add_executable(merlin-borrowed-vulkan-context-tests
     borrowed_vulkan_context_test.cpp
   )
