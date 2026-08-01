@@ -302,9 +302,8 @@ struct FrameCounters {
   std::uint64_t draw_count{};
   std::uint64_t visible_primitive_count{};
   std::uint64_t triangle_count{};
-  // CPU reference preparation for the Gaussian MVP. These counters remain
-  // distinct from draw_count until the procedural Vulkan raster pass consumes
-  // the sorted stream.
+  // Gaussian preparation and raster work stay distinct from Mesh draw_count:
+  // the sorted visible stream is consumed by at most one procedural draw.
   std::uint64_t gaussian_candidate_count{};
   std::uint64_t gaussian_visible_count{};
   std::uint64_t gaussian_hidden_count{};
@@ -315,9 +314,11 @@ struct FrameCounters {
   std::uint64_t gaussian_sorting_policy_fallback_count{};
   std::uint64_t gaussian_preparation_cache_hits{};
   std::uint64_t gaussian_preparation_cache_misses{};
+  std::uint64_t gaussian_draw_count{};
+  std::uint64_t gaussian_upload_bytes{};
   std::uint64_t upload_bytes{};
-  // Upload payload split by resource class. The sum equals upload_bytes for
-  // the current Mesh/material implementation.
+  // Upload payload split by resource class. Vertex, index, texture, and
+  // Gaussian payload bytes sum to upload_bytes.
   std::uint64_t vertex_upload_bytes{};
   std::uint64_t index_upload_bytes{};
   std::uint64_t texture_upload_bytes{};
@@ -398,6 +399,8 @@ struct ShaderPaths {
   std::filesystem::path bindless_vertex;
   std::filesystem::path bindless_fragment;
   std::filesystem::path environment;
+  std::filesystem::path gaussian_vertex;
+  std::filesystem::path gaussian_fragment;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };

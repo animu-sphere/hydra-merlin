@@ -481,6 +481,10 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.gaussian_preparation_cache_hits);
   WriteCounter(stream, counter_indent, "gaussian_preparation_cache_misses",
                count.gaussian_preparation_cache_misses);
+  WriteCounter(stream, counter_indent, "gaussian_draw_count",
+               count.gaussian_draw_count);
+  WriteCounter(stream, counter_indent, "gaussian_upload_bytes",
+               count.gaussian_upload_bytes);
   WriteCounter(stream, counter_indent, "upload_bytes", count.upload_bytes);
   WriteCounter(stream, counter_indent, "vertex_upload_bytes",
                count.vertex_upload_bytes);
@@ -803,7 +807,9 @@ int main(int argc, char** argv) {
         shader_dir / "triangle.frag.spv",
         shader_dir / "triangle.bindless.vert.spv",
         shader_dir / "triangle.bindless.frag.spv",
-        shader_dir / "environment.hdr"};
+        shader_dir / "environment.hdr",
+        shader_dir / "gaussian.vert.spv",
+        shader_dir / "gaussian.frag.spv"};
     merlin::vulkan::Renderer renderer;
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;

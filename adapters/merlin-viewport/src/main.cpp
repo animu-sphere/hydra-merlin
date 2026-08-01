@@ -361,7 +361,9 @@ int main(int argc, char** argv) {
           shader_dir / "triangle.frag.spv",
           shader_dir / "triangle.bindless.vert.spv",
           shader_dir / "triangle.bindless.frag.spv",
-          shader_dir / "environment.hdr"};
+          shader_dir / "environment.hdr",
+          shader_dir / "gaussian.vert.spv",
+          shader_dir / "gaussian.frag.spv"};
       vulkan_factory =
           std::make_unique<merlin::vulkan::BackendFactory>(
               std::move(vulkan_options));

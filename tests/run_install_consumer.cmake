@@ -42,11 +42,13 @@ if(EXISTS "${_headless}")
       "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
   foreach(_shader_file
       triangle.vert.spv triangle.frag.spv
+      gaussian.vert.spv gaussian.frag.spv
       triangle.bindless.vert.spv triangle.bindless.frag.spv
       triangle.vert.metal triangle.frag.metal
       triangle.vert.spv.reflection.json triangle.frag.spv.reflection.json
       triangle.bindless.vert.spv.reflection.json
       triangle.bindless.frag.spv.reflection.json
+      gaussian.vert.spv.reflection.json gaussian.frag.spv.reflection.json
       triangle.vert.metal.reflection.json
       triangle.frag.metal.reflection.json manifest.json environment.hdr)
     if(NOT EXISTS "${_shader_dir}/${_shader_file}")

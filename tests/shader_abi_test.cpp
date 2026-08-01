@@ -140,20 +140,22 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 8) {
+    if (argc != 10) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
-          "bindless.vert.json bindless.frag.json metal.vert.json "
-          "metal.frag.json manifest.json");
+          "bindless.vert.json bindless.frag.json gaussian.vert.json "
+          "gaussian.frag.json metal.vert.json metal.frag.json manifest.json");
     }
 
     const auto conventional_vertex = CompactJson(Read(argv[1]));
     const auto conventional_fragment = CompactJson(Read(argv[2]));
     const auto bindless_vertex = CompactJson(Read(argv[3]));
     const auto bindless_fragment = CompactJson(Read(argv[4]));
-    const auto metal_vertex = CompactJson(Read(argv[5]));
-    const auto metal_fragment = CompactJson(Read(argv[6]));
-    const auto manifest = CompactJson(Read(argv[7]));
+    const auto gaussian_vertex = CompactJson(Read(argv[5]));
+    const auto gaussian_fragment = CompactJson(Read(argv[6]));
+    const auto metal_vertex = CompactJson(Read(argv[7]));
+    const auto metal_fragment = CompactJson(Read(argv[8]));
+    const auto manifest = CompactJson(Read(argv[9]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -187,6 +189,19 @@ int main(int argc, char** argv) {
     RequireContains(bindless_fragment,
                     "\"name\":\"forward_bindless_fragment\",\"stage\":\"fragment\"",
                     "bindless fragment entry point mismatch");
+    RequireContains(gaussian_vertex,
+                    "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
+                    "Gaussian vertex entry point mismatch");
+    RequireContains(gaussian_fragment,
+                    "\"name\":\"gaussian_fragment\",\"stage\":\"fragment\"",
+                    "Gaussian fragment entry point mismatch");
+    RequireContains(gaussian_vertex, "\"name\":\"GaussianConstants\"",
+                    "Gaussian push constants are absent from reflection");
+    RequireContains(
+        gaussian_vertex,
+        "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
+        "Gaussian constants are not a push constant buffer");
+    RequireField(gaussian_vertex, "inverse_viewport_size", 0, 8);
     RequireContains(metal_vertex,
                     "\"name\":\"forward_vertex\",\"stage\":\"vertex\"",
                     "Metal vertex compile gate reflection mismatch");
@@ -212,7 +227,7 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 6,
+                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 8,
             "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");

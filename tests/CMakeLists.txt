@@ -338,6 +338,23 @@ if(TARGET Merlin::Vulkan)
   set_tests_properties(merlin-vulkan-gaussian-preparation PROPERTIES
     LABELS "gaussian;vulkan;cpu-reference")
 
+  add_executable(merlin-gaussian-raster-tests
+    gaussian_raster_test.cpp
+  )
+  target_link_libraries(merlin-gaussian-raster-tests
+    PRIVATE Merlin::RenderWorld Merlin::RenderExtraction Merlin::Vulkan)
+  add_dependencies(merlin-gaussian-raster-tests merlin-vulkan-shaders)
+  add_test(
+    NAME merlin-vulkan-gaussian-raster
+    COMMAND merlin-gaussian-raster-tests
+            "${PROJECT_BINARY_DIR}/backend/merlin-vulkan/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+            "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/assets/environment.hdr"
+  )
+  set_tests_properties(merlin-vulkan-gaussian-raster PROPERTIES
+    LABELS "gaussian;gpu;vulkan;image"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 60)
+
   add_executable(merlin-borrowed-vulkan-context-tests
     borrowed_vulkan_context_test.cpp
   )
@@ -362,6 +379,8 @@ if(TARGET Merlin::Vulkan)
       "${MERLIN_FRAGMENT_SPV}.reflection.json"
       "${MERLIN_BINDLESS_VERTEX_SPV}.reflection.json"
       "${MERLIN_BINDLESS_FRAGMENT_SPV}.reflection.json"
+      "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
+      "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
       "${MERLIN_VERTEX_METAL}.reflection.json"
       "${MERLIN_FRAGMENT_METAL}.reflection.json"
       "${MERLIN_SHADER_MANIFEST}"

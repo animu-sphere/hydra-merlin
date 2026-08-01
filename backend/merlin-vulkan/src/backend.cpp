@@ -275,6 +275,10 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
         native.counters.gaussian_preparation_cache_hits;
     result.telemetry.gaussian_preparation_cache_misses =
         native.counters.gaussian_preparation_cache_misses;
+    result.telemetry.gaussian_draw_count =
+        native.counters.gaussian_draw_count;
+    result.telemetry.gaussian_upload_bytes =
+        native.counters.gaussian_upload_bytes;
     result.telemetry.presentation_copy_bytes =
         native.counters.presentation_copy_bytes;
     result.telemetry.requested_aov_mask = native.counters.requested_aov_mask;

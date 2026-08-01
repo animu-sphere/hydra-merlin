@@ -1474,7 +1474,8 @@ class SceneBridge {
           shader_dir / "triangle.vert.spv", shader_dir / "triangle.frag.spv",
           shader_dir / "triangle.bindless.vert.spv",
           shader_dir / "triangle.bindless.frag.spv",
-          shader_dir / "environment.hdr"};
+          shader_dir / "environment.hdr", shader_dir / "gaussian.vert.spv",
+          shader_dir / "gaussian.frag.spv"};
       merlin::vulkan::BackendFactory factory(std::move(factory_options));
       std::vector<merlin::render::BackendFactory*> factories{&factory};
       merlin::render::BackendCreateInfo create_info;
@@ -1758,6 +1759,10 @@ class SceneBridge {
                << result.telemetry.gaussian_preparation_cache_hits
                << " gaussian_preparation_cache_misses="
                << result.telemetry.gaussian_preparation_cache_misses
+               << " gaussian_draw_count="
+               << result.telemetry.gaussian_draw_count
+               << " gaussian_upload_bytes="
+               << result.telemetry.gaussian_upload_bytes
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height
