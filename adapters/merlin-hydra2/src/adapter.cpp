@@ -565,6 +565,28 @@ bool ValidationRequested() {
 #endif
 }
 
+#ifdef MERLIN_HYDRA2_ENABLE_METAL
+std::optional<std::uint64_t> MetalHeapCapacityBytesFromEnvironment() {
+  const char* value = std::getenv("MERLIN_METAL_HEAP_MIB");
+  if (value == nullptr || *value == '\0') {
+    return std::nullopt;
+  }
+  std::uint64_t capacity_mib{};
+  const auto* begin = value;
+  const auto* end = value + std::strlen(value);
+  const auto [parsed_end, error] =
+      std::from_chars(begin, end, capacity_mib);
+  constexpr std::uint64_t bytes_per_mib = 1024ULL * 1024ULL;
+  if (error != std::errc{} || parsed_end != end || capacity_mib == 0 ||
+      capacity_mib > std::numeric_limits<std::uint64_t>::max() /
+                          bytes_per_mib) {
+    throw std::invalid_argument(
+        "MERLIN_METAL_HEAP_MIB must be a positive in-range integer");
+  }
+  return capacity_mib * bytes_per_mib;
+}
+#endif
+
 const VtValue* FindParameter(const HdMaterialNode2& node, const char* name) {
   const auto found = node.parameters.find(TfToken(name));
   return found == node.parameters.end() ? nullptr : &found->second;
@@ -1394,7 +1416,11 @@ class SceneBridge {
       renderer_ = std::shared_ptr<merlin::render::Backend>(
           merlin::render::CreateBackend(create_info, factories));
 #elif defined(MERLIN_HYDRA2_ENABLE_METAL)
-      merlin::metal::BackendFactory factory;
+      merlin::metal::BackendOptions backend_options;
+      if (const auto capacity = MetalHeapCapacityBytesFromEnvironment()) {
+        backend_options.heap_capacity_bytes = *capacity;
+      }
+      merlin::metal::BackendFactory factory(backend_options);
       std::vector<merlin::render::BackendFactory*> factories{&factory};
       merlin::render::BackendCreateInfo create_info;
       create_info.backend = merlin::render::BackendRequest::Metal;

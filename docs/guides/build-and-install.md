@@ -24,7 +24,9 @@ metadata. GLFW is private to the viewport and never becomes a Core dependency.
 The viewport also fetches the pinned Dear ImGui 1.92.8 revision and compiles
 only its core plus the required official GLFW, Vulkan, and Metal backends.
 Dear ImGui stays private to the executable and does not enter an installed
-Merlin target.
+Merlin target. For large Hydra2 stages opened through usdview, set
+`MERLIN_METAL_HEAP_MIB=N` to raise the Metal scene heap from its 64 MiB default;
+the native Merlin viewport exposes the equivalent `--metal-heap-mib N` option.
 
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
 Core-only Debug and Release builds with Ninja. Hosted Apple Silicon macOS CI
