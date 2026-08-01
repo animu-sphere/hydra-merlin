@@ -336,6 +336,11 @@ int main(int argc, char** argv) {
       *lighting_extractor.snapshot(), 64, 64, shaders);
   assert(CoveredPixels(front_lit) > 500);
   assert(CoveredPixels(tilted) > 200);
+  const auto front_brightness = CenterBrightness(front_lit);
+  // A white surface facing a unit camera-style light must retain headroom in
+  // the UNorm target. Full-strength environment irradiance plus the direct
+  // term used to clamp every channel to 255 here.
+  assert(front_brightness < 3U * 255U);
   assert(CenterBrightness(front_lit) * 3U >
          CenterBrightness(tilted) * 4U);
 
