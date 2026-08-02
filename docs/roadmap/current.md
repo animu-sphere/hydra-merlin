@@ -21,72 +21,13 @@ direct-path hardening boundary; its capability decision and evidence are in
 v0.14.0 shipped HgiMetal GPU-copy host presentation; its objective,
 compatibility, limitations, and evidence are recorded in
 [docs/releases/v0.14.0.md](../releases/v0.14.0.md).
-
-## ✅ v0.14.1 — Gaussian MVP
-
-The ingestion and host-neutral resource slice is implemented. The render
-delegate advertises Hydra's standard `particleField` Rprim, prefers float over
-half attributes, applies the OpenUSD length/fallback policy, normalizes
-quaternions, evaluates `R·diag(scale²)·Rᵀ` covariance, clamps linear opacity,
-and retains particle-major degree-0–3 spherical-harmonic coefficients without
-applying importer-specific log, sigmoid, or coordinate conversions.
-
-Core now tracks Gaussian positions, covariance, opacity, radiance, policy,
-transform, and visibility revisions. Extraction shares unchanged immutable
-arrays and carries normalized changed-particle ranges for later partial GPU
-upload. Rejection and fallback paths use `merlin-diagnostic/v1`.
-
-The Vulkan path now has a deterministic CPU reference preparation stage. It
-transforms positions and covariance into camera space, implements perspective
-and tangential covariance projection, rejects hidden, transparent, invalid,
-and off-screen particles, evaluates degree-0–3 real spherical harmonics, and
-produces a stable back-to-front stream using the authored Z-depth or camera-
 distance policy. Shader-ready screen centers, inverse conics, three-sigma
-bounds, radiance, opacity, depth, and sort keys are retained together with
-candidate, visible, rejection, fallback, cache, and sort counters. Mixed
-sorting policies use one diagnosed Z-depth fallback so incomparable key domains
-never enter a global blend order. Static Gaussian tables reuse their prepared
-stream while camera, projection, and viewport remain unchanged.
-
-Vulkan now uploads that prepared stream into completion-safe frame-owned
-instance buffers. Each frame buffer retains its previous packed contents so a
-localized normalized particle edit writes only changed prepared-instance
-ranges; ordering, visibility, or size changes safely widen the diff. A dedicated
-color subpass expands six fixed corner vertices to each conservative
-three-sigma bound, evaluates the inverse-conic ellipse and Gaussian falloff per
-fragment, and composites authored opacity and SH radiance back-to-front without
-writing depth. A separate ID subpass avoids requiring Vulkan independent blend:
-the nearest contributing Gaussian in front of opaque Mesh depth writes its
-resource handle to `primId` and zero-based particle index to `instanceId`, while
-uncovered Mesh IDs remain intact. Static frames reuse both CPU preparation and
-the frame-local upload; draw and upload telemetry are exposed through the
-backend, benchmark report, and development viewport. The shader artifacts,
-reflection, manifest identities, packaging list, and Vulkan validation/image
 tests cover this raster and picking boundary.
-
-The repository-owned CC0 fixture selected by default through
-`MERLIN_GAUSSIAN_SAMPLE` validates both the OpenUSD schema payload and the
-usdview/Hydra path. Current local evidence uses `/Asset/Splat` from the bundled
-8192-particle stage: degree 3, 131072 RGB SH coefficients, no ingestion
-diagnostics, and one Gaussian snapshot resource.
-The Tier 0 and forced-HgiVulkan usdview smokes retain and sort all 8192
-particles, upload 425984 bytes, emit one color and one ID procedural draw,
-produce Gaussian color in the captured frame, report zero validation
 diagnostics, and reach
-zero Gaussian upload bytes on a static cached frame. HgiVulkan keeps its
-asynchronous GPU-copy path without a coarse wait and holds the RenderBuffer
-unconverged until a completed copy makes the retained target displayable.
-
-The visible 597×540 reference capture is now tolerance-gated through both Tier
-0 and HgiVulkan usdview smokes. Native `merlin-viewport` evidence over 300
-hidden VSync-off frames of the same stage on the local AMD Radeon Vulkan 1.4
 device reports 1,536,743 ns average CPU frame time, 300/300 presented frames,
-386,856,000 presentation-copy bytes, one reference-check readback, and zero
-validation messages. The local GPU image fixture separately covers ellipse
-rejection, falloff, alpha/SH appearance, opaque Mesh depth composition,
-Gaussian/Mesh ID semantics, partial and static upload reuse, and zero
-renderer-owned Vulkan validation diagnostics. The v0.14.1 implementation and
-local exit evidence are complete pending release metadata.
+v0.14.1 shipped the Gaussian correctness MVP; its objective, compatibility,
+limitations, and evidence are recorded in
+[docs/releases/v0.14.1.md](../releases/v0.14.1.md).
 
 ## Active carry-over
 

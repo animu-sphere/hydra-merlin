@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-08-02
+
 ### Added
 
 - The first v0.14.1 Gaussian MVP slice: standard Hydra `particleField`
@@ -604,7 +606,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.1...main
+[0.14.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.12.0...v0.13.0

@@ -1,6 +1,6 @@
 # Support matrix
 
-**Status:** v0.14.0 released · v0.14.1 complete pending release · **Last reviewed:** 2026-08-02
+**Status:** v0.14.1 released · **Last reviewed:** 2026-08-02
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
