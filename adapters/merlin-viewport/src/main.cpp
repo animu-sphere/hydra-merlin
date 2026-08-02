@@ -476,6 +476,7 @@ int main(int argc, char** argv) {
     merlin::viewport::DeveloperUiRendererSettings renderer_settings;
     renderer_settings.available = true;
     merlin::viewport::DeveloperUiSettingsFeedback settings_feedback;
+    merlin::viewport::DeveloperUiAovPreview aov_preview;
     std::optional<merlin::viewport::DeveloperUiBenchmark> saved_benchmark;
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
     std::optional<std::filesystem::path> selected_usd;
@@ -599,6 +600,7 @@ int main(int argc, char** argv) {
           saved_benchmark ? &*saved_benchmark : nullptr;
       ui_snapshot.renderer_settings = renderer_settings;
       ui_snapshot.settings_feedback = &settings_feedback;
+      ui_snapshot.aov_preview = aov_preview.available ? &aov_preview : nullptr;
       const auto& view = scene.camera_descriptor.view.values;
       ui_snapshot.camera.available = true;
       ui_snapshot.camera.controller = "translation";
@@ -660,6 +662,8 @@ int main(int argc, char** argv) {
         request.products.push_back({merlin::Aov::PrimId, true});
         request.products.push_back({merlin::Aov::InstanceId, true});
       }
+      merlin::viewport::AddDeveloperUiAovInspectionProduct(
+          renderer_settings, request.products);
       const auto frame_start = Clock::now();
       auto result = backend->Resolve(backend->Submit(request));
       latest_frame_ns = static_cast<std::uint64_t>(
@@ -669,6 +673,32 @@ int main(int argc, char** argv) {
       latest_timings = result.timings;
       latest_telemetry = result.telemetry;
       latest_material_diagnostics = result.material_diagnostics;
+      if (renderer_settings.aov_inspection_enabled) {
+        switch (renderer_settings.inspection_aov) {
+          case merlin::Aov::Color:
+            aov_preview = merlin::viewport::BuildDeveloperUiColorPreview(
+                width, height, frames + 1U, result.color.pixels);
+            break;
+          case merlin::Aov::Depth:
+            aov_preview = merlin::viewport::BuildDeveloperUiDepthPreview(
+                width, height, frames + 1U, result.depth.pixels);
+            break;
+          case merlin::Aov::PrimId:
+            aov_preview = merlin::viewport::BuildDeveloperUiIdPreview(
+                merlin::Aov::PrimId, width, height, frames + 1U,
+                result.prim_id.pixels);
+            break;
+          case merlin::Aov::InstanceId:
+            aov_preview = merlin::viewport::BuildDeveloperUiIdPreview(
+                merlin::Aov::InstanceId, width, height, frames + 1U,
+                result.instance_id.pixels);
+            break;
+          default:
+            aov_preview = {};
+        }
+      } else {
+        aov_preview = {};
+      }
       gpu_ns += result.timings.gpu_execution_ns;
       presented_readback_bytes += result.telemetry.readback_bytes;
       presentation_copy_bytes += result.telemetry.presentation_copy_bytes;

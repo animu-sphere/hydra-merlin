@@ -25,10 +25,28 @@ bool ApplyDeveloperUiRendererSettings(
         "The selected backend does not support CPU image readback.";
     return false;
   }
+  const bool supported_aov =
+      request.inspection_aov == Aov::Color ||
+      request.inspection_aov == Aov::Depth ||
+      request.inspection_aov == Aov::PrimId ||
+      request.inspection_aov == Aov::InstanceId;
+  if (request.aov_inspection_enabled && !supported_aov) {
+    feedback.status = DeveloperUiSettingsStatus::Rejected;
+    feedback.message = "The selected AOV is not available for inspection.";
+    return false;
+  }
+  if (request.aov_inspection_enabled && !capabilities.cpu_readback) {
+    feedback.status = DeveloperUiSettingsStatus::Rejected;
+    feedback.message =
+        "AOV inspection requires backend CPU image readback support.";
+    return false;
+  }
 
   settings.available = true;
   settings.clear_color = request.clear_color;
   settings.continuous_color_readback = request.continuous_color_readback;
+  settings.aov_inspection_enabled = request.aov_inspection_enabled;
+  settings.inspection_aov = request.inspection_aov;
   ++settings.revision;
   feedback.status = DeveloperUiSettingsStatus::Applied;
   feedback.message = "Renderer settings revision " +

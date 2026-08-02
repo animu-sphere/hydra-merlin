@@ -88,6 +88,7 @@ else()
 endif()
 
 add_executable(merlin-viewport
+  src/developer_ui_aov.cpp
   src/developer_ui.cpp
   src/developer_ui_settings.cpp
   src/main.cpp
@@ -198,6 +199,7 @@ endif()
 
 if(MERLIN_BUILD_TESTS)
   add_executable(merlin-viewport-settings-tests
+    src/developer_ui_aov.cpp
     src/developer_ui_settings.cpp
     tests/developer_ui_settings_test.cpp
   )

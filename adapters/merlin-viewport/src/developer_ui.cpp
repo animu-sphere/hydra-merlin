@@ -320,6 +320,93 @@ void DrawSettingsFeedback(const DeveloperUiSettingsFeedback& feedback) {
   ImGui::TextWrapped("%s", feedback.message.c_str());
 }
 
+constexpr std::array<Aov, 4> kInspectableAovs{
+    Aov::Color, Aov::Depth, Aov::PrimId, Aov::InstanceId};
+
+void DrawAovPreview(const DeveloperUiAovPreview& preview) {
+  if (!preview.available || preview.preview_width == 0 ||
+      preview.preview_height == 0 || preview.pixels.empty()) {
+    ImGui::TextDisabled("Waiting for the selected AOV readback.");
+    return;
+  }
+
+  ImGui::Text("%s, %u x %u, frame %llu", AovName(preview.aov).data(),
+              preview.source_width, preview.source_height,
+              static_cast<unsigned long long>(preview.frame_index));
+  if (preview.aov == Aov::Color) {
+    ImGui::Text("Range: R %.0f-%.0f  G %.0f-%.0f  B %.0f-%.0f  A %.0f-%.0f",
+                preview.minimum[0], preview.maximum[0], preview.minimum[1],
+                preview.maximum[1], preview.minimum[2], preview.maximum[2],
+                preview.minimum[3], preview.maximum[3]);
+  } else if (preview.aov == Aov::Depth) {
+    ImGui::Text("Depth range: %.6g - %.6g", preview.minimum[0],
+                preview.maximum[0]);
+  } else {
+    ImGui::Text("ID range: %.0f - %.0f", preview.minimum[0],
+                preview.maximum[0]);
+  }
+  if (preview.invalid_value_count != 0) {
+    ImGui::SameLine();
+    ImGui::TextDisabled(
+        "(%llu invalid)",
+        static_cast<unsigned long long>(preview.invalid_value_count));
+  }
+
+  const auto available_width = std::max(1.0F, ImGui::GetContentRegionAvail().x);
+  const auto image_width = std::min(available_width, 360.0F);
+  const auto image_height = std::max(
+      1.0F, image_width * static_cast<float>(preview.preview_height) /
+                static_cast<float>(preview.preview_width));
+  const auto origin = ImGui::GetCursorScreenPos();
+  ImGui::InvisibleButton("##aov-preview", ImVec2(image_width, image_height));
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->PushClipRect(
+      origin, ImVec2(origin.x + image_width, origin.y + image_height), true);
+  const auto cell_width = image_width / preview.preview_width;
+  const auto cell_height = image_height / preview.preview_height;
+  for (std::uint32_t y = 0; y < preview.preview_height; ++y) {
+    for (std::uint32_t x = 0; x < preview.preview_width; ++x) {
+      const auto& pixel = preview.pixels[
+          static_cast<std::size_t>(y) * preview.preview_width + x];
+      const auto& color = pixel.display_rgba;
+      draw_list->AddRectFilled(
+          ImVec2(origin.x + x * cell_width, origin.y + y * cell_height),
+          ImVec2(origin.x + (x + 1U) * cell_width,
+                 origin.y + (y + 1U) * cell_height),
+          IM_COL32(color[0], color[1], color[2], color[3]));
+    }
+  }
+  draw_list->PopClipRect();
+  draw_list->AddRect(origin,
+                     ImVec2(origin.x + image_width, origin.y + image_height),
+                     IM_COL32(180, 180, 180, 255));
+
+  if (ImGui::IsItemHovered()) {
+    const auto mouse = ImGui::GetIO().MousePos;
+    const auto x = std::min(
+        preview.preview_width - 1U,
+        static_cast<std::uint32_t>((mouse.x - origin.x) / cell_width));
+    const auto y = std::min(
+        preview.preview_height - 1U,
+        static_cast<std::uint32_t>((mouse.y - origin.y) / cell_height));
+    const auto& pixel = preview.pixels[
+        static_cast<std::size_t>(y) * preview.preview_width + x];
+    if (preview.aov == Aov::Color) {
+      ImGui::SetTooltip("(%u, %u): rgba(%u, %u, %u, %u)", pixel.source_x,
+                        pixel.source_y, pixel.color[0], pixel.color[1],
+                        pixel.color[2], pixel.color[3]);
+    } else if (preview.aov == Aov::Depth) {
+      ImGui::SetTooltip("(%u, %u): %.8g", pixel.source_x, pixel.source_y,
+                        pixel.depth);
+    } else if (pixel.id == std::numeric_limits<std::uint32_t>::max()) {
+      ImGui::SetTooltip("(%u, %u): no ID", pixel.source_x, pixel.source_y);
+    } else {
+      ImGui::SetTooltip("(%u, %u): %u", pixel.source_x, pixel.source_y,
+                        pixel.id);
+    }
+  }
+}
+
 class ImGuiDeveloperUi final : public DeveloperUi {
  public:
   explicit ImGuiDeveloperUi(Window& window) {
@@ -645,6 +732,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         settings_clear_color_ = snapshot.renderer_settings.clear_color;
         settings_continuous_color_readback_ =
             snapshot.renderer_settings.continuous_color_readback;
+        settings_aov_inspection_enabled_ =
+            snapshot.renderer_settings.aov_inspection_enabled;
+        settings_inspection_aov_ = snapshot.renderer_settings.inspection_aov;
         settings_draft_revision_ = snapshot.renderer_settings.revision;
       }
 
@@ -655,19 +745,49 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       ImGui::TextDisabled(
           "Continuous readback is intended for inspection and affects frame "
           "timings.");
+      ImGui::Checkbox("Inspect diagnostic AOV",
+                      &settings_aov_inspection_enabled_);
+      ImGui::BeginDisabled(!settings_aov_inspection_enabled_);
+      if (ImGui::BeginCombo("Inspection AOV",
+                            AovName(settings_inspection_aov_).data())) {
+        for (const auto aov : kInspectableAovs) {
+          const bool selected = settings_inspection_aov_ == aov;
+          if (ImGui::Selectable(AovName(aov).data(), selected)) {
+            settings_inspection_aov_ = aov;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::EndDisabled();
+      ImGui::TextDisabled(
+          "AOV inspection performs CPU readback and displays a diagnostic "
+          "preview up to 64 pixels per axis.");
       if (ImGui::Button("Apply renderer settings")) {
-        actions_.apply_renderer_settings = DeveloperUiRendererSettingsRequest{
-            settings_clear_color_, settings_continuous_color_readback_};
+        QueueSettingsRequest();
       }
       ImGui::SameLine();
       if (ImGui::Button("Apply defaults")) {
         settings_clear_color_ = {0.018F, 0.025F, 0.028F, 1.0F};
         settings_continuous_color_readback_ = false;
-        actions_.apply_renderer_settings = DeveloperUiRendererSettingsRequest{
-            settings_clear_color_, settings_continuous_color_readback_};
+        settings_aov_inspection_enabled_ = false;
+        settings_inspection_aov_ = Aov::Depth;
+        QueueSettingsRequest();
       }
       if (snapshot.settings_feedback != nullptr) {
         DrawSettingsFeedback(*snapshot.settings_feedback);
+      }
+    }
+
+    if (snapshot.renderer_settings.aov_inspection_enabled &&
+        ImGui::CollapsingHeader("AOV inspector",
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (snapshot.aov_preview != nullptr) {
+        DrawAovPreview(*snapshot.aov_preview);
+      } else {
+        ImGui::TextDisabled("Waiting for the selected AOV readback.");
       }
     }
 
@@ -1136,6 +1256,15 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   }
 #endif
 
+  void QueueSettingsRequest() {
+    DeveloperUiRendererSettingsRequest request;
+    request.clear_color = settings_clear_color_;
+    request.continuous_color_readback = settings_continuous_color_readback_;
+    request.aov_inspection_enabled = settings_aov_inspection_enabled_;
+    request.inspection_aov = settings_inspection_aov_;
+    actions_.apply_renderer_settings = request;
+  }
+
   void SetContext() const noexcept { ImGui::SetCurrentContext(context_); }
 
   ImGuiContext* context_{};
@@ -1153,6 +1282,8 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   std::optional<std::uint64_t> settings_draft_revision_;
   std::array<float, 4> settings_clear_color_{};
   bool settings_continuous_color_readback_{};
+  bool settings_aov_inspection_enabled_{};
+  Aov settings_inspection_aov_{Aov::Depth};
   float hitch_threshold_ms_{33.33F};
   float regression_threshold_percent_{10.0F};
 #ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG

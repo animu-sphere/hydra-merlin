@@ -75,7 +75,10 @@ diagnostics. Its camera section reports the active controller, position,
 target, orientation, projection, clipping range, and viewport aspect. Its
 renderer settings section applies clear-color and continuous color-readback
 changes through the host boundary and reports the applied revision or rejection
-reason. Hydra USD navigation follows usdview: Alt+left tumbles, Alt+middle
+reason. Its opt-in AOV inspector selects Color, Depth, Prim ID, or Instance ID,
+performs readback only while enabled, and shows a bounded diagnostic preview,
+value range, invalid-value count, and sampled source value on hover. Hydra USD
+navigation follows usdview: Alt+left tumbles, Alt+middle
 tracks, Alt+right and the wheel dolly, and `F` frames the stage. The benchmark
 section compares current CPU/GPU averages with the latest in-session saved
 baseline and marks recent timing samples that exceed its adjustable hitch

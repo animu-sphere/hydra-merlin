@@ -520,6 +520,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   DeveloperUiRendererSettings renderer_settings;
   renderer_settings.available = true;
   DeveloperUiSettingsFeedback settings_feedback;
+  DeveloperUiAovPreview aov_preview;
   std::optional<DeveloperUiBenchmark> saved_benchmark;
   const auto start = Clock::now();
   auto comparison_start = start;
@@ -674,6 +675,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         saved_benchmark ? &*saved_benchmark : nullptr;
     ui_snapshot.renderer_settings = renderer_settings;
     ui_snapshot.settings_feedback = &settings_feedback;
+    ui_snapshot.aov_preview = aov_preview.available ? &aov_preview : nullptr;
     const auto camera_position = state->position();
     ui_snapshot.camera.available = true;
     ui_snapshot.camera.perspective = true;
@@ -709,20 +711,31 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     if (ui_actions.apply_renderer_settings) {
       if (ApplyDeveloperUiRendererSettings(
               *ui_actions.apply_renderer_settings, backend->capabilities(),
-              renderer_settings, settings_feedback) &&
-          renderer_settings.continuous_color_readback) {
-        readback_requested = true;
+              renderer_settings, settings_feedback)) {
+        readback_requested =
+            readback_requested || renderer_settings.continuous_color_readback ||
+            renderer_settings.aov_inspection_enabled;
       }
     }
 
     std::unique_ptr<HdMerlinRenderBuffer> color;
+    std::unique_ptr<HdMerlinRenderBuffer> depth;
     std::unique_ptr<HdMerlinRenderBuffer> prim_id;
     std::unique_ptr<HdMerlinRenderBuffer> instance_id;
     HdRenderPassAovBindingVector bindings;
     const GfVec3i dimensions(static_cast<int>(width),
                              static_cast<int>(height), 1);
-    if (renderer_settings.continuous_color_readback || screenshot_pending ||
-        reference_pending) {
+    const bool inspect_color = renderer_settings.aov_inspection_enabled &&
+                               renderer_settings.inspection_aov == Aov::Color;
+    const bool inspect_depth = renderer_settings.aov_inspection_enabled &&
+                               renderer_settings.inspection_aov == Aov::Depth;
+    const bool inspect_prim_id = renderer_settings.aov_inspection_enabled &&
+                                 renderer_settings.inspection_aov == Aov::PrimId;
+    const bool inspect_instance_id =
+        renderer_settings.aov_inspection_enabled &&
+        renderer_settings.inspection_aov == Aov::InstanceId;
+    if (renderer_settings.continuous_color_readback || inspect_color ||
+        screenshot_pending || reference_pending) {
       color = std::make_unique<HdMerlinRenderBuffer>(
           SdfPath("/__merlinViewportColor"));
       if (!color->Allocate(dimensions, HdFormatUNorm8Vec4, false)) {
@@ -734,16 +747,29 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         renderer_settings.clear_color[0], renderer_settings.clear_color[1],
         renderer_settings.clear_color[2], renderer_settings.clear_color[3]));
     bindings.push_back(std::move(color_binding));
-    if (pick) {
+    if (inspect_depth) {
+      depth = std::make_unique<HdMerlinRenderBuffer>(
+          SdfPath("/__merlinViewportDepthInspection"));
+      if (!depth->Allocate(dimensions, HdFormatFloat32, false)) {
+        throw std::runtime_error(
+            "could not allocate viewport depth inspection");
+      }
+      bindings.push_back(MakeBinding(HdAovTokens->depth, depth.get()));
+    }
+    if (pick || inspect_prim_id) {
       prim_id = std::make_unique<HdMerlinRenderBuffer>(
           SdfPath("/__merlinViewportPrimId"));
-      instance_id = std::make_unique<HdMerlinRenderBuffer>(
-          SdfPath("/__merlinViewportInstanceId"));
-      if (!prim_id->Allocate(dimensions, HdFormatInt32, false) ||
-          !instance_id->Allocate(dimensions, HdFormatInt32, false)) {
-        throw std::runtime_error("could not allocate viewport picking AOVs");
+      if (!prim_id->Allocate(dimensions, HdFormatInt32, false)) {
+        throw std::runtime_error("could not allocate viewport prim ID AOV");
       }
       bindings.push_back(MakeBinding(HdAovTokens->primId, prim_id.get()));
+    }
+    if (pick || inspect_instance_id) {
+      instance_id = std::make_unique<HdMerlinRenderBuffer>(
+          SdfPath("/__merlinViewportInstanceId"));
+      if (!instance_id->Allocate(dimensions, HdFormatInt32, false)) {
+        throw std::runtime_error("could not allocate viewport instance ID AOV");
+      }
       bindings.push_back(
           MakeBinding(HdAovTokens->instanceId, instance_id.get()));
     }
@@ -788,6 +814,10 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       }
       std::vector<std::uint8_t> pixels(mapped, mapped + bytes);
       color->Unmap();
+      if (inspect_color) {
+        aov_preview = BuildDeveloperUiColorPreview(width, height, frames,
+                                                   pixels);
+      }
       if (reference_pending) {
         if (!HasVisibleColor(pixels)) {
           throw std::runtime_error(
@@ -804,6 +834,17 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         std::cout << "Screenshot: " << path.string() << '\n';
         screenshot_pending = false;
       }
+    }
+    if (inspect_depth) {
+      const auto* mapped = static_cast<const float*>(depth->Map());
+      if (mapped == nullptr) {
+        throw std::runtime_error("could not map viewport depth inspection");
+      }
+      aov_preview = BuildDeveloperUiDepthPreview(
+          width, height, frames,
+          std::span<const float>(mapped,
+                                 static_cast<std::size_t>(width) * height));
+      depth->Unmap();
     }
     if (prim_id && instance_id && pick) {
       const auto x = std::clamp(pick->first, 0,
@@ -828,6 +869,33 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       prim_id->Unmap();
       instance_id->Unmap();
       pick.reset();
+    }
+    if (inspect_prim_id) {
+      const auto* mapped = static_cast<const std::uint32_t*>(prim_id->Map());
+      if (mapped == nullptr) {
+        throw std::runtime_error("could not map viewport prim ID inspection");
+      }
+      aov_preview = BuildDeveloperUiIdPreview(
+          Aov::PrimId, width, height, frames,
+          std::span<const std::uint32_t>(
+              mapped, static_cast<std::size_t>(width) * height));
+      prim_id->Unmap();
+    }
+    if (inspect_instance_id) {
+      const auto* mapped =
+          static_cast<const std::uint32_t*>(instance_id->Map());
+      if (mapped == nullptr) {
+        throw std::runtime_error(
+            "could not map viewport instance ID inspection");
+      }
+      aov_preview = BuildDeveloperUiIdPreview(
+          Aov::InstanceId, width, height, frames,
+          std::span<const std::uint32_t>(
+              mapped, static_cast<std::size_t>(width) * height));
+      instance_id->Unmap();
+    }
+    if (!renderer_settings.aov_inspection_enabled) {
+      aov_preview = {};
     }
     if (options.resize_test && !resized_for_test && frames == 2) {
       window->SetSize(width + 64U, height + 32U);

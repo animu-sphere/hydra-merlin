@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -72,12 +73,39 @@ struct DeveloperUiRendererSettings {
   bool available{};
   std::array<float, 4> clear_color{0.018F, 0.025F, 0.028F, 1.0F};
   bool continuous_color_readback{};
+  bool aov_inspection_enabled{};
+  Aov inspection_aov{Aov::Depth};
   std::uint64_t revision{};
 };
 
 struct DeveloperUiRendererSettingsRequest {
   std::array<float, 4> clear_color{0.018F, 0.025F, 0.028F, 1.0F};
   bool continuous_color_readback{};
+  bool aov_inspection_enabled{};
+  Aov inspection_aov{Aov::Depth};
+};
+
+struct DeveloperUiAovPreviewPixel {
+  std::uint32_t source_x{};
+  std::uint32_t source_y{};
+  std::array<std::uint8_t, 4> display_rgba{};
+  std::array<std::uint8_t, 4> color{};
+  float depth{};
+  std::uint32_t id{};
+};
+
+struct DeveloperUiAovPreview {
+  bool available{};
+  Aov aov{Aov::Depth};
+  std::uint32_t source_width{};
+  std::uint32_t source_height{};
+  std::uint32_t preview_width{};
+  std::uint32_t preview_height{};
+  std::uint64_t frame_index{};
+  std::uint64_t invalid_value_count{};
+  std::array<double, 4> minimum{};
+  std::array<double, 4> maximum{};
+  std::vector<DeveloperUiAovPreviewPixel> pixels;
 };
 
 enum class DeveloperUiSettingsStatus { None, Applied, Rejected };
@@ -104,6 +132,7 @@ struct DeveloperUiSnapshot {
   const DeveloperUiBenchmark* saved_benchmark{};
   DeveloperUiRendererSettings renderer_settings;
   const DeveloperUiSettingsFeedback* settings_feedback{};
+  const DeveloperUiAovPreview* aov_preview{};
   bool can_load_usd{};
   std::uint64_t frame_index{};
   std::uint64_t host_frame_ns{};
@@ -125,6 +154,22 @@ struct DeveloperUiActions {
     const render::RendererCapabilities& capabilities,
     DeveloperUiRendererSettings& settings,
     DeveloperUiSettingsFeedback& feedback);
+
+// Adds or upgrades the selected inspection product without creating duplicate
+// AOV requests. Color presentation remains independently requested by the host.
+void AddDeveloperUiAovInspectionProduct(
+    const DeveloperUiRendererSettings& settings,
+    std::vector<render::RenderProductRequest>& products);
+
+[[nodiscard]] DeveloperUiAovPreview BuildDeveloperUiColorPreview(
+    std::uint32_t width, std::uint32_t height, std::uint64_t frame_index,
+    std::span<const std::uint8_t> rgba);
+[[nodiscard]] DeveloperUiAovPreview BuildDeveloperUiDepthPreview(
+    std::uint32_t width, std::uint32_t height, std::uint64_t frame_index,
+    std::span<const float> depth);
+[[nodiscard]] DeveloperUiAovPreview BuildDeveloperUiIdPreview(
+    Aov aov, std::uint32_t width, std::uint32_t height,
+    std::uint64_t frame_index, std::span<const std::uint32_t> ids);
 
 // The viewport talks only to this small host surface. Dear ImGui and its
 // platform/renderer backends stay private to developer_ui.cpp.
