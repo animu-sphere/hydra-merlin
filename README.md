@@ -71,9 +71,11 @@ Run the native Vulkan viewport. In a Hydra USD session, use `Open USD...` in
 the diagnostics panel to browse for a `.usd`, `.usda`, `.usdc`, or `.usdz`
 stage. The panel includes rolling host/GPU timings and, for Gaussian stages,
 particle, spherical-harmonic, projection, sorting, culling, cache, and upload
-diagnostics. Hydra USD navigation follows usdview: Alt+left tumbles, Alt+middle
-tracks, Alt+right and the wheel dolly, and `F` frames the stage. Arrow keys
-pan, an unmodified left click reads picking IDs, and `S` writes a screenshot.
+diagnostics. Its camera section reports the active controller, position,
+target, orientation, projection, clipping range, and viewport aspect. Hydra
+USD navigation follows usdview: Alt+left tumbles, Alt+middle tracks, Alt+right
+and the wheel dolly, and `F` frames the stage. Arrow keys pan, an unmodified
+left click reads picking IDs, and `S` writes a screenshot.
 
 Hydra-enabled Windows developer builds generate a launcher beside the
 executable. It supplies the configured OpenUSD SDK runtime path without

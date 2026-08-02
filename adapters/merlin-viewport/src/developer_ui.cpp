@@ -79,6 +79,16 @@ void LabelValue(const char* label, std::uint64_t value) {
   ImGui::Text("%llu", static_cast<unsigned long long>(value));
 }
 
+template <typename... Values>
+void LabelFormattedValue(const char* label, const char* format,
+                         Values... values) {
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  ImGui::TextUnformatted(label);
+  ImGui::TableSetColumnIndex(1);
+  ImGui::Text(format, values...);
+}
+
 void LabelBytes(const char* label, std::uint64_t value) {
   ImGui::TableNextRow();
   ImGui::TableSetColumnIndex(0);
@@ -605,6 +615,40 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         LabelValue("Draws", snapshot.telemetry.draw_count);
         LabelValue("Triangles", snapshot.telemetry.triangle_count);
       });
+    }
+
+    if (snapshot.camera.available &&
+        ImGui::CollapsingHeader("Camera and navigation",
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      const auto& camera = snapshot.camera;
+      TwoColumnTable("camera-state", [&] {
+        LabelValue("Controller", camera.controller.data());
+        LabelValue("Projection",
+                   camera.perspective ? "perspective" : "identity");
+        LabelValue("Stage up axis", camera.up_axis.data());
+        LabelFormattedValue("Position", "%.4f, %.4f, %.4f",
+                            camera.position[0], camera.position[1],
+                            camera.position[2]);
+        LabelFormattedValue("Target", "%.4f, %.4f, %.4f", camera.target[0],
+                            camera.target[1], camera.target[2]);
+        LabelFormattedValue("Yaw", "%.2f deg", camera.yaw_degrees);
+        LabelFormattedValue("Pitch", "%.2f deg", camera.pitch_degrees);
+        LabelFormattedValue("Distance", "%.4f", camera.distance);
+        LabelFormattedValue("Aspect", "%.4f", camera.aspect_ratio);
+        if (camera.perspective) {
+          LabelFormattedValue("Vertical FOV", "%.2f deg",
+                              camera.vertical_fov_degrees);
+          LabelFormattedValue("Near clip", "%.6g", camera.near_plane);
+          LabelFormattedValue("Far clip", "%.6g", camera.far_plane);
+        }
+      });
+      if (camera.controller == "orbit") {
+        ImGui::TextWrapped(
+            "Navigation: Alt+LMB tumble, Alt+MMB track, Alt+RMB dolly, "
+            "wheel dolly, F frame all, arrows pan.");
+      } else {
+        ImGui::TextWrapped("Navigation: arrow keys pan the camera.");
+      }
     }
 
     const bool has_gaussians =
