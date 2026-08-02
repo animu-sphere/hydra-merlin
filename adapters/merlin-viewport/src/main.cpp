@@ -473,6 +473,9 @@ int main(int argc, char** argv) {
     merlin::render::FrameTimings latest_timings;
     merlin::render::FrameTelemetry latest_telemetry;
     std::vector<merlin::MaterialDiagnostic> latest_material_diagnostics;
+    merlin::viewport::DeveloperUiRendererSettings renderer_settings;
+    renderer_settings.available = true;
+    merlin::viewport::DeveloperUiSettingsFeedback settings_feedback;
     std::optional<merlin::viewport::DeveloperUiBenchmark> saved_benchmark;
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
     std::optional<std::filesystem::path> selected_usd;
@@ -594,6 +597,8 @@ int main(int argc, char** argv) {
           gpu_ns - comparison_start_gpu_ns);
       ui_snapshot.saved_benchmark =
           saved_benchmark ? &*saved_benchmark : nullptr;
+      ui_snapshot.renderer_settings = renderer_settings;
+      ui_snapshot.settings_feedback = &settings_feedback;
       const auto& view = scene.camera_descriptor.view.values;
       ui_snapshot.camera.available = true;
       ui_snapshot.camera.controller = "translation";
@@ -628,16 +633,26 @@ int main(int argc, char** argv) {
 #endif
       benchmark_snapshot_pending =
           benchmark_snapshot_pending || ui_actions.save_benchmark;
+      if (ui_actions.apply_renderer_settings) {
+        (void)merlin::viewport::ApplyDeveloperUiRendererSettings(
+            *ui_actions.apply_renderer_settings, backend->capabilities(),
+            renderer_settings, settings_feedback);
+      }
 
       merlin::render::RenderRequest request;
       request.snapshot = scene_snapshot;
       request.width = width;
       request.height = height;
       request.presentation = *presentation;
+      request.clear_color = {
+          renderer_settings.clear_color[0], renderer_settings.clear_color[1],
+          renderer_settings.clear_color[2], renderer_settings.clear_color[3]};
       const bool check_reference =
           arguments.reference_check && !reference_checked && frames != 0;
       request.products = {
-          {merlin::Aov::Color, screenshot_pending || check_reference}};
+          {merlin::Aov::Color,
+           renderer_settings.continuous_color_readback ||
+               screenshot_pending || check_reference}};
       if (check_reference) {
         request.products.push_back({merlin::Aov::Depth, true});
       }

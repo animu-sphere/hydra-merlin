@@ -121,7 +121,10 @@ authored Y/Z `upAxis`, 60-degree vertical FOV, maximum bounds dimension, and a
 Alt+middle (or Alt+Ctrl+left) tracks, Alt+right and the wheel dolly, arrow keys
 pan, an unmodified left click triggers `primId` and `instanceId` readback, `S`
 writes a PPM screenshot, and Escape closes the window. Normal frames present
-through the Vulkan swapchain without CPU readback. Use
+through the Vulkan swapchain without CPU readback. The diagnostics panel can
+apply a new clear color or opt into continuous color CPU readback; each request
+shows its applied revision or rejection reason, and the readback toggle is
+deliberately called out as a timing-affecting inspection mode. Use
 `-DMERLIN_BUILD_VIEWPORT=OFF` for a Vulkan/headless-only build.
 
 The Vulkan tests distinguish an unavailable optional device or validation

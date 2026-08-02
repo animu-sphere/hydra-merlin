@@ -15,6 +15,7 @@
 #include <pxr/base/gf/rotation.h>
 #include <pxr/base/gf/vec3d.h>
 #include <pxr/base/gf/vec4d.h>
+#include <pxr/base/gf/vec4f.h>
 #include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderIndex.h>
@@ -516,6 +517,9 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   std::uint64_t gpu_ns{};
   std::uint64_t latest_frame_ns{};
   HdMerlinViewportFrame latest_viewport_frame;
+  DeveloperUiRendererSettings renderer_settings;
+  renderer_settings.available = true;
+  DeveloperUiSettingsFeedback settings_feedback;
   std::optional<DeveloperUiBenchmark> saved_benchmark;
   const auto start = Clock::now();
   auto comparison_start = start;
@@ -668,6 +672,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         gpu_ns - comparison_start_gpu_ns);
     ui_snapshot.saved_benchmark =
         saved_benchmark ? &*saved_benchmark : nullptr;
+    ui_snapshot.renderer_settings = renderer_settings;
+    ui_snapshot.settings_feedback = &settings_feedback;
     const auto camera_position = state->position();
     ui_snapshot.camera.available = true;
     ui_snapshot.camera.perspective = true;
@@ -700,6 +706,14 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     }
     benchmark_snapshot_pending =
         benchmark_snapshot_pending || ui_actions.save_benchmark;
+    if (ui_actions.apply_renderer_settings) {
+      if (ApplyDeveloperUiRendererSettings(
+              *ui_actions.apply_renderer_settings, backend->capabilities(),
+              renderer_settings, settings_feedback) &&
+          renderer_settings.continuous_color_readback) {
+        readback_requested = true;
+      }
+    }
 
     std::unique_ptr<HdMerlinRenderBuffer> color;
     std::unique_ptr<HdMerlinRenderBuffer> prim_id;
@@ -707,14 +721,19 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     HdRenderPassAovBindingVector bindings;
     const GfVec3i dimensions(static_cast<int>(width),
                              static_cast<int>(height), 1);
-    if (screenshot_pending || reference_pending) {
+    if (renderer_settings.continuous_color_readback || screenshot_pending ||
+        reference_pending) {
       color = std::make_unique<HdMerlinRenderBuffer>(
           SdfPath("/__merlinViewportColor"));
       if (!color->Allocate(dimensions, HdFormatUNorm8Vec4, false)) {
         throw std::runtime_error("could not allocate viewport color capture");
       }
-      bindings.push_back(MakeBinding(HdAovTokens->color, color.get()));
     }
+    auto color_binding = MakeBinding(HdAovTokens->color, color.get());
+    color_binding.clearValue = VtValue(GfVec4f(
+        renderer_settings.clear_color[0], renderer_settings.clear_color[1],
+        renderer_settings.clear_color[2], renderer_settings.clear_color[3]));
+    bindings.push_back(std::move(color_binding));
     if (pick) {
       prim_id = std::make_unique<HdMerlinRenderBuffer>(
           SdfPath("/__merlinViewportPrimId"));
