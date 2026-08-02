@@ -25,6 +25,8 @@ jobs:
             asset: linux-x64
           - os: windows-2022
             asset: windows-x64
+          - os: macos-14
+            asset: macos-arm64
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -48,6 +50,14 @@ jobs:
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DMERLIN_ENABLE_VULKAN=OFF
+
+      - name: Configure Core + Metal SDK (macOS)
+        if: runner.os == 'macOS'
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMERLIN_ENABLE_VULKAN=OFF
+          -DMERLIN_ENABLE_METAL=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel 4

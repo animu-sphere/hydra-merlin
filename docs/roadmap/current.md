@@ -21,10 +21,6 @@ direct-path hardening boundary; its capability decision and evidence are in
 v0.14.0 shipped HgiMetal GPU-copy host presentation; its objective,
 compatibility, limitations, and evidence are recorded in
 [docs/releases/v0.14.0.md](../releases/v0.14.0.md).
-distance policy. Shader-ready screen centers, inverse conics, three-sigma
-tests cover this raster and picking boundary.
-diagnostics, and reach
-device reports 1,536,743 ns average CPU frame time, 300/300 presented frames,
 v0.14.1 shipped the Gaussian correctness MVP; its objective, compatibility,
 limitations, and evidence are recorded in
 [docs/releases/v0.14.1.md](../releases/v0.14.1.md).
