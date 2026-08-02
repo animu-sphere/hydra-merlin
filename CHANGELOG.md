@@ -10,6 +10,10 @@ after its public API and release process are established.
 
 ### Added
 
+- Interactive development-viewport renderer settings for clear color and
+  continuous color CPU readback, shared by native and Hydra scene paths. The
+  host validates each request and reports an explicit applied revision or a
+  rejection reason in the UI.
 - Saved in-session viewport benchmark baselines with live CPU/GPU percentage
   comparison over independent measurement intervals, adjustable regression and
   hitch thresholds, and red hitch markers over the rolling host/GPU timing

@@ -305,6 +305,21 @@ std::string_view Utf8Filename(std::string_view path) noexcept {
                                               : path.substr(separator + 1U);
 }
 
+void DrawSettingsFeedback(const DeveloperUiSettingsFeedback& feedback) {
+  switch (feedback.status) {
+    case DeveloperUiSettingsStatus::None:
+      return;
+    case DeveloperUiSettingsStatus::Applied:
+      ImGui::TextColored(ImVec4(0.35F, 0.90F, 0.45F, 1.0F), "Applied");
+      break;
+    case DeveloperUiSettingsStatus::Rejected:
+      ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.30F, 1.0F), "Rejected");
+      break;
+  }
+  ImGui::SameLine();
+  ImGui::TextWrapped("%s", feedback.message.c_str());
+}
+
 class ImGuiDeveloperUi final : public DeveloperUi {
  public:
   explicit ImGuiDeveloperUi(Window& window) {
@@ -620,6 +635,40 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    capabilities.limits.sampled_image_slots);
         LabelValue("Sampler slots", capabilities.limits.sampler_slots);
       });
+    }
+
+    if (snapshot.renderer_settings.available &&
+        ImGui::CollapsingHeader("Renderer settings",
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (!settings_draft_revision_ ||
+          *settings_draft_revision_ != snapshot.renderer_settings.revision) {
+        settings_clear_color_ = snapshot.renderer_settings.clear_color;
+        settings_continuous_color_readback_ =
+            snapshot.renderer_settings.continuous_color_readback;
+        settings_draft_revision_ = snapshot.renderer_settings.revision;
+      }
+
+      ImGui::ColorEdit4("Clear color", settings_clear_color_.data(),
+                        ImGuiColorEditFlags_Float);
+      ImGui::Checkbox("Continuous color CPU readback",
+                      &settings_continuous_color_readback_);
+      ImGui::TextDisabled(
+          "Continuous readback is intended for inspection and affects frame "
+          "timings.");
+      if (ImGui::Button("Apply renderer settings")) {
+        actions_.apply_renderer_settings = DeveloperUiRendererSettingsRequest{
+            settings_clear_color_, settings_continuous_color_readback_};
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Apply defaults")) {
+        settings_clear_color_ = {0.018F, 0.025F, 0.028F, 1.0F};
+        settings_continuous_color_readback_ = false;
+        actions_.apply_renderer_settings = DeveloperUiRendererSettingsRequest{
+            settings_clear_color_, settings_continuous_color_readback_};
+      }
+      if (snapshot.settings_feedback != nullptr) {
+        DrawSettingsFeedback(*snapshot.settings_feedback);
+      }
     }
 
     if (ImGui::CollapsingHeader("Frame timings",
@@ -1101,6 +1150,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 #endif
   DeveloperUiActions actions_;
   TimingHistory timing_history_;
+  std::optional<std::uint64_t> settings_draft_revision_;
+  std::array<float, 4> settings_clear_color_{};
+  bool settings_continuous_color_readback_{};
   float hitch_threshold_ms_{33.33F};
   float regression_threshold_percent_{10.0F};
 #ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG

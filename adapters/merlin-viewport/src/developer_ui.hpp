@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -67,6 +68,26 @@ struct DeveloperUiBenchmark {
   std::uint64_t gpu_average_frame_ns{};
 };
 
+struct DeveloperUiRendererSettings {
+  bool available{};
+  std::array<float, 4> clear_color{0.018F, 0.025F, 0.028F, 1.0F};
+  bool continuous_color_readback{};
+  std::uint64_t revision{};
+};
+
+struct DeveloperUiRendererSettingsRequest {
+  std::array<float, 4> clear_color{0.018F, 0.025F, 0.028F, 1.0F};
+  bool continuous_color_readback{};
+};
+
+enum class DeveloperUiSettingsStatus { None, Applied, Rejected };
+
+struct DeveloperUiSettingsFeedback {
+  DeveloperUiSettingsStatus status{DeveloperUiSettingsStatus::None};
+  std::uint64_t serial{};
+  std::string message;
+};
+
 struct DeveloperUiSnapshot {
   std::string_view scene_source{"native"};
   std::string_view scene_path;
@@ -81,6 +102,8 @@ struct DeveloperUiSnapshot {
   DeveloperUiCamera camera;
   DeveloperUiBenchmark benchmark;
   const DeveloperUiBenchmark* saved_benchmark{};
+  DeveloperUiRendererSettings renderer_settings;
+  const DeveloperUiSettingsFeedback* settings_feedback{};
   bool can_load_usd{};
   std::uint64_t frame_index{};
   std::uint64_t host_frame_ns{};
@@ -92,7 +115,16 @@ struct DeveloperUiActions {
   bool capture_screenshot{};
   bool save_benchmark{};
   std::optional<std::filesystem::path> load_usd;
+  std::optional<DeveloperUiRendererSettingsRequest> apply_renderer_settings;
 };
+
+// Validates a UI request at the host boundary and updates the applied state.
+// The returned status is also retained in feedback for the following frame.
+[[nodiscard]] bool ApplyDeveloperUiRendererSettings(
+    const DeveloperUiRendererSettingsRequest& request,
+    const render::RendererCapabilities& capabilities,
+    DeveloperUiRendererSettings& settings,
+    DeveloperUiSettingsFeedback& feedback);
 
 // The viewport talks only to this small host surface. Dear ImGui and its
 // platform/renderer backends stay private to developer_ui.cpp.

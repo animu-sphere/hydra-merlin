@@ -89,6 +89,7 @@ endif()
 
 add_executable(merlin-viewport
   src/developer_ui.cpp
+  src/developer_ui_settings.cpp
   src/main.cpp
   src/window_glfw.cpp
 )
@@ -196,6 +197,23 @@ if(TARGET Merlin::Vulkan)
 endif()
 
 if(MERLIN_BUILD_TESTS)
+  add_executable(merlin-viewport-settings-tests
+    src/developer_ui_settings.cpp
+    tests/developer_ui_settings_test.cpp
+  )
+  target_include_directories(merlin-viewport-settings-tests PRIVATE src)
+  target_link_libraries(merlin-viewport-settings-tests PRIVATE
+    Merlin::RenderBackend
+  )
+  target_compile_features(merlin-viewport-settings-tests PRIVATE cxx_std_20)
+  add_test(
+    NAME merlin-viewport-settings
+    COMMAND merlin-viewport-settings-tests
+  )
+  set_tests_properties(merlin-viewport-settings PROPERTIES
+    LABELS "viewport;unit"
+  )
+
   if(TARGET Merlin::Vulkan)
     add_test(
       NAME merlin-viewport-vulkan
@@ -259,6 +277,23 @@ if(MERLIN_BUILD_TESTS)
               --benchmark "${CMAKE_CURRENT_BINARY_DIR}/viewport-hydra-benchmark.json"
     )
     set_tests_properties(merlin-viewport-hydra PROPERTIES
+      LABELS "gpu;viewport;presentation;hydra;host-smoke"
+      SKIP_RETURN_CODE 77
+      TIMEOUT 60
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib"
+    )
+    add_test(
+      NAME merlin-viewport-hydra-no-readback
+      COMMAND merlin-viewport
+              --hidden
+              --frames 4
+              --vsync off
+              --validate
+              --allow-unavailable
+              --usd "${PROJECT_SOURCE_DIR}/adapters/merlin-hydra2/tests/usdview-smoke.usda"
+    )
+    set_tests_properties(merlin-viewport-hydra-no-readback PROPERTIES
       LABELS "gpu;viewport;presentation;hydra;host-smoke"
       SKIP_RETURN_CODE 77
       TIMEOUT 60

@@ -1558,7 +1558,17 @@ class SceneBridge {
     };
     for (const auto& binding : bindings) {
       if (binding.aovName == HdAovTokens->color) {
-        request_product(merlin::Aov::Color, gpu_color_buffer == nullptr);
+        HdRenderBuffer* buffer = binding.renderBuffer;
+        if (buffer == nullptr && !binding.renderBufferId.IsEmpty()) {
+          buffer = dynamic_cast<HdRenderBuffer*>(render_index->GetBprim(
+              HdPrimTypeTokens->renderBuffer, binding.renderBufferId));
+        }
+        // A host may bind color only to supply its clear value while native
+        // presentation remains the sole consumer. Do not turn that clear-only
+        // binding into an implicit CPU readback.
+        if (buffer != nullptr) {
+          request_product(merlin::Aov::Color, gpu_color_buffer == nullptr);
+        }
       } else if (HdAovHasDepthSemantic(binding.aovName)) {
         request_product(merlin::Aov::Depth);
       } else if (binding.aovName == HdAovTokens->primId) {
