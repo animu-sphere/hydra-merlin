@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -37,6 +39,7 @@ struct DeveloperUiSnapshot {
   render::FrameTelemetry telemetry;
   const std::vector<MaterialDiagnostic>* material_diagnostics{};
   DeveloperUiScene scene;
+  bool can_load_usd{};
   std::uint64_t frame_index{};
   std::uint64_t host_frame_ns{};
   std::uint32_t width{};
@@ -46,6 +49,7 @@ struct DeveloperUiSnapshot {
 struct DeveloperUiActions {
   bool capture_screenshot{};
   bool save_benchmark{};
+  std::optional<std::filesystem::path> load_usd;
 };
 
 // The viewport talks only to this small host surface. Dear ImGui and its

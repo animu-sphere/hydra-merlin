@@ -52,6 +52,10 @@ string(JSON _imgui_version GET "${_merlin_metadata}"
   requirements imgui version)
 string(JSON _imgui_commit GET "${_merlin_metadata}"
   requirements imgui commit)
+string(JSON _nfd_version GET "${_merlin_metadata}"
+  requirements native_file_dialog_extended version)
+string(JSON _nfd_commit GET "${_merlin_metadata}"
+  requirements native_file_dialog_extended commit)
 
 if(NOT _schema STREQUAL "animu-sphere.hdmerlin.release-metadata" OR
    NOT _schema_version EQUAL 1)
@@ -138,6 +142,13 @@ if(NOT _imgui_version STREQUAL "1.92.8" OR
    NOT _imgui_commit MATCHES "^[0-9a-f]+$" OR
    NOT _imgui_commit_length EQUAL 40)
   message(FATAL_ERROR "unexpected Dear ImGui dependency metadata")
+endif()
+string(LENGTH "${_nfd_commit}" _nfd_commit_length)
+if(NOT _nfd_version STREQUAL "1.3.0" OR
+   NOT _nfd_commit MATCHES "^[0-9a-f]+$" OR
+   NOT _nfd_commit_length EQUAL 40)
+  message(FATAL_ERROR
+    "unexpected Native File Dialog Extended dependency metadata")
 endif()
 
 set(_expected_exported_target_count 3)

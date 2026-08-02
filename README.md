@@ -67,10 +67,11 @@ Render the headless smoke image:
 ./build/adapters/merlin-headless/Debug/merlin-headless.exe --frames 6 --output merlin.ppm
 ```
 
-Run the native Vulkan viewport. Hydra USD navigation follows usdview: Alt+left
-tumbles, Alt+middle tracks, Alt+right and the wheel dolly, and `F` frames the
-stage. Arrow keys pan, an unmodified left click reads picking IDs, and `S`
-writes a screenshot.
+Run the native Vulkan viewport. In a Hydra USD session, use `Open USD...` in
+the diagnostics panel to browse for a `.usd`, `.usda`, `.usdc`, or `.usdz`
+stage. Hydra USD navigation follows usdview: Alt+left tumbles, Alt+middle
+tracks, Alt+right and the wheel dolly, and `F` frames the stage. Arrow keys
+pan, an unmodified left click reads picking IDs, and `S` writes a screenshot.
 
 ```powershell
 ./build/adapters/merlin-viewport/Debug/merlin-viewport.exe --vsync off
@@ -269,7 +270,7 @@ Hydra are optional dependency layers:
 | Native Metal | `MERLIN_ENABLE_VULKAN=OFF`, `MERLIN_ENABLE_METAL=ON` | macOS, Apple Metal framework, and a Metal-capable device |
 | Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
 | Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback; pinned Dear ImGui 1.92.8 |
-| Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | A native GPU backend and a compatible OpenUSD SDK |
+| Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | A native GPU backend, a compatible OpenUSD SDK, and pinned Native File Dialog Extended 1.3.0 for the viewport; Linux viewport builds additionally require D-Bus development files for the desktop portal |
 | MaterialX compiler | `MERLIN_ENABLE_MATERIALX=ON` | MaterialX 1.39.6 with MaterialXGenSlang; CMake 3.26+ for source fallback |
 
 Windows with Visual Studio 2022 and AppleClang on macOS are validated

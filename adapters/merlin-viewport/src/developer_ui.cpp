@@ -3,9 +3,20 @@
 #include "window.hpp"
 
 #define GLFW_INCLUDE_NONE
+#ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
+#if defined(_WIN32)
+#define GLFW_EXPOSE_NATIVE_WIN32
+#elif defined(__APPLE__)
+#define GLFW_EXPOSE_NATIVE_COCOA
+#endif
+#endif
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
+#include <nfd.h>
+#include <nfd_glfw3.h>
+#endif
 #ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include <imgui_impl_vulkan.h>
 #endif
@@ -15,6 +26,7 @@
 #endif
 
 #include <array>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -138,6 +150,17 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
     window_ = static_cast<GLFWwindow*>(window.native_window());
+#ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
+    if (NFD_Init() == NFD_OKAY) {
+      nfd_initialized_ = true;
+      NFD_SetDisplayPropertiesFromGLFW();
+    } else {
+      const auto* error = NFD_GetError();
+      file_dialog_error_ =
+          error == nullptr ? "Could not initialize the native file dialog."
+                           : error;
+    }
+#endif
   }
 
   ~ImGuiDeveloperUi() override {
@@ -156,6 +179,11 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       ImGui_ImplGlfw_Shutdown();
     }
     ImGui::DestroyContext(context_);
+#ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
+    if (nfd_initialized_) {
+      NFD_Quit();
+    }
+#endif
   }
 
 #ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
@@ -355,6 +383,19 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     if (ImGui::Button("Save benchmark")) {
       actions_.save_benchmark = true;
     }
+#ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
+    if (snapshot.can_load_usd) {
+      ImGui::SameLine();
+      ImGui::BeginDisabled(!nfd_initialized_);
+      if (ImGui::Button("Open USD...")) {
+        OpenUsdStage();
+      }
+      ImGui::EndDisabled();
+      if (!file_dialog_error_.empty()) {
+        ImGui::TextDisabled("File dialog: %s", file_dialog_error_.c_str());
+      }
+    }
+#endif
 
     if (snapshot.selection != nullptr &&
         ImGui::CollapsingHeader("Backend selection",
@@ -557,6 +598,37 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     ImGui::End();
   }
 
+#ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
+  void OpenUsdStage() {
+    file_dialog_error_.clear();
+    if (!nfd_initialized_) {
+      file_dialog_error_ = "Native file dialog is unavailable.";
+      return;
+    }
+
+    const nfdu8filteritem_t filters[] = {
+        {"OpenUSD stage", "usd,usda,usdc,usdz"},
+    };
+    nfdopendialogu8args_t arguments{};
+    arguments.filterList = filters;
+    arguments.filterCount =
+        static_cast<nfdfiltersize_t>(std::size(filters));
+    NFD_GetNativeWindowFromGLFWWindow(window_, &arguments.parentWindow);
+
+    nfdu8char_t* selected_path{};
+    const auto result = NFD_OpenDialogU8_With(&selected_path, &arguments);
+    if (result == NFD_OKAY) {
+      actions_.load_usd = std::filesystem::path(
+          std::u8string(reinterpret_cast<const char8_t*>(selected_path)));
+      NFD_FreePathU8(selected_path);
+    } else if (result == NFD_ERROR) {
+      const auto* error = NFD_GetError();
+      file_dialog_error_ =
+          error == nullptr ? "Could not open the native file dialog." : error;
+    }
+  }
+#endif
+
   void SetContext() const noexcept { ImGui::SetCurrentContext(context_); }
 
   ImGuiContext* context_{};
@@ -570,6 +642,10 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   bool metal_initialized_{};
 #endif
   DeveloperUiActions actions_;
+#ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
+  bool nfd_initialized_{};
+  std::string file_dialog_error_;
+#endif
 };
 
 }  // namespace

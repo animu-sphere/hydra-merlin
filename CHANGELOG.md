@@ -8,6 +8,11 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Native platform USD file selection in the Hydra development viewport,
+  including Windows and macOS system dialogs and XDG Desktop Portal on Linux.
+
 ## [0.14.1] - 2026-08-02
 
 ### Added

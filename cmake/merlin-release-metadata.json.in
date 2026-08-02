@@ -48,6 +48,10 @@
     "imgui": {
       "version": "@MERLIN_IMGUI_VERSION@",
       "commit": "@MERLIN_IMGUI_PINNED_COMMIT@"
+    },
+    "native_file_dialog_extended": {
+      "version": "@MERLIN_NFD_VERSION@",
+      "commit": "@MERLIN_NFD_PINNED_COMMIT@"
     }
   },
   "packaging": {

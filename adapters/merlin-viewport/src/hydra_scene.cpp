@@ -418,7 +418,8 @@ HdRenderPassAovBinding MakeBinding(const TfToken& name,
 
 }  // namespace
 
-int RunHydraViewport(const HydraViewportOptions& options) {
+static std::optional<std::filesystem::path> RunHydraViewportSession(
+    const HydraViewportOptions& options) {
   const auto stage = UsdStage::Open(options.stage.string());
   if (!stage) {
     throw std::runtime_error("could not open USD stage: " +
@@ -604,6 +605,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
         latest_viewport_frame.instances,
         latest_viewport_frame.lights,
     };
+    ui_snapshot.can_load_usd = true;
     ui_snapshot.frame_index = frames;
     ui_snapshot.host_frame_ns = latest_frame_ns;
     ui_snapshot.width = width;
@@ -612,6 +614,14 @@ int RunHydraViewport(const HydraViewportOptions& options) {
     if (ui_actions.capture_screenshot) {
       screenshot_pending = true;
       readback_requested = true;
+    }
+    if (ui_actions.load_usd) {
+      const auto selected_stage = *ui_actions.load_usd;
+      if (const auto next_stage = UsdStage::Open(selected_stage.string())) {
+        return selected_stage;
+      }
+      std::cerr << "could not open USD stage: " << selected_stage.string()
+                << '\n';
     }
     benchmark_snapshot_pending =
         benchmark_snapshot_pending || ui_actions.save_benchmark;
@@ -749,6 +759,14 @@ int RunHydraViewport(const HydraViewportOptions& options) {
       throw std::runtime_error(
           "Hydra viewport did not present every rendered frame");
     }
+  }
+  return std::nullopt;
+}
+
+int RunHydraViewport(const HydraViewportOptions& options) {
+  auto session_options = options;
+  while (const auto selected_stage = RunHydraViewportSession(session_options)) {
+    session_options.stage = *selected_stage;
   }
   return 0;
 }
