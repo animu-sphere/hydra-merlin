@@ -50,6 +50,19 @@ interactive performance-regression inspection. The Vulkan render loop remains
 independent of UI frame rate and widget implementation. A complete stage tree,
 property editor, and authoring workflow remain outside this milestone.
 
+Current UI follow-up:
+
+- ✅ Native platform USD selection with stage switching.
+- ✅ Rolling host/GPU timing history and expanded resource activity.
+- ✅ Gaussian resource, particle, SH, projection, sorting, culling, cache,
+  upload, and fallback diagnostics.
+- ✅ Structured material diagnostic severity, fallback, and context display.
+- ⬜ Camera state and navigation values.
+- ⬜ Interactive renderer settings with explicit applied/rejected feedback.
+- ⬜ Interactive AOV selection and diagnostic image inspection.
+- ⬜ General host/backend diagnostic history beyond material diagnostics.
+- ⬜ Saved benchmark comparison, thresholds, and hitch markers in the UI.
+
 ## Phase A foundation gates
 
 These cross-cutting items should land alongside v0.10.x, before the

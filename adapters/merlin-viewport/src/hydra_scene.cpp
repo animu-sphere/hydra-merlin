@@ -416,13 +416,19 @@ HdRenderPassAovBinding MakeBinding(const TfToken& name,
   return result;
 }
 
+std::string PathToUtf8(const std::filesystem::path& path) {
+  const auto utf8 = path.generic_u8string();
+  return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};
+}
+
 }  // namespace
 
-int RunHydraViewport(const HydraViewportOptions& options) {
-  const auto stage = UsdStage::Open(options.stage.string());
+static std::optional<std::filesystem::path> RunHydraViewportSession(
+    const HydraViewportOptions& options) {
+  const auto stage_path = PathToUtf8(options.stage);
+  const auto stage = UsdStage::Open(stage_path);
   if (!stage) {
-    throw std::runtime_error("could not open USD stage: " +
-                             options.stage.string());
+    throw std::runtime_error("could not open USD stage: " + stage_path);
   }
   auto window = Window::Create("merlin-viewport | Hydra", options.width,
                                options.height, options.visible);
@@ -479,7 +485,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   HdMerlinViewportFrame latest_viewport_frame;
   const auto start = Clock::now();
 
-  std::cout << "USD stage: " << options.stage.string() << '\n'
+  std::cout << "USD stage: " << stage_path << '\n'
             << "Scene source: OpenUSD through Hydra\n"
             << "Framed bounds: center=" << state->center()[0] << ','
             << state->center()[1] << ',' << state->center()[2]
@@ -587,6 +593,7 @@ int RunHydraViewport(const HydraViewportOptions& options) {
 
     DeveloperUiSnapshot ui_snapshot;
     ui_snapshot.scene_source = "Hydra";
+    ui_snapshot.scene_path = stage_path;
     ui_snapshot.selection = &selection;
     ui_snapshot.capabilities = &backend->capabilities();
     ui_snapshot.statistics = backend->statistics();
@@ -604,6 +611,18 @@ int RunHydraViewport(const HydraViewportOptions& options) {
         latest_viewport_frame.instances,
         latest_viewport_frame.lights,
     };
+    ui_snapshot.gaussian = {
+        latest_viewport_frame.available,
+        latest_viewport_frame.gaussians,
+        latest_viewport_frame.gaussian_particles,
+        latest_viewport_frame.gaussian_visible_resources,
+        latest_viewport_frame.gaussian_sh_degree_resources,
+        latest_viewport_frame.gaussian_perspective_resources,
+        latest_viewport_frame.gaussian_tangential_resources,
+        latest_viewport_frame.gaussian_z_depth_resources,
+        latest_viewport_frame.gaussian_camera_distance_resources,
+    };
+    ui_snapshot.can_load_usd = true;
     ui_snapshot.frame_index = frames;
     ui_snapshot.host_frame_ns = latest_frame_ns;
     ui_snapshot.width = width;
@@ -612,6 +631,9 @@ int RunHydraViewport(const HydraViewportOptions& options) {
     if (ui_actions.capture_screenshot) {
       screenshot_pending = true;
       readback_requested = true;
+    }
+    if (ui_actions.load_usd) {
+      return *ui_actions.load_usd;
     }
     benchmark_snapshot_pending =
         benchmark_snapshot_pending || ui_actions.save_benchmark;
@@ -749,6 +771,14 @@ int RunHydraViewport(const HydraViewportOptions& options) {
       throw std::runtime_error(
           "Hydra viewport did not present every rendered frame");
     }
+  }
+  return std::nullopt;
+}
+
+int RunHydraViewport(const HydraViewportOptions& options) {
+  auto session_options = options;
+  while (const auto selected_stage = RunHydraViewportSession(session_options)) {
+    session_options.stage = *selected_stage;
   }
   return 0;
 }

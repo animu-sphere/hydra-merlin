@@ -25,6 +25,19 @@ compatible packaged builds may be supplied instead.
 - License: Apache License 2.0; source builds install the upstream `LICENSE`
   under `share/merlin/licenses/materialx`
 
+## Native File Dialog Extended
+
+Hydra-enabled `merlin-viewport` builds privately embed Native File Dialog
+Extended to invoke the platform file chooser from the renderer-development
+diagnostic surface.
+
+- Upstream repository: btzy/nativefiledialog-extended
+- Upstream revision: `3cd252a8f7ca32419b1ca235c2990ba6a0ecba7c`
+- Version at the pinned revision: 1.3.0
+- Authors: Bernard Teo and Michael Labbe
+- License: zlib; viewport builds install the upstream `LICENSE` under
+  `share/merlin/licenses/nativefiledialog-extended`
+
 ## OpenUSD Stinson Beach environment image
 
 `backend/merlin-vulkan/assets/environment.hdr` is an unmodified copy of

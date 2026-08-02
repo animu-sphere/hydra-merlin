@@ -22,6 +22,30 @@ FetchContent_Declare(imgui
 )
 FetchContent_MakeAvailable(imgui)
 
+if(MERLIN_ENABLE_HYDRA2)
+  if(APPLE)
+    enable_language(OBJC)
+  endif()
+  set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(NFD_BUILD_SDL2_TESTS OFF CACHE BOOL "" FORCE)
+  set(NFD_BUILD_GLFW3_TESTS OFF CACHE BOOL "" FORCE)
+  set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
+  if(UNIX AND NOT APPLE)
+    # The portal delegates the chooser to the active desktop environment,
+    # which keeps the viewport usable under both X11 and Wayland without
+    # linking either display-server client into the dialog implementation.
+    set(NFD_PORTAL ON CACHE BOOL "" FORCE)
+    set(NFD_X11 OFF CACHE BOOL "" FORCE)
+    set(NFD_WAYLAND OFF CACHE BOOL "" FORCE)
+  endif()
+  FetchContent_Declare(nfd
+    GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
+    GIT_TAG ${MERLIN_NFD_PINNED_COMMIT}
+    GIT_SHALLOW FALSE
+  )
+  FetchContent_MakeAvailable(nfd)
+endif()
+
 add_library(merlin-viewport-imgui STATIC
   "${imgui_SOURCE_DIR}/imgui.cpp"
   "${imgui_SOURCE_DIR}/imgui_draw.cpp"
@@ -107,9 +131,11 @@ if(MERLIN_ENABLE_HYDRA2)
   target_link_libraries(merlin-viewport PRIVATE
     merlin-hydra2-runtime
     merlin-hydra2-host-dependencies
+    nfd
   )
   target_compile_definitions(merlin-viewport PRIVATE
     MERLIN_VIEWPORT_ENABLE_HYDRA2=1
+    MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG=1
     NOMINMAX
     _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING
   )
@@ -124,6 +150,18 @@ target_link_libraries(merlin-viewport
     merlin-viewport-imgui
 )
 target_compile_features(merlin-viewport PRIVATE cxx_std_20)
+
+if(WIN32 AND MERLIN_ENABLE_HYDRA2)
+  # Developer builds use an external OpenUSD SDK. Generate a launcher beside
+  # each configuration's executable so it can resolve the SDK DLLs outside
+  # CTest without requiring a persistent machine-wide PATH change.
+  file(GENERATE
+    OUTPUT "$<TARGET_FILE_DIR:merlin-viewport>/run-merlin-viewport.cmd"
+    CONTENT
+      "@echo off\r\nsetlocal\r\nset \"PATH=${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;${MERLIN_OPENUSD_RUNTIME_ROOT}/lib;%PATH%\"\r\n\"$<TARGET_FILE:merlin-viewport>\" %*\r\nexit /b %ERRORLEVEL%\r\n"
+    TARGET merlin-viewport
+  )
+endif()
 
 if(TARGET Merlin::Vulkan)
   add_dependencies(merlin-viewport merlin-vulkan-shaders)
@@ -146,6 +184,11 @@ install(TARGETS merlin-viewport
 install(FILES "${imgui_SOURCE_DIR}/LICENSE.txt"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/licenses/imgui"
 )
+if(MERLIN_ENABLE_HYDRA2)
+  install(FILES "${nfd_SOURCE_DIR}/LICENSE"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/merlin/licenses/nativefiledialog-extended"
+  )
+endif()
 if(TARGET Merlin::Vulkan)
   install(FILES ${MERLIN_SHADER_PACKAGE_FILES}
     DESTINATION

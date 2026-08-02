@@ -10,6 +10,7 @@
 
 #include <merlin/render/backend.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -28,6 +29,13 @@ struct HdMerlinViewportFrame {
   std::vector<merlin::MaterialDiagnostic> material_diagnostics;
   std::uint64_t geometries{};
   std::uint64_t gaussians{};
+  std::uint64_t gaussian_particles{};
+  std::uint64_t gaussian_visible_resources{};
+  std::array<std::uint64_t, 4> gaussian_sh_degree_resources{};
+  std::uint64_t gaussian_perspective_resources{};
+  std::uint64_t gaussian_tangential_resources{};
+  std::uint64_t gaussian_z_depth_resources{};
+  std::uint64_t gaussian_camera_distance_resources{};
   std::uint64_t textures{};
   std::uint64_t samplers{};
   std::uint64_t materials{};

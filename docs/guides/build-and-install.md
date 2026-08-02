@@ -24,7 +24,12 @@ metadata. GLFW is private to the viewport and never becomes a Core dependency.
 The viewport also fetches the pinned Dear ImGui 1.92.8 revision and compiles
 only its core plus the required official GLFW, Vulkan, and Metal backends.
 Dear ImGui stays private to the executable and does not enter an installed
-Merlin target. For large Hydra2 stages opened through usdview, set
+Merlin target. Hydra-enabled viewport builds likewise embed Native File Dialog
+Extended 1.3.0 for the platform USD chooser. Windows uses the system file
+dialog, macOS uses AppKit, and Linux uses XDG Desktop Portal; Linux viewport
+builds therefore need the D-Bus development package (for example,
+`libdbus-1-dev` on Debian/Ubuntu).
+For large Hydra2 stages opened through usdview, set
 `MERLIN_METAL_HEAP_MIB=N` to raise the Metal scene heap from its 64 MiB default;
 the native Merlin viewport exposes the equivalent `--metal-heap-mib N` option.
 
@@ -135,9 +140,16 @@ cmake -S . -B build-hydra2 -G "Visual Studio 17 2022" -A x64 `
   -DCMAKE_PREFIX_PATH=C:/path/to/openusd
 cmake --build build-hydra2 --config Release --parallel
 ctest --test-dir build-hydra2 -C Release --output-on-failure
-./build-hydra2/adapters/merlin-viewport/Release/merlin-viewport.exe `
+./build-hydra2/adapters/merlin-viewport/Release/run-merlin-viewport.cmd `
   --usd C:/path/to/scene.usda
 ```
+
+On Windows, `run-merlin-viewport.cmd` is generated beside the developer-build
+executable and prepends the configured OpenUSD `bin` and `lib` directories for
+that process only. This avoids a machine-wide `PATH` edit. The executable can
+still be invoked directly when the same runtime directories are already
+discoverable. On macOS and Linux, configure the platform loader path for the
+selected OpenUSD SDK before launching the executable directly.
 
 The Hydra configuration accepts the validated OpenUSD 26.05 and 26.08 shared
 SDKs and records the selected header version in release metadata. It rejects
