@@ -10,6 +10,11 @@ after its public API and release process are established.
 
 ### Added
 
+- Saved in-session viewport benchmark baselines with live CPU/GPU percentage
+  comparison over independent measurement intervals, adjustable regression and
+  hitch thresholds, and red hitch markers over the rolling host/GPU timing
+  plots. Hydra viewport benchmark JSON now retains GPU totals and averages as
+  well.
 - The development viewport diagnostics now expose native and Hydra camera
   position, target, navigation mode, orientation, projection, clipping, and
   viewport aspect state alongside the relevant controls.

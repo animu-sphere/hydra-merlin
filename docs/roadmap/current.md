@@ -61,7 +61,7 @@ Current UI follow-up:
 - ⬜ Interactive renderer settings with explicit applied/rejected feedback.
 - ⬜ Interactive AOV selection and diagnostic image inspection.
 - ⬜ General host/backend diagnostic history beyond material diagnostics.
-- ⬜ Saved benchmark comparison, thresholds, and hitch markers in the UI.
+- ✅ Saved benchmark comparison, thresholds, and hitch markers in the UI.
 
 ## Phase A foundation gates
 

@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
@@ -220,6 +221,73 @@ float Maximum(const std::array<float, kTimingHistorySamples>& values,
   return count == 0
              ? 0.0F
              : *std::max_element(values.begin(), values.begin() + count);
+}
+
+std::size_t CountAbove(const std::array<float, kTimingHistorySamples>& values,
+                       std::size_t count, float threshold) {
+  return static_cast<std::size_t>(std::count_if(
+      values.begin(), values.begin() + count,
+      [threshold](float value) { return value > threshold; }));
+}
+
+void DrawTimingPlot(const char* id,
+                    const std::array<float, kTimingHistorySamples>& values,
+                    std::size_t count, std::size_t offset,
+                    float hitch_threshold_ms) {
+  ImGui::PlotLines(id, values.data(), static_cast<int>(count),
+                   static_cast<int>(offset), nullptr, 0.0F,
+                   std::numeric_limits<float>::max(),
+                   ImVec2(0.0F, 54.0F));
+  if (count == 0 || hitch_threshold_ms <= 0.0F) {
+    return;
+  }
+
+  const auto plot_min = ImGui::GetItemRectMin();
+  const auto plot_max = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  const auto denominator =
+      static_cast<float>(std::max<std::size_t>(count, 2U) - 1U);
+  for (std::size_t display_index = 0; display_index < count;
+       ++display_index) {
+    const auto value_index = (offset + display_index) % count;
+    if (values[value_index] <= hitch_threshold_ms) {
+      continue;
+    }
+    const auto x = plot_min.x +
+                   (plot_max.x - plot_min.x) *
+                       static_cast<float>(display_index) / denominator;
+    draw_list->AddLine(ImVec2(x, plot_min.y), ImVec2(x, plot_max.y),
+                       IM_COL32(255, 80, 70, 210), 1.5F);
+  }
+}
+
+double PercentChange(std::uint64_t current, std::uint64_t baseline) {
+  if (baseline == 0) {
+    return 0.0;
+  }
+  return (static_cast<double>(current) / static_cast<double>(baseline) - 1.0) *
+         100.0;
+}
+
+void BenchmarkDeltaRow(const char* label, std::uint64_t current,
+                       std::uint64_t baseline,
+                       float regression_threshold_percent) {
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  ImGui::TextUnformatted(label);
+  ImGui::TableSetColumnIndex(1);
+  if (current == 0 || baseline == 0) {
+    ImGui::TextDisabled("unavailable");
+    return;
+  }
+  const auto delta = PercentChange(current, baseline);
+  const auto color = delta > regression_threshold_percent
+                         ? ImVec4(1.0F, 0.35F, 0.30F, 1.0F)
+                         : (delta < -regression_threshold_percent
+                                ? ImVec4(0.35F, 0.90F, 0.45F, 1.0F)
+                                : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+  ImGui::TextColored(color, "%.3f ms (%+.1f%%)",
+                     static_cast<double>(current) / 1'000'000.0, delta);
 }
 
 const char* SeverityName(DiagnosticSeverity severity) noexcept {
@@ -577,11 +645,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         ImGui::Text("Host history: avg %.3f ms, max %.3f ms",
                     Average(timing_history_.host_ms, timing_history_.count),
                     Maximum(timing_history_.host_ms, timing_history_.count));
-        ImGui::PlotLines(
-            "##host-frame-history", timing_history_.host_ms.data(),
-            static_cast<int>(timing_history_.count),
-            static_cast<int>(timing_history_.offset()), nullptr, 0.0F,
-            std::numeric_limits<float>::max(), ImVec2(0.0F, 54.0F));
+        DrawTimingPlot("##host-frame-history", timing_history_.host_ms,
+                       timing_history_.count, timing_history_.offset(),
+                       hitch_threshold_ms_);
         ImGui::Text("Backend history: avg %.3f ms, max %.3f ms",
                     Average(timing_history_.backend_ms,
                             timing_history_.count),
@@ -590,11 +656,90 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         ImGui::Text("GPU history: avg %.3f ms, max %.3f ms",
                     Average(timing_history_.gpu_ms, timing_history_.count),
                     Maximum(timing_history_.gpu_ms, timing_history_.count));
-        ImGui::PlotLines(
-            "##gpu-frame-history", timing_history_.gpu_ms.data(),
-            static_cast<int>(timing_history_.count),
-            static_cast<int>(timing_history_.offset()), nullptr, 0.0F,
-            std::numeric_limits<float>::max(), ImVec2(0.0F, 54.0F));
+        DrawTimingPlot("##gpu-frame-history", timing_history_.gpu_ms,
+                       timing_history_.count, timing_history_.offset(),
+                       hitch_threshold_ms_);
+      }
+    }
+
+    if (ImGui::CollapsingHeader("Benchmark comparison",
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      ImGui::SetNextItemWidth(150.0F);
+      ImGui::DragFloat("Hitch threshold (ms)", &hitch_threshold_ms_, 0.25F,
+                       1.0F, 1000.0F, "%.2f");
+      ImGui::SetNextItemWidth(150.0F);
+      ImGui::DragFloat("Regression threshold (%)",
+                       &regression_threshold_percent_, 0.5F, 0.0F, 100.0F,
+                       "%.1f");
+
+      const auto recent_host_hitches =
+          CountAbove(timing_history_.host_ms, timing_history_.count,
+                     hitch_threshold_ms_);
+      const auto recent_gpu_hitches =
+          CountAbove(timing_history_.gpu_ms, timing_history_.count,
+                     hitch_threshold_ms_);
+      TwoColumnTable("benchmark-current", [&] {
+        LabelValue("Accumulated frames", snapshot.benchmark.frames);
+        LabelMilliseconds("CPU average",
+                          snapshot.benchmark.cpu_average_frame_ns);
+        LabelMilliseconds("GPU average",
+                          snapshot.benchmark.gpu_average_frame_ns);
+        LabelValue("Recent host hitches", recent_host_hitches);
+        LabelValue("Recent GPU hitches", recent_gpu_hitches);
+      });
+      ImGui::TextDisabled(
+          "Red markers in the timing plots exceed the hitch threshold.");
+
+      if (snapshot.saved_benchmark == nullptr ||
+          !snapshot.saved_benchmark->available) {
+        ImGui::TextDisabled(
+            "Save a benchmark to establish an in-session baseline.");
+      } else {
+        const auto& baseline = *snapshot.saved_benchmark;
+        const auto baseline_path = baseline.path.generic_string();
+        const auto baseline_filename = Utf8Filename(baseline_path);
+        ImGui::Text("Saved baseline: %.*s",
+                    static_cast<int>(baseline_filename.size()),
+                    baseline_filename.data());
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("%s", baseline_path.c_str());
+        }
+        TwoColumnTable("benchmark-comparison", [&] {
+          LabelValue("Baseline frames", baseline.frames);
+          BenchmarkDeltaRow("CPU average",
+                            snapshot.benchmark.cpu_average_frame_ns,
+                            baseline.cpu_average_frame_ns,
+                            regression_threshold_percent_);
+          BenchmarkDeltaRow("GPU average",
+                            snapshot.benchmark.gpu_average_frame_ns,
+                            baseline.gpu_average_frame_ns,
+                            regression_threshold_percent_);
+        });
+        if (!snapshot.benchmark.available) {
+          ImGui::TextDisabled(
+              "Collecting frames for the new comparison interval.");
+        } else {
+          const bool cpu_regression =
+              baseline.cpu_average_frame_ns != 0 &&
+              PercentChange(snapshot.benchmark.cpu_average_frame_ns,
+                            baseline.cpu_average_frame_ns) >
+                  regression_threshold_percent_;
+          const bool gpu_regression =
+              baseline.gpu_average_frame_ns != 0 &&
+              PercentChange(snapshot.benchmark.gpu_average_frame_ns,
+                            baseline.gpu_average_frame_ns) >
+                  regression_threshold_percent_;
+          if (cpu_regression || gpu_regression) {
+            ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.30F, 1.0F),
+                               "Threshold exceeded: %s%s%s.",
+                               cpu_regression ? "CPU" : "",
+                               cpu_regression && gpu_regression ? " and " : "",
+                               gpu_regression ? "GPU" : "");
+          } else {
+            ImGui::TextColored(ImVec4(0.35F, 0.90F, 0.45F, 1.0F),
+                               "Current averages are within threshold.");
+          }
+        }
       }
     }
 
@@ -956,6 +1101,8 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 #endif
   DeveloperUiActions actions_;
   TimingHistory timing_history_;
+  float hitch_threshold_ms_{33.33F};
+  float regression_threshold_percent_{10.0F};
 #ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
   bool nfd_initialized_{};
   std::string file_dialog_error_;

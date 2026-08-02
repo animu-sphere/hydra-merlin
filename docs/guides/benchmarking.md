@@ -9,8 +9,8 @@ hdMerlin keeps two complementary performance records:
   scopes in the install-tree usdview regression.
 - `merlin.viewport-benchmark/v1` records native viewport CPU/GPU frame time,
   presented frames, swapchain recreation, validation, GPU presentation-copy
-  bytes, and zero-CPU-readback frames; the Hydra variant records cumulative
-  readback bytes for the USD scene path.
+  bytes, and zero-CPU-readback frames; the Hydra variant records CPU/GPU frame
+  time and cumulative readback bytes for the USD scene path.
 - The planned host-bridge report extends the Hydra record with transfer mode,
   device-relationship capability, selected AOVs, source/destination metadata,
   bridge copy bytes/time, completion wait, target recreations, CPU fallback
@@ -35,6 +35,16 @@ zero cumulative readback.
 Use Release builds, a fixed driver and resolution, and fixed GPU clock/power
 policy for timing comparisons. Ordinary CI gates structural work; timing gates
 are opt-in for controlled hardware.
+
+The viewport's **Save benchmark** button also establishes an in-session
+baseline from the interval since launch or the previous save. It then starts a
+fresh comparison interval, so older baseline frames cannot dilute a subsequent
+regression. The diagnostics panel reports live CPU/GPU percentage change,
+colors regressions beyond the adjustable threshold, and marks samples over the
+hitch threshold in the rolling timing plots. The saved JSON retains its
+existing cumulative session semantics. This interactive comparison is
+exploratory; retain the JSON and use the comparison script below for
+reproducible evidence.
 
 ## Renderer benchmark
 

@@ -59,6 +59,14 @@ struct DeveloperUiCamera {
   double aspect_ratio{};
 };
 
+struct DeveloperUiBenchmark {
+  bool available{};
+  std::filesystem::path path;
+  std::uint64_t frames{};
+  std::uint64_t cpu_average_frame_ns{};
+  std::uint64_t gpu_average_frame_ns{};
+};
+
 struct DeveloperUiSnapshot {
   std::string_view scene_source{"native"};
   std::string_view scene_path;
@@ -71,6 +79,8 @@ struct DeveloperUiSnapshot {
   DeveloperUiScene scene;
   DeveloperUiGaussian gaussian;
   DeveloperUiCamera camera;
+  DeveloperUiBenchmark benchmark;
+  const DeveloperUiBenchmark* saved_benchmark{};
   bool can_load_usd{};
   std::uint64_t frame_index{};
   std::uint64_t host_frame_ns{};
