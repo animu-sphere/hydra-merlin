@@ -43,6 +43,22 @@ struct DeveloperUiGaussian {
   std::uint64_t camera_distance_resources{};
 };
 
+struct DeveloperUiCamera {
+  bool available{};
+  bool perspective{};
+  std::string_view controller;
+  std::string_view up_axis;
+  std::array<double, 3> position{};
+  std::array<double, 3> target{};
+  double yaw_degrees{};
+  double pitch_degrees{};
+  double distance{};
+  double vertical_fov_degrees{};
+  double near_plane{};
+  double far_plane{};
+  double aspect_ratio{};
+};
+
 struct DeveloperUiSnapshot {
   std::string_view scene_source{"native"};
   std::string_view scene_path;
@@ -54,6 +70,7 @@ struct DeveloperUiSnapshot {
   const std::vector<MaterialDiagnostic>* material_diagnostics{};
   DeveloperUiScene scene;
   DeveloperUiGaussian gaussian;
+  DeveloperUiCamera camera;
   bool can_load_usd{};
   std::uint64_t frame_index{};
   std::uint64_t host_frame_ns{};

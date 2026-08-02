@@ -161,7 +161,20 @@ class ViewportRenderPassState final : public HdRenderPassState {
   }
 
   const GfVec3d& center() const noexcept { return center_; }
+  GfVec3d position() const { return camera_transform_.Transform(GfVec3d(0.0)); }
   double radius() const noexcept { return scene_radius_; }
+  double distance() const noexcept { return distance_; }
+  double yaw_degrees() const noexcept { return theta_degrees_; }
+  double pitch_degrees() const noexcept { return phi_degrees_; }
+  double vertical_fov_degrees() const noexcept {
+    return kVerticalFovDegrees;
+  }
+  double near_plane() const noexcept { return near_; }
+  double far_plane() const noexcept { return far_; }
+  double aspect_ratio() const noexcept {
+    return static_cast<double>(viewport_width_) /
+           static_cast<double>(std::max(1U, viewport_height_));
+  }
   const char* up_axis_name() const noexcept { return is_z_up_ ? "Z" : "Y"; }
 
  private:
@@ -622,6 +635,23 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         latest_viewport_frame.gaussian_z_depth_resources,
         latest_viewport_frame.gaussian_camera_distance_resources,
     };
+    const auto camera_position = state->position();
+    ui_snapshot.camera.available = true;
+    ui_snapshot.camera.perspective = true;
+    ui_snapshot.camera.controller = "orbit";
+    ui_snapshot.camera.up_axis = state->up_axis_name();
+    ui_snapshot.camera.position = {camera_position[0], camera_position[1],
+                                   camera_position[2]};
+    ui_snapshot.camera.target = {state->center()[0], state->center()[1],
+                                 state->center()[2]};
+    ui_snapshot.camera.yaw_degrees = state->yaw_degrees();
+    ui_snapshot.camera.pitch_degrees = state->pitch_degrees();
+    ui_snapshot.camera.distance = state->distance();
+    ui_snapshot.camera.vertical_fov_degrees =
+        state->vertical_fov_degrees();
+    ui_snapshot.camera.near_plane = state->near_plane();
+    ui_snapshot.camera.far_plane = state->far_plane();
+    ui_snapshot.camera.aspect_ratio = state->aspect_ratio();
     ui_snapshot.can_load_usd = true;
     ui_snapshot.frame_index = frames;
     ui_snapshot.host_frame_ns = latest_frame_ns;

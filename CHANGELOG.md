@@ -10,6 +10,9 @@ after its public API and release process are established.
 
 ### Added
 
+- The development viewport diagnostics now expose native and Hydra camera
+  position, target, navigation mode, orientation, projection, clipping, and
+  viewport aspect state alongside the relevant controls.
 - Native platform USD file selection in the Hydra development viewport,
   including initial-stage selection, UTF-8 paths, Windows and macOS system
   dialogs, and XDG Desktop Portal on Linux. Windows Hydra developer builds also

@@ -567,6 +567,19 @@ int main(int argc, char** argv) {
           scene_snapshot->lights.size(),
       };
       ui_snapshot.gaussian = SummarizeGaussians(*scene_snapshot);
+      const auto& view = scene.camera_descriptor.view.values;
+      ui_snapshot.camera.available = true;
+      ui_snapshot.camera.controller = "translation";
+      ui_snapshot.camera.up_axis = "Y";
+      ui_snapshot.camera.position = {
+          -static_cast<double>(view[12]), -static_cast<double>(view[13]),
+          -static_cast<double>(view[14])};
+      ui_snapshot.camera.target = {
+          ui_snapshot.camera.position[0], ui_snapshot.camera.position[1],
+          ui_snapshot.camera.position[2] - 1.0};
+      ui_snapshot.camera.distance = 1.0;
+      ui_snapshot.camera.aspect_ratio =
+          static_cast<double>(width) / static_cast<double>(height);
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
       ui_snapshot.can_load_usd = true;
 #endif
