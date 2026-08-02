@@ -420,7 +420,8 @@ HdRenderPassAovBinding MakeBinding(const TfToken& name,
 
 static std::optional<std::filesystem::path> RunHydraViewportSession(
     const HydraViewportOptions& options) {
-  const auto stage = UsdStage::Open(options.stage.string());
+  const auto stage_path = options.stage.string();
+  const auto stage = UsdStage::Open(stage_path);
   if (!stage) {
     throw std::runtime_error("could not open USD stage: " +
                              options.stage.string());
@@ -588,6 +589,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
 
     DeveloperUiSnapshot ui_snapshot;
     ui_snapshot.scene_source = "Hydra";
+    ui_snapshot.scene_path = stage_path;
     ui_snapshot.selection = &selection;
     ui_snapshot.capabilities = &backend->capabilities();
     ui_snapshot.statistics = backend->statistics();
@@ -604,6 +606,17 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         latest_viewport_frame.materials,
         latest_viewport_frame.instances,
         latest_viewport_frame.lights,
+    };
+    ui_snapshot.gaussian = {
+        latest_viewport_frame.available,
+        latest_viewport_frame.gaussians,
+        latest_viewport_frame.gaussian_particles,
+        latest_viewport_frame.gaussian_visible_resources,
+        latest_viewport_frame.gaussian_sh_degree_resources,
+        latest_viewport_frame.gaussian_perspective_resources,
+        latest_viewport_frame.gaussian_tangential_resources,
+        latest_viewport_frame.gaussian_z_depth_resources,
+        latest_viewport_frame.gaussian_camera_distance_resources,
     };
     ui_snapshot.can_load_usd = true;
     ui_snapshot.frame_index = frames;

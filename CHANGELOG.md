@@ -12,6 +12,9 @@ after its public API and release process are established.
 
 - Native platform USD file selection in the Hydra development viewport,
   including Windows and macOS system dialogs and XDG Desktop Portal on Linux.
+- Rolling frame-time plots, expanded resource and structured material
+  diagnostics, and a dedicated Gaussian panel covering particle/SH policy,
+  projection, sorting, culling, cache, upload, and fallback evidence.
 
 ## [0.14.1] - 2026-08-02
 

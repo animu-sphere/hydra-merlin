@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -30,8 +31,21 @@ struct DeveloperUiScene {
   std::uint64_t lights{};
 };
 
+struct DeveloperUiGaussian {
+  bool available{};
+  std::uint64_t resources{};
+  std::uint64_t particles{};
+  std::uint64_t visible_resources{};
+  std::array<std::uint64_t, 4> spherical_harmonics_degree_resources{};
+  std::uint64_t perspective_resources{};
+  std::uint64_t tangential_resources{};
+  std::uint64_t z_depth_resources{};
+  std::uint64_t camera_distance_resources{};
+};
+
 struct DeveloperUiSnapshot {
   std::string_view scene_source{"native"};
+  std::string_view scene_path;
   const render::BackendSelection* selection{};
   const render::RendererCapabilities* capabilities{};
   render::RendererStatistics statistics;
@@ -39,6 +53,7 @@ struct DeveloperUiSnapshot {
   render::FrameTelemetry telemetry;
   const std::vector<MaterialDiagnostic>* material_diagnostics{};
   DeveloperUiScene scene;
+  DeveloperUiGaussian gaussian;
   bool can_load_usd{};
   std::uint64_t frame_index{};
   std::uint64_t host_frame_ns{};

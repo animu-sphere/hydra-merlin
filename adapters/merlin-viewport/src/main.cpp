@@ -222,6 +222,39 @@ Scene BuildScene() {
   return scene;
 }
 
+merlin::viewport::DeveloperUiGaussian SummarizeGaussians(
+    const merlin::extraction::FrameSnapshot& snapshot) {
+  merlin::viewport::DeveloperUiGaussian result;
+  result.available = true;
+  result.resources = snapshot.gaussians.size();
+  for (const auto& gaussian : snapshot.gaussians) {
+    if (gaussian.positions) {
+      result.particles += gaussian.positions->size();
+    }
+    if (gaussian.visible) {
+      ++result.visible_resources;
+    }
+    const auto degree = std::min<std::size_t>(
+        gaussian.spherical_harmonics_degree,
+        result.spherical_harmonics_degree_resources.size() - 1U);
+    ++result.spherical_harmonics_degree_resources[degree];
+        if (
+            gaussian.projection_mode
+            == merlin::GaussianProjectionMode::Tangential) {
+      ++result.tangential_resources;
+    } else {
+      ++result.perspective_resources;
+    }
+    if (gaussian.sorting_mode ==
+        merlin::GaussianSortingMode::CameraDistance) {
+      ++result.camera_distance_resources;
+    } else {
+      ++result.z_depth_resources;
+    }
+  }
+  return result;
+}
+
 void WritePpm(const std::filesystem::path& path,
               const merlin::render::ImageRgba8& image) {
   if (image.pixels.empty()) {
@@ -523,6 +556,7 @@ int main(int argc, char** argv) {
           scene_snapshot->instances.size(),
           scene_snapshot->lights.size(),
       };
+      ui_snapshot.gaussian = SummarizeGaussians(*scene_snapshot);
       ui_snapshot.frame_index = frames;
       ui_snapshot.host_frame_ns = latest_frame_ns;
       ui_snapshot.width = width;

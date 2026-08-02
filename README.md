@@ -69,7 +69,9 @@ Render the headless smoke image:
 
 Run the native Vulkan viewport. In a Hydra USD session, use `Open USD...` in
 the diagnostics panel to browse for a `.usd`, `.usda`, `.usdc`, or `.usdz`
-stage. Hydra USD navigation follows usdview: Alt+left tumbles, Alt+middle
+stage. The panel includes rolling host/GPU timings and, for Gaussian stages,
+particle, spherical-harmonic, projection, sorting, culling, cache, and upload
+diagnostics. Hydra USD navigation follows usdview: Alt+left tumbles, Alt+middle
 tracks, Alt+right and the wheel dolly, and `F` frames the stage. Arrow keys
 pan, an unmodified left click reads picking IDs, and `S` writes a screenshot.
 

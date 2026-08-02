@@ -1612,6 +1612,38 @@ class SceneBridge {
         result.material_diagnostics;
     latest_viewport_frame_.geometries = snapshot->geometries.size();
     latest_viewport_frame_.gaussians = snapshot->gaussians.size();
+    latest_viewport_frame_.gaussian_particles = 0;
+    latest_viewport_frame_.gaussian_visible_resources = 0;
+    latest_viewport_frame_.gaussian_sh_degree_resources.fill(0);
+    latest_viewport_frame_.gaussian_perspective_resources = 0;
+    latest_viewport_frame_.gaussian_tangential_resources = 0;
+    latest_viewport_frame_.gaussian_z_depth_resources = 0;
+    latest_viewport_frame_.gaussian_camera_distance_resources = 0;
+    for (const auto& gaussian : snapshot->gaussians) {
+      if (gaussian.positions) {
+        latest_viewport_frame_.gaussian_particles +=
+            gaussian.positions->size();
+      }
+      if (gaussian.visible) {
+        ++latest_viewport_frame_.gaussian_visible_resources;
+      }
+      const auto degree = std::min<std::size_t>(
+          gaussian.spherical_harmonics_degree,
+          latest_viewport_frame_.gaussian_sh_degree_resources.size() - 1U);
+      ++latest_viewport_frame_.gaussian_sh_degree_resources[degree];
+      if (gaussian.projection_mode ==
+          merlin::GaussianProjectionMode::Tangential) {
+        ++latest_viewport_frame_.gaussian_tangential_resources;
+      } else {
+        ++latest_viewport_frame_.gaussian_perspective_resources;
+      }
+      if (gaussian.sorting_mode ==
+          merlin::GaussianSortingMode::CameraDistance) {
+        ++latest_viewport_frame_.gaussian_camera_distance_resources;
+      } else {
+        ++latest_viewport_frame_.gaussian_z_depth_resources;
+      }
+    }
     latest_viewport_frame_.textures = snapshot->textures.size();
     latest_viewport_frame_.samplers = snapshot->samplers.size();
     latest_viewport_frame_.materials = snapshot->materials.size();

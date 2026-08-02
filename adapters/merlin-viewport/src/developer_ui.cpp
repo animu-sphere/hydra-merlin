@@ -25,8 +25,10 @@
 #include <imgui_impl_metal.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -98,6 +100,20 @@ void LabelMilliseconds(const char* label, std::uint64_t nanoseconds) {
   ImGui::Text("%.3f ms", static_cast<double>(nanoseconds) / 1'000'000.0);
 }
 
+void LabelCountAndPercent(const char* label, std::uint64_t value,
+                          std::uint64_t total) {
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  ImGui::TextUnformatted(label);
+  ImGui::TableSetColumnIndex(1);
+  const auto percent = total == 0
+                           ? 0.0
+                           : static_cast<double>(value) * 100.0 /
+                                 static_cast<double>(total);
+  ImGui::Text("%llu (%.1f%%)", static_cast<unsigned long long>(value),
+              percent);
+}
+
 template <typename DrawRows>
 void TwoColumnTable(const char* id, DrawRows&& draw_rows) {
   if (ImGui::BeginTable(id, 2, ImGuiTableFlags_BordersInnerV |
@@ -135,6 +151,74 @@ void DrawAovMask(const char* label, std::uint64_t mask) {
   if (!any) {
     ImGui::TextUnformatted("none");
   }
+}
+
+constexpr std::size_t kTimingHistorySamples = 180;
+
+struct TimingHistory {
+  std::array<float, kTimingHistorySamples> host_ms{};
+  std::array<float, kTimingHistorySamples> backend_ms{};
+  std::array<float, kTimingHistorySamples> gpu_ms{};
+  std::size_t count{};
+  std::size_t next{};
+  std::uint64_t last_frame_index{std::numeric_limits<std::uint64_t>::max()};
+
+  void Record(const DeveloperUiSnapshot& snapshot) {
+    if (snapshot.frame_index == last_frame_index) {
+      return;
+    }
+    if (last_frame_index != std::numeric_limits<std::uint64_t>::max() &&
+        snapshot.frame_index < last_frame_index) {
+      *this = {};
+    }
+    last_frame_index = snapshot.frame_index;
+    if (snapshot.host_frame_ns == 0 &&
+        snapshot.timings.backend_total_ns == 0 &&
+        snapshot.timings.gpu_execution_ns == 0) {
+      return;
+    }
+    constexpr double nanoseconds_per_millisecond = 1'000'000.0;
+    host_ms[next] = static_cast<float>(
+        static_cast<double>(snapshot.host_frame_ns) /
+        nanoseconds_per_millisecond);
+    backend_ms[next] = static_cast<float>(
+        static_cast<double>(snapshot.timings.backend_total_ns) /
+        nanoseconds_per_millisecond);
+    gpu_ms[next] = static_cast<float>(
+        static_cast<double>(snapshot.timings.gpu_execution_ns) /
+        nanoseconds_per_millisecond);
+    next = (next + 1U) % kTimingHistorySamples;
+    count = std::min(count + 1U, kTimingHistorySamples);
+  }
+
+  [[nodiscard]] std::size_t offset() const noexcept {
+    return count == kTimingHistorySamples ? next : 0U;
+  }
+};
+
+double Average(const std::array<float, kTimingHistorySamples>& values,
+               std::size_t count) {
+  double total{};
+  for (std::size_t index = 0; index < count; ++index) {
+    total += values[index];
+  }
+  return count == 0 ? 0.0 : total / static_cast<double>(count);
+}
+
+float Maximum(const std::array<float, kTimingHistorySamples>& values,
+              std::size_t count) {
+  return count == 0
+             ? 0.0F
+             : *std::max_element(values.begin(), values.begin() + count);
+}
+
+const char* SeverityName(DiagnosticSeverity severity) noexcept {
+  switch (severity) {
+    case DiagnosticSeverity::Info: return "info";
+    case DiagnosticSeverity::Warning: return "warning";
+    case DiagnosticSeverity::Error: return "error";
+  }
+  return "error";
 }
 
 class ImGuiDeveloperUi final : public DeveloperUi {
@@ -226,6 +310,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 #endif
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    timing_history_.Record(snapshot);
     DrawDiagnostics(snapshot);
     ImGui::Render();
     return actions_;
@@ -373,6 +458,17 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 
     ImGui::Text("Scene: %.*s", static_cast<int>(snapshot.scene_source.size()),
                 snapshot.scene_source.data());
+    if (!snapshot.scene_path.empty()) {
+      const auto filename =
+          std::filesystem::path(std::string(snapshot.scene_path))
+              .filename()
+              .string();
+      ImGui::Text("Stage: %s", filename.c_str());
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%.*s", static_cast<int>(snapshot.scene_path.size()),
+                          snapshot.scene_path.data());
+      }
+    }
     ImGui::Text("Viewport: %u x %u", snapshot.width, snapshot.height);
     ImGui::Text("Frame: %llu",
                 static_cast<unsigned long long>(snapshot.frame_index));
@@ -418,6 +514,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                                 ImGuiTreeNodeFlags_DefaultOpen)) {
       const auto& capabilities = *snapshot.capabilities;
       TwoColumnTable("capabilities", [&] {
+        LabelValue("Backend", capabilities.backend_name.c_str());
         LabelValue("Device", capabilities.device_name.c_str());
         LabelValue("Bindless textures",
                    capabilities.bindless_textures ? "yes" : "fallback");
@@ -429,6 +526,14 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    capabilities.generated_materials ? "yes" : "fallback");
         LabelValue("Validation",
                    capabilities.validation_enabled ? "enabled" : "disabled");
+        LabelValue("External presentation",
+                   capabilities.external_presentation ? "yes" : "no");
+        LabelValue("CPU readback",
+                   capabilities.cpu_readback ? "available" : "unavailable");
+        LabelValue("Max image dimension",
+                   capabilities.limits.max_image_dimension_2d);
+        LabelValue("Frames in flight",
+                   capabilities.limits.max_frames_in_flight);
         LabelValue("Texture slots",
                    capabilities.limits.sampled_image_slots);
         LabelValue("Sampler slots", capabilities.limits.sampler_slots);
@@ -448,9 +553,35 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                           snapshot.timings.command_recording_ns);
         LabelMilliseconds("Queue submission",
                           snapshot.timings.queue_submission_ns);
+        LabelMilliseconds("Completion wait",
+                          snapshot.timings.completion_wait_ns);
+        LabelMilliseconds("Readback", snapshot.timings.readback_ns);
         LabelMilliseconds("Presentation",
                           snapshot.timings.presentation_ns);
       });
+      if (timing_history_.count != 0) {
+        ImGui::Text("Host history: avg %.3f ms, max %.3f ms",
+                    Average(timing_history_.host_ms, timing_history_.count),
+                    Maximum(timing_history_.host_ms, timing_history_.count));
+        ImGui::PlotLines(
+            "##host-frame-history", timing_history_.host_ms.data(),
+            static_cast<int>(timing_history_.count),
+            static_cast<int>(timing_history_.offset()), nullptr, 0.0F,
+            std::numeric_limits<float>::max(), ImVec2(0.0F, 54.0F));
+        ImGui::Text("Backend history: avg %.3f ms, max %.3f ms",
+                    Average(timing_history_.backend_ms,
+                            timing_history_.count),
+                    Maximum(timing_history_.backend_ms,
+                            timing_history_.count));
+        ImGui::Text("GPU history: avg %.3f ms, max %.3f ms",
+                    Average(timing_history_.gpu_ms, timing_history_.count),
+                    Maximum(timing_history_.gpu_ms, timing_history_.count));
+        ImGui::PlotLines(
+            "##gpu-frame-history", timing_history_.gpu_ms.data(),
+            static_cast<int>(timing_history_.count),
+            static_cast<int>(timing_history_.offset()), nullptr, 0.0F,
+            std::numeric_limits<float>::max(), ImVec2(0.0F, 54.0F));
+      }
     }
 
     if (ImGui::CollapsingHeader("Scene and residency",
@@ -469,43 +600,125 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    snapshot.telemetry.visible_primitive_count);
         LabelValue("Draws", snapshot.telemetry.draw_count);
         LabelValue("Triangles", snapshot.telemetry.triangle_count);
-        LabelValue("Gaussian candidates",
-                   snapshot.telemetry.gaussian_candidate_count);
-        LabelValue("Gaussian visible",
-                   snapshot.telemetry.gaussian_visible_count);
-        LabelValue("Gaussian sorted",
-                   snapshot.telemetry.gaussian_sorted_count);
-        LabelValue("Gaussian hidden",
-                   snapshot.telemetry.gaussian_hidden_count);
-        LabelValue("Gaussian opacity culled",
-                   snapshot.telemetry.gaussian_opacity_culled_count);
-        LabelValue("Gaussian frustum culled",
-                   snapshot.telemetry.gaussian_frustum_culled_count);
-        LabelValue("Gaussian invalid culled",
-                   snapshot.telemetry.gaussian_invalid_culled_count);
-        LabelValue("Gaussian sorting fallbacks",
-                   snapshot.telemetry.gaussian_sorting_policy_fallback_count);
-        LabelValue("Gaussian preparation cache hits",
-                   snapshot.telemetry.gaussian_preparation_cache_hits);
-        LabelValue("Gaussian preparation cache misses",
+      });
+    }
+
+    const bool has_gaussians =
+        snapshot.gaussian.resources != 0 ||
+        snapshot.telemetry.gaussian_candidate_count != 0 ||
+        snapshot.telemetry.gaussian_upload_bytes != 0;
+    if (has_gaussians &&
+        ImGui::CollapsingHeader("Gaussian rendering",
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (snapshot.gaussian.available) {
+        TwoColumnTable("gaussian-source", [&] {
+          LabelValue("Resources", snapshot.gaussian.resources);
+          LabelValue("Particles", snapshot.gaussian.particles);
+          LabelCountAndPercent("Visible resources",
+                               snapshot.gaussian.visible_resources,
+                               snapshot.gaussian.resources);
+          LabelValue("SH degree 0",
+                     snapshot.gaussian.spherical_harmonics_degree_resources[0]);
+          LabelValue("SH degree 1",
+                     snapshot.gaussian.spherical_harmonics_degree_resources[1]);
+          LabelValue("SH degree 2",
+                     snapshot.gaussian.spherical_harmonics_degree_resources[2]);
+          LabelValue("SH degree 3",
+                     snapshot.gaussian.spherical_harmonics_degree_resources[3]);
+          LabelValue("Perspective projection",
+                     snapshot.gaussian.perspective_resources);
+          LabelValue("Tangential projection",
+                     snapshot.gaussian.tangential_resources);
+          LabelValue("Z-depth sorting", snapshot.gaussian.z_depth_resources);
+          LabelValue("Camera-distance sorting",
+                     snapshot.gaussian.camera_distance_resources);
+        });
+      }
+      const auto candidates = snapshot.telemetry.gaussian_candidate_count;
+      const auto cache_lookups =
+          snapshot.telemetry.gaussian_preparation_cache_hits +
+          snapshot.telemetry.gaussian_preparation_cache_misses;
+      const auto rejected = snapshot.telemetry.gaussian_hidden_count +
+                            snapshot.telemetry.gaussian_opacity_culled_count +
+                            snapshot.telemetry.gaussian_frustum_culled_count +
+                            snapshot.telemetry.gaussian_invalid_culled_count;
+      TwoColumnTable("gaussian-frame", [&] {
+        LabelValue("Candidates", candidates);
+        LabelCountAndPercent("Visible", snapshot.telemetry.gaussian_visible_count,
+                             candidates);
+        LabelCountAndPercent("Rejected", rejected, candidates);
+        LabelCountAndPercent("Hidden", snapshot.telemetry.gaussian_hidden_count,
+                             candidates);
+        LabelCountAndPercent(
+            "Opacity culled", snapshot.telemetry.gaussian_opacity_culled_count,
+            candidates);
+        LabelCountAndPercent(
+            "Frustum culled", snapshot.telemetry.gaussian_frustum_culled_count,
+            candidates);
+        LabelCountAndPercent(
+            "Invalid culled", snapshot.telemetry.gaussian_invalid_culled_count,
+            candidates);
+        LabelValue("Sorted", snapshot.telemetry.gaussian_sorted_count);
+        LabelCountAndPercent(
+            "Preparation cache hits",
+            snapshot.telemetry.gaussian_preparation_cache_hits, cache_lookups);
+        LabelValue("Preparation cache misses",
                    snapshot.telemetry.gaussian_preparation_cache_misses);
-        LabelValue("Gaussian draws", snapshot.telemetry.gaussian_draw_count);
-        LabelBytes("Gaussian upload",
-                   snapshot.telemetry.gaussian_upload_bytes);
-        LabelBytes("Frame upload", snapshot.telemetry.upload_bytes);
+        LabelValue("Sorting fallbacks",
+                   snapshot.telemetry.gaussian_sorting_policy_fallback_count);
+        LabelValue("Draws", snapshot.telemetry.gaussian_draw_count);
+        LabelBytes("Upload", snapshot.telemetry.gaussian_upload_bytes);
+      });
+      if (snapshot.telemetry.gaussian_invalid_culled_count != 0) {
+        ImGui::TextColored(ImVec4(1.0F, 0.55F, 0.25F, 1.0F),
+                           "Invalid Gaussian payloads were culled.");
+      }
+      if (snapshot.telemetry.gaussian_sorting_policy_fallback_count != 0) {
+        ImGui::TextColored(ImVec4(1.0F, 0.75F, 0.25F, 1.0F),
+                           "Mixed sorting policies fell back to Z depth.");
+      }
+    }
+
+    if (ImGui::CollapsingHeader("Frame resource activity")) {
+      TwoColumnTable("frame-resource-activity", [&] {
+        LabelBytes("Upload", snapshot.telemetry.upload_bytes);
+        LabelBytes("Readback", snapshot.telemetry.readback_bytes);
+        LabelBytes("Total uploaded", snapshot.statistics.uploaded_bytes);
+        LabelValue("Allocations", snapshot.telemetry.allocation_count);
         LabelBytes("Buffer allocations",
                    snapshot.telemetry.buffer_allocation_bytes);
         LabelBytes("Image allocations",
                    snapshot.telemetry.image_allocation_bytes);
-        LabelBytes("Total uploaded", snapshot.statistics.uploaded_bytes);
-        LabelValue("Descriptor updates",
-                   snapshot.telemetry.descriptor_update_count);
+        LabelValue("Pipeline creations",
+                   snapshot.telemetry.pipeline_creation_count);
+        LabelValue("Geometry reconciles",
+                   snapshot.telemetry.geometry_reconcile_count);
+        LabelValue("Texture reconciles",
+                   snapshot.telemetry.texture_reconcile_count);
+        LabelValue("Sampler reconciles",
+                   snapshot.telemetry.sampler_reconcile_count);
         LabelValue("Geometry cache misses",
                    snapshot.telemetry.geometry_cache_misses);
         LabelValue("Texture cache hits",
                    snapshot.telemetry.texture_cache_hits);
         LabelValue("Texture cache misses",
                    snapshot.telemetry.texture_cache_misses);
+        LabelValue("Shader module cache misses",
+                   snapshot.telemetry.shader_module_cache_misses);
+        LabelValue("Descriptor pool creations",
+                   snapshot.telemetry.descriptor_pool_creation_count);
+        LabelValue("Descriptor allocations",
+                   snapshot.telemetry.descriptor_allocation_count);
+        LabelValue("Descriptor updates",
+                   snapshot.telemetry.descriptor_update_count);
+        LabelValue("Bindless image updates",
+                   snapshot.telemetry
+                       .bindless_sampled_image_descriptor_update_count);
+        LabelValue("Bindless sampler updates",
+                   snapshot.telemetry.bindless_sampler_descriptor_update_count);
+        LabelValue("Waits", snapshot.telemetry.wait_count);
+        LabelValue("Resolves", snapshot.telemetry.resolve_count);
+        LabelValue("Maps", snapshot.telemetry.map_count);
       });
     }
 
@@ -559,6 +772,15 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       DrawAovMask("CPU readback:",
                   snapshot.telemetry.cpu_readback_aov_mask);
       TwoColumnTable("presentation", [&] {
+        LabelValue("Requested AOVs",
+                   snapshot.telemetry.requested_aov_count);
+        LabelValue("Rendered AOVs", snapshot.telemetry.rendered_aov_count);
+        LabelValue("CPU readback AOVs",
+                   snapshot.telemetry.cpu_readback_aov_count);
+        LabelValue("AOV image exports",
+                   snapshot.telemetry.aov_image_export_count);
+        LabelValue("Active AOV leases",
+                   snapshot.statistics.active_aov_image_leases);
         LabelValue("Frames presented",
                    snapshot.statistics.frames_presented);
         LabelValue("Swapchain recreates",
@@ -577,6 +799,14 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    snapshot.telemetry.generated_material_draw_count);
         LabelValue("Generated fallbacks",
                    snapshot.telemetry.generated_material_fallback_count);
+        LabelValue("Recorded diagnostics",
+                   snapshot.telemetry.material_fallbacks.recorded_count);
+        LabelValue("Simplifications",
+                   snapshot.telemetry.material_fallbacks.simplification_count);
+        LabelValue("Basic material fallbacks",
+                   snapshot.telemetry.material_fallbacks.basic_material_count);
+        LabelValue("Error material fallbacks",
+                   snapshot.telemetry.material_fallbacks.error_material_count);
         LabelValue(
             "Effective fallback",
             MaterialFallbackName(
@@ -587,11 +817,46 @@ class ImGuiDeveloperUi final : public DeveloperUi {
           snapshot.material_diagnostics->empty()) {
         ImGui::TextDisabled("No material diagnostics in the latest frame.");
       } else {
+        int diagnostic_index{};
         for (const auto& diagnostic : *snapshot.material_diagnostics) {
+          ImGui::PushID(diagnostic_index++);
           const auto code = MaterialDiagnosticCode(diagnostic.category);
-          ImGui::BulletText(
-              "%.*s: %s", static_cast<int>(code.size()), code.data(),
-              diagnostic.message.c_str());
+          if (ImGui::TreeNodeEx(
+                  "diagnostic", ImGuiTreeNodeFlags_SpanAvailWidth,
+                  "%s | %.*s | %s", SeverityName(diagnostic.severity),
+                  static_cast<int>(code.size()), code.data(),
+                  MaterialFallbackName(diagnostic.fallback).data())) {
+            ImGui::TextWrapped("%s", diagnostic.message.c_str());
+            const auto& context = diagnostic.context;
+            TwoColumnTable("material-diagnostic-context", [&] {
+              if (!context.material_identity.empty()) {
+                LabelValue("Material", context.material_identity.c_str());
+              }
+              if (!context.element_path.empty()) {
+                LabelValue("Element", context.element_path.c_str());
+              }
+              if (!context.node_category.empty()) {
+                LabelValue("Node", context.node_category.c_str());
+              }
+              if (!context.input_name.empty()) {
+                LabelValue("Input", context.input_name.c_str());
+              }
+              if (!context.source_document.empty()) {
+                LabelValue("Document", context.source_document.c_str());
+              }
+              if (!context.backend_target.empty()) {
+                LabelValue("Target", context.backend_target.c_str());
+              }
+              if (!context.generator_version.empty()) {
+                LabelValue("Generator", context.generator_version.c_str());
+              }
+              if (!context.compiler_version.empty()) {
+                LabelValue("Compiler", context.compiler_version.c_str());
+              }
+            });
+            ImGui::TreePop();
+          }
+          ImGui::PopID();
         }
       }
     }
@@ -642,6 +907,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   bool metal_initialized_{};
 #endif
   DeveloperUiActions actions_;
+  TimingHistory timing_history_;
 #ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
   bool nfd_initialized_{};
   std::string file_dialog_error_;
