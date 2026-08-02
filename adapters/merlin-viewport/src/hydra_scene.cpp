@@ -851,13 +851,13 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     throw std::runtime_error(
         "backend validation reported Hydra viewport messages");
   }
+  if (!readback_requested && statistics.readback_bytes != 0) {
+    throw std::runtime_error(
+        "Hydra viewport performed an unexpected CPU readback");
+  }
   if (options.reference_check) {
     if (!reference_checked) {
       throw std::runtime_error("Hydra viewport content check did not execute");
-    }
-    if (!readback_requested && statistics.readback_bytes != 0) {
-      throw std::runtime_error(
-          "Hydra viewport performed an unexpected CPU readback");
     }
     // Evidence-only invariant: an interactive session may legitimately drop a
     // present when the surface goes out of date between acquire and present.

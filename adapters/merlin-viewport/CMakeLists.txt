@@ -283,5 +283,22 @@ if(MERLIN_BUILD_TESTS)
       ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib"
     )
+    add_test(
+      NAME merlin-viewport-hydra-no-readback
+      COMMAND merlin-viewport
+              --hidden
+              --frames 4
+              --vsync off
+              --validate
+              --allow-unavailable
+              --usd "${PROJECT_SOURCE_DIR}/adapters/merlin-hydra2/tests/usdview-smoke.usda"
+    )
+    set_tests_properties(merlin-viewport-hydra-no-readback PROPERTIES
+      LABELS "gpu;viewport;presentation;hydra;host-smoke"
+      SKIP_RETURN_CODE 77
+      TIMEOUT 60
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib"
+    )
   endif()
 endif()
