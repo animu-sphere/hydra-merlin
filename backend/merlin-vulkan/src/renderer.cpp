@@ -5997,6 +5997,7 @@ class Renderer::Impl {
                              VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(push), &push);
       vkCmdDraw(command, 6, frame.gaussian_instance_count, 0, 0);
+      ++frame_counters_.gaussian_draw_count;
     }
     vkCmdEndRenderPass(command);
 

@@ -114,8 +114,8 @@ int main(int argc, char** argv) {
     const auto first = renderer->Resolve(renderer->Submit(request));
     Require(first.counters.gaussian_visible_count == 2,
             "prepared stream did not retain the visible Gaussians");
-    Require(first.counters.gaussian_draw_count == 1,
-            "Gaussian stream was not submitted as one procedural draw");
+    Require(first.counters.gaussian_draw_count == 2,
+            "Gaussian color and ID streams were not submitted as two draws");
     Require(first.counters.gaussian_upload_bytes == 104,
             "Gaussian GPU instance upload size drifted");
     Require(first.counters.upload_bytes >=
@@ -150,8 +150,8 @@ int main(int argc, char** argv) {
             "static Gaussian frame missed the CPU preparation cache");
     Require(steady.counters.gaussian_upload_bytes == 0,
             "static Gaussian frame re-uploaded its prepared stream");
-    Require(steady.counters.gaussian_draw_count == 1,
-            "static Gaussian frame lost its procedural draw");
+    Require(steady.counters.gaussian_draw_count == 2,
+            "static Gaussian frame lost a procedural draw");
 
     auto edited = world.Get(gaussian_handle);
     edited.spherical_harmonics_coefficients[1] = {0.0F, 1.0F, 0.0F};
@@ -164,8 +164,8 @@ int main(int argc, char** argv) {
     const auto partial = renderer->Resolve(renderer->Submit(request));
     Require(partial.counters.gaussian_upload_bytes == 52,
             "single-particle edit did not use a changed-range GPU upload");
-    Require(partial.counters.gaussian_draw_count == 1,
-            "partially updated Gaussian stream was not drawn");
+    Require(partial.counters.gaussian_draw_count == 2,
+            "partially updated Gaussian stream lost a procedural draw");
     Require(renderer->statistics().validation_messages == 0,
             "Gaussian rasterization produced Vulkan validation diagnostics");
   } catch (const std::exception& error) {

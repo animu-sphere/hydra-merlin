@@ -130,9 +130,9 @@ def testUsdviewInputFunction(appController):
     ]
     assert rasterized, "Gaussian projection retained no rasterizable particles"
     assert any(
-        int(event.get("gaussian_draw_count", "0")) == 1
+        int(event.get("gaussian_draw_count", "0")) == 2
         for event in rasterized
-    ), "Visible Gaussian stream did not reach the procedural Vulkan draw"
+    ), "Visible Gaussian stream did not reach the color and ID Vulkan draws"
     assert any(
         int(event.get("gaussian_upload_bytes", "0")) > 0
         for event in rasterized

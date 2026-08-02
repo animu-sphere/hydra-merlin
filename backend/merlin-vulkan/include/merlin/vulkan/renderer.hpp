@@ -303,7 +303,7 @@ struct FrameCounters {
   std::uint64_t visible_primitive_count{};
   std::uint64_t triangle_count{};
   // Gaussian preparation and raster work stay distinct from Mesh draw_count:
-  // the sorted visible stream is consumed by at most one procedural draw.
+  // the sorted visible stream is consumed by one color and one ID draw.
   std::uint64_t gaussian_candidate_count{};
   std::uint64_t gaussian_visible_count{};
   std::uint64_t gaussian_hidden_count{};

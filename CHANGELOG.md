@@ -16,8 +16,9 @@ after its public API and release process are established.
   ranges, immutable snapshot sharing, and structured fallback/rejection
   diagnostics.
 - Optional OpenUSD Gaussian fixture and usdview host-smoke coverage through
-  `MERLIN_GAUSSIAN_SAMPLE`; the initial evidence uses an 8192-particle,
-  degree-3 SOG-authored standard USD stage.
+  `MERLIN_GAUSSIAN_SAMPLE`, with an independently selectable
+  `MERLIN_GAUSSIAN_REFERENCE_IMAGE`; the bundled 8192-particle, degree-3
+  SOG-authored standard USD stage automatically selects its matching golden.
 - Hardened the Gaussian Hydra boundary after review: canonical primvar reads
   now accept float or half payloads, scene-index locators drive semantic
   revisions and changed-particle ranges, rejected payloads cannot reappear from
