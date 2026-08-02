@@ -10,6 +10,10 @@ after its public API and release process are established.
 
 ### Added
 
+- Interactive Color, Depth, Prim ID, and Instance ID inspection in the native
+  and Hydra development viewport. The opt-in inspector requests CPU readback
+  only for its selected AOV, shows a bounded diagnostic preview with value
+  ranges, and reports exact sampled values on hover.
 - Interactive development-viewport renderer settings for clear color and
   continuous color CPU readback, shared by native and Hydra scene paths. The
   host validates each request and reports an explicit applied revision or a

@@ -59,7 +59,7 @@ Current UI follow-up:
 - ✅ Structured material diagnostic severity, fallback, and context display.
 - ✅ Camera state and navigation values.
 - ✅ Interactive renderer settings with explicit applied/rejected feedback.
-- ⬜ Interactive AOV selection and diagnostic image inspection.
+- ✅ Interactive AOV selection and diagnostic image inspection.
 - ⬜ General host/backend diagnostic history beyond material diagnostics.
 - ✅ Saved benchmark comparison, thresholds, and hitch markers in the UI.
 
