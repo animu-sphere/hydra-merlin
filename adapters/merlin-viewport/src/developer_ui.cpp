@@ -715,25 +715,30 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                             baseline.gpu_average_frame_ns,
                             regression_threshold_percent_);
         });
-        const bool cpu_regression =
-            baseline.cpu_average_frame_ns != 0 &&
-            PercentChange(snapshot.benchmark.cpu_average_frame_ns,
-                          baseline.cpu_average_frame_ns) >
-                regression_threshold_percent_;
-        const bool gpu_regression =
-            baseline.gpu_average_frame_ns != 0 &&
-            PercentChange(snapshot.benchmark.gpu_average_frame_ns,
-                          baseline.gpu_average_frame_ns) >
-                regression_threshold_percent_;
-        if (cpu_regression || gpu_regression) {
-          ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.30F, 1.0F),
-                             "Threshold exceeded: %s%s%s.",
-                             cpu_regression ? "CPU" : "",
-                             cpu_regression && gpu_regression ? " and " : "",
-                             gpu_regression ? "GPU" : "");
+        if (!snapshot.benchmark.available) {
+          ImGui::TextDisabled(
+              "Collecting frames for the new comparison interval.");
         } else {
-          ImGui::TextColored(ImVec4(0.35F, 0.90F, 0.45F, 1.0F),
-                             "Current averages are within threshold.");
+          const bool cpu_regression =
+              baseline.cpu_average_frame_ns != 0 &&
+              PercentChange(snapshot.benchmark.cpu_average_frame_ns,
+                            baseline.cpu_average_frame_ns) >
+                  regression_threshold_percent_;
+          const bool gpu_regression =
+              baseline.gpu_average_frame_ns != 0 &&
+              PercentChange(snapshot.benchmark.gpu_average_frame_ns,
+                            baseline.gpu_average_frame_ns) >
+                  regression_threshold_percent_;
+          if (cpu_regression || gpu_regression) {
+            ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.30F, 1.0F),
+                               "Threshold exceeded: %s%s%s.",
+                               cpu_regression ? "CPU" : "",
+                               cpu_regression && gpu_regression ? " and " : "",
+                               gpu_regression ? "GPU" : "");
+          } else {
+            ImGui::TextColored(ImVec4(0.35F, 0.90F, 0.45F, 1.0F),
+                               "Current averages are within threshold.");
+          }
         }
       }
     }

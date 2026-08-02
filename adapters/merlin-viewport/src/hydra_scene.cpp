@@ -518,6 +518,9 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   HdMerlinViewportFrame latest_viewport_frame;
   std::optional<DeveloperUiBenchmark> saved_benchmark;
   const auto start = Clock::now();
+  auto comparison_start = start;
+  std::uint64_t comparison_start_frame{};
+  std::uint64_t comparison_start_gpu_ns{};
 
   std::cout << "USD stage: " << stage_path << '\n'
             << "Scene source: OpenUSD through Hydra\n"
@@ -657,11 +660,12 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         latest_viewport_frame.gaussian_camera_distance_resources,
     };
     const auto benchmark_elapsed_ns = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
-                                                             start)
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            Clock::now() - comparison_start)
             .count());
-    ui_snapshot.benchmark =
-        MakeUiBenchmark(frames, benchmark_elapsed_ns, gpu_ns);
+    ui_snapshot.benchmark = MakeUiBenchmark(
+        frames - comparison_start_frame, benchmark_elapsed_ns,
+        gpu_ns - comparison_start_gpu_ns);
     ui_snapshot.saved_benchmark =
         saved_benchmark ? &*saved_benchmark : nullptr;
     const auto camera_position = state->position();
@@ -735,16 +739,26 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     gpu_ns += latest_viewport_frame.timings.gpu_execution_ns;
     ++frames;
     if (benchmark_snapshot_pending) {
+      const auto benchmark_now = Clock::now();
       const auto elapsed_ns = static_cast<std::uint64_t>(
           std::chrono::duration_cast<std::chrono::nanoseconds>(
-              Clock::now() - start)
+              benchmark_now - start)
+              .count());
+      const auto comparison_elapsed_ns = static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              benchmark_now - comparison_start)
               .count());
       const std::filesystem::path path = "merlin-viewport-benchmark.json";
       WriteBenchmark(path, selection, backend->statistics(), frames,
                      elapsed_ns, gpu_ns);
-      saved_benchmark = MakeUiBenchmark(frames, elapsed_ns, gpu_ns, path);
+      saved_benchmark = MakeUiBenchmark(
+          frames - comparison_start_frame, comparison_elapsed_ns,
+          gpu_ns - comparison_start_gpu_ns, path);
       std::cout << "Benchmark snapshot: " << path.string() << '\n';
       benchmark_snapshot_pending = false;
+      comparison_start = Clock::now();
+      comparison_start_frame = frames;
+      comparison_start_gpu_ns = gpu_ns;
     }
 
     if (color) {

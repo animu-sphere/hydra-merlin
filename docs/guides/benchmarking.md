@@ -37,11 +37,14 @@ policy for timing comparisons. Ordinary CI gates structural work; timing gates
 are opt-in for controlled hardware.
 
 The viewport's **Save benchmark** button also establishes an in-session
-baseline. The diagnostics panel reports live CPU/GPU percentage change against
-that snapshot, colors regressions beyond the adjustable threshold, and marks
-samples over the hitch threshold in the rolling timing plots. This interactive
-comparison is exploratory; retain the JSON and use the comparison script below
-for reproducible evidence.
+baseline from the interval since launch or the previous save. It then starts a
+fresh comparison interval, so older baseline frames cannot dilute a subsequent
+regression. The diagnostics panel reports live CPU/GPU percentage change,
+colors regressions beyond the adjustable threshold, and marks samples over the
+hitch threshold in the rolling timing plots. The saved JSON retains its
+existing cumulative session semantics. This interactive comparison is
+exploratory; retain the JSON and use the comparison script below for
+reproducible evidence.
 
 ## Renderer benchmark
 

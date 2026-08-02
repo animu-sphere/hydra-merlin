@@ -480,6 +480,9 @@ int main(int argc, char** argv) {
     bool resized_for_test{};
     bool reference_checked{};
     const auto benchmark_start = Clock::now();
+    auto comparison_start = benchmark_start;
+    std::uint64_t comparison_start_frame{};
+    std::uint64_t comparison_start_gpu_ns{};
     auto title_update = benchmark_start;
 
     std::cout << "Selected backend: "
@@ -584,10 +587,11 @@ int main(int argc, char** argv) {
       ui_snapshot.gaussian = SummarizeGaussians(*scene_snapshot);
       const auto benchmark_elapsed_ns = static_cast<std::uint64_t>(
           std::chrono::duration_cast<std::chrono::nanoseconds>(
-              Clock::now() - benchmark_start)
+              Clock::now() - comparison_start)
               .count());
-      ui_snapshot.benchmark =
-          MakeUiBenchmark(frames, benchmark_elapsed_ns, gpu_ns);
+      ui_snapshot.benchmark = MakeUiBenchmark(
+          frames - comparison_start_frame, benchmark_elapsed_ns,
+          gpu_ns - comparison_start_gpu_ns);
       ui_snapshot.saved_benchmark =
           saved_benchmark ? &*saved_benchmark : nullptr;
       const auto& view = scene.camera_descriptor.view.values;
@@ -702,9 +706,14 @@ int main(int argc, char** argv) {
         resized_for_test = true;
       }
       if (benchmark_snapshot_pending) {
+        const auto benchmark_now = Clock::now();
         const auto elapsed_ns = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
-                Clock::now() - benchmark_start)
+                benchmark_now - benchmark_start)
+                .count());
+        const auto comparison_elapsed_ns = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                benchmark_now - comparison_start)
                 .count());
         const std::filesystem::path path = "merlin-viewport-benchmark.json";
         WriteBenchmark(path, selection, backend->statistics(), frames,
@@ -713,9 +722,14 @@ int main(int argc, char** argv) {
                        generated_material_draws,
                        generated_material_fallbacks,
                        effective_material_fallback);
-        saved_benchmark = MakeUiBenchmark(frames, elapsed_ns, gpu_ns, path);
+        saved_benchmark = MakeUiBenchmark(
+            frames - comparison_start_frame, comparison_elapsed_ns,
+            gpu_ns - comparison_start_gpu_ns, path);
         std::cout << "Benchmark snapshot: " << path.string() << '\n';
         benchmark_snapshot_pending = false;
+        comparison_start = Clock::now();
+        comparison_start_frame = frames;
+        comparison_start_gpu_ns = gpu_ns;
       }
 
       const auto now = Clock::now();
