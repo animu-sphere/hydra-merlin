@@ -74,8 +74,10 @@ particle, spherical-harmonic, projection, sorting, culling, cache, and upload
 diagnostics. Its camera section reports the active controller, position,
 target, orientation, projection, clipping range, and viewport aspect. Hydra
 USD navigation follows usdview: Alt+left tumbles, Alt+middle tracks, Alt+right
-and the wheel dolly, and `F` frames the stage. Arrow keys pan, an unmodified
-left click reads picking IDs, and `S` writes a screenshot.
+and the wheel dolly, and `F` frames the stage. The benchmark section compares
+current CPU/GPU averages with the latest in-session saved baseline and marks
+recent timing samples that exceed its adjustable hitch threshold. Arrow keys
+pan, an unmodified left click reads picking IDs, and `S` writes a screenshot.
 
 Hydra-enabled Windows developer builds generate a launcher beside the
 executable. It supplies the configured OpenUSD SDK runtime path without

@@ -343,7 +343,8 @@ bool HasVisibleColor(const std::vector<std::uint8_t>& rgba) {
 void WriteBenchmark(const std::filesystem::path& path,
                     const render::BackendSelection& selection,
                     const render::RendererStatistics& statistics,
-                    std::uint64_t frames, std::uint64_t elapsed_ns) {
+                    std::uint64_t frames, std::uint64_t elapsed_ns,
+                    std::uint64_t gpu_ns) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -361,6 +362,9 @@ void WriteBenchmark(const std::filesystem::path& path,
          << "  \"cpu_total_ns\": " << elapsed_ns << ",\n"
          << "  \"cpu_average_frame_ns\": "
          << (frames == 0 ? 0 : elapsed_ns / frames) << ",\n"
+         << "  \"gpu_total_ns\": " << gpu_ns << ",\n"
+         << "  \"gpu_average_frame_ns\": "
+         << (frames == 0 ? 0 : gpu_ns / frames) << ",\n"
          << "  \"readback_bytes\": " << statistics.readback_bytes << ",\n"
          << "  \"presentation_copy_bytes\": "
          << statistics.presentation_copy_bytes << ",\n"
@@ -371,6 +375,21 @@ void WriteBenchmark(const std::filesystem::path& path,
          << "  \"validation_messages\": "
          << statistics.validation_messages << "\n"
          << "}\n";
+}
+
+DeveloperUiBenchmark MakeUiBenchmark(std::uint64_t frames,
+                                      std::uint64_t elapsed_ns,
+                                      std::uint64_t gpu_ns,
+                                      std::filesystem::path path = {}) {
+  DeveloperUiBenchmark result;
+  result.available = frames != 0;
+  result.path = std::move(path);
+  result.frames = frames;
+  if (frames != 0) {
+    result.cpu_average_frame_ns = elapsed_ns / frames;
+    result.gpu_average_frame_ns = gpu_ns / frames;
+  }
+  return result;
 }
 
 std::shared_ptr<render::Backend> CreateRenderer(
@@ -494,8 +513,10 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   std::int32_t last_pointer_y{};
   bool resized_for_test{};
   std::uint64_t frames{};
+  std::uint64_t gpu_ns{};
   std::uint64_t latest_frame_ns{};
   HdMerlinViewportFrame latest_viewport_frame;
+  std::optional<DeveloperUiBenchmark> saved_benchmark;
   const auto start = Clock::now();
 
   std::cout << "USD stage: " << stage_path << '\n'
@@ -635,6 +656,14 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         latest_viewport_frame.gaussian_z_depth_resources,
         latest_viewport_frame.gaussian_camera_distance_resources,
     };
+    const auto benchmark_elapsed_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
+                                                             start)
+            .count());
+    ui_snapshot.benchmark =
+        MakeUiBenchmark(frames, benchmark_elapsed_ns, gpu_ns);
+    ui_snapshot.saved_benchmark =
+        saved_benchmark ? &*saved_benchmark : nullptr;
     const auto camera_position = state->position();
     ui_snapshot.camera.available = true;
     ui_snapshot.camera.perspective = true;
@@ -703,6 +732,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
             Clock::now() - frame_start)
             .count());
     latest_viewport_frame = render_delegate.GetLatestViewportFrame();
+    gpu_ns += latest_viewport_frame.timings.gpu_execution_ns;
     ++frames;
     if (benchmark_snapshot_pending) {
       const auto elapsed_ns = static_cast<std::uint64_t>(
@@ -711,7 +741,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
               .count());
       const std::filesystem::path path = "merlin-viewport-benchmark.json";
       WriteBenchmark(path, selection, backend->statistics(), frames,
-                     elapsed_ns);
+                     elapsed_ns, gpu_ns);
+      saved_benchmark = MakeUiBenchmark(frames, elapsed_ns, gpu_ns, path);
       std::cout << "Benchmark snapshot: " << path.string() << '\n';
       benchmark_snapshot_pending = false;
     }
@@ -777,7 +808,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   const auto statistics = backend->statistics();
   if (!options.benchmark.empty()) {
     WriteBenchmark(options.benchmark, selection, statistics, frames,
-                   elapsed_ns);
+                   elapsed_ns, gpu_ns);
   }
   if (options.resize_test && statistics.presentation_recreates == 0) {
     throw std::runtime_error(

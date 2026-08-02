@@ -348,6 +348,20 @@ void WriteBenchmark(const std::filesystem::path& path,
          << "}\n";
 }
 
+merlin::viewport::DeveloperUiBenchmark MakeUiBenchmark(
+    std::uint64_t frames, std::uint64_t elapsed_ns, std::uint64_t gpu_ns,
+    std::filesystem::path path = {}) {
+  merlin::viewport::DeveloperUiBenchmark result;
+  result.available = frames != 0;
+  result.path = std::move(path);
+  result.frames = frames;
+  if (frames != 0) {
+    result.cpu_average_frame_ns = elapsed_ns / frames;
+    result.gpu_average_frame_ns = gpu_ns / frames;
+  }
+  return result;
+}
+
 std::string WindowTitle(std::string_view backend, std::uint32_t width,
                         std::uint32_t height, std::uint64_t frame_ns) {
   std::ostringstream title;
@@ -459,6 +473,7 @@ int main(int argc, char** argv) {
     merlin::render::FrameTimings latest_timings;
     merlin::render::FrameTelemetry latest_telemetry;
     std::vector<merlin::MaterialDiagnostic> latest_material_diagnostics;
+    std::optional<merlin::viewport::DeveloperUiBenchmark> saved_benchmark;
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
     std::optional<std::filesystem::path> selected_usd;
 #endif
@@ -567,6 +582,14 @@ int main(int argc, char** argv) {
           scene_snapshot->lights.size(),
       };
       ui_snapshot.gaussian = SummarizeGaussians(*scene_snapshot);
+      const auto benchmark_elapsed_ns = static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              Clock::now() - benchmark_start)
+              .count());
+      ui_snapshot.benchmark =
+          MakeUiBenchmark(frames, benchmark_elapsed_ns, gpu_ns);
+      ui_snapshot.saved_benchmark =
+          saved_benchmark ? &*saved_benchmark : nullptr;
       const auto& view = scene.camera_descriptor.view.values;
       ui_snapshot.camera.available = true;
       ui_snapshot.camera.controller = "translation";
@@ -690,6 +713,7 @@ int main(int argc, char** argv) {
                        generated_material_draws,
                        generated_material_fallbacks,
                        effective_material_fallback);
+        saved_benchmark = MakeUiBenchmark(frames, elapsed_ns, gpu_ns, path);
         std::cout << "Benchmark snapshot: " << path.string() << '\n';
         benchmark_snapshot_pending = false;
       }
