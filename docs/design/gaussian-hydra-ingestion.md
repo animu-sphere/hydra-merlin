@@ -134,7 +134,8 @@ that authored non-default policy survived the Hydra boundary.
 
 The locally validated SDK contains `usd_usdVolImaging.dll`, registers the
 adapter with `includeDerivedPrimTypes`, publishes the `particleField` token, and
-includes the conversion scene index. This establishes the integration boundary;
-native resources and rendering remain v0.14.1 scope. The post-MVP GPU-driven,
+includes the conversion scene index. The v0.14.1 implementation consumes that
+boundary into native resources and the CPU-sorted Vulkan reference path. The
+post-MVP GPU-driven,
 temporal, LOD, and streaming sequence is defined in the
 [Gaussian rendering roadmap](gaussian-rendering-roadmap.md).

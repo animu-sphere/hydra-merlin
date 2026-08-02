@@ -245,6 +245,20 @@ if(MERLIN_BUILD_TESTS)
       message(FATAL_ERROR
         "MERLIN_GAUSSIAN_SAMPLE does not exist: ${MERLIN_GAUSSIAN_SAMPLE}")
     endif()
+    set(_merlin_gaussian_reference_image
+        "${MERLIN_GAUSSIAN_REFERENCE_IMAGE}")
+    if(NOT _merlin_gaussian_reference_image AND
+       "${MERLIN_GAUSSIAN_SAMPLE}" STREQUAL
+       "${MERLIN_GAUSSIAN_BUNDLED_SAMPLE}")
+      set(_merlin_gaussian_reference_image
+          "${MERLIN_GAUSSIAN_BUNDLED_REFERENCE_IMAGE}")
+    endif()
+    if(_merlin_gaussian_reference_image AND
+       NOT EXISTS "${_merlin_gaussian_reference_image}")
+      message(FATAL_ERROR
+        "MERLIN_GAUSSIAN_REFERENCE_IMAGE does not exist: "
+        "${_merlin_gaussian_reference_image}")
+    endif()
     add_executable(merlin-hydra2-gaussian-usd-test
       tests/gaussian_usd_test.cpp
     )
@@ -411,6 +425,7 @@ if(MERLIN_BUILD_TESTS)
           "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
           "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
           "-DMERLIN_GAUSSIAN_SAMPLE=${MERLIN_GAUSSIAN_SAMPLE}"
+          "-DMERLIN_GAUSSIAN_REFERENCE_IMAGE=${_merlin_gaussian_reference_image}"
           "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"
       )
@@ -431,6 +446,7 @@ if(MERLIN_BUILD_TESTS)
             "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
             "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
             "-DMERLIN_GAUSSIAN_SAMPLE=${MERLIN_GAUSSIAN_SAMPLE}"
+            "-DMERLIN_GAUSSIAN_REFERENCE_IMAGE=${_merlin_gaussian_reference_image}"
             "-DMERLIN_FORCE_HGI_VULKAN=ON"
             "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"

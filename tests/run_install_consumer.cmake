@@ -43,12 +43,15 @@ if(EXISTS "${_headless}")
   foreach(_shader_file
       triangle.vert.spv triangle.frag.spv
       gaussian.vert.spv gaussian.frag.spv
+      gaussian-id.vert.spv gaussian-id.frag.spv
       triangle.bindless.vert.spv triangle.bindless.frag.spv
       triangle.vert.metal triangle.frag.metal
       triangle.vert.spv.reflection.json triangle.frag.spv.reflection.json
       triangle.bindless.vert.spv.reflection.json
       triangle.bindless.frag.spv.reflection.json
       gaussian.vert.spv.reflection.json gaussian.frag.spv.reflection.json
+      gaussian-id.vert.spv.reflection.json
+      gaussian-id.frag.spv.reflection.json
       triangle.vert.metal.reflection.json
       triangle.frag.metal.reflection.json manifest.json environment.hdr)
     if(NOT EXISTS "${_shader_dir}/${_shader_file}")

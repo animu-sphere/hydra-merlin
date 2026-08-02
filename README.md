@@ -195,7 +195,7 @@ backend-neutral AOV/readback contract. v0.12.0 released native Metal viewport
 presentation with GPU-only drawable output, resize-safe pacing, and the matching
 developer UI path. v0.13.0 adds HgiVulkan with safe GPU copy; optional direct
 sharing is a separate evidence gate, and v0.14.0 brings the equivalent HgiMetal
-bridge. v0.14.1 establishes the CPU-sorted Gaussian MVP, then v0.15.0–v0.22.0
+bridge. v0.14.1 completes the CPU-sorted Gaussian MVP, then v0.15.0–v0.22.0
 advance persistent resources, GPU projection/sorting, contribution-aware and
 hierarchical tiling, temporal reuse, LOD/streaming, and Vulkan/Metal production
 hardening. Forward and Tier 0 CPU readback remain reference fallbacks. See the [current
@@ -206,8 +206,8 @@ policy](docs/design/hgi-host-presentation.md), [Gaussian rendering roadmap](docs
 and [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md) for
 scope, dependencies, and exit criteria.
 
-Gaussian support will consume the standard Gaussian representation exposed by
-OpenUSD through Hydra. hdMerlin will not define a renderer-specific USD schema
+Gaussian support consumes the standard Gaussian representation exposed by
+OpenUSD through Hydra. hdMerlin does not define a renderer-specific USD schema
 or directly parse PLY/SPLAT files; conversion from external formats belongs to
 separate FileFormat plugins or importers. Mesh and Gaussian resources share the
 persistent RenderWorld, camera, transforms, visibility, allocation, lifetime,

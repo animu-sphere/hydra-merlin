@@ -60,8 +60,15 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
-set(MERLIN_GAUSSIAN_SAMPLE "" CACHE FILEPATH
+set(MERLIN_GAUSSIAN_BUNDLED_SAMPLE
+  "${CMAKE_CURRENT_SOURCE_DIR}/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc")
+set(MERLIN_GAUSSIAN_BUNDLED_REFERENCE_IMAGE
+  "${CMAKE_CURRENT_SOURCE_DIR}/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192-reference.png")
+set(MERLIN_GAUSSIAN_SAMPLE "${MERLIN_GAUSSIAN_BUNDLED_SAMPLE}"
+  CACHE FILEPATH
   "Optional standard OpenUSD Gaussian stage used by integration tests")
+set(MERLIN_GAUSSIAN_REFERENCE_IMAGE "" CACHE FILEPATH
+  "Optional reference image paired with MERLIN_GAUSSIAN_SAMPLE")
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)

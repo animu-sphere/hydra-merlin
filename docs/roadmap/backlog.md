@@ -44,24 +44,6 @@ MaterialX paths agree within tolerance, lighting cost is separately observable,
 representative dielectric/metal/textured/normal-mapped/mixed-light fixtures
 exist, and Vulkan/Metal behavior is compared where both backends are available.
 
-### ⬜ v0.14.1 — Gaussian MVP
-
-Consume the existing OpenUSD Gaussian representation through Hydra and create
-host-neutral Gaussian resources. Implement GPU upload, covariance evaluation,
-screen-space projection, procedural splats, elliptical falloff, opacity and
-spherical-harmonic appearance, CPU depth sorting, transform/visibility changes,
-partial attribute upload, diagnostics, and mixed Mesh/Gaussian rendering.
-
-The MVP displays authored Gaussian appearance, including spherical harmonics,
-without forcing it into the mesh MaterialX BSDF. Future Gaussian relighting is
-separate research and does not block faithful standard-data display.
-
-Exit requires useful mixed-scene output without a custom USD schema or direct
-PLY/SPLAT parser, correct CPU-sorted appearance, incremental transform and
-visibility updates, and native-viewport performance evidence. GPU radix sort,
-tiling, streaming, LOD, compression, and out-of-core rendering are not MVP
-requirements.
-
 ### ⬜ v0.15.0 — Persistent GPU Scene and Gaussian resources
 
 Complete the common GPU Scene ABI with persistent geometry, instance, material,
@@ -69,14 +51,15 @@ and draw records; stable object/draw/material/primitive/instance IDs; reflected
 C++/shader layouts; pipeline/material sorting; descriptor-bind reduction;
 secondary-command reuse; parallel recording; instance aggregation;
 nested-instancing improvements; per-instance visibility; and revision-based
-packet invalidation. Add generation-checked persistent Gaussian records,
-changed-range updates, immutable snapshot integration, and separate Gaussian
-ingestion/projection/sort/pair/raster timing.
+packet invalidation. Promote the MVP's frame-owned prepared buffers and
+changed-range writes into generation-checked persistent Gaussian records, and
+add separate Gaussian ingestion/projection/sort/pair/raster timing.
 
 Exit requires static Mesh scenes to generate no new draw packets, static Gaussian
-scenes to allocate or upload nothing, partial Gaussian edits to upload only
-changed ranges, and both paths to retain deterministic IDs, picking identity,
-and completion-safe lifetime. The full Gaussian sequence is in the
+scenes to allocate or upload nothing, partial Gaussian edits to preserve the
+MVP's range-only transfer behavior in persistent storage, and both paths to
+retain deterministic IDs, picking identity, and completion-safe lifetime. The
+full Gaussian sequence is in the
 [Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
 
 ## Phase D — GPU-driven rendering and shading scalability

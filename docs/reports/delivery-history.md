@@ -11,6 +11,29 @@ Legend: ✅ done
 
 ---
 
+## v0.14.1 Gaussian correctness MVP ✅
+
+- ✅ Added standard Hydra `particleField` ingestion, float/half normalization,
+  covariance evaluation, degree-0–3 spherical-harmonic payloads, host-neutral
+  revisions, normalized particle ranges, and structured diagnostics without a
+  custom USD schema or direct PLY/SPLAT parsing.
+- ✅ Added deterministic CPU camera-space preparation, projection, culling,
+  stable back-to-front sorting, procedural Vulkan ellipse rasterization,
+  authored opacity/SH composition, static cache reuse, and stage telemetry.
+- ✅ Added frame-owned packed-stream shadows so localized edits upload only
+  changed prepared-instance ranges while reorder/visibility/size changes remain
+  correct and completion-safe.
+- ✅ Defined Gaussian picking as resource `primId` plus zero-based particle
+  `instanceId`; a dedicated ID subpass retains the nearest contributing
+  Gaussian without requiring `independentBlend` and preserves uncovered Mesh
+  identity.
+- ✅ Added the repository-owned CC0 8,192-particle degree-3 USDC corpus and a
+  visible 597×540 reference image, with Tier 0 and HgiVulkan usdview comparison
+  gates and zero renderer-owned Vulkan validation diagnostics.
+- ✅ Captured local native Vulkan viewport evidence for 300 hidden VSync-off
+  frames at 597×540: 1,536,743 ns average CPU frame time, 300 presented frames,
+  386,856,000 presentation-copy bytes, and zero validation messages.
+
 ## v0.14.0 HgiMetal GPU-copy host presentation ✅
 
 - ✅ Added HgiMetal render-driver discovery, Hgi-owned color targets, and
