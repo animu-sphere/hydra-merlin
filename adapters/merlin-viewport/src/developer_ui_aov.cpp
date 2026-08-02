@@ -12,6 +12,18 @@ namespace {
 
 constexpr std::uint32_t kMaxPreviewExtent = 64;
 
+std::uint32_t SampleCoordinate(std::uint32_t preview_coordinate,
+                               std::uint32_t preview_extent,
+                               std::uint32_t source_extent) noexcept {
+  if (preview_extent <= 1U) {
+    return source_extent / 2U;
+  }
+  return static_cast<std::uint32_t>(
+      (static_cast<std::uint64_t>(preview_coordinate) *
+       (source_extent - 1U)) /
+      (preview_extent - 1U));
+}
+
 std::pair<std::uint32_t, std::uint32_t> PreviewExtent(std::uint32_t width,
                                                       std::uint32_t height) {
   if (width == 0 || height == 0) {
@@ -30,16 +42,10 @@ void PopulatePixels(DeveloperUiAovPreview& result, Function&& function) {
                         result.preview_height);
   for (std::uint32_t y = 0; y < result.preview_height; ++y) {
     for (std::uint32_t x = 0; x < result.preview_width; ++x) {
-      const auto source_x =
-          std::min(result.source_width - 1U,
-                   static_cast<std::uint32_t>(
-                       (static_cast<std::uint64_t>(x) * result.source_width) /
-                       result.preview_width));
-      const auto source_y =
-          std::min(result.source_height - 1U,
-                   static_cast<std::uint32_t>(
-                       (static_cast<std::uint64_t>(y) * result.source_height) /
-                       result.preview_height));
+      const auto source_x = SampleCoordinate(
+          x, result.preview_width, result.source_width);
+      const auto source_y = SampleCoordinate(
+          y, result.preview_height, result.source_height);
       auto pixel = function(source_x, source_y);
       pixel.source_x = source_x;
       pixel.source_y = source_y;

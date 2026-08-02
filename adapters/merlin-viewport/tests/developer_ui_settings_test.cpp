@@ -68,12 +68,16 @@ int main() {
             "unsupported AOV mutated the applied revision");
 
     request.inspection_aov = merlin::Aov::PrimId;
+    request.continuous_color_readback = false;
     capabilities.cpu_readback = false;
     Require(!ApplyDeveloperUiRendererSettings(request, capabilities, settings,
                                               feedback),
             "AOV inspection without CPU readback was accepted");
     Require(feedback.serial == 5 && settings.revision == 1,
             "unavailable inspection mutated the applied revision");
+    Require(feedback.message ==
+                "AOV inspection requires backend CPU image readback support.",
+            "AOV inspection did not report its readback rejection reason");
 
     capabilities.cpu_readback = true;
     Require(ApplyDeveloperUiRendererSettings(request, capabilities, settings,
@@ -114,11 +118,24 @@ int main() {
                 id_preview.pixels[1].id == 7,
             "ID preview values are invalid");
 
+    std::vector<std::uint32_t> edge_ids(128U * 128U);
+    edge_ids.back() = 17U;
+    const auto edge_preview = BuildDeveloperUiIdPreview(
+        merlin::Aov::InstanceId, 128, 128, 44, edge_ids);
+    Require(edge_preview.preview_width == 64 &&
+                edge_preview.preview_height == 64 &&
+                edge_preview.pixels.front().source_x == 0 &&
+                edge_preview.pixels.front().source_y == 0 &&
+                edge_preview.pixels.back().source_x == 127 &&
+                edge_preview.pixels.back().source_y == 127 &&
+                edge_preview.pixels.back().id == 17,
+            "downsampled preview does not include source image edges");
+
     const std::vector<std::uint8_t> rgba{
         1, 2, 3, 255, 10, 20, 30, 128,
         4, 5, 6, 255, 40, 50, 60, 64};
     const auto color_preview =
-        BuildDeveloperUiColorPreview(2, 2, 44, rgba);
+        BuildDeveloperUiColorPreview(2, 2, 45, rgba);
     Require(color_preview.minimum[0] == 1.0 &&
                 color_preview.maximum[2] == 60.0 &&
                 color_preview.pixels.back().color[3] == 64,
