@@ -416,15 +416,19 @@ HdRenderPassAovBinding MakeBinding(const TfToken& name,
   return result;
 }
 
+std::string PathToUtf8(const std::filesystem::path& path) {
+  const auto utf8 = path.generic_u8string();
+  return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};
+}
+
 }  // namespace
 
 static std::optional<std::filesystem::path> RunHydraViewportSession(
     const HydraViewportOptions& options) {
-  const auto stage_path = options.stage.string();
+  const auto stage_path = PathToUtf8(options.stage);
   const auto stage = UsdStage::Open(stage_path);
   if (!stage) {
-    throw std::runtime_error("could not open USD stage: " +
-                             options.stage.string());
+    throw std::runtime_error("could not open USD stage: " + stage_path);
   }
   auto window = Window::Create("merlin-viewport | Hydra", options.width,
                                options.height, options.visible);
@@ -481,7 +485,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   HdMerlinViewportFrame latest_viewport_frame;
   const auto start = Clock::now();
 
-  std::cout << "USD stage: " << options.stage.string() << '\n'
+  std::cout << "USD stage: " << stage_path << '\n'
             << "Scene source: OpenUSD through Hydra\n"
             << "Framed bounds: center=" << state->center()[0] << ','
             << state->center()[1] << ',' << state->center()[2]
@@ -629,12 +633,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       readback_requested = true;
     }
     if (ui_actions.load_usd) {
-      const auto selected_stage = *ui_actions.load_usd;
-      if (const auto next_stage = UsdStage::Open(selected_stage.string())) {
-        return selected_stage;
-      }
-      std::cerr << "could not open USD stage: " << selected_stage.string()
-                << '\n';
+      return *ui_actions.load_usd;
     }
     benchmark_snapshot_pending =
         benchmark_snapshot_pending || ui_actions.save_benchmark;

@@ -238,9 +238,8 @@ merlin::viewport::DeveloperUiGaussian SummarizeGaussians(
         gaussian.spherical_harmonics_degree,
         result.spherical_harmonics_degree_resources.size() - 1U);
     ++result.spherical_harmonics_degree_resources[degree];
-        if (
-            gaussian.projection_mode
-            == merlin::GaussianProjectionMode::Tangential) {
+    if (gaussian.projection_mode ==
+        merlin::GaussianProjectionMode::Tangential) {
       ++result.tangential_resources;
     } else {
       ++result.perspective_resources;
@@ -254,6 +253,29 @@ merlin::viewport::DeveloperUiGaussian SummarizeGaussians(
   }
   return result;
 }
+
+#ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
+merlin::viewport::HydraViewportOptions MakeHydraViewportOptions(
+    const Arguments& arguments, const std::filesystem::path& executable,
+    std::filesystem::path stage) {
+  merlin::viewport::HydraViewportOptions options;
+  options.stage = std::move(stage);
+  options.executable = executable;
+  options.screenshot = arguments.screenshot;
+  options.benchmark = arguments.benchmark;
+  options.width = arguments.width;
+  options.height = arguments.height;
+  options.frame_limit = arguments.frame_limit;
+  options.metal_heap_capacity_bytes = arguments.metal_heap_capacity_bytes;
+  options.backend = arguments.backend;
+  options.validation = arguments.validation;
+  options.vsync = arguments.vsync;
+  options.visible = arguments.visible;
+  options.reference_check = arguments.reference_check;
+  options.resize_test = arguments.resize_test;
+  return options;
+}
+#endif
 
 void WritePpm(const std::filesystem::path& path,
               const merlin::render::ImageRgba8& image) {
@@ -346,23 +368,8 @@ int main(int argc, char** argv) {
     allow_unavailable = arguments.allow_unavailable;
     if (!arguments.usd.empty()) {
 #ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
-      merlin::viewport::HydraViewportOptions options;
-      options.stage = arguments.usd;
-      options.executable = argv[0];
-      options.screenshot = arguments.screenshot;
-      options.benchmark = arguments.benchmark;
-      options.width = arguments.width;
-      options.height = arguments.height;
-      options.frame_limit = arguments.frame_limit;
-      options.metal_heap_capacity_bytes =
-          arguments.metal_heap_capacity_bytes;
-      options.backend = arguments.backend;
-      options.validation = arguments.validation;
-      options.vsync = arguments.vsync;
-      options.visible = arguments.visible;
-      options.reference_check = arguments.reference_check;
-      options.resize_test = arguments.resize_test;
-      return merlin::viewport::RunHydraViewport(options);
+      return merlin::viewport::RunHydraViewport(MakeHydraViewportOptions(
+          arguments, argv[0], arguments.usd));
 #else
       throw std::runtime_error(
           "this build does not include the Hydra viewport scene source; "
@@ -452,6 +459,9 @@ int main(int argc, char** argv) {
     merlin::render::FrameTimings latest_timings;
     merlin::render::FrameTelemetry latest_telemetry;
     std::vector<merlin::MaterialDiagnostic> latest_material_diagnostics;
+#ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
+    std::optional<std::filesystem::path> selected_usd;
+#endif
     bool resized_for_test{};
     bool reference_checked{};
     const auto benchmark_start = Clock::now();
@@ -557,6 +567,9 @@ int main(int argc, char** argv) {
           scene_snapshot->lights.size(),
       };
       ui_snapshot.gaussian = SummarizeGaussians(*scene_snapshot);
+#ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
+      ui_snapshot.can_load_usd = true;
+#endif
       ui_snapshot.frame_index = frames;
       ui_snapshot.host_frame_ns = latest_frame_ns;
       ui_snapshot.width = width;
@@ -566,6 +579,13 @@ int main(int argc, char** argv) {
         screenshot_pending = true;
         screenshot_path = "merlin-viewport.ppm";
       }
+#ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
+      if (ui_actions.load_usd) {
+        selected_usd = *ui_actions.load_usd;
+        running = false;
+        continue;
+      }
+#endif
       benchmark_snapshot_pending =
           benchmark_snapshot_pending || ui_actions.save_benchmark;
 
@@ -669,6 +689,22 @@ int main(int argc, char** argv) {
         title_update = now;
       }
     }
+
+#ifdef MERLIN_VIEWPORT_ENABLE_HYDRA2
+    if (selected_usd) {
+      backend.reset();
+#ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
+      vulkan_factory.reset();
+#endif
+#ifdef MERLIN_VIEWPORT_ENABLE_METAL
+      metal_factory.reset();
+#endif
+      developer_ui.reset();
+      window.reset();
+      return merlin::viewport::RunHydraViewport(MakeHydraViewportOptions(
+          arguments, argv[0], std::move(*selected_usd)));
+    }
+#endif
 
     const auto elapsed_ns = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -

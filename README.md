@@ -75,9 +75,16 @@ diagnostics. Hydra USD navigation follows usdview: Alt+left tumbles, Alt+middle
 tracks, Alt+right and the wheel dolly, and `F` frames the stage. Arrow keys
 pan, an unmodified left click reads picking IDs, and `S` writes a screenshot.
 
+Hydra-enabled Windows developer builds generate a launcher beside the
+executable. It supplies the configured OpenUSD SDK runtime path without
+changing the machine-wide `PATH`:
+
 ```powershell
-./build/adapters/merlin-viewport/Debug/merlin-viewport.exe --vsync off
+./build/adapters/merlin-viewport/Debug/run-merlin-viewport.cmd --vsync off
 ```
+
+The default native scene also exposes `Open USD...`, so a stage path does not
+need to be supplied on the command line.
 
 Retain unchanged-frame expected/actual/diff evidence as PNG and OpenEXR:
 

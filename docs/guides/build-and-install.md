@@ -140,9 +140,16 @@ cmake -S . -B build-hydra2 -G "Visual Studio 17 2022" -A x64 `
   -DCMAKE_PREFIX_PATH=C:/path/to/openusd
 cmake --build build-hydra2 --config Release --parallel
 ctest --test-dir build-hydra2 -C Release --output-on-failure
-./build-hydra2/adapters/merlin-viewport/Release/merlin-viewport.exe `
+./build-hydra2/adapters/merlin-viewport/Release/run-merlin-viewport.cmd `
   --usd C:/path/to/scene.usda
 ```
+
+On Windows, `run-merlin-viewport.cmd` is generated beside the developer-build
+executable and prepends the configured OpenUSD `bin` and `lib` directories for
+that process only. This avoids a machine-wide `PATH` edit. The executable can
+still be invoked directly when the same runtime directories are already
+discoverable. On macOS and Linux, configure the platform loader path for the
+selected OpenUSD SDK before launching the executable directly.
 
 The Hydra configuration accepts the validated OpenUSD 26.05 and 26.08 shared
 SDKs and records the selected header version in release metadata. It rejects

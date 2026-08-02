@@ -221,6 +221,12 @@ const char* SeverityName(DiagnosticSeverity severity) noexcept {
   return "error";
 }
 
+std::string_view Utf8Filename(std::string_view path) noexcept {
+  const auto separator = path.find_last_of("/\\");
+  return separator == std::string_view::npos ? path
+                                              : path.substr(separator + 1U);
+}
+
 class ImGuiDeveloperUi final : public DeveloperUi {
  public:
   explicit ImGuiDeveloperUi(Window& window) {
@@ -459,11 +465,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     ImGui::Text("Scene: %.*s", static_cast<int>(snapshot.scene_source.size()),
                 snapshot.scene_source.data());
     if (!snapshot.scene_path.empty()) {
-      const auto filename =
-          std::filesystem::path(std::string(snapshot.scene_path))
-              .filename()
-              .string();
-      ImGui::Text("Stage: %s", filename.c_str());
+      const auto filename = Utf8Filename(snapshot.scene_path);
+      ImGui::Text("Stage: %.*s", static_cast<int>(filename.size()),
+                  filename.data());
       if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("%.*s", static_cast<int>(snapshot.scene_path.size()),
                           snapshot.scene_path.data());

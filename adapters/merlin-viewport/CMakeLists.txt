@@ -151,6 +151,18 @@ target_link_libraries(merlin-viewport
 )
 target_compile_features(merlin-viewport PRIVATE cxx_std_20)
 
+if(WIN32 AND MERLIN_ENABLE_HYDRA2)
+  # Developer builds use an external OpenUSD SDK. Generate a launcher beside
+  # each configuration's executable so it can resolve the SDK DLLs outside
+  # CTest without requiring a persistent machine-wide PATH change.
+  file(GENERATE
+    OUTPUT "$<TARGET_FILE_DIR:merlin-viewport>/run-merlin-viewport.cmd"
+    CONTENT
+      "@echo off\r\nsetlocal\r\nset \"PATH=${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;${MERLIN_OPENUSD_RUNTIME_ROOT}/lib;%PATH%\"\r\n\"$<TARGET_FILE:merlin-viewport>\" %*\r\nexit /b %ERRORLEVEL%\r\n"
+    TARGET merlin-viewport
+  )
+endif()
+
 if(TARGET Merlin::Vulkan)
   add_dependencies(merlin-viewport merlin-vulkan-shaders)
   add_custom_target(merlin-viewport-shader-package
