@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
       position = object_end;
     }
 
-    Require(verified == 8, "manifest does not describe eight artifacts");
+    Require(verified == 10, "manifest does not describe ten artifacts");
     Require(artifact_keys.size() == verified,
             "two artifacts share an artifact key");
     // Conventional SPIR-V and Metal share one Forward module, bindless Forward

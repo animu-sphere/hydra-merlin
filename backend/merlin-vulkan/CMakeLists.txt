@@ -103,6 +103,10 @@ set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gaussian.vert.spv")
 set(MERLIN_GAUSSIAN_FRAGMENT_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gaussian.frag.spv")
+set(MERLIN_GAUSSIAN_ID_FRAGMENT_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-id.frag.spv")
+set(MERLIN_GAUSSIAN_ID_VERTEX_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-id.vert.spv")
 set(MERLIN_VERTEX_METAL "${MERLIN_SHADER_OUTPUT_DIR}/triangle.vert.metal")
 set(MERLIN_FRAGMENT_METAL "${MERLIN_SHADER_OUTPUT_DIR}/triangle.frag.metal")
 
@@ -191,9 +195,15 @@ _merlin_compile_shader("${MERLIN_BINDLESS_FRAGMENT_SPV}" forward-bindless.slang
 _merlin_compile_shader("${MERLIN_GAUSSIAN_VERTEX_SPV}" gaussian.slang
   gaussian_vertex vertex spirv "${_merlin_slang_spirv_profile}"
   spirv_1_5 gaussian-mvp "prepared_stream+procedural_quad")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_ID_VERTEX_SPV}" gaussian.slang
+  gaussian_id_vertex vertex spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5 gaussian-mvp "prepared_stream+procedural_quad+particle_id")
 _merlin_compile_shader("${MERLIN_GAUSSIAN_FRAGMENT_SPV}" gaussian.slang
   gaussian_fragment fragment spirv "${_merlin_slang_spirv_profile}"
   spirv_1_5 gaussian-mvp "elliptical_falloff+alpha_compositing")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}" gaussian.slang
+  gaussian_id_fragment fragment spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5 gaussian-mvp "elliptical_falloff+prim_id+particle_id")
 _merlin_compile_shader("${MERLIN_VERTEX_METAL}" forward.slang
   forward_vertex vertex metal "${_merlin_slang_metal_profile}"
   none forward-conventional "${_merlin_conventional_features}")
@@ -215,7 +225,9 @@ set(_merlin_shader_reflections
   "${MERLIN_BINDLESS_VERTEX_SPV}.reflection.json"
   "${MERLIN_BINDLESS_FRAGMENT_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}.reflection.json"
   "${MERLIN_VERTEX_METAL}.reflection.json"
   "${MERLIN_FRAGMENT_METAL}.reflection.json"
 )
@@ -242,6 +254,8 @@ add_custom_command(
     "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
     "${MERLIN_BINDLESS_VERTEX_SPV}" "${MERLIN_BINDLESS_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
+    "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
+    "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
     "${MERLIN_VERTEX_METAL}" "${MERLIN_FRAGMENT_METAL}"
     ${_merlin_shader_reflections}
     "${_merlin_shader_forward}" "${_merlin_shader_bindless}"
@@ -261,7 +275,9 @@ add_custom_target(merlin-vulkan-shaders
     "${MERLIN_BINDLESS_VERTEX_SPV}"
     "${MERLIN_BINDLESS_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}"
+    "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
+    "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
     "${MERLIN_VERTEX_METAL}"
     "${MERLIN_FRAGMENT_METAL}"
     ${_merlin_shader_reflections}
@@ -275,7 +291,9 @@ set(_merlin_shader_package_files
   "${MERLIN_BINDLESS_VERTEX_SPV}"
   "${MERLIN_BINDLESS_FRAGMENT_SPV}"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}"
+  "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
+  "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
   "${MERLIN_VERTEX_METAL}"
   "${MERLIN_FRAGMENT_METAL}"
   ${_merlin_shader_reflections}
@@ -293,8 +311,12 @@ set(MERLIN_BINDLESS_FRAGMENT_SPV
     "${MERLIN_BINDLESS_FRAGMENT_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_ID_VERTEX_SPV
+    "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_FRAGMENT_SPV
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_ID_FRAGMENT_SPV
+    "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}" PARENT_SCOPE)
 set(MERLIN_VERTEX_METAL "${MERLIN_VERTEX_METAL}" PARENT_SCOPE)
 set(MERLIN_FRAGMENT_METAL "${MERLIN_FRAGMENT_METAL}" PARENT_SCOPE)
 set(MERLIN_SHADER_REFLECTIONS "${_merlin_shader_reflections}" PARENT_SCOPE)

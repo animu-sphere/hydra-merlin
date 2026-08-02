@@ -1,5 +1,44 @@
 import os
 
+from PySide6.QtGui import QImage
+
+
+MAX_REFERENCE_CHANGED_PIXEL_FRACTION = 0.005
+MAX_REFERENCE_MEAN_CHANNEL_ERROR = 0.5
+
+
+def compare_reference(actual, reference_path):
+    reference = QImage(reference_path)
+    assert not reference.isNull(), "could not load Gaussian reference image"
+    actual = actual.convertToFormat(QImage.Format.Format_RGBA8888)
+    reference = reference.convertToFormat(QImage.Format.Format_RGBA8888)
+    assert actual.size() == reference.size(), (
+        "Gaussian reference-image dimensions changed"
+    )
+    actual_bytes = bytes(actual.constBits())[:actual.sizeInBytes()]
+    reference_bytes = bytes(reference.constBits())[:reference.sizeInBytes()]
+    differences = [
+        abs(actual_value - reference_value)
+        for actual_value, reference_value in zip(actual_bytes, reference_bytes)
+    ]
+    pixel_count = actual.width() * actual.height()
+    changed_pixels = sum(
+        any(value > 2 for value in differences[offset:offset + 4])
+        for offset in range(0, len(differences), 4)
+    )
+    changed_fraction = changed_pixels / pixel_count
+    mean_channel_error = sum(differences) / len(differences)
+    assert changed_fraction <= MAX_REFERENCE_CHANGED_PIXEL_FRACTION, (
+        "Gaussian reference changed-pixel fraction "
+        f"{changed_fraction:.6f} exceeds "
+        f"{MAX_REFERENCE_CHANGED_PIXEL_FRACTION:.6f}"
+    )
+    assert mean_channel_error <= MAX_REFERENCE_MEAN_CHANNEL_ERROR, (
+        "Gaussian reference mean channel error "
+        f"{mean_channel_error:.6f} exceeds "
+        f"{MAX_REFERENCE_MEAN_CHANNEL_ERROR:.6f}"
+    )
+
 
 def testUsdviewInputFunction(appController):
     appController._dataModel.viewSettings.showBBoxes = False
@@ -15,6 +54,9 @@ def testUsdviewInputFunction(appController):
     )
 
     image = appController.GrabViewportShot()
+    reference_path = os.environ.get("MERLIN_GAUSSIAN_REFERENCE_IMAGE")
+    if reference_path:
+        compare_reference(image, reference_path)
     background = image.pixel(0, 0)
     background_rgb = (
         (background >> 16) & 0xff,

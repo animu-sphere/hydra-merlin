@@ -60,7 +60,9 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 option(MERLIN_BUILD_TESTS "Build Merlin tests" ON)
-set(MERLIN_GAUSSIAN_SAMPLE "" CACHE FILEPATH
+set(MERLIN_GAUSSIAN_SAMPLE
+  "${CMAKE_CURRENT_SOURCE_DIR}/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc"
+  CACHE FILEPATH
   "Optional standard OpenUSD Gaussian stage used by integration tests")
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})

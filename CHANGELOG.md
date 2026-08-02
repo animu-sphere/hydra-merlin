@@ -23,12 +23,24 @@ after its public API and release process are established.
   revisions and changed-particle ranges, rejected payloads cannot reappear from
   stale descriptors, covariance overflow is rejected diagnostically, and
   unavailable OpenUSD policy hints produce explicit fallbacks.
+- Deterministic CPU Gaussian preparation and Vulkan procedural rasterization:
+  perspective/tangential covariance projection, conservative culling, degree
+  0–3 spherical-harmonic appearance, stable back-to-front sorting, elliptical
+  falloff, mixed Mesh/Gaussian composition, cache/upload/draw telemetry, and
+  validation-backed image coverage.
+- Changed-range prepared-stream uploads for localized particle edits, plus
+  Gaussian picking where `primId` identifies the Gaussian resource and
+  `instanceId` identifies its stable zero-based particle index.
+- A repository-owned CC0 8,192-particle degree-3 OpenUSD corpus, a visible
+  usdview reference image with tolerance-gated Tier 0/HgiVulkan host smokes,
+  and native Vulkan viewport performance evidence.
 
 ### Known limitations
 
-- Gaussian resources reach the renderer snapshot but are not uploaded or
-  rasterized yet. GPU upload, CPU depth sorting, procedural splats, spherical-
-  harmonic evaluation, and mixed Mesh/Gaussian output remain v0.14.1 work.
+- The Gaussian MVP is Vulkan and CPU-sorted. Persistent device-local Gaussian
+  tables, Metal parity, GPU projection/sorting/tiling, LOD, compression, and
+  streaming remain post-MVP work.
+
 ## [0.14.0] - 2026-08-02
 
 ### Added

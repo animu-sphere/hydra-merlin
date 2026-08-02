@@ -18,6 +18,10 @@ set(marker "${MERLIN_STAGE_DIR}/gaussian-regression.log")
 cmake_path(CONVERT "${MERLIN_PXR_ROOT}/bin;${MERLIN_PXR_ROOT}/lib;$ENV{PATH}"
            TO_NATIVE_PATH_LIST runtime_path NORMALIZE)
 set(hgi_environment)
+if(MERLIN_GAUSSIAN_REFERENCE_IMAGE)
+  list(APPEND hgi_environment
+    "MERLIN_GAUSSIAN_REFERENCE_IMAGE=${MERLIN_GAUSSIAN_REFERENCE_IMAGE}")
+endif()
 set(gaussian_iterations 4)
 if(MERLIN_FORCE_HGI_VULKAN)
   list(APPEND hgi_environment

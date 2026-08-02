@@ -1741,6 +1741,7 @@ class Renderer::Impl {
     std::map<std::pair<std::string, std::uint32_t>, VkPipeline>
         generated_pipelines;
     VkPipeline gaussian_pipeline{};
+    VkPipeline gaussian_id_pipeline{};
     Buffer color_readback;
     Buffer depth_readback;
     Buffer prim_id_readback;
@@ -1777,6 +1778,11 @@ class Renderer::Impl {
     std::vector<VkDeviceSize> generated_parameter_offsets;
     Buffer generated_parameter_uniforms;
     Buffer gaussian_instances;
+    // Host-visible Gaussian buffers are frame-owned so they remain immutable
+    // while a submission is in flight. Retain the packed contents for this
+    // particular buffer and write only instance ranges whose derived values
+    // changed when the frame context is reused.
+    std::vector<GaussianGpuInstance> gaussian_instance_shadow;
     std::uint64_t gaussian_preparation_generation{};
     std::uint32_t gaussian_instance_count{};
     std::vector<MaterialDiagnostic> material_diagnostics;
@@ -3591,27 +3597,14 @@ class Renderer::Impl {
     }
     if (prepared_gaussians_.gaussians.empty()) {
       frame.gaussian_instance_count = 0;
+      frame.gaussian_instance_shadow.clear();
       frame.gaussian_preparation_generation = gaussian_preparation_generation_;
       return;
     }
-    const auto bytes = static_cast<VkDeviceSize>(
-        prepared_gaussians_.gaussians.size() * sizeof(GaussianGpuInstance));
-    if (frame.gaussian_instances.handle == VK_NULL_HANDLE ||
-        frame.gaussian_instances.size < bytes) {
-      auto replacement = CreateBuffer(
-          bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-      DestroyBuffer(frame.gaussian_instances);
-      frame.gaussian_instances = replacement;
-    }
-    void* mapped{};
-    Check(vkMapMemory(device_, frame.gaussian_instances.memory, 0, bytes, 0,
-                      &mapped),
-          "map prepared Gaussian stream");
-    auto* destination = static_cast<GaussianGpuInstance*>(mapped);
+    std::vector<GaussianGpuInstance> packed;
+    packed.reserve(prepared_gaussians_.gaussians.size());
     for (const auto& source : prepared_gaussians_.gaussians) {
-      *destination++ = {
+      packed.push_back({
           source.center_pixels,
           source.inverse_conic,
           source.radiance,
@@ -3620,14 +3613,73 @@ class Renderer::Impl {
           source.depth,
           static_cast<std::uint32_t>(source.resource),
           source.particle,
-      };
+      });
     }
-    vkUnmapMemory(device_, frame.gaussian_instances.memory);
+    const auto bytes = static_cast<VkDeviceSize>(
+        packed.size() * sizeof(GaussianGpuInstance));
+    bool replaced = false;
+    if (frame.gaussian_instances.handle == VK_NULL_HANDLE ||
+        frame.gaussian_instances.size < bytes) {
+      auto replacement = CreateBuffer(
+          bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      DestroyBuffer(frame.gaussian_instances);
+      frame.gaussian_instances = replacement;
+      replaced = true;
+    }
+    struct InstanceRange {
+      std::size_t first{};
+      std::size_t count{};
+    };
+    std::vector<InstanceRange> changed_ranges;
+    if (replaced) {
+      changed_ranges.push_back({0, packed.size()});
+    } else {
+      const auto shared_count =
+          std::min(frame.gaussian_instance_shadow.size(), packed.size());
+      std::size_t index{};
+      while (index < shared_count) {
+        if (std::memcmp(&frame.gaussian_instance_shadow[index], &packed[index],
+                        sizeof(GaussianGpuInstance)) == 0) {
+          ++index;
+          continue;
+        }
+        const auto first = index++;
+        while (index < shared_count &&
+               std::memcmp(&frame.gaussian_instance_shadow[index],
+                           &packed[index], sizeof(GaussianGpuInstance)) != 0) {
+          ++index;
+        }
+        changed_ranges.push_back({first, index - first});
+      }
+      if (packed.size() > shared_count) {
+        changed_ranges.push_back(
+            {shared_count, packed.size() - shared_count});
+      }
+    }
+    std::uint64_t uploaded_bytes{};
+    for (const auto& range : changed_ranges) {
+      uploaded_bytes += range.count * sizeof(GaussianGpuInstance);
+    }
+    if (uploaded_bytes != 0) {
+      void* mapped{};
+      Check(vkMapMemory(device_, frame.gaussian_instances.memory, 0, bytes, 0,
+                        &mapped),
+            "map prepared Gaussian stream");
+      auto* destination = static_cast<GaussianGpuInstance*>(mapped);
+      for (const auto& range : changed_ranges) {
+        std::memcpy(destination + range.first, packed.data() + range.first,
+                    range.count * sizeof(GaussianGpuInstance));
+      }
+      vkUnmapMemory(device_, frame.gaussian_instances.memory);
+    }
+    frame.gaussian_instance_shadow = std::move(packed);
     frame.gaussian_instance_count =
         static_cast<std::uint32_t>(prepared_gaussians_.gaussians.size());
     frame.gaussian_preparation_generation = gaussian_preparation_generation_;
-    frame_counters_.gaussian_upload_bytes += bytes;
-    frame_counters_.upload_bytes += bytes;
+    frame_counters_.gaussian_upload_bytes += uploaded_bytes;
+    frame_counters_.upload_bytes += uploaded_bytes;
   }
 
   void ValidateMaterialTextureBindings() const {
@@ -4757,19 +4809,32 @@ class Renderer::Impl {
     mesh_subpass.pDepthStencilAttachment = &depth_reference;
     const VkAttachmentReference gaussian_color_reference{
         0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    VkSubpassDescription gaussian_subpass{};
-    gaussian_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    gaussian_subpass.colorAttachmentCount = 1;
-    gaussian_subpass.pColorAttachments = &gaussian_color_reference;
-    gaussian_subpass.pDepthStencilAttachment = &depth_reference;
-    const std::array<std::uint32_t, 2> gaussian_preserved_attachments{2, 3};
-    gaussian_subpass.preserveAttachmentCount =
-        static_cast<std::uint32_t>(gaussian_preserved_attachments.size());
-    gaussian_subpass.pPreserveAttachments =
-        gaussian_preserved_attachments.data();
-    const std::array<VkSubpassDescription, 2> subpasses{
-        mesh_subpass, gaussian_subpass};
-    std::array<VkSubpassDependency, 4> dependencies{};
+    VkSubpassDescription gaussian_color_subpass{};
+    gaussian_color_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    gaussian_color_subpass.colorAttachmentCount = 1;
+    gaussian_color_subpass.pColorAttachments = &gaussian_color_reference;
+    gaussian_color_subpass.pDepthStencilAttachment = &depth_reference;
+    const std::array<std::uint32_t, 2> gaussian_color_preserved{2, 3};
+    gaussian_color_subpass.preserveAttachmentCount =
+        static_cast<std::uint32_t>(gaussian_color_preserved.size());
+    gaussian_color_subpass.pPreserveAttachments =
+        gaussian_color_preserved.data();
+    const std::array<VkAttachmentReference, 2> gaussian_id_references{{
+        {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {3, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+    }};
+    VkSubpassDescription gaussian_id_subpass{};
+    gaussian_id_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    gaussian_id_subpass.colorAttachmentCount =
+        static_cast<std::uint32_t>(gaussian_id_references.size());
+    gaussian_id_subpass.pColorAttachments = gaussian_id_references.data();
+    gaussian_id_subpass.pDepthStencilAttachment = &depth_reference;
+    const std::uint32_t gaussian_id_preserved = 0;
+    gaussian_id_subpass.preserveAttachmentCount = 1;
+    gaussian_id_subpass.pPreserveAttachments = &gaussian_id_preserved;
+    const std::array<VkSubpassDescription, 3> subpasses{
+        mesh_subpass, gaussian_color_subpass, gaussian_id_subpass};
+    std::array<VkSubpassDependency, 6> dependencies{};
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
     dependencies[0].srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -4789,15 +4854,18 @@ class Renderer::Impl {
     dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
                                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-    dependencies[2].srcSubpass = 0;
-    dependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[2].srcSubpass = 1;
+    dependencies[2].dstSubpass = 2;
     dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                                    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    dependencies[2].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dependencies[2].dstStageMask =
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dependencies[2].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    dependencies[3].srcSubpass = 1;
+    dependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    dependencies[3].srcSubpass = 0;
     dependencies[3].dstSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[3].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                                    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
@@ -4805,6 +4873,22 @@ class Renderer::Impl {
     dependencies[3].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     dependencies[3].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    dependencies[4].srcSubpass = 1;
+    dependencies[4].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[4].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[4].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dependencies[4].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[4].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    dependencies[5].srcSubpass = 2;
+    dependencies[5].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[5].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[5].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dependencies[5].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[5].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     VkRenderPassCreateInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
     info.attachmentCount = static_cast<std::uint32_t>(attachments.size());
     info.pAttachments = attachments.data();
@@ -4955,18 +5039,27 @@ class Renderer::Impl {
     return pipeline;
   }
 
-  VkPipeline EnsureGaussianPipeline(const ShaderPaths& shaders) {
-    if (active_target_->gaussian_pipeline != VK_NULL_HANDLE) {
-      return active_target_->gaussian_pipeline;
+  VkPipeline EnsureGaussianPipeline(const ShaderPaths& shaders,
+                                    bool id_pass = false) {
+    auto& cached = id_pass ? active_target_->gaussian_id_pipeline
+                           : active_target_->gaussian_pipeline;
+    if (cached != VK_NULL_HANDLE) {
+      return cached;
     }
-    const auto vertex_path =
-        shaders.gaussian_vertex.empty()
-            ? shaders.vertex.parent_path() / "gaussian.vert.spv"
-            : shaders.gaussian_vertex;
-    const auto fragment_path =
-        shaders.gaussian_fragment.empty()
-            ? shaders.fragment.parent_path() / "gaussian.frag.spv"
-            : shaders.gaussian_fragment;
+    const auto vertex_path = id_pass
+        ? (shaders.gaussian_id_vertex.empty()
+               ? shaders.vertex.parent_path() / "gaussian-id.vert.spv"
+               : shaders.gaussian_id_vertex)
+        : (shaders.gaussian_vertex.empty()
+               ? shaders.vertex.parent_path() / "gaussian.vert.spv"
+               : shaders.gaussian_vertex);
+    const auto fragment_path = id_pass
+        ? (shaders.gaussian_id_fragment.empty()
+               ? shaders.fragment.parent_path() / "gaussian-id.frag.spv"
+               : shaders.gaussian_id_fragment)
+        : (shaders.gaussian_fragment.empty()
+               ? shaders.fragment.parent_path() / "gaussian.frag.spv"
+               : shaders.gaussian_fragment);
     ++frame_counters_.pipeline_creation_count;
     const auto vertex_shader = GetShaderModule(vertex_path);
     const auto fragment_shader = GetShaderModule(fragment_path);
@@ -4980,7 +5073,7 @@ class Renderer::Impl {
         {0, sizeof(Vec2), VK_VERTEX_INPUT_RATE_VERTEX},
         {1, sizeof(GaussianGpuInstance), VK_VERTEX_INPUT_RATE_INSTANCE},
     }};
-    const std::array<VkVertexInputAttributeDescription, 7> attributes{{
+    const std::array<VkVertexInputAttributeDescription, 9> attributes{{
         {0, 0, VK_FORMAT_R32G32_SFLOAT, 0},
         {1, 1, VK_FORMAT_R32G32_SFLOAT,
          static_cast<std::uint32_t>(
@@ -4997,14 +5090,21 @@ class Renderer::Impl {
              offsetof(GaussianGpuInstance, radius_pixels))},
         {6, 1, VK_FORMAT_R32_SFLOAT,
          static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, depth))},
+        {7, 1, VK_FORMAT_R32_UINT,
+         static_cast<std::uint32_t>(
+             offsetof(GaussianGpuInstance, resource_id))},
+        {8, 1, VK_FORMAT_R32_UINT,
+         static_cast<std::uint32_t>(
+             offsetof(GaussianGpuInstance, particle_id))},
     }};
     VkPipelineVertexInputStateCreateInfo vertex_input{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vertex_input.vertexBindingDescriptionCount =
         static_cast<std::uint32_t>(bindings.size());
     vertex_input.pVertexBindingDescriptions = bindings.data();
-    vertex_input.vertexAttributeDescriptionCount =
-        static_cast<std::uint32_t>(attributes.size());
+    vertex_input.vertexAttributeDescriptionCount = id_pass
+        ? static_cast<std::uint32_t>(attributes.size())
+        : static_cast<std::uint32_t>(attributes.size() - 2U);
     vertex_input.pVertexAttributeDescriptions = attributes.data();
     VkPipelineInputAssemblyStateCreateInfo input_assembly{
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -5027,22 +5127,25 @@ class Renderer::Impl {
     depth.depthTestEnable = VK_TRUE;
     depth.depthWriteEnable = VK_FALSE;
     depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    VkPipelineColorBlendAttachmentState color_blend{};
-    color_blend.blendEnable = VK_TRUE;
-    color_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    color_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend.colorBlendOp = VK_BLEND_OP_ADD;
-    color_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend.alphaBlendOp = VK_BLEND_OP_ADD;
-    color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-                                 VK_COLOR_COMPONENT_G_BIT |
-                                 VK_COLOR_COMPONENT_B_BIT |
-                                 VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendAttachmentState attachment{};
+    attachment.colorWriteMask = id_pass
+        ? VK_COLOR_COMPONENT_R_BIT
+        : VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (!id_pass) {
+      attachment.blendEnable = VK_TRUE;
+      attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+      attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      attachment.colorBlendOp = VK_BLEND_OP_ADD;
+      attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
+    const std::array blend_attachments{attachment, attachment};
     VkPipelineColorBlendStateCreateInfo blend{
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    blend.attachmentCount = 1;
-    blend.pAttachments = &color_blend;
+    blend.attachmentCount = id_pass ? 2U : 1U;
+    blend.pAttachments = blend_attachments.data();
     const std::array<VkDynamicState, 2> dynamic_states{
         VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dynamic{
@@ -5064,12 +5167,12 @@ class Renderer::Impl {
     pipeline_info.pDynamicState = &dynamic;
     pipeline_info.layout = active_target_->pipeline_layout;
     pipeline_info.renderPass = active_target_->render_pass;
-    pipeline_info.subpass = 1;
+    pipeline_info.subpass = id_pass ? 2U : 1U;
     Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
                                     &pipeline_info, nullptr,
-                                    &active_target_->gaussian_pipeline),
+                                    &cached),
           "create Gaussian graphics pipeline");
-    return active_target_->gaussian_pipeline;
+    return cached;
   }
 
   VkPipeline EnsureGeneratedPipeline(
@@ -5107,6 +5210,10 @@ class Renderer::Impl {
     if (target.gaussian_pipeline != VK_NULL_HANDLE) {
       vkDestroyPipeline(device_, target.gaussian_pipeline, nullptr);
       target.gaussian_pipeline = VK_NULL_HANDLE;
+    }
+    if (target.gaussian_id_pipeline != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device_, target.gaussian_id_pipeline, nullptr);
+      target.gaussian_id_pipeline = VK_NULL_HANDLE;
     }
     for (const auto& [key, layout] : target.generated_pipeline_layouts) {
       (void)key;
@@ -5869,6 +5976,27 @@ class Renderer::Impl {
                          0, sizeof(push), &push);
       vkCmdDraw(command, 6, frame.gaussian_instance_count, 0, 0);
       ++frame_counters_.gaussian_draw_count;
+    }
+    vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
+    if (frame.gaussian_instance_count != 0) {
+      const auto pipeline =
+          EnsureGaussianPipeline(active_target_->shaders, true);
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+      const std::array<VkBuffer, 2> vertex_buffers{
+          gaussian_corner_vertices_.handle, frame.gaussian_instances.handle};
+      const std::array<VkDeviceSize, 2> offsets{};
+      vkCmdBindVertexBuffers(command, 0,
+                             static_cast<std::uint32_t>(vertex_buffers.size()),
+                             vertex_buffers.data(), offsets.data());
+      const GaussianPushConstants push{{
+          1.0F / static_cast<float>(active_target_->width),
+          1.0F / static_cast<float>(active_target_->height),
+      }};
+      vkCmdPushConstants(command, active_target_->pipeline_layout,
+                         VK_SHADER_STAGE_VERTEX_BIT |
+                             VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(push), &push);
+      vkCmdDraw(command, 6, frame.gaussian_instance_count, 0, 0);
     }
     vkCmdEndRenderPass(command);
 

@@ -411,6 +411,7 @@ if(MERLIN_BUILD_TESTS)
           "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
           "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
           "-DMERLIN_GAUSSIAN_SAMPLE=${MERLIN_GAUSSIAN_SAMPLE}"
+          "-DMERLIN_GAUSSIAN_REFERENCE_IMAGE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/leica-sofort-top8192-reference.png"
           "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"
       )
@@ -431,6 +432,7 @@ if(MERLIN_BUILD_TESTS)
             "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
             "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
             "-DMERLIN_GAUSSIAN_SAMPLE=${MERLIN_GAUSSIAN_SAMPLE}"
+            "-DMERLIN_GAUSSIAN_REFERENCE_IMAGE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/leica-sofort-top8192-reference.png"
             "-DMERLIN_FORCE_HGI_VULKAN=ON"
             "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"

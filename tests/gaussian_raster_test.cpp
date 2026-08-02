@@ -53,6 +53,7 @@ int main(int argc, char** argv) {
       argv[2],
       shader_dir / "gaussian.vert.spv",
       shader_dir / "gaussian.frag.spv",
+      shader_dir / "gaussian-id.frag.spv",
   };
 
   std::optional<merlin::vulkan::Renderer> renderer;
@@ -89,13 +90,14 @@ int main(int argc, char** argv) {
 
     merlin::GaussianDescriptor gaussian;
     gaussian.label = "red-splat";
-    gaussian.positions = {{0.0F, 0.0F, 0.5F}};
+    gaussian.positions = {{0.0F, 0.0F, 0.5F}, {0.55F, 0.55F, 0.6F}};
     gaussian.covariances = {
-        {0.01F, 0.0F, 0.0F, 0.01F, 0.0F, 0.0001F}};
-    gaussian.opacities = {0.9F};
+        {0.01F, 0.0F, 0.0F, 0.01F, 0.0F, 0.0001F},
+        {0.001F, 0.0F, 0.0F, 0.001F, 0.0F, 0.0001F}};
+    gaussian.opacities = {0.9F, 0.8F};
     gaussian.spherical_harmonics_coefficients = {
-        {1.5F, -1.7F, -1.7F}};
-    world.CreateGaussian(std::move(gaussian));
+        {1.5F, -1.7F, -1.7F}, {0.0F, 0.0F, 1.0F}};
+    const auto gaussian_handle = world.CreateGaussian(std::move(gaussian));
 
     merlin::extraction::SceneExtractor extractor;
     extractor.Apply(world, world.Commit());
@@ -110,11 +112,11 @@ int main(int argc, char** argv) {
                         {merlin::Aov::InstanceId, true}};
 
     const auto first = renderer->Resolve(renderer->Submit(request));
-    Require(first.counters.gaussian_visible_count == 1,
-            "prepared stream did not retain the visible Gaussian");
+    Require(first.counters.gaussian_visible_count == 2,
+            "prepared stream did not retain the visible Gaussians");
     Require(first.counters.gaussian_draw_count == 1,
             "Gaussian stream was not submitted as one procedural draw");
-    Require(first.counters.gaussian_upload_bytes == 52,
+    Require(first.counters.gaussian_upload_bytes == 104,
             "Gaussian GPU instance upload size drifted");
     Require(first.counters.upload_bytes >=
                 first.counters.gaussian_upload_bytes,
@@ -131,11 +133,17 @@ int main(int argc, char** argv) {
                 first.depth.pixels.at(center) > 0.79F,
             "transparent Gaussian unexpectedly replaced Mesh depth");
     Require(first.prim_id.pixels.at(center) ==
+                static_cast<std::uint32_t>(gaussian_handle.value()),
+            "Gaussian coverage did not write its resource prim ID");
+    Require(first.instance_id.pixels.at(center) == 0,
+            "Gaussian coverage did not write its particle index");
+    const auto mesh_only = PixelIndex(first, 48, 32);
+    Require(first.prim_id.pixels.at(mesh_only) ==
                 static_cast<std::uint32_t>(mesh_handle.value()),
-            "Gaussian color composition corrupted the opaque Mesh prim ID");
-    Require(first.instance_id.pixels.at(center) ==
+            "Gaussian ID writes escaped the contributing ellipse");
+    Require(first.instance_id.pixels.at(mesh_only) ==
                 static_cast<std::uint32_t>(instance_handle.value()),
-            "Gaussian color composition corrupted the opaque Mesh instance ID");
+            "Gaussian particle IDs replaced uncovered Mesh identity");
 
     const auto steady = renderer->Resolve(renderer->Submit(request));
     Require(steady.counters.gaussian_preparation_cache_hits == 1,
@@ -144,6 +152,20 @@ int main(int argc, char** argv) {
             "static Gaussian frame re-uploaded its prepared stream");
     Require(steady.counters.gaussian_draw_count == 1,
             "static Gaussian frame lost its procedural draw");
+
+    auto edited = world.Get(gaussian_handle);
+    edited.spherical_harmonics_coefficients[1] = {0.0F, 1.0F, 0.0F};
+    world.UpdateGaussian(
+        gaussian_handle, std::move(edited),
+        merlin::ChangeAspect::GaussianRadiance,
+        std::vector<merlin::ElementRange>{{1, 1}});
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    const auto partial = renderer->Resolve(renderer->Submit(request));
+    Require(partial.counters.gaussian_upload_bytes == 52,
+            "single-particle edit did not use a changed-range GPU upload");
+    Require(partial.counters.gaussian_draw_count == 1,
+            "partially updated Gaussian stream was not drawn");
     Require(renderer->statistics().validation_messages == 0,
             "Gaussian rasterization produced Vulkan validation diagnostics");
   } catch (const std::exception& error) {

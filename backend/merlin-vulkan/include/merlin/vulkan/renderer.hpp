@@ -401,6 +401,8 @@ struct ShaderPaths {
   std::filesystem::path environment;
   std::filesystem::path gaussian_vertex;
   std::filesystem::path gaussian_fragment;
+  std::filesystem::path gaussian_id_fragment;
+  std::filesystem::path gaussian_id_vertex;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
