@@ -993,6 +993,7 @@ class StagingRing {
 class Renderer::Impl {
  public:
   explicit Impl(RendererOptions options) {
+    diagnostic_sink_ = options.diagnostic_sink;
     if (options.frames_in_flight < 2 || options.frames_in_flight > 8) {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "create renderer",
@@ -6225,7 +6226,6 @@ class Renderer::Impl {
       VkDebugUtilsMessageTypeFlagsEXT type,
       const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
       void* user_data) {
-    (void)severity;
     auto* self = static_cast<Impl*>(user_data);
     const char* message =
         callback_data != nullptr && callback_data->pMessage != nullptr
@@ -6242,6 +6242,34 @@ class Renderer::Impl {
       std::cerr << "Merlin Vulkan validation: " << message << '\n';
     } else {
       std::cerr << "Merlin Vulkan general: " << message << '\n';
+    }
+    if (self->diagnostic_sink_ != nullptr) {
+      const bool performance_signal =
+          (type & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) != 0U;
+      const char* message_id =
+          callback_data != nullptr && callback_data->pMessageIdName != nullptr
+              ? callback_data->pMessageIdName
+              : "vulkan";
+      Diagnostic diagnostic;
+      diagnostic.code = renderer_signal
+                            ? (performance_signal ? "vulkan.performance"
+                                                  : "vulkan.validation")
+                            : "vulkan.general";
+      diagnostic.severity =
+          (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0U
+              ? DiagnosticSeverity::Error
+              : DiagnosticSeverity::Warning;
+      diagnostic.disposition = renderer_signal
+                                   ? DiagnosticDisposition::Rejected
+                                   : DiagnosticDisposition::Ignored;
+      diagnostic.source = message_id;
+      diagnostic.message = message;
+      diagnostic.recovery = renderer_signal ? "fix-vulkan-diagnostic" : "none";
+      // A host callback must never unwind through the Vulkan C ABI.
+      try {
+        self->diagnostic_sink_->Report(diagnostic);
+      } catch (...) {
+      }
     }
     return VK_FALSE;
   }
@@ -6339,6 +6367,7 @@ class Renderer::Impl {
   SwapchainState swapchain_;
   RenderTarget* active_target_{};
   std::atomic<std::uint64_t> validation_messages_{};
+  DiagnosticSink* diagnostic_sink_{};
 };
 
 Renderer::Renderer(RendererOptions options)

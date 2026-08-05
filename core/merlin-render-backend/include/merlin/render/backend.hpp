@@ -321,6 +321,10 @@ struct BackendCreateInfo {
   BackendRequest backend{BackendRequest::Automatic};
   bool enable_validation{};
   std::uint32_t frames_in_flight{3};
+  // Optional host-owned sink for asynchronous backend diagnostics. The sink
+  // must outlive the Backend and make Report thread-safe when the native API
+  // can invoke diagnostics from worker threads.
+  DiagnosticSink* diagnostic_sink{};
 };
 
 struct BackendAvailability {

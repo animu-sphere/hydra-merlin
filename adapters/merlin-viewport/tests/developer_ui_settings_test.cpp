@@ -140,6 +140,77 @@ int main() {
                 color_preview.maximum[2] == 60.0 &&
                 color_preview.pixels.back().color[3] == 64,
             "color preview values are invalid");
+
+    DeveloperUiDiagnosticHistory history(2);
+    const merlin::Diagnostic backend_warning{
+        merlin::kDiagnosticSchemaVersion, "vulkan.validation",
+        merlin::DiagnosticSeverity::Warning,
+        merlin::DiagnosticDisposition::Rejected, "VUID-test",
+        "validation warning", "fix-vulkan-diagnostic"};
+    history.SetFrameIndex(7);
+    history.Report(backend_warning);
+    history.Report(backend_warning);
+    auto diagnostic_snapshot = history.Snapshot();
+    Require(diagnostic_snapshot.size() == 1 &&
+                diagnostic_snapshot.front().origin ==
+                    DeveloperUiDiagnosticOrigin::Backend &&
+                diagnostic_snapshot.front().first_frame == 7 &&
+                diagnostic_snapshot.front().last_frame == 7 &&
+                diagnostic_snapshot.front().occurrences == 2,
+            "consecutive backend diagnostics were not aggregated");
+
+    const merlin::Diagnostic host_warning{
+        merlin::kDiagnosticSchemaVersion, "viewport.settings.rejected",
+        merlin::DiagnosticSeverity::Warning,
+        merlin::DiagnosticDisposition::Rejected, "merlin-viewport",
+        "settings rejected", "retain-previous-settings"};
+    history.Record(DeveloperUiDiagnosticOrigin::Host, 8, host_warning);
+    history.Record(DeveloperUiDiagnosticOrigin::Host, 9, host_warning);
+    diagnostic_snapshot = history.Snapshot();
+    Require(diagnostic_snapshot.size() == 2 &&
+                diagnostic_snapshot.back().first_frame == 8 &&
+                diagnostic_snapshot.back().last_frame == 9 &&
+                diagnostic_snapshot.back().occurrences == 2,
+            "consecutive host diagnostics were not aggregated across frames");
+
+    history.Record(
+        DeveloperUiDiagnosticOrigin::Host, 12,
+        {merlin::kDiagnosticSchemaVersion, "viewport.stage.opened",
+         merlin::DiagnosticSeverity::Info,
+         merlin::DiagnosticDisposition::Ignored, "fixture.usda",
+         "stage opened", "stage-active"});
+    diagnostic_snapshot = history.Snapshot();
+    Require(diagnostic_snapshot.size() == 2 &&
+                diagnostic_snapshot.front().diagnostic.code ==
+                    "viewport.settings.rejected" &&
+                diagnostic_snapshot.back().sequence == 3,
+            "bounded diagnostic history did not evict the oldest entry");
+    history.Clear();
+    Require(history.Snapshot().empty(),
+            "diagnostic history clear retained entries");
+
+    merlin::render::BackendSelection selection;
+    selection.reason = "test backend selected";
+    capabilities.backend_name = "test";
+    capabilities.bindless_textures = true;
+    capabilities.generated_materials = true;
+    capabilities.timestamp_queries = true;
+    RecordDeveloperUiBackendSelection(history, 13, selection, capabilities);
+    diagnostic_snapshot = history.Snapshot();
+    Require(diagnostic_snapshot.size() == 1 &&
+                diagnostic_snapshot.front().diagnostic.code ==
+                    "viewport.backend.selected",
+            "backend selection was not recorded in diagnostic history");
+
+    feedback.status = DeveloperUiSettingsStatus::Rejected;
+    feedback.message = "rejected for test";
+    RecordDeveloperUiSettingsFeedback(history, 14, feedback);
+    diagnostic_snapshot = history.Snapshot();
+    Require(diagnostic_snapshot.back().origin ==
+                DeveloperUiDiagnosticOrigin::Host &&
+                diagnostic_snapshot.back().diagnostic.recovery ==
+                    "retain-previous-settings",
+            "settings rejection was not recorded as a host diagnostic");
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

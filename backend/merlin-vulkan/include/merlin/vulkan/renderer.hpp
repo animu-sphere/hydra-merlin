@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <merlin/core/material_abi.hpp>
+#include <merlin/core/diagnostic.hpp>
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
 #include <merlin/vulkan/bindless_resource_table.hpp>
@@ -139,6 +140,10 @@ struct RendererOptions {
   std::optional<PresentationOptions> presentation;
   std::optional<BorrowedVulkanContext> borrowed_context;
   std::vector<GeneratedMaterialArtifact> generated_material_artifacts;
+  // Host-owned and optional. Vulkan debug callbacks may report from threads
+  // other than the submit thread, so implementations must treat it as a
+  // thread-safe sink whose lifetime covers this Renderer.
+  DiagnosticSink* diagnostic_sink{};
 };
 
 struct RendererCapabilities {

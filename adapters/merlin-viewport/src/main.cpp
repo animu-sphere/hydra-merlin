@@ -443,6 +443,8 @@ int main(int argc, char** argv) {
     merlin::render::BackendCreateInfo create_info;
     create_info.backend = arguments.backend;
     create_info.enable_validation = arguments.validation;
+    merlin::viewport::DeveloperUiDiagnosticHistory diagnostic_history;
+    create_info.diagnostic_sink = &diagnostic_history;
     merlin::render::BackendSelection selection;
     auto backend =
         merlin::render::CreateBackend(create_info, factories, &selection);
@@ -451,6 +453,8 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "selected backend does not provide external presentation");
     }
+    merlin::viewport::RecordDeveloperUiBackendSelection(
+        diagnostic_history, 0, selection, backend->capabilities());
 
     auto scene = BuildScene();
     bool running = true;
@@ -497,6 +501,7 @@ int main(int argc, char** argv) {
 
     while (running &&
            (arguments.frame_limit == 0 || frames < arguments.frame_limit)) {
+      diagnostic_history.SetFrameIndex(frames);
       merlin::viewport::Event event;
       bool camera_changed{};
       while (window->PollEvent(event)) {
@@ -578,6 +583,8 @@ int main(int argc, char** argv) {
       ui_snapshot.timings = latest_timings;
       ui_snapshot.telemetry = latest_telemetry;
       ui_snapshot.material_diagnostics = &latest_material_diagnostics;
+      const auto diagnostic_snapshot = diagnostic_history.Snapshot();
+      ui_snapshot.diagnostic_history = &diagnostic_snapshot;
       ui_snapshot.scene = {
           true,
           scene_snapshot->geometries.size(),
@@ -622,6 +629,9 @@ int main(int argc, char** argv) {
       ui_snapshot.width = width;
       ui_snapshot.height = height;
       const auto ui_actions = developer_ui->DrawFrame(ui_snapshot);
+      if (ui_actions.clear_diagnostic_history) {
+        diagnostic_history.Clear();
+      }
       if (ui_actions.capture_screenshot) {
         screenshot_pending = true;
         screenshot_path = "merlin-viewport.ppm";
@@ -639,6 +649,8 @@ int main(int argc, char** argv) {
         (void)merlin::viewport::ApplyDeveloperUiRendererSettings(
             *ui_actions.apply_renderer_settings, backend->capabilities(),
             renderer_settings, settings_feedback);
+        merlin::viewport::RecordDeveloperUiSettingsFeedback(
+            diagnostic_history, frames, settings_feedback);
       }
 
       merlin::render::RenderRequest request;
@@ -733,6 +745,13 @@ int main(int argc, char** argv) {
       if (screenshot_pending) {
         WritePpm(screenshot_path, result.color);
         std::cout << "Screenshot: " << screenshot_path.string() << '\n';
+        diagnostic_history.Record(
+            merlin::viewport::DeveloperUiDiagnosticOrigin::Host, frames,
+            {merlin::kDiagnosticSchemaVersion, "viewport.screenshot.saved",
+             merlin::DiagnosticSeverity::Info,
+             merlin::DiagnosticDisposition::Ignored,
+             screenshot_path.string(), "Viewport screenshot was saved.",
+             "none"});
         screenshot_pending = false;
       }
       if (pick) {
@@ -771,6 +790,12 @@ int main(int argc, char** argv) {
             frames - comparison_start_frame, comparison_elapsed_ns,
             gpu_ns - comparison_start_gpu_ns, path);
         std::cout << "Benchmark snapshot: " << path.string() << '\n';
+        diagnostic_history.Record(
+            merlin::viewport::DeveloperUiDiagnosticOrigin::Host, frames,
+            {merlin::kDiagnosticSchemaVersion, "viewport.benchmark.saved",
+             merlin::DiagnosticSeverity::Info,
+             merlin::DiagnosticDisposition::Ignored, path.string(),
+             "Viewport benchmark snapshot was saved.", "none"});
         benchmark_snapshot_pending = false;
         comparison_start = Clock::now();
         comparison_start_frame = frames;

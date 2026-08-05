@@ -420,6 +420,7 @@ std::unique_ptr<render::Backend> BackendFactory::Create(
   auto options = impl_->options.renderer;
   options.enable_validation = info.enable_validation;
   options.frames_in_flight = info.frames_in_flight;
+  options.diagnostic_sink = info.diagnostic_sink;
   try {
     return std::make_unique<VulkanBackend>(options, impl_->options.shaders);
   } catch (const RendererError& error) {
