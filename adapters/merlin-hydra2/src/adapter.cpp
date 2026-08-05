@@ -68,6 +68,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -198,7 +199,36 @@ class HydraDiagnosticSink final : public merlin::DiagnosticSink {
             DiagnosticDispositionName(diagnostic.disposition),
             diagnostic.source.c_str(), diagnostic.message.c_str(),
             diagnostic.recovery.c_str());
+    std::scoped_lock lock(mutex_);
+    records_.push_back({next_sequence_++, diagnostic});
+    if (records_.size() > kCapacity) {
+      records_.pop_front();
+    }
   }
+
+  std::vector<merlin::Diagnostic> ReadSince(std::uint64_t& cursor) const {
+    std::scoped_lock lock(mutex_);
+    std::vector<merlin::Diagnostic> result;
+    for (const auto& record : records_) {
+      if (record.sequence > cursor) {
+        result.push_back(record.diagnostic);
+      }
+    }
+    if (!records_.empty()) {
+      cursor = records_.back().sequence;
+    }
+    return result;
+  }
+
+ private:
+  struct Record {
+    std::uint64_t sequence{};
+    merlin::Diagnostic diagnostic;
+  };
+  static constexpr std::size_t kCapacity = 256;
+  mutable std::mutex mutex_;
+  std::deque<Record> records_;
+  std::uint64_t next_sequence_{1};
 };
 
 HydraDiagnosticSink g_diagnostic_sink;
@@ -1013,7 +1043,9 @@ class SceneBridge {
 
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const {
     std::scoped_lock lock(mutex_);
-    return latest_viewport_frame_;
+    auto result = latest_viewport_frame_;
+    result.diagnostics = g_diagnostic_sink.ReadSince(diagnostic_cursor_);
+    return result;
   }
 
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
@@ -2109,6 +2141,7 @@ class SceneBridge {
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
   std::unordered_map<std::string, merlin::LightHandle> lights_;
   HdMerlinViewportFrame latest_viewport_frame_;
+  mutable std::uint64_t diagnostic_cursor_{};
 };
 
 class HdMerlinInstancer final : public HdInstancer {

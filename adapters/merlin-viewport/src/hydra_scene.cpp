@@ -395,7 +395,8 @@ DeveloperUiBenchmark MakeUiBenchmark(std::uint64_t frames,
 
 std::shared_ptr<render::Backend> CreateRenderer(
     const HydraViewportOptions& options, Window& window,
-    DeveloperUi& developer_ui, render::BackendSelection& selection) {
+    DeveloperUi& developer_ui, render::BackendSelection& selection,
+    DiagnosticSink* diagnostic_sink) {
   std::vector<render::BackendFactory*> factories;
 #ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
   std::unique_ptr<vulkan::BackendFactory> vulkan_factory;
@@ -437,6 +438,7 @@ std::shared_ptr<render::Backend> CreateRenderer(
   render::BackendCreateInfo create_info;
   create_info.backend = options.backend;
   create_info.enable_validation = options.validation;
+  create_info.diagnostic_sink = diagnostic_sink;
   return std::shared_ptr<render::Backend>(
       render::CreateBackend(create_info, factories, &selection));
 }
@@ -466,13 +468,22 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   auto window = Window::Create("merlin-viewport | Hydra", options.width,
                                options.height, options.visible);
   auto developer_ui = DeveloperUi::Create(*window);
+  DeveloperUiDiagnosticHistory diagnostic_history;
   render::BackendSelection selection;
-  auto backend = CreateRenderer(options, *window, *developer_ui, selection);
+  auto backend = CreateRenderer(options, *window, *developer_ui, selection,
+                                &diagnostic_history);
   const auto presentation = backend->default_presentation_target();
   if (!presentation) {
     throw std::runtime_error(
         "selected Hydra viewport backend has no presentation target");
   }
+  RecordDeveloperUiBackendSelection(diagnostic_history, 0, selection,
+                                    backend->capabilities());
+  diagnostic_history.Record(
+      DeveloperUiDiagnosticOrigin::Host, 0,
+      {kDiagnosticSchemaVersion, "viewport.stage.opened",
+       DiagnosticSeverity::Info, DiagnosticDisposition::Ignored, stage_path,
+       "OpenUSD stage was opened for the Hydra viewport.", "stage-active"});
 
   HdMerlinRenderDelegate render_delegate(backend);
   const bool reflect_projection_y =
@@ -537,6 +548,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
                "wheel dolly, F frame all\n";
   while (running &&
          (options.frame_limit == 0 || frames < options.frame_limit)) {
+    diagnostic_history.SetFrameIndex(frames);
     Event event;
     while (window->PollEvent(event)) {
       const bool wants_keyboard = developer_ui->WantsKeyboard();
@@ -643,6 +655,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     ui_snapshot.telemetry = latest_viewport_frame.telemetry;
     ui_snapshot.material_diagnostics =
         &latest_viewport_frame.material_diagnostics;
+    const auto diagnostic_snapshot = diagnostic_history.Snapshot();
+    ui_snapshot.diagnostic_history = &diagnostic_snapshot;
     ui_snapshot.scene = {
         latest_viewport_frame.available,
         latest_viewport_frame.geometries,
@@ -699,6 +713,9 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     ui_snapshot.width = width;
     ui_snapshot.height = height;
     const auto ui_actions = developer_ui->DrawFrame(ui_snapshot);
+    if (ui_actions.clear_diagnostic_history) {
+      diagnostic_history.Clear();
+    }
     if (ui_actions.capture_screenshot) {
       screenshot_pending = true;
       readback_requested = true;
@@ -716,6 +733,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
             readback_requested || renderer_settings.continuous_color_readback ||
             renderer_settings.aov_inspection_enabled;
       }
+      RecordDeveloperUiSettingsFeedback(diagnostic_history, frames,
+                                        settings_feedback);
     }
 
     std::unique_ptr<HdMerlinRenderBuffer> color;
@@ -781,6 +800,10 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
             Clock::now() - frame_start)
             .count());
     latest_viewport_frame = render_delegate.GetLatestViewportFrame();
+    for (const auto& diagnostic : latest_viewport_frame.diagnostics) {
+      diagnostic_history.Record(DeveloperUiDiagnosticOrigin::Host, frames,
+                                diagnostic);
+    }
     gpu_ns += latest_viewport_frame.timings.gpu_execution_ns;
     ++frames;
     if (benchmark_snapshot_pending) {
@@ -800,6 +823,11 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
           frames - comparison_start_frame, comparison_elapsed_ns,
           gpu_ns - comparison_start_gpu_ns, path);
       std::cout << "Benchmark snapshot: " << path.string() << '\n';
+      diagnostic_history.Record(
+          DeveloperUiDiagnosticOrigin::Host, frames,
+          {kDiagnosticSchemaVersion, "viewport.benchmark.saved",
+           DiagnosticSeverity::Info, DiagnosticDisposition::Ignored,
+           path.string(), "Viewport benchmark snapshot was saved.", "none"});
       benchmark_snapshot_pending = false;
       comparison_start = Clock::now();
       comparison_start_frame = frames;
@@ -832,6 +860,11 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
                               : options.screenshot;
         WritePpm(path, width, height, pixels);
         std::cout << "Screenshot: " << path.string() << '\n';
+        diagnostic_history.Record(
+            DeveloperUiDiagnosticOrigin::Host, frames,
+            {kDiagnosticSchemaVersion, "viewport.screenshot.saved",
+             DiagnosticSeverity::Info, DiagnosticDisposition::Ignored,
+             path.string(), "Viewport screenshot was saved.", "none"});
         screenshot_pending = false;
       }
     }

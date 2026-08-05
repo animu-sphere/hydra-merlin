@@ -299,6 +299,23 @@ const char* SeverityName(DiagnosticSeverity severity) noexcept {
   return "error";
 }
 
+const char* DispositionName(DiagnosticDisposition disposition) noexcept {
+  switch (disposition) {
+    case DiagnosticDisposition::Fallback: return "fallback";
+    case DiagnosticDisposition::Rejected: return "rejected";
+    case DiagnosticDisposition::Ignored: return "ignored";
+  }
+  return "rejected";
+}
+
+const char* OriginName(DeveloperUiDiagnosticOrigin origin) noexcept {
+  switch (origin) {
+    case DeveloperUiDiagnosticOrigin::Host: return "host";
+    case DeveloperUiDiagnosticOrigin::Backend: return "backend";
+  }
+  return "host";
+}
+
 std::string_view Utf8Filename(std::string_view path) noexcept {
   const auto separator = path.find_last_of("/\\");
   return separator == std::string_view::npos ? path
@@ -1155,6 +1172,95 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       });
     }
 
+    if (ImGui::CollapsingHeader("Host and backend diagnostic history",
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      ImGui::Checkbox("Host", &show_host_diagnostics_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Backend", &show_backend_diagnostics_);
+      ImGui::Checkbox("Info", &show_info_diagnostics_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Warnings", &show_warning_diagnostics_);
+      ImGui::SameLine();
+      ImGui::Checkbox("Errors", &show_error_diagnostics_);
+      if (ImGui::Button("Clear history")) {
+        actions_.clear_diagnostic_history = true;
+      }
+
+      std::size_t visible_count{};
+      if (snapshot.diagnostic_history != nullptr) {
+        for (const auto& entry : *snapshot.diagnostic_history) {
+          const bool origin_visible =
+              (entry.origin == DeveloperUiDiagnosticOrigin::Host &&
+               show_host_diagnostics_) ||
+              (entry.origin == DeveloperUiDiagnosticOrigin::Backend &&
+               show_backend_diagnostics_);
+          const bool severity_visible =
+              (entry.diagnostic.severity == DiagnosticSeverity::Info &&
+               show_info_diagnostics_) ||
+              (entry.diagnostic.severity == DiagnosticSeverity::Warning &&
+               show_warning_diagnostics_) ||
+              (entry.diagnostic.severity == DiagnosticSeverity::Error &&
+               show_error_diagnostics_);
+          visible_count += origin_visible && severity_visible ? 1U : 0U;
+        }
+      }
+      ImGui::SameLine();
+      ImGui::TextDisabled("%zu visible", visible_count);
+
+      if (visible_count == 0) {
+        ImGui::TextDisabled("No matching host/backend diagnostics recorded.");
+      } else {
+        int diagnostic_index{};
+        for (auto iterator = snapshot.diagnostic_history->rbegin();
+             iterator != snapshot.diagnostic_history->rend(); ++iterator) {
+          const auto& entry = *iterator;
+          const auto& diagnostic = entry.diagnostic;
+          const bool origin_visible =
+              (entry.origin == DeveloperUiDiagnosticOrigin::Host &&
+               show_host_diagnostics_) ||
+              (entry.origin == DeveloperUiDiagnosticOrigin::Backend &&
+               show_backend_diagnostics_);
+          const bool severity_visible =
+              (diagnostic.severity == DiagnosticSeverity::Info &&
+               show_info_diagnostics_) ||
+              (diagnostic.severity == DiagnosticSeverity::Warning &&
+               show_warning_diagnostics_) ||
+              (diagnostic.severity == DiagnosticSeverity::Error &&
+               show_error_diagnostics_);
+          if (!origin_visible || !severity_visible) {
+            continue;
+          }
+          ImGui::PushID(diagnostic_index++);
+          if (ImGui::TreeNodeEx(
+                  "general-diagnostic", ImGuiTreeNodeFlags_SpanAvailWidth,
+                  "%s | %s | %s%s", SeverityName(diagnostic.severity),
+                  OriginName(entry.origin), diagnostic.code.c_str(),
+                  entry.occurrences > 1 ? " | repeated" : "")) {
+            ImGui::TextWrapped("%s", diagnostic.message.c_str());
+            TwoColumnTable("general-diagnostic-context", [&] {
+              LabelValue("Disposition",
+                         DispositionName(diagnostic.disposition));
+              LabelFormattedValue(
+                  "Frames", entry.first_frame == entry.last_frame ? "%llu"
+                                                                  : "%llu-%llu",
+                  static_cast<unsigned long long>(entry.first_frame),
+                  static_cast<unsigned long long>(entry.last_frame));
+              LabelValue("Occurrences", entry.occurrences);
+              if (!diagnostic.source.empty()) {
+                LabelValue("Source", diagnostic.source.c_str());
+              }
+              if (!diagnostic.recovery.empty()) {
+                LabelValue("Recovery", diagnostic.recovery.c_str());
+              }
+              LabelValue("Schema", diagnostic.schema_version);
+            });
+            ImGui::TreePop();
+          }
+          ImGui::PopID();
+        }
+      }
+    }
+
     if (ImGui::CollapsingHeader("Materials and diagnostics")) {
       TwoColumnTable("material-state", [&] {
         LabelValue("Generated draws",
@@ -1286,6 +1392,11 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   Aov settings_inspection_aov_{Aov::Depth};
   float hitch_threshold_ms_{33.33F};
   float regression_threshold_percent_{10.0F};
+  bool show_host_diagnostics_{true};
+  bool show_backend_diagnostics_{true};
+  bool show_info_diagnostics_{true};
+  bool show_warning_diagnostics_{true};
+  bool show_error_diagnostics_{true};
 #ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
   bool nfd_initialized_{};
   std::string file_dialog_error_;

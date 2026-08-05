@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -21,6 +22,48 @@
 namespace merlin::viewport {
 
 class Window;
+struct DeveloperUiSettingsFeedback;
+
+enum class DeveloperUiDiagnosticOrigin { Host, Backend };
+
+struct DeveloperUiDiagnosticEntry {
+  std::uint64_t sequence{};
+  std::uint64_t first_frame{};
+  std::uint64_t last_frame{};
+  std::uint64_t occurrences{1};
+  DeveloperUiDiagnosticOrigin origin{DeveloperUiDiagnosticOrigin::Host};
+  Diagnostic diagnostic;
+};
+
+// Thread-safe bounded history for the host-neutral diagnostic contract. The
+// Backend Report entry point uses Backend origin and the most recently set
+// frame; hosts can record their own events with an explicit origin/frame.
+class DeveloperUiDiagnosticHistory final : public DiagnosticSink {
+ public:
+  explicit DeveloperUiDiagnosticHistory(std::size_t capacity = 256);
+
+  void Report(const Diagnostic& diagnostic) override;
+  void SetFrameIndex(std::uint64_t frame_index) noexcept;
+  void Record(DeveloperUiDiagnosticOrigin origin, std::uint64_t frame_index,
+              const Diagnostic& diagnostic);
+  [[nodiscard]] std::vector<DeveloperUiDiagnosticEntry> Snapshot() const;
+  void Clear();
+
+ private:
+  std::size_t capacity_;
+  mutable std::mutex mutex_;
+  std::vector<DeveloperUiDiagnosticEntry> entries_;
+  std::uint64_t next_sequence_{1};
+  std::uint64_t frame_index_{};
+};
+
+void RecordDeveloperUiBackendSelection(
+    DeveloperUiDiagnosticHistory& history, std::uint64_t frame_index,
+    const render::BackendSelection& selection,
+    const render::RendererCapabilities& capabilities);
+void RecordDeveloperUiSettingsFeedback(
+    DeveloperUiDiagnosticHistory& history, std::uint64_t frame_index,
+    const DeveloperUiSettingsFeedback& feedback);
 
 struct DeveloperUiScene {
   bool available{};
@@ -125,6 +168,7 @@ struct DeveloperUiSnapshot {
   render::FrameTimings timings;
   render::FrameTelemetry telemetry;
   const std::vector<MaterialDiagnostic>* material_diagnostics{};
+  const std::vector<DeveloperUiDiagnosticEntry>* diagnostic_history{};
   DeveloperUiScene scene;
   DeveloperUiGaussian gaussian;
   DeveloperUiCamera camera;
@@ -143,6 +187,7 @@ struct DeveloperUiSnapshot {
 struct DeveloperUiActions {
   bool capture_screenshot{};
   bool save_benchmark{};
+  bool clear_diagnostic_history{};
   std::optional<std::filesystem::path> load_usd;
   std::optional<DeveloperUiRendererSettingsRequest> apply_renderer_settings;
 };
