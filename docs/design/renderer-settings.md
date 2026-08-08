@@ -29,7 +29,11 @@ enum, Metal object, or UI widget crosses this boundary.
 Representability is not a capability claim. For example, v1 names the
 experimental Visibility path so settings can remain stable while that path is
 developed, but every current backend rejects it until a selectable capability
-is added to `RendererCapabilities`.
+is added to `RendererCapabilities`. The same rule applies to v1 values whose
+execution wiring is still future work: with capabilities supplied, the current
+profile accepts Color AOV, Diagnostic lighting, 0 EV, no tone mapping, Opaque
+global alpha, no debug view, and Basic telemetry. Other named values are
+rejected rather than silently stored.
 
 ## Validation and application
 
@@ -37,7 +41,8 @@ Hosts call `ValidateRendererSettings` before changing applied state. Validation
 first rejects an unknown schema, invalid enum value, or non-finite/out-of-range
 exposure. When selected-backend capabilities are supplied, it also rejects an
 explicit backend mismatch, unavailable external presentation, an unsupported
-experimental path, or validation that was not enabled at backend creation.
+experimental path, an execution setting not connected by the current profile,
+or validation state that differs from backend creation.
 
 Every rejection has a stable `renderer-settings.*` code plus a human-readable
 message. A rejected request leaves the previously applied settings and revision

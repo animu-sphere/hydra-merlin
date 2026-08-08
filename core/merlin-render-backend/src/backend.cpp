@@ -91,10 +91,50 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
                    "The selected backend does not support the experimental "
                    "Visibility render path.");
   }
+  if (settings.aov != Aov::Color) {
+    return invalid("renderer-settings.aov-unsupported",
+                   "Only the Color AOV is currently connected to renderer "
+                   "settings.");
+  }
+  if (settings.lighting_mode != LightingMode::Diagnostic) {
+    return invalid("renderer-settings.lighting-unsupported",
+                   "Only Diagnostic lighting is currently connected to "
+                   "renderer settings.");
+  }
+  if (settings.exposure_ev != 0.0F) {
+    return invalid("renderer-settings.exposure-unsupported",
+                   "Exposure control is not yet connected to renderer "
+                   "execution; use 0 EV.");
+  }
+  if (settings.tone_mapping != ToneMapping::None) {
+    return invalid("renderer-settings.tone-mapping-unsupported",
+                   "Tone mapping is not yet connected to renderer settings; "
+                   "use None.");
+  }
+  if (settings.alpha_policy != AlphaPolicy::Opaque) {
+    return invalid("renderer-settings.alpha-policy-unsupported",
+                   "Only the Opaque global alpha policy is currently "
+                   "connected to renderer settings.");
+  }
+  if (settings.debug_view != DebugView::None) {
+    return invalid("renderer-settings.debug-view-unsupported",
+                   "Debug views are not yet connected to renderer settings; "
+                   "use None.");
+  }
+  if (settings.telemetry != TelemetryMode::Basic) {
+    return invalid("renderer-settings.telemetry-unsupported",
+                   "Only Basic telemetry is currently connected to renderer "
+                   "settings.");
+  }
   if (settings.validation && !capabilities->validation_enabled) {
     return invalid("renderer-settings.validation-unavailable",
                    "Validation was requested but is not enabled by the "
                    "selected backend.");
+  }
+  if (!settings.validation && capabilities->validation_enabled) {
+    return invalid("renderer-settings.validation-already-enabled",
+                   "Validation is already enabled by the selected backend "
+                   "and cannot be disabled through live settings.");
   }
   return std::nullopt;
 }

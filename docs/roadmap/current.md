@@ -115,9 +115,10 @@ and telemetry controls.
 
 `RendererSettings` v1 now defines that vocabulary in the backend-neutral
 contract, validates exact schema and field values, and rejects backend,
-presentation, experimental-path, and validation capability mismatches with
-stable codes. The development viewport exposes the applied contract and routes
-rejections through its existing revisioned feedback and diagnostic history.
+presentation, experimental-path, validation, and not-yet-connected execution
+choices with stable codes. The development viewport exposes the applied
+contract and routes rejections through its existing revisioned feedback and
+diagnostic history.
 The complete field and validation contract is recorded in
 [versioned renderer settings](../design/renderer-settings.md).
 
