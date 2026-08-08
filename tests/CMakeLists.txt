@@ -79,6 +79,83 @@ add_test(NAME merlin-gpu-scene-slots COMMAND merlin-gpu-scene-slot-tests)
 set_tests_properties(merlin-gpu-scene-slots PROPERTIES
   LABELS "gpu-scene;lifetime")
 
+if(TARGET Merlin::Vulkan)
+  set(_merlin_gpu_scene_abi_source
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/gpu-scene-abi-wrapper.slang")
+  set(_merlin_gpu_scene_abi_include
+      "${PROJECT_SOURCE_DIR}/core/merlin-render-backend/shaders")
+  set(_merlin_gpu_scene_abi_spirv
+      "${CMAKE_CURRENT_BINARY_DIR}/gpu-scene-abi.spv")
+  set(_merlin_gpu_scene_abi_metal
+      "${CMAKE_CURRENT_BINARY_DIR}/gpu-scene-abi.metal")
+
+  add_custom_command(
+    OUTPUT
+      "${_merlin_gpu_scene_abi_spirv}"
+      "${_merlin_gpu_scene_abi_spirv}.reflection.json"
+    COMMAND "${MERLIN_SLANGC_EXECUTABLE}"
+      "${_merlin_gpu_scene_abi_source}"
+      -I "${_merlin_gpu_scene_abi_include}"
+      -entry gpu_scene_abi_test
+      -stage compute
+      -target spirv
+      -profile sm_6_6
+      -capability spirv_1_5
+      -matrix-layout-column-major
+      -O2
+      -warnings-as-errors all
+      -reflection-json "${_merlin_gpu_scene_abi_spirv}.reflection.json"
+      -o "${_merlin_gpu_scene_abi_spirv}"
+    DEPENDS
+      "${_merlin_gpu_scene_abi_source}"
+      "${_merlin_gpu_scene_abi_include}/gpu-scene-abi.slang"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT
+      "${_merlin_gpu_scene_abi_metal}"
+      "${_merlin_gpu_scene_abi_metal}.reflection.json"
+    COMMAND "${MERLIN_SLANGC_EXECUTABLE}"
+      "${_merlin_gpu_scene_abi_source}"
+      -I "${_merlin_gpu_scene_abi_include}"
+      -entry gpu_scene_abi_test
+      -stage compute
+      -target metal
+      -profile metallib_2_4
+      -matrix-layout-column-major
+      -O2
+      -warnings-as-errors all
+      -reflection-json "${_merlin_gpu_scene_abi_metal}.reflection.json"
+      -o "${_merlin_gpu_scene_abi_metal}"
+    DEPENDS
+      "${_merlin_gpu_scene_abi_source}"
+      "${_merlin_gpu_scene_abi_include}/gpu-scene-abi.slang"
+    VERBATIM
+  )
+  add_custom_target(merlin-gpu-scene-abi-artifacts
+    DEPENDS
+      "${_merlin_gpu_scene_abi_spirv}"
+      "${_merlin_gpu_scene_abi_spirv}.reflection.json"
+      "${_merlin_gpu_scene_abi_metal}"
+      "${_merlin_gpu_scene_abi_metal}.reflection.json"
+  )
+  add_executable(merlin-gpu-scene-abi-tests
+    gpu_scene_abi_test.cpp
+  )
+  target_link_libraries(merlin-gpu-scene-abi-tests
+    PRIVATE Merlin::RenderBackend)
+  add_dependencies(merlin-gpu-scene-abi-tests
+    merlin-gpu-scene-abi-artifacts)
+  add_test(
+    NAME merlin-gpu-scene-abi
+    COMMAND merlin-gpu-scene-abi-tests
+      "${_merlin_gpu_scene_abi_spirv}.reflection.json"
+      "${_merlin_gpu_scene_abi_metal}.reflection.json"
+  )
+  set_tests_properties(merlin-gpu-scene-abi PROPERTIES
+    LABELS "gpu-scene;shader;abi;spirv;metal")
+endif()
+
 if(TARGET Merlin::Metal)
   add_executable(merlin-metal-resource-table-tests
     metal_resource_table_test.cpp

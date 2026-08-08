@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <merlin/extraction/frame_snapshot.hpp>
+#include <merlin/render/gpu_scene_abi.hpp>
 
 namespace merlin::render {
 
