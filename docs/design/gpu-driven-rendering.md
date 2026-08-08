@@ -137,9 +137,14 @@ the removed or displaced resource. `SceneExtractor` now assigns each logical
 draw a non-zero, source-local ID that is independent of sorted table position,
 retains it across visibility and binding changes, and never reuses it after
 removal. Snapshot draw deltas report upserted and removed IDs; their sorted
-table positions remain transient. Generation-checked backend slots,
-completion-safe retirement, and the reflected `GpuDraw` buffer remain the next
-v0.15.0 layers over this identity boundary.
+table positions remain transient. Backend-neutral finite slots now carry CPU
+owner/generation identity, delay index reuse until the last referencing
+completion, and drive a persistent draw mapping from exact snapshot deltas or a
+full identity reconciliation. Changed in-flight records move to fresh slots;
+completion-safe collection advances the old generation before reuse. The
+versioned/reflected `GpuDraw` layout, dirty-range native buffer upload, and the
+matching geometry, instance, and material tables remain the next v0.15.0
+layers over this residency boundary.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,
