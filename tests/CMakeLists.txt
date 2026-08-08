@@ -70,6 +70,15 @@ add_executable(merlin-render-backend-tests
 target_link_libraries(merlin-render-backend-tests PRIVATE Merlin::RenderBackend)
 add_test(NAME merlin-render-backend COMMAND merlin-render-backend-tests)
 
+add_executable(merlin-gpu-scene-slot-tests
+  gpu_scene_slot_test.cpp
+)
+target_link_libraries(merlin-gpu-scene-slot-tests
+  PRIVATE Merlin::RenderBackend)
+add_test(NAME merlin-gpu-scene-slots COMMAND merlin-gpu-scene-slot-tests)
+set_tests_properties(merlin-gpu-scene-slots PROPERTIES
+  LABELS "gpu-scene;lifetime")
+
 if(TARGET Merlin::Metal)
   add_executable(merlin-metal-resource-table-tests
     metal_resource_table_test.cpp

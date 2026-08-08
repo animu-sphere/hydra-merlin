@@ -131,10 +131,21 @@ changes, and never reuse them after removal. Revisioned draw upsert/removal
 deltas let a persistent consumer distinguish unchanged, replaced, retired, and
 new logical draws without rebuilding identity from submission order.
 
-The milestone remains incomplete. Next are generation-checked backend slots
-with completion-safe retirement, versioned/reflected geometry, instance,
-material, and draw records, dirty-range table upload, and persistent Gaussian
-attribute residency described in the
+The first backend-neutral residency slice is also in place. Finite GPU Scene
+slots carry allocator ownership and generation on the CPU, remain unavailable
+from retirement through their last referencing completion value, and advance
+generation only when collected for reuse. Persistent draw residency consumes an
+exact source/base-revision delta when possible, falls back to full identity
+reconciliation for gaps or malformed delta indices, allocates a fresh slot for
+an in-flight record replacement, and rejects stale generations, stale snapshot
+revisions, foreign handles, and completion-unsafe exhaustion. CPU unit coverage
+exercises allocation, retirement, collection, reuse, source changes, exact
+deltas, fallback reconciliation, and failure atomicity.
+
+The milestone remains incomplete. Next are versioned/reflected geometry,
+instance, material, and draw records over these slots, dirty-range table upload,
+native backend integration, and persistent Gaussian attribute residency
+described in the
 [GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
 [Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
 
@@ -142,8 +153,8 @@ attribute residency described in the
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Build generation-checked GPU Scene slots and reflected table layouts over
-   the stable snapshot draw identity.
+2. Build reflected GPU Scene table layouts and native uploads over the
+   generation-checked draw slots and stable snapshot identity.
 3. Add persistent Gaussian attribute residency and retain range-only updates.
 4. Strengthen non-GPU and Linux gates before implementation breadth grows.
 5. Preserve the completed native Metal presentation path while extending the
