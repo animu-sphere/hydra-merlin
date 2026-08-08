@@ -149,8 +149,15 @@ records through both SPIR-V and Metal compiler reflection. Version 1 uses
 draw ID as two 32-bit words; the completion-safe physical draw slot may change
 when a record is replaced in flight. Packing must reject an unrepresentable
 arena rather than silently truncate it. Persistent geometry, instance, and
-material residency, dirty-range native buffer upload, and backend consumption
-remain the next v0.15.0 layers over this ABI and residency boundary.
+material mappings now apply the same source/base-revision validation,
+exact-delta optimization, full identity reconciliation, fresh-slot
+replacement, and completion-safe retirement rules. Geometry record identity
+is versioned by both its vertex and index revisions; instance and material
+records use their unified record revision. Each accepted update coalesces
+fresh physical slots into dirty ranges that a native backend can copy without
+scanning the full table. Native record packing, buffer allocation/copy, and
+renderer consumption remain the next v0.15.0 layers over this ABI and
+residency boundary.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,

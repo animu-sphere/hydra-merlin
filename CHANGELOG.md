@@ -10,6 +10,12 @@ after its public API and release process are established.
 
 ### Added
 
+- Versioned persistent GPU Scene residency for geometry, instance, and
+  material tables. Exact snapshot deltas now preserve unchanged physical
+  slots, changed in-flight records move to fresh completion-safe generations,
+  malformed or discontinuous deltas reconcile safely, and upserts produce
+  coalesced dirty-slot ranges for bounded native buffer copies. Draw update
+  plans expose the same dirty-range contract.
 - Source-local stable draw IDs and incremental draw upsert/removal deltas in
   immutable frame snapshots. Draw identity now survives transform,
   visibility, material-binding, and dense resource-table movement while
