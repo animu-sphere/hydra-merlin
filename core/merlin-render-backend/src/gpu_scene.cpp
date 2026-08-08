@@ -21,8 +21,16 @@ std::uint32_t NextGeneration(std::uint32_t generation) noexcept {
                           "GPU Scene draw slots: " + std::string(detail));
 }
 
-bool HasUsableDelta(const extraction::FrameSnapshot& snapshot,
-                    std::uint64_t source_id, std::uint64_t revision) {
+struct PendingUpsert {
+  std::uint64_t draw{};
+  std::uint32_t snapshot_index{};
+  std::uint64_t record_revision{};
+};
+
+bool ReadUsableDelta(const extraction::FrameSnapshot& snapshot,
+                     std::uint64_t source_id, std::uint64_t revision,
+                     std::vector<PendingUpsert>& upserts,
+                     std::vector<std::uint64_t>& removals) {
   if (source_id == 0 || snapshot.source_id != source_id || !snapshot.delta ||
       snapshot.delta->base_revision != revision) {
     return false;
@@ -33,29 +41,35 @@ bool HasUsableDelta(const extraction::FrameSnapshot& snapshot,
     return false;
   }
 
+  upserts.reserve(delta.upserts.size());
+  removals.reserve(delta.removals.size());
   std::set<std::uint64_t> changed;
   for (std::size_t index = 0; index < delta.upserts.size(); ++index) {
     const auto draw = delta.upserts[index];
     const auto snapshot_index = delta.upsert_indices[index];
-    if (draw == 0 || snapshot_index >= snapshot.draws.size() ||
-        snapshot.draws[snapshot_index].draw != draw ||
-        !changed.insert(draw).second) {
+    if (draw == 0 || snapshot_index >= snapshot.draws.size()) {
+      upserts.clear();
+      removals.clear();
       return false;
     }
+    const auto& record = snapshot.draws[snapshot_index];
+    if (record.draw != draw || !changed.insert(draw).second) {
+      upserts.clear();
+      removals.clear();
+      return false;
+    }
+    upserts.push_back({draw, snapshot_index, record.revision});
   }
   for (const auto draw : delta.removals) {
     if (draw == 0 || !changed.insert(draw).second) {
+      upserts.clear();
+      removals.clear();
       return false;
     }
+    removals.push_back(draw);
   }
   return true;
 }
-
-struct PendingUpsert {
-  std::uint64_t draw{};
-  std::uint32_t snapshot_index{};
-  std::uint64_t record_revision{};
-};
 
 }  // namespace
 
@@ -243,17 +257,6 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
     ThrowInvalidSnapshot("draw table exceeds 32-bit GPU slot indexing");
   }
 
-  std::map<std::uint64_t, std::uint32_t> snapshot_indices;
-  for (std::uint32_t index = 0; index < snapshot.draws.size(); ++index) {
-    const auto draw = snapshot.draws[index].draw;
-    if (draw == 0) {
-      ThrowInvalidSnapshot("draw identity must be non-zero");
-    }
-    if (!snapshot_indices.emplace(draw, index).second) {
-      ThrowInvalidSnapshot("draw identities must be unique");
-    }
-  }
-
   GpuSceneDrawUpdatePlan plan;
   plan.source_id = snapshot.source_id;
   plan.base_revision = revision_;
@@ -270,15 +273,12 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
     return plan;
   }
 
-  auto incremental = HasUsableDelta(snapshot, source_id_, revision_);
-  if (incremental) {
-    for (const auto draw : snapshot.delta->draws.removals) {
-      if (snapshot_indices.contains(draw)) {
-        incremental = false;
-        break;
-      }
-    }
-  }
+  std::vector<PendingUpsert> delta_upserts;
+  std::vector<std::uint64_t> delta_removals;
+  const auto incremental =
+      ReadUsableDelta(snapshot, source_id_, revision_, delta_upserts,
+                      delta_removals);
+  plan.indexed_snapshot_draws = delta_upserts.size();
   plan.full_reconciliation = !incremental;
 
   std::vector<GpuSceneDrawRetirement> retirements;
@@ -287,8 +287,7 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
       snapshot.source_id != 0 && source_id_ == snapshot.source_id;
 
   if (incremental) {
-    const auto& delta = snapshot.delta->draws;
-    for (const auto draw : delta.removals) {
+    for (const auto draw : delta_removals) {
       const auto resident = resident_.find(draw);
       if (resident == resident_.end()) {
         plan.full_reconciliation = true;
@@ -297,19 +296,16 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
       retirements.push_back({draw, resident->second.slot});
     }
     if (!plan.full_reconciliation) {
-      for (std::size_t index = 0; index < delta.upserts.size(); ++index) {
-        const auto draw = delta.upserts[index];
-        const auto snapshot_index = delta.upsert_indices[index];
-        const auto& record = snapshot.draws[snapshot_index];
-        const auto resident = resident_.find(draw);
+      for (const auto& upsert : delta_upserts) {
+        const auto resident = resident_.find(upsert.draw);
         if (resident != resident_.end() &&
-            resident->second.record_revision == record.revision) {
+            resident->second.record_revision == upsert.record_revision) {
           continue;
         }
         if (resident != resident_.end()) {
-          retirements.push_back({draw, resident->second.slot});
+          retirements.push_back({upsert.draw, resident->second.slot});
         }
-        upserts.push_back({draw, snapshot_index, record.revision});
+        upserts.push_back(upsert);
       }
     }
   }
@@ -317,6 +313,17 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
   if (plan.full_reconciliation) {
     retirements.clear();
     upserts.clear();
+    std::map<std::uint64_t, std::uint32_t> snapshot_indices;
+    for (std::uint32_t index = 0; index < snapshot.draws.size(); ++index) {
+      const auto draw = snapshot.draws[index].draw;
+      if (draw == 0) {
+        ThrowInvalidSnapshot("draw identity must be non-zero");
+      }
+      if (!snapshot_indices.emplace(draw, index).second) {
+        ThrowInvalidSnapshot("draw identities must be unique");
+      }
+    }
+    plan.indexed_snapshot_draws = snapshot.draws.size();
     for (const auto& [draw, resident] : resident_) {
       const auto snapshot_record = snapshot_indices.find(draw);
       const auto retain =

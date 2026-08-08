@@ -141,6 +141,10 @@ struct GpuSceneDrawUpdatePlan {
   std::uint64_t source_id{};
   std::uint64_t base_revision{};
   std::uint64_t revision{};
+  // Number of snapshot draw records indexed while classifying this update.
+  // Static frames index none, exact deltas index only named upserts, and full
+  // reconciliation indexes the complete table.
+  std::uint64_t indexed_snapshot_draws{};
   bool full_reconciliation{};
   std::vector<GpuSceneDrawUpsert> upserts;
   std::vector<GpuSceneDrawRetirement> retirements;

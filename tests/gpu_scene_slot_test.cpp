@@ -114,6 +114,7 @@ void TestPersistentDrawSlots() {
   const auto initial = Snapshot(11, 1, {{10, 1}, {20, 1}});
   const auto initial_plan = slots.Apply(initial, 0, 0);
   assert(initial_plan.full_reconciliation);
+  assert(initial_plan.indexed_snapshot_draws == 2);
   assert(initial_plan.upserts.size() == 2);
   assert(initial_plan.retirements.empty());
   assert(initial_plan.upserts[0].draw == 10);
@@ -126,6 +127,7 @@ void TestPersistentDrawSlots() {
   // Re-applying one immutable snapshot performs no residency or upload work.
   const auto static_plan = slots.Apply(initial, 0, 0);
   assert(!static_plan.full_reconciliation);
+  assert(static_plan.indexed_snapshot_draws == 0);
   assert(static_plan.upserts.empty());
   assert(static_plan.retirements.empty());
   assert(slots.Find(10) == original_ten);
@@ -136,6 +138,7 @@ void TestPersistentDrawSlots() {
       11, 2, {{10, 2}, {20, 1}}, DrawDelta(1, {10}, {}, {0}));
   const auto change_plan = slots.Apply(changed_ten, 5, 4);
   assert(!change_plan.full_reconciliation);
+  assert(change_plan.indexed_snapshot_draws == 1);
   assert(change_plan.upserts.size() == 1);
   assert(change_plan.retirements.size() == 1);
   assert(change_plan.retirements[0].slot == original_ten);
@@ -157,6 +160,7 @@ void TestPersistentDrawSlots() {
   // new generation. The failed Apply did not consume the exact delta base.
   const auto twenty_plan = slots.Apply(changed_twenty, 6, 5);
   assert(!twenty_plan.full_reconciliation);
+  assert(twenty_plan.indexed_snapshot_draws == 1);
   assert(twenty_plan.collected ==
          std::vector<GpuSceneSlotHandle>{original_ten});
   assert(twenty_plan.upserts.size() == 1);
@@ -168,6 +172,7 @@ void TestPersistentDrawSlots() {
       11, 4, {{20, 3}}, DrawDelta(3, {}, {10}, {}));
   const auto remove_plan = slots.Apply(removed_ten, 7, 6);
   assert(!remove_plan.full_reconciliation);
+  assert(remove_plan.indexed_snapshot_draws == 0);
   assert(remove_plan.upserts.empty());
   assert(remove_plan.retirements.size() == 1);
   assert(!slots.Find(10));
@@ -178,6 +183,7 @@ void TestPersistentDrawSlots() {
       11, 5, {{20, 3}, {30, 5}}, DrawDelta(4, {30}, {}, {}));
   const auto reconcile_plan = slots.Apply(malformed_delta, 7, 7);
   assert(reconcile_plan.full_reconciliation);
+  assert(reconcile_plan.indexed_snapshot_draws == 2);
   assert(reconcile_plan.upserts.size() == 1);
   assert(reconcile_plan.upserts[0].draw == 30);
   assert(slots.Find(20) == replacement_twenty);
@@ -188,6 +194,7 @@ void TestPersistentDrawSlots() {
   const auto other_source = Snapshot(22, 1, {{20, 1}});
   const auto source_plan = slots.Apply(other_source, 7, 8);
   assert(source_plan.full_reconciliation);
+  assert(source_plan.indexed_snapshot_draws == 1);
   assert(source_plan.retirements.size() == 2);
   assert(source_plan.upserts.size() == 1);
   assert(*slots.Find(20) != before_source_change);
