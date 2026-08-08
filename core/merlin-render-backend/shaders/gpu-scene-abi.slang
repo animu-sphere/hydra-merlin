@@ -46,6 +46,6 @@ struct GpuDraw
     uint primitive_base;
     uint primitive_count;
     uint flags;
-    uint reserved0;
-    uint reserved1;
+    uint draw_id_low;
+    uint draw_id_high;
 };

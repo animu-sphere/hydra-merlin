@@ -147,7 +147,10 @@ The common GPU Scene ABI v1 now defines 16-byte-aligned `GpuGeometry`,
 offset checks. One shared Slang definition is compiled to both SPIR-V and Metal,
 and compiler reflection is checked field-by-field against the C++ layout. The
 ABI keeps table references and geometry arena offsets 32-bit in v1; native
-packing must reject unrepresentable values rather than truncate them.
+packing must reject unrepresentable values rather than truncate them. `GpuDraw`
+stores its stable source-local 64-bit logical identity as two 32-bit words;
+completion-safe physical slots remain replaceable addresses rather than stable
+scene identity.
 
 The milestone remains incomplete. Next are versioned/reflected geometry,
 instance, and material residency over these records, dirty-range table upload,

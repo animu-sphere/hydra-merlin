@@ -38,6 +38,6 @@ void gpu_scene_abi_test(uint3 dispatch_thread_id : SV_DispatchThreadID)
         material.base_color_texcoord_set;
     value += draw.geometry_index + draw.material_index + draw.instance_index +
         draw.primitive_base + draw.primitive_count + draw.flags +
-        draw.reserved0 + draw.reserved1;
+        draw.draw_id_low + draw.draw_id_high;
     gpu_scene_abi_sink[index] = value;
 }

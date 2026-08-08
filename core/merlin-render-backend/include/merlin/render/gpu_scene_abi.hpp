@@ -57,9 +57,10 @@ struct alignas(16) GpuMaterial {
   std::uint32_t base_color_texcoord_set{};
 };
 
-// The draw's stable identity is its completion-safe table slot. References are
-// shader-visible indices into the other persistent tables. Primitive ranges
-// preserve picking identity after sorting or visible-list compaction.
+// draw_id_low/high preserve the source-local 64-bit DrawRecord identity across
+// record replacement and visible-list compaction. The completion-safe table
+// slot is only the shader-visible address of one resident record and may change
+// while an older version remains in flight.
 struct alignas(16) GpuDraw {
   std::uint32_t geometry_index{kInvalidGpuSceneTableIndex};
   std::uint32_t material_index{kInvalidGpuSceneTableIndex};
@@ -67,9 +68,21 @@ struct alignas(16) GpuDraw {
   std::uint32_t primitive_base{};
   std::uint32_t primitive_count{};
   std::uint32_t flags{};
-  std::uint32_t reserved0{};
-  std::uint32_t reserved1{};
+  std::uint32_t draw_id_low{};
+  std::uint32_t draw_id_high{};
 };
+
+constexpr void SetGpuDrawIdentity(GpuDraw& draw,
+                                  std::uint64_t identity) noexcept {
+  draw.draw_id_low = static_cast<std::uint32_t>(identity);
+  draw.draw_id_high = static_cast<std::uint32_t>(identity >> 32U);
+}
+
+[[nodiscard]] constexpr std::uint64_t GpuDrawIdentity(
+    const GpuDraw& draw) noexcept {
+  return static_cast<std::uint64_t>(draw.draw_id_low) |
+         (static_cast<std::uint64_t>(draw.draw_id_high) << 32U);
+}
 
 static_assert(std::is_standard_layout_v<GpuGeometry>);
 static_assert(std::is_trivially_copyable_v<GpuGeometry>);
@@ -118,7 +131,7 @@ static_assert(offsetof(GpuDraw, instance_index) == 8);
 static_assert(offsetof(GpuDraw, primitive_base) == 12);
 static_assert(offsetof(GpuDraw, primitive_count) == 16);
 static_assert(offsetof(GpuDraw, flags) == 20);
-static_assert(offsetof(GpuDraw, reserved0) == 24);
-static_assert(offsetof(GpuDraw, reserved1) == 28);
+static_assert(offsetof(GpuDraw, draw_id_low) == 24);
+static_assert(offsetof(GpuDraw, draw_id_high) == 28);
 
 }  // namespace merlin::render

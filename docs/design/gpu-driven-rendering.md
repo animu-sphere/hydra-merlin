@@ -93,7 +93,7 @@ records are:
 | --- | --- |
 | `GpuGeometry` | Vertex/index arena ranges or addresses, counts, index type, attribute mask, bounds, and optional meshlet range |
 | `GpuInstance` | Current transform, normal/world inverse data, object/instance ID, visibility mask, and flags; previous transform is added when motion vectors require it |
-| `GpuDraw` | Geometry, material, and instance indices; indexed range; primitive base; flags; and optional meshlet dispatch range |
+| `GpuDraw` | Geometry, material, and instance indices; indexed range; primitive base; flags; stable source-local draw ID; and optional meshlet dispatch range |
 | `GpuMaterial` | Material class/flags, scalar factors, and bindless texture/sampler indices |
 | `GpuMeshlet` | Local vertex/primitive ranges, material-homogeneous geometry identity, bounds, normal cone, and reserved LOD/hierarchy fields |
 
@@ -145,10 +145,12 @@ completion-safe collection advances the old generation before reuse. The
 common GPU Scene ABI v1 now fixes 16-byte-aligned `GpuGeometry`, `GpuInstance`,
 `GpuMaterial`, and `GpuDraw` C++ layouts and checks the matching shared Slang
 records through both SPIR-V and Metal compiler reflection. Version 1 uses
-32-bit table references and arena offsets; packing must reject an
-unrepresentable arena rather than silently truncate it. Persistent geometry,
-instance, and material residency, dirty-range native buffer upload, and backend
-consumption remain the next v0.15.0 layers over this ABI and residency boundary.
+32-bit table references and arena offsets and stores the stable 64-bit logical
+draw ID as two 32-bit words; the completion-safe physical draw slot may change
+when a record is replaced in flight. Packing must reject an unrepresentable
+arena rather than silently truncate it. Persistent geometry, instance, and
+material residency, dirty-range native buffer upload, and backend consumption
+remain the next v0.15.0 layers over this ABI and residency boundary.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,

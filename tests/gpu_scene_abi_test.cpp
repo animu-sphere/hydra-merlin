@@ -163,8 +163,8 @@ void RequireAbi(std::string_view json) {
                            FieldExpectation{"primitive_base", 12, 4},
                            FieldExpectation{"primitive_count", 16, 4},
                            FieldExpectation{"flags", 20, 4},
-                           FieldExpectation{"reserved0", 24, 4},
-                           FieldExpectation{"reserved1", 28, 4}});
+                           FieldExpectation{"draw_id_low", 24, 4},
+                           FieldExpectation{"draw_id_high", 28, 4}});
 }
 
 }  // namespace
@@ -189,6 +189,13 @@ int main(int argc, char** argv) {
         GpuDraw{}.material_index != kInvalidGpuSceneTableIndex ||
         GpuDraw{}.instance_index != kInvalidGpuSceneTableIndex) {
       throw std::runtime_error("GPU Scene absent-reference sentinel mismatch");
+    }
+    GpuDraw identified_draw;
+    SetGpuDrawIdentity(identified_draw, 0xfedcba9876543210ULL);
+    if (identified_draw.draw_id_low != 0x76543210U ||
+        identified_draw.draw_id_high != 0xfedcba98U ||
+        GpuDrawIdentity(identified_draw) != 0xfedcba9876543210ULL) {
+      throw std::runtime_error("GPU Scene draw identity packing mismatch");
     }
   } catch (const std::exception& error) {
     std::cerr << "GPU Scene ABI contract failure: " << error.what() << '\n';
