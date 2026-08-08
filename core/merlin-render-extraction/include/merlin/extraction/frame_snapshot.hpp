@@ -146,6 +146,16 @@ struct DrawRecord {
   // SceneExtractor-produced draws retain the serialized instance handle so a
   // localized visibility or binding edit can replace only its dependent draw.
   std::uint64_t instance{};
+  // Stable within one SceneExtractor source. This identity is independent of
+  // the draw's sorted table position and survives transform, visibility,
+  // material-binding, and dense resource-table index changes. IDs are never
+  // reused by a source, so a removed and recreated logical draw cannot alias
+  // completion-delayed GPU residency.
+  std::uint64_t draw{};
+  // Snapshot revision at which the draw record itself last changed. Instance
+  // transforms remain in InstanceRecord and therefore do not churn this
+  // revision or the persistent draw table.
+  std::uint64_t revision{};
 };
 
 struct LightRecord {
@@ -185,11 +195,17 @@ struct SnapshotDelta {
   ResourceDelta lights;
   bool camera_changed{};
   bool render_settings_changed{};
+  // Draw deltas are keyed by DrawRecord::draw rather than by the instance
+  // handle. The sorted draw table is not dense-handle ordered, so
+  // upsert_indices intentionally remains empty; persistent consumers retain
+  // their own draw-ID index and use a missing/invalid delta as a signal for
+  // full reconciliation.
+  ResourceDelta draws;
 };
 
 // CPU work performed to construct this immutable snapshot. Resource records
-// exclude draws, which are reported separately because draw identity remains
-// intentionally transient until the v0.10.0 GPU Scene milestone.
+// exclude draws, which are reported separately because draw updates are
+// derived from resource and instance dependencies.
 struct SnapshotBuildCounters {
   std::uint64_t visited_records{};
   std::uint64_t copied_records{};
