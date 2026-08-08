@@ -142,9 +142,13 @@ owner/generation identity, delay index reuse until the last referencing
 completion, and drive a persistent draw mapping from exact snapshot deltas or a
 full identity reconciliation. Changed in-flight records move to fresh slots;
 completion-safe collection advances the old generation before reuse. The
-versioned/reflected `GpuDraw` layout, dirty-range native buffer upload, and the
-matching geometry, instance, and material tables remain the next v0.15.0
-layers over this residency boundary.
+common GPU Scene ABI v1 now fixes 16-byte-aligned `GpuGeometry`, `GpuInstance`,
+`GpuMaterial`, and `GpuDraw` C++ layouts and checks the matching shared Slang
+records through both SPIR-V and Metal compiler reflection. Version 1 uses
+32-bit table references and arena offsets; packing must reject an
+unrepresentable arena rather than silently truncate it. Persistent geometry,
+instance, and material residency, dirty-range native buffer upload, and backend
+consumption remain the next v0.15.0 layers over this ABI and residency boundary.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,

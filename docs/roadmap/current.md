@@ -142,8 +142,15 @@ revisions, foreign handles, and completion-unsafe exhaustion. CPU unit coverage
 exercises allocation, retirement, collection, reuse, source changes, exact
 deltas, fallback reconciliation, and failure atomicity.
 
+The common GPU Scene ABI v1 now defines 16-byte-aligned `GpuGeometry`,
+`GpuInstance`, `GpuMaterial`, and `GpuDraw` records with fixed C++ size and
+offset checks. One shared Slang definition is compiled to both SPIR-V and Metal,
+and compiler reflection is checked field-by-field against the C++ layout. The
+ABI keeps table references and geometry arena offsets 32-bit in v1; native
+packing must reject unrepresentable values rather than truncate them.
+
 The milestone remains incomplete. Next are versioned/reflected geometry,
-instance, material, and draw records over these slots, dirty-range table upload,
+instance, and material residency over these records, dirty-range table upload,
 native backend integration, and persistent Gaussian attribute residency
 described in the
 [GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
@@ -153,8 +160,9 @@ described in the
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Build reflected GPU Scene table layouts and native uploads over the
-   generation-checked draw slots and stable snapshot identity.
+2. Build native persistent table residency and dirty-range uploads over the
+   reflected GPU Scene ABI, generation-checked draw slots, and stable snapshot
+   identity.
 3. Add persistent Gaussian attribute residency and retain range-only updates.
 4. Strengthen non-GPU and Linux gates before implementation breadth grows.
 5. Preserve the completed native Metal presentation path while extending the
