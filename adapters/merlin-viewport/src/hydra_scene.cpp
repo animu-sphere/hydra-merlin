@@ -530,6 +530,11 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   HdMerlinViewportFrame latest_viewport_frame;
   DeveloperUiRendererSettings renderer_settings;
   renderer_settings.available = true;
+  renderer_settings.contract.backend = selection.requested;
+  renderer_settings.contract.presentation_mode =
+      render::PresentationMode::Native;
+  renderer_settings.contract.validation =
+      backend->capabilities().validation_enabled;
   DeveloperUiSettingsFeedback settings_feedback;
   DeveloperUiAovPreview aov_preview;
   std::optional<DeveloperUiBenchmark> saved_benchmark;

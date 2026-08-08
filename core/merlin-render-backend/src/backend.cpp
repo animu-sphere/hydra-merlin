@@ -1,9 +1,103 @@
 #include <merlin/render/backend.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace merlin::render {
+
+std::optional<RendererSettingsValidationError> ValidateRendererSettings(
+    const RendererSettings& settings,
+    const RendererCapabilities* capabilities) {
+  const auto invalid = [](std::string code, std::string message) {
+    return std::optional<RendererSettingsValidationError>{
+        RendererSettingsValidationError{std::move(code), std::move(message)}};
+  };
+  if (settings.schema_version != kRendererSettingsSchemaVersion) {
+    return invalid("renderer-settings.unsupported-schema",
+                   "Renderer settings schema version " +
+                       std::to_string(settings.schema_version) +
+                       " is unsupported; expected version " +
+                       std::to_string(kRendererSettingsSchemaVersion) + ".");
+  }
+  if (BackendRequestName(settings.backend) == "unknown") {
+    return invalid("renderer-settings.invalid-backend",
+                   "Renderer backend selection is invalid.");
+  }
+  if (PresentationModeName(settings.presentation_mode) == "unknown") {
+    return invalid("renderer-settings.invalid-presentation",
+                   "Renderer presentation mode is invalid.");
+  }
+  if (RenderPathName(settings.render_path) == "unknown") {
+    return invalid("renderer-settings.invalid-render-path",
+                   "Renderer path is invalid.");
+  }
+  if (AovName(settings.aov) == "unknown") {
+    return invalid("renderer-settings.invalid-aov",
+                   "Renderer AOV selection is invalid.");
+  }
+  if (LightingModeName(settings.lighting_mode) == "unknown") {
+    return invalid("renderer-settings.invalid-lighting",
+                   "Renderer lighting mode is invalid.");
+  }
+  if (!std::isfinite(settings.exposure_ev) || settings.exposure_ev < -32.0F ||
+      settings.exposure_ev > 32.0F) {
+    return invalid("renderer-settings.invalid-exposure",
+                   "Exposure must be finite and between -32 and 32 EV.");
+  }
+  if (ToneMappingName(settings.tone_mapping) == "unknown") {
+    return invalid("renderer-settings.invalid-tone-mapping",
+                   "Renderer tone-mapping mode is invalid.");
+  }
+  if (AlphaPolicyName(settings.alpha_policy) == "unknown") {
+    return invalid("renderer-settings.invalid-alpha-policy",
+                   "Renderer alpha policy is invalid.");
+  }
+  if (DebugViewName(settings.debug_view) == "unknown") {
+    return invalid("renderer-settings.invalid-debug-view",
+                   "Renderer debug view is invalid.");
+  }
+  if (TelemetryModeName(settings.telemetry) == "unknown") {
+    return invalid("renderer-settings.invalid-telemetry",
+                   "Renderer telemetry mode is invalid.");
+  }
+  if (capabilities == nullptr) {
+    return std::nullopt;
+  }
+
+  std::optional<BackendKind> requested_backend;
+  if (settings.backend == BackendRequest::Vulkan) {
+    requested_backend = BackendKind::Vulkan;
+  } else if (settings.backend == BackendRequest::Metal) {
+    requested_backend = BackendKind::Metal;
+  }
+  if (requested_backend && *requested_backend != capabilities->backend) {
+    return invalid("renderer-settings.backend-mismatch",
+                   "Renderer settings request " +
+                       std::string(BackendRequestName(settings.backend)) +
+                       " but the selected backend is " +
+                       std::string(BackendKindName(capabilities->backend)) +
+                       ".");
+  }
+  if ((settings.presentation_mode == PresentationMode::Native ||
+       settings.presentation_mode == PresentationMode::Host) &&
+      !capabilities->external_presentation) {
+    return invalid("renderer-settings.presentation-unsupported",
+                   "The selected backend does not support external "
+                   "presentation.");
+  }
+  if (settings.render_path == RenderPath::ExperimentalVisibility) {
+    return invalid("renderer-settings.render-path-unsupported",
+                   "The selected backend does not support the experimental "
+                   "Visibility render path.");
+  }
+  if (settings.validation && !capabilities->validation_enabled) {
+    return invalid("renderer-settings.validation-unavailable",
+                   "Validation was requested but is not enabled by the "
+                   "selected backend.");
+  }
+  return std::nullopt;
+}
 
 std::string_view RendererErrorCodeName(RendererErrorCode code) noexcept {
   switch (code) {

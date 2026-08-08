@@ -17,9 +17,17 @@
 namespace merlin::render {
 
 inline constexpr std::uint32_t kBackendContractVersion = 1;
+inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 1;
 
 enum class BackendKind { Vulkan, Metal };
 enum class BackendRequest { Automatic, Vulkan, Metal };
+enum class PresentationMode { Automatic, Offscreen, Native, Host };
+enum class RenderPath { Forward, ExperimentalVisibility };
+enum class LightingMode { Diagnostic, Environment, Authored };
+enum class ToneMapping { None, Reinhard, Aces };
+enum class AlphaPolicy { Opaque, Mask, Blend };
+enum class DebugView { None, Color, Depth, PrimId, InstanceId, Normal };
+enum class TelemetryMode { Off, Basic, Detailed };
 
 [[nodiscard]] constexpr std::string_view BackendKindName(
     BackendKind kind) noexcept {
@@ -39,6 +47,105 @@ enum class BackendRequest { Automatic, Vulkan, Metal };
   }
   return "unknown";
 }
+
+[[nodiscard]] constexpr std::string_view PresentationModeName(
+    PresentationMode mode) noexcept {
+  switch (mode) {
+    case PresentationMode::Automatic: return "automatic";
+    case PresentationMode::Offscreen: return "offscreen";
+    case PresentationMode::Native: return "native";
+    case PresentationMode::Host: return "host";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view RenderPathName(
+    RenderPath path) noexcept {
+  switch (path) {
+    case RenderPath::Forward: return "forward";
+    case RenderPath::ExperimentalVisibility: return "experimental-visibility";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view LightingModeName(
+    LightingMode mode) noexcept {
+  switch (mode) {
+    case LightingMode::Diagnostic: return "diagnostic";
+    case LightingMode::Environment: return "environment";
+    case LightingMode::Authored: return "authored";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view ToneMappingName(
+    ToneMapping mode) noexcept {
+  switch (mode) {
+    case ToneMapping::None: return "none";
+    case ToneMapping::Reinhard: return "reinhard";
+    case ToneMapping::Aces: return "aces";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view AlphaPolicyName(
+    AlphaPolicy policy) noexcept {
+  switch (policy) {
+    case AlphaPolicy::Opaque: return "opaque";
+    case AlphaPolicy::Mask: return "mask";
+    case AlphaPolicy::Blend: return "blend";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view DebugViewName(
+    DebugView view) noexcept {
+  switch (view) {
+    case DebugView::None: return "none";
+    case DebugView::Color: return "color";
+    case DebugView::Depth: return "depth";
+    case DebugView::PrimId: return "prim-id";
+    case DebugView::InstanceId: return "instance-id";
+    case DebugView::Normal: return "normal";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view TelemetryModeName(
+    TelemetryMode mode) noexcept {
+  switch (mode) {
+    case TelemetryMode::Off: return "off";
+    case TelemetryMode::Basic: return "basic";
+    case TelemetryMode::Detailed: return "detailed";
+  }
+  return "unknown";
+}
+
+// Host-neutral configuration vocabulary. A field being representable does not
+// imply that every backend implements it; ValidateRendererSettings binds the
+// versioned request to the selected backend's reported capabilities.
+struct RendererSettings {
+  std::uint32_t schema_version{kRendererSettingsSchemaVersion};
+  BackendRequest backend{BackendRequest::Automatic};
+  PresentationMode presentation_mode{PresentationMode::Automatic};
+  RenderPath render_path{RenderPath::Forward};
+  Aov aov{Aov::Color};
+  LightingMode lighting_mode{LightingMode::Diagnostic};
+  float exposure_ev{};
+  ToneMapping tone_mapping{ToneMapping::None};
+  AlphaPolicy alpha_policy{AlphaPolicy::Opaque};
+  DebugView debug_view{DebugView::None};
+  bool validation{};
+  TelemetryMode telemetry{TelemetryMode::Basic};
+
+  friend constexpr bool operator==(const RendererSettings&,
+                                   const RendererSettings&) = default;
+};
+
+struct RendererSettingsValidationError {
+  std::string code;
+  std::string message;
+};
 
 struct BackendSelection {
   BackendRequest requested{BackendRequest::Automatic};
@@ -70,6 +177,14 @@ struct RendererCapabilities {
   bool generated_materials{};
   RendererLimits limits;
 };
+
+// Returns a stable error code and human-readable reason for the first invalid
+// field. When capabilities are supplied, backend and presentation/path
+// capability mismatches are rejected as well as malformed schema values.
+[[nodiscard]] std::optional<RendererSettingsValidationError>
+ValidateRendererSettings(
+    const RendererSettings& settings,
+    const RendererCapabilities* capabilities = nullptr);
 
 struct RendererStatistics {
   std::uint64_t frames_submitted{};

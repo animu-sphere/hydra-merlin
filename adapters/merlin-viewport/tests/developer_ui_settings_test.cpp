@@ -88,6 +88,18 @@ int main() {
                 settings.revision == 2,
             "AOV inspection settings were not retained");
 
+    request.contract.schema_version =
+        merlin::render::kRendererSettingsSchemaVersion + 1;
+    Require(!ApplyDeveloperUiRendererSettings(request, capabilities, settings,
+                                              feedback),
+            "unsupported renderer settings schema was accepted");
+    Require(settings.revision == 2 &&
+                feedback.message.find(
+                    "renderer-settings.unsupported-schema") == 0,
+            "schema rejection did not preserve settings or report its code");
+    request.contract.schema_version =
+        merlin::render::kRendererSettingsSchemaVersion;
+
     std::vector<merlin::render::RenderProductRequest> products{
         {merlin::Aov::Color, false}, {merlin::Aov::PrimId, false}};
     AddDeveloperUiAovInspectionProduct(settings, products);

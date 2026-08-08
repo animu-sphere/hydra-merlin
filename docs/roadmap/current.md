@@ -60,7 +60,7 @@ Current UI follow-up:
 - ✅ Camera state and navigation values.
 - ✅ Interactive renderer settings with explicit applied/rejected feedback.
 - ✅ Interactive AOV selection and diagnostic image inspection.
-- ⬜ General host/backend diagnostic history beyond material diagnostics.
+- ✅ General host/backend diagnostic history beyond material diagnostics.
 - ✅ Saved benchmark comparison, thresholds, and hitch markers in the UI.
 
 ## Phase A foundation gates
@@ -106,12 +106,20 @@ Add Linux Vulkan configuration and shader builds, useful headless execution
 through Mesa lavapipe, optional real-GPU capability execution, and GLFW viewport
 smoke coverage for supported window systems.
 
-### ⬜ Versioned renderer settings
+### ✅ Versioned renderer settings
 
 Define a host-neutral settings schema before DCC integration expands. The first
 version covers backend, presentation mode, Forward/experimental path, AOV,
 lighting mode, exposure/tone mapping, alpha policy, debug views, validation,
 and telemetry controls.
+
+`RendererSettings` v1 now defines that vocabulary in the backend-neutral
+contract, validates exact schema and field values, and rejects backend,
+presentation, experimental-path, and validation capability mismatches with
+stable codes. The development viewport exposes the applied contract and routes
+rejections through its existing revisioned feedback and diagnostic history.
+The complete field and validation contract is recorded in
+[versioned renderer settings](../design/renderer-settings.md).
 
 ## Near-term execution order
 

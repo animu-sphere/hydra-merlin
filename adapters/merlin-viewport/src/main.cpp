@@ -479,6 +479,11 @@ int main(int argc, char** argv) {
     std::vector<merlin::MaterialDiagnostic> latest_material_diagnostics;
     merlin::viewport::DeveloperUiRendererSettings renderer_settings;
     renderer_settings.available = true;
+    renderer_settings.contract.backend = selection.requested;
+    renderer_settings.contract.presentation_mode =
+        merlin::render::PresentationMode::Native;
+    renderer_settings.contract.validation =
+        backend->capabilities().validation_enabled;
     merlin::viewport::DeveloperUiSettingsFeedback settings_feedback;
     merlin::viewport::DeveloperUiAovPreview aov_preview;
     std::optional<merlin::viewport::DeveloperUiBenchmark> saved_benchmark;
