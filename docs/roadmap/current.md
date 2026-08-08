@@ -160,7 +160,9 @@ fresh completion-safe slots, dense-table movement without a record-version
 change preserves the resident slot, and accepted upserts are coalesced into
 physical dirty ranges for bounded native copies. Geometry tracks vertex and
 index revisions independently while instance and material records use their
-unified revision.
+unified revision. Resource-record changes reissue only dependency-indexed draw
+records, preserving logical draw IDs while moving physical draw slots so new
+frames never retain references to retired resource generations.
 
 The milestone remains incomplete. Next are native GPU Scene record packing and
 dirty-range buffer copies, renderer consumption of the persistent tables, and

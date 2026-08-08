@@ -83,8 +83,8 @@ int main() {
     assert(before->geometries.size() == mesh_count);
     assert(before->draws.size() == mesh_count);
 
-    // A localized transform edit copies one instance record and shares all
-    // geometry, material, and draw records independent of total scene size.
+    // A localized transform edit copies one instance and replaces only its
+    // dependent draw so the physical instance-slot reference stays current.
     constexpr std::size_t changed_index = mesh_count / 2U;
     auto changed = world.Get(instances[changed_index]);
     changed.transform.values[13] = 1.0F;
@@ -94,7 +94,7 @@ int main() {
     const auto after = extractor.snapshot();
     assert(after->build_counters.visited_records == 1);
     assert(after->build_counters.copied_records == 1);
-    assert(after->build_counters.rebuilt_draws == 0);
+    assert(after->build_counters.rebuilt_draws == 1);
     assert(after->build_counters.fully_rebuilt_tables == 0);
     assert(after->geometries.record_identity(0) ==
            before->geometries.record_identity(0));
@@ -108,6 +108,12 @@ int main() {
            before->draws.record_identity(0));
     assert(after->draws.record_identity(mesh_count - 1U) ==
            before->draws.record_identity(mesh_count - 1U));
+    assert(after->delta->draws.upserts.size() == 1U);
+    assert(after->delta->draws.upsert_indices.size() == 1U);
+    const auto changed_draw_index = after->delta->draws.upsert_indices.front();
+    assert(changed_draw_index < after->draws.size());
+    assert(after->draws.record_identity(changed_draw_index) !=
+           before->draws.record_identity(changed_draw_index));
   }
 
   // One million independently handled prims sharing immutable geometry cover
@@ -213,20 +219,22 @@ int main() {
            localized_edit_count);
     assert(localized->build_counters.copied_records ==
            localized_edit_count);
-    assert(localized->build_counters.rebuilt_draws == 0U);
+    assert(localized->build_counters.rebuilt_draws == localized_edit_count);
     assert(localized->build_counters.fully_rebuilt_tables == 0U);
     assert(localized->delta->instances.upserts.size() ==
            localized_edit_count);
     assert(localized->delta->instances.removals.empty());
-    assert(localized->delta->draws.upserts.empty());
-    assert(localized->delta->draws.upsert_indices.empty());
+    assert(localized->delta->draws.upserts.size() == localized_edit_count);
+    assert(localized->delta->draws.upsert_indices.size() ==
+           localized_edit_count);
     for (std::size_t edit = 0; edit < localized_edit_count; ++edit) {
       const auto index = edited_indices[edit];
       assert(localized->delta->instances.upsert_indices[edit] == index);
       assert(localized->instances.record_identity(index) !=
              initial->instances.record_identity(index));
-      assert(localized->draws.record_identity(index) ==
-             initial->draws.record_identity(index));
+      const auto draw_index = localized->delta->draws.upsert_indices[edit];
+      assert(localized->draws.record_identity(draw_index) !=
+             initial->draws.record_identity(draw_index));
     }
     assert(localized->instances.record_identity(0) ==
            initial->instances.record_identity(0));

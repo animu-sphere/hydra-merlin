@@ -347,16 +347,18 @@ void CheckStableDrawIdentity() {
   assert(initial->delta->draws.upsert_indices ==
          std::vector<std::uint32_t>{0});
 
-  // Transform state is referenced through the persistent instance record, so
-  // it must not churn draw identity, record revision, or draw residency.
+  // Transform state retains logical draw identity, but the fresh physical
+  // instance slot requires a replacement draw record with a current reference.
   descriptor.transform.values[12] = 0.25F;
   world.UpdateInstance(instance, descriptor, merlin::ChangeAspect::Transform);
   extractor.Apply(world, world.Commit());
   const auto transformed = extractor.snapshot();
   assert(transformed->draws.front().draw == draw);
-  assert(transformed->draws.front().revision ==
-         initial->draws.front().revision);
-  assert(transformed->delta->draws.upserts.empty());
+  assert(transformed->draws.front().revision == transformed->revision);
+  assert(transformed->delta->draws.upserts ==
+         std::vector<std::uint64_t>{draw});
+  assert(transformed->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
   assert(transformed->delta->draws.removals.empty());
 
   // A binding edit replaces the payload while retaining the logical ID.
@@ -501,7 +503,7 @@ int main() {
   const auto transformed = extractor.snapshot();
   assert(transformed->build_counters.visited_records == 1);
   assert(transformed->build_counters.copied_records == 1);
-  assert(transformed->build_counters.rebuilt_draws == 0);
+  assert(transformed->build_counters.rebuilt_draws == 1);
   assert(transformed->build_counters.fully_rebuilt_tables == 0);
   assert(transformed->geometries.record_identity(0) ==
          first->geometries.record_identity(0));
@@ -511,7 +513,7 @@ int main() {
          first->instances.record_identity(1));
   assert(transformed->draws.record_identity(0) ==
          first->draws.record_identity(0));
-  assert(transformed->draws.record_identity(1) ==
+  assert(transformed->draws.record_identity(1) !=
          first->draws.record_identity(1));
   assert(transformed->revision == 2);
   assert(transformed->source_id == first->source_id);
@@ -520,6 +522,10 @@ int main() {
   assert(transformed->delta->geometries.removals.empty());
   assert(transformed->delta->instances.upserts ==
          std::vector<std::uint64_t>{second_instance_handle.value()});
+  assert(transformed->delta->draws.upserts ==
+         std::vector<std::uint64_t>{transformed->draws.back().draw});
+  assert(transformed->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{1});
   assert(transformed->geometries.front().vertices ==
          first->geometries.front().vertices);
   assert(transformed->geometries.front().indices ==
@@ -544,18 +550,21 @@ int main() {
   const auto moved = extractor.snapshot();
   assert(moved->build_counters.visited_records == 1);
   assert(moved->build_counters.copied_records == 1);
-  assert(moved->build_counters.rebuilt_draws == 0);
+  assert(moved->build_counters.rebuilt_draws == 2);
   assert(moved->build_counters.fully_rebuilt_tables == 0);
   assert(moved->instances.record_identity(0) ==
          transformed->instances.record_identity(0));
   assert(moved->instances.record_identity(1) ==
          transformed->instances.record_identity(1));
-  assert(moved->draws.record_identity(0) ==
+  assert(moved->draws.record_identity(0) !=
          transformed->draws.record_identity(0));
   assert(moved->delta->base_revision == transformed->revision);
   assert(moved->delta->geometries.upserts ==
          std::vector<std::uint64_t>{mesh_handle.value()});
   assert(moved->delta->instances.upserts.empty());
+  assert(moved->delta->draws.upserts.size() == 2);
+  assert(moved->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>({0, 1}));
   assert(moved->geometries.front().vertices !=
          transformed->geometries.front().vertices);
   assert(moved->geometries.front().indices ==
@@ -595,6 +604,11 @@ int main() {
                    std::nullopt, std::vector<merlin::ElementRange>{});
   extractor.Apply(world, world.Commit());
   const auto topology_metadata = extractor.snapshot();
+  assert(topology_metadata->build_counters.rebuilt_draws == 0);
+  assert(topology_metadata->draws.record_identity(0) ==
+         recolored->draws.record_identity(0));
+  assert(topology_metadata->draws.record_identity(1) ==
+         recolored->draws.record_identity(1));
   assert(topology_metadata->geometries.front().topology_revision >
          recolored->geometries.front().topology_revision);
   assert(topology_metadata->geometries.front().index_revision ==
@@ -783,6 +797,8 @@ int main() {
   assert(missing_texture->delta->materials.upserts ==
          std::vector<std::uint64_t>{blended_handle.value()});
   assert(!missing_texture->materials.front().base_color_texture.has_value());
+  assert(missing_texture->materials.front().revision >
+         resource_snapshot->materials.front().revision);
   assert(std::any_of(
       missing_texture->material_fallbacks.begin(),
       missing_texture->material_fallbacks.end(), [](const auto& fallback) {

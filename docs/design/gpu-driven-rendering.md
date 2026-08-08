@@ -155,9 +155,12 @@ replacement, and completion-safe retirement rules. Geometry record identity
 is versioned by both its vertex and index revisions; instance and material
 records use their unified record revision. Each accepted update coalesces
 fresh physical slots into dirty ranges that a native backend can copy without
-scanning the full table. Native record packing, buffer allocation/copy, and
-renderer consumption remain the next v0.15.0 layers over this ABI and
-residency boundary.
+scanning the full table. Geometry, material, and instance record changes also
+reissue only their dependency-indexed draws; stable draw identity is retained,
+but the physical draw slot changes so its table references cannot outlive a
+replaced resource slot. Native record packing, buffer allocation/copy, and
+renderer consumption remain the next v0.15.0 layers over this ABI and residency
+boundary.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,
