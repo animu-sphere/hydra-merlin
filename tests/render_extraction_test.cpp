@@ -344,7 +344,8 @@ void CheckStableDrawIdentity() {
   assert(initial->delta->draws.upserts ==
          std::vector<std::uint64_t>{draw});
   assert(initial->delta->draws.removals.empty());
-  assert(initial->delta->draws.upsert_indices.empty());
+  assert(initial->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
 
   // Transform state is referenced through the persistent instance record, so
   // it must not churn draw identity, record revision, or draw residency.
@@ -368,6 +369,8 @@ void CheckStableDrawIdentity() {
   assert(rebound->draws.front().revision == rebound->revision);
   assert(rebound->delta->draws.upserts ==
          std::vector<std::uint64_t>{draw});
+  assert(rebound->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
   assert(rebound->delta->draws.removals.empty());
 
   descriptor.visible = false;
@@ -390,6 +393,8 @@ void CheckStableDrawIdentity() {
   assert(visible->draws.front().draw == draw);
   assert(visible->delta->draws.upserts ==
          std::vector<std::uint64_t>{draw});
+  assert(visible->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
   assert(visible->delta->draws.removals.empty());
 
   world.Remove(instance);
@@ -408,6 +413,8 @@ void CheckStableDrawIdentity() {
   assert(recreated->draws.front().draw > draw);
   assert(recreated->delta->draws.upserts ==
          std::vector<std::uint64_t>{recreated->draws.front().draw});
+  assert(recreated->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
 }
 
 }  // namespace

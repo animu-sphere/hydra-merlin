@@ -218,6 +218,8 @@ int main() {
     assert(localized->delta->instances.upserts.size() ==
            localized_edit_count);
     assert(localized->delta->instances.removals.empty());
+    assert(localized->delta->draws.upserts.empty());
+    assert(localized->delta->draws.upsert_indices.empty());
     for (std::size_t edit = 0; edit < localized_edit_count; ++edit) {
       const auto index = edited_indices[edit];
       assert(localized->delta->instances.upsert_indices[edit] == index);
@@ -261,6 +263,18 @@ int main() {
     // the 50 authored additions so consumers can reconcile their new indices.
     assert(structural->delta->instances.upserts.size() ==
            replacement_count * 2U);
+    assert(structural->delta->draws.removals.size() == replacement_count);
+    assert(structural->delta->draws.upserts.size() ==
+           replacement_count * 2U);
+    assert(structural->delta->draws.upsert_indices.size() ==
+           structural->delta->draws.upserts.size());
+    for (std::size_t upsert = 0;
+         upsert < structural->delta->draws.upserts.size(); ++upsert) {
+      const auto draw_index =
+          structural->delta->draws.upsert_indices[upsert];
+      assert(structural->draws[draw_index].draw ==
+             structural->delta->draws.upserts[upsert]);
+    }
     for (const auto removed : removed_instances) {
       assert(std::binary_search(structural->delta->instances.removals.begin(),
                                 structural->delta->instances.removals.end(),

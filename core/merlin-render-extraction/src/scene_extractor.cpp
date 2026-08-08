@@ -10,6 +10,7 @@
 #include <set>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 
 namespace merlin::extraction {
@@ -547,9 +548,63 @@ class SceneExtractor::Impl {
                       draw_revision};
   }
 
+  using DrawOrderKey = std::tuple<std::uint64_t, std::uint64_t>;
+
+  static DrawOrderKey OrderKey(const DrawRecord& draw) {
+    return {draw.sort_key, draw.instance};
+  }
+
+  static void SetDrawUpsertIndices(
+      FrameSnapshot& next,
+      const std::map<std::uint64_t, DrawOrderKey>& upsert_keys) {
+    auto& delta = next.delta->draws;
+    delta.upsert_indices.clear();
+    delta.upsert_indices.reserve(delta.upserts.size());
+    if (delta.upserts.size() == next.draws.size()) {
+      std::unordered_map<std::uint64_t, std::uint32_t> indices;
+      indices.reserve(next.draws.size());
+      for (std::size_t index = 0; index < next.draws.size(); ++index) {
+        if (index > std::numeric_limits<std::uint32_t>::max()) {
+          throw std::length_error(
+              "snapshot draw table exceeds 32-bit indices");
+        }
+        indices.emplace(next.draws[index].draw,
+                        static_cast<std::uint32_t>(index));
+      }
+      for (const auto draw : delta.upserts) {
+        const auto index = indices.find(draw);
+        if (index == indices.end()) {
+          throw std::logic_error(
+              "draw upsert has no matching snapshot record");
+        }
+        delta.upsert_indices.push_back(index->second);
+      }
+      return;
+    }
+    for (const auto draw : delta.upserts) {
+      const auto key = upsert_keys.find(draw);
+      if (key == upsert_keys.end()) {
+        throw std::logic_error("draw upsert has no final order key");
+      }
+      const auto index = next.draws.lower_bound_index(
+          key->second,
+          [](const DrawRecord& candidate, const DrawOrderKey& value) {
+            return OrderKey(candidate) < value;
+          });
+      if (index == next.draws.size() || next.draws[index].draw != draw) {
+        throw std::logic_error("draw upsert has no matching snapshot record");
+      }
+      if (index > std::numeric_limits<std::uint32_t>::max()) {
+        throw std::length_error("snapshot draw table exceeds 32-bit indices");
+      }
+      delta.upsert_indices.push_back(static_cast<std::uint32_t>(index));
+    }
+  }
+
   void UpdateDraws(FrameSnapshot& next, bool initialize,
                    std::vector<DirtyDraw> dirty_instances) const {
     auto& counters = next.build_counters;
+    std::map<std::uint64_t, DrawOrderKey> upsert_keys;
     std::stable_sort(
         dirty_instances.begin(), dirty_instances.end(),
         [](const DirtyDraw& lhs, const DirtyDraw& rhs) {
@@ -581,6 +636,7 @@ class SceneExtractor::Impl {
       counters.rebuilt_draws = draws.size();
       next.draws.assign(std::move(draws));
       SortAndUnique(next.delta->draws);
+      SetDrawUpsertIndices(next, upsert_keys);
       ++counters.fully_rebuilt_tables;
       return;
     }
@@ -608,6 +664,8 @@ class SceneExtractor::Impl {
         if (auto replacement =
                 BuildDraw(next.instances[instance->second], next.revision)) {
           replacement_draw = replacement->draw;
+          upsert_keys.insert_or_assign(replacement->draw,
+                                       OrderKey(*replacement));
           const auto key =
               std::tie(replacement->sort_key, replacement->instance);
           const auto position_index = next.draws.lower_bound_index(
@@ -629,6 +687,7 @@ class SceneExtractor::Impl {
       ++counters.rebuilt_draws;
     }
     SortAndUnique(next.delta->draws);
+    SetDrawUpsertIndices(next, upsert_keys);
   }
 
   using DependencyIndex =

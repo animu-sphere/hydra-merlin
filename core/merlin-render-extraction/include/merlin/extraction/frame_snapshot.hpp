@@ -196,10 +196,9 @@ struct SnapshotDelta {
   bool camera_changed{};
   bool render_settings_changed{};
   // Draw deltas are keyed by DrawRecord::draw rather than by the instance
-  // handle. The sorted draw table is not dense-handle ordered, so
-  // upsert_indices intentionally remains empty; persistent consumers retain
-  // their own draw-ID index and use a missing/invalid delta as a signal for
-  // full reconciliation.
+  // handle. upsert_indices names each matching record's final position in the
+  // sort-key-ordered draw table, so persistent consumers do not need a linear
+  // identity scan after a localized edit.
   ResourceDelta draws;
 };
 
