@@ -10,6 +10,11 @@ after its public API and release process are established.
 
 ### Added
 
+- Source-local stable draw IDs and incremental draw upsert/removal deltas in
+  immutable frame snapshots. Draw identity now survives transform,
+  visibility, material-binding, and dense resource-table movement while
+  removal and recreation never reuse an ID, establishing the first v0.15.0
+  persistent GPU Scene identity boundary.
 - Interactive Color, Depth, Prim ID, and Instance ID inspection in the native
   and Hydra development viewport. The opt-in inspector requests CPU readback
   only for its selected AOV, shows a bounded diagnostic preview with value

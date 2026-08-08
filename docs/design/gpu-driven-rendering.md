@@ -120,7 +120,7 @@ its resident state. A different source, a skipped revision, or a manually
 constructed snapshot triggers full reconciliation. This keeps the incremental
 path an optimization rather than a correctness precondition.
 
-Snapshot resource and transient draw tables use immutable, balanced,
+Snapshot resource and draw tables use immutable, balanced,
 structurally shared storage. A localized upsert allocates one replacement
 record and copies only its logarithmic tree path; unchanged record identities
 and subtrees remain shared by older snapshots. Ordered iteration retains its
@@ -128,13 +128,18 @@ tree path instead of searching again for every record. The backend caches dense
 resource index views and a contiguous draw view by table identity, preserving
 constant-time hot-path lookup without rebuilding those views on static frames.
 Transform-only edits do not touch draws, while visibility and material-binding
-edits replace only the dependent transient draw. Snapshot build evidence
+edits replace only the dependent draw record. Snapshot build evidence
 reports resource records visited/copied, draw decisions rebuilt, and any
 structural full-table fallback.
 Additions use dense append, while removals preserve density through an
-identity-aware swap and update only records and transient draws that reference
-the removed or displaced resource. This bounded structural edit path is
-separate from the persistent draw identity reserved for v0.15.0.
+identity-aware swap and update only records and draws that reference
+the removed or displaced resource. `SceneExtractor` now assigns each logical
+draw a non-zero, source-local ID that is independent of sorted table position,
+retains it across visibility and binding changes, and never reuses it after
+removal. Snapshot draw deltas report upserted and removed IDs; their sorted
+table positions remain transient. Generation-checked backend slots,
+completion-safe retirement, and the reflected `GpuDraw` buffer remain the next
+v0.15.0 layers over this identity boundary.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,

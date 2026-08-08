@@ -10,6 +10,7 @@
 #include <set>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 
 namespace merlin::extraction {
@@ -138,6 +139,7 @@ void Normalize(SnapshotDelta& delta) {
   SortAndUnique(delta.samplers);
   SortAndUnique(delta.materials);
   SortAndUnique(delta.instances);
+  SortAndUnique(delta.draws);
   SortAndUnique(delta.lights);
 }
 
@@ -512,6 +514,7 @@ class SceneExtractor::Impl {
 
   std::optional<DrawRecord> BuildDraw(
       const InstanceRecord& instance,
+      std::uint64_t draw_revision,
       std::optional<std::size_t> known_instance_index = std::nullopt) const {
     if (!instance.visible) {
       return std::nullopt;
@@ -532,16 +535,76 @@ class SceneExtractor::Impl {
       }
       instance_index = found->second;
     }
+    const auto draw = draw_ids.find(instance.instance);
+    if (draw == draw_ids.end()) {
+      throw std::logic_error("draw references an instance without identity");
+    }
     return DrawRecord{static_cast<std::uint32_t>(geometry->second),
                       static_cast<std::uint32_t>(material->second),
                       static_cast<std::uint32_t>(instance_index),
                       StableSortKey(instance.material, instance.mesh),
-                      instance.instance};
+                      instance.instance,
+                      draw->second,
+                      draw_revision};
+  }
+
+  using DrawOrderKey = std::tuple<std::uint64_t, std::uint64_t>;
+
+  static DrawOrderKey OrderKey(const DrawRecord& draw) {
+    return {draw.sort_key, draw.instance};
+  }
+
+  static void SetDrawUpsertIndices(
+      FrameSnapshot& next,
+      const std::map<std::uint64_t, DrawOrderKey>& upsert_keys) {
+    auto& delta = next.delta->draws;
+    delta.upsert_indices.clear();
+    delta.upsert_indices.reserve(delta.upserts.size());
+    if (delta.upserts.size() == next.draws.size()) {
+      std::unordered_map<std::uint64_t, std::uint32_t> indices;
+      indices.reserve(next.draws.size());
+      for (std::size_t index = 0; index < next.draws.size(); ++index) {
+        if (index > std::numeric_limits<std::uint32_t>::max()) {
+          throw std::length_error(
+              "snapshot draw table exceeds 32-bit indices");
+        }
+        indices.emplace(next.draws[index].draw,
+                        static_cast<std::uint32_t>(index));
+      }
+      for (const auto draw : delta.upserts) {
+        const auto index = indices.find(draw);
+        if (index == indices.end()) {
+          throw std::logic_error(
+              "draw upsert has no matching snapshot record");
+        }
+        delta.upsert_indices.push_back(index->second);
+      }
+      return;
+    }
+    for (const auto draw : delta.upserts) {
+      const auto key = upsert_keys.find(draw);
+      if (key == upsert_keys.end()) {
+        throw std::logic_error("draw upsert has no final order key");
+      }
+      const auto index = next.draws.lower_bound_index(
+          key->second,
+          [](const DrawRecord& candidate, const DrawOrderKey& value) {
+            return OrderKey(candidate) < value;
+          });
+      if (index == next.draws.size() || next.draws[index].draw != draw) {
+        throw std::logic_error("draw upsert has no matching snapshot record");
+      }
+      if (index > std::numeric_limits<std::uint32_t>::max()) {
+        throw std::length_error("snapshot draw table exceeds 32-bit indices");
+      }
+      delta.upsert_indices.push_back(static_cast<std::uint32_t>(index));
+    }
   }
 
   void UpdateDraws(FrameSnapshot& next, bool initialize,
                    std::vector<DirtyDraw> dirty_instances) const {
     auto& counters = next.build_counters;
+    std::map<std::uint64_t, DrawOrderKey> upsert_keys;
     std::stable_sort(
         dirty_instances.begin(), dirty_instances.end(),
         [](const DirtyDraw& lhs, const DirtyDraw& rhs) {
@@ -559,7 +622,8 @@ class SceneExtractor::Impl {
       std::size_t instance_index{};
       for (const auto& instance : next.instances) {
         ++counters.visited_records;
-        if (auto draw = BuildDraw(instance, instance_index)) {
+        if (auto draw = BuildDraw(instance, next.revision, instance_index)) {
+          next.delta->draws.upserts.push_back(draw->draw);
           draws.push_back(std::move(*draw));
         }
         ++instance_index;
@@ -571,11 +635,14 @@ class SceneExtractor::Impl {
                        });
       counters.rebuilt_draws = draws.size();
       next.draws.assign(std::move(draws));
+      SortAndUnique(next.delta->draws);
+      SetDrawUpsertIndices(next, upsert_keys);
       ++counters.fully_rebuilt_tables;
       return;
     }
 
     for (const auto& dirty : dirty_instances) {
+      std::optional<std::uint64_t> previous_draw;
       if (dirty.previous_sort_key) {
         const auto key = std::tuple{*dirty.previous_sort_key, dirty.instance};
         const auto draw_index = next.draws.lower_bound_index(
@@ -585,14 +652,20 @@ class SceneExtractor::Impl {
             });
         if (draw_index != next.draws.size() &&
             next.draws[draw_index].instance == dirty.instance) {
+          previous_draw = next.draws[draw_index].draw;
           next.draws.erase(next.draws.begin() +
                            static_cast<std::ptrdiff_t>(draw_index));
         }
       }
 
+      std::optional<std::uint64_t> replacement_draw;
       const auto instance = instance_indices.find(dirty.instance);
       if (instance != instance_indices.end()) {
-        if (auto replacement = BuildDraw(next.instances[instance->second])) {
+        if (auto replacement =
+                BuildDraw(next.instances[instance->second], next.revision)) {
+          replacement_draw = replacement->draw;
+          upsert_keys.insert_or_assign(replacement->draw,
+                                       OrderKey(*replacement));
           const auto key =
               std::tie(replacement->sort_key, replacement->instance);
           const auto position_index = next.draws.lower_bound_index(
@@ -605,8 +678,16 @@ class SceneExtractor::Impl {
           next.draws.insert(position, std::move(*replacement));
         }
       }
+      if (previous_draw && previous_draw != replacement_draw) {
+        next.delta->draws.removals.push_back(*previous_draw);
+      }
+      if (replacement_draw) {
+        next.delta->draws.upserts.push_back(*replacement_draw);
+      }
       ++counters.rebuilt_draws;
     }
+    SortAndUnique(next.delta->draws);
+    SetDrawUpsertIndices(next, upsert_keys);
   }
 
   using DependencyIndex =
@@ -930,6 +1011,7 @@ class SceneExtractor::Impl {
   std::map<std::uint64_t, std::size_t> material_indices;
   std::map<std::uint64_t, std::size_t> instance_indices;
   std::map<std::uint64_t, std::size_t> light_indices;
+  std::map<std::uint64_t, std::uint64_t> draw_ids;
   DependencyIndex texture_materials;
   DependencyIndex sampler_materials;
   DependencyIndex mesh_instances;
@@ -938,6 +1020,7 @@ class SceneExtractor::Impl {
   std::uint64_t source_id{g_snapshot_source.fetch_add(
       1, std::memory_order_relaxed)};
   std::uint64_t revision{};
+  std::uint64_t next_draw_id{1};
   std::shared_ptr<const FrameSnapshot> snapshot{
       std::make_shared<FrameSnapshot>()};
 };
@@ -1068,6 +1151,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
                                               found->second.descriptor);
           }
           impl_->instances.erase(change.handle);
+          impl_->draw_ids.erase(change.handle);
         } else {
           auto found = impl_->instances.find(change.handle);
           InstanceEntry entry;
@@ -1094,6 +1178,12 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           impl_->AddInstanceDependencies(change.handle, entry.descriptor);
           impl_->instances.insert_or_assign(
               impl_->instances.end(), change.handle, std::move(entry));
+          if (!impl_->draw_ids.contains(change.handle)) {
+            if (impl_->next_draw_id == 0) {
+              throw std::length_error("SceneExtractor draw identity exhausted");
+            }
+            impl_->draw_ids.emplace(change.handle, impl_->next_draw_id++);
+          }
         }
         break;
       case ObjectKind::Camera:

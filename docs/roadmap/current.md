@@ -122,12 +122,29 @@ diagnostic history.
 The complete field and validation contract is recorded in
 [versioned renderer settings](../design/renderer-settings.md).
 
+### ⬜ v0.15.0 — Persistent GPU Scene foundation
+
+The first identity slice is in place: immutable snapshots assign non-zero,
+source-local draw IDs that do not depend on sorted table position, retain them
+across transform, visibility, material-binding, and dense resource-index
+changes, and never reuse them after removal. Revisioned draw upsert/removal
+deltas let a persistent consumer distinguish unchanged, replaced, retired, and
+new logical draws without rebuilding identity from submission order.
+
+The milestone remains incomplete. Next are generation-checked backend slots
+with completion-safe retirement, versioned/reflected geometry, instance,
+material, and draw records, dirty-range table upload, and persistent Gaussian
+attribute residency described in the
+[GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
+[Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
+
 ## Near-term execution order
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Add the development viewport surface over existing capability, timing,
-   residency, upload, material, AOV, and fallback contracts.
-3. Strengthen non-GPU and Linux gates before implementation breadth grows.
-4. Preserve the completed native Metal presentation path while extending the
+2. Build generation-checked GPU Scene slots and reflected table layouts over
+   the stable snapshot draw identity.
+3. Add persistent Gaussian attribute residency and retain range-only updates.
+4. Strengthen non-GPU and Linux gates before implementation breadth grows.
+5. Preserve the completed native Metal presentation path while extending the
    shared viewport diagnostics and platform evidence.

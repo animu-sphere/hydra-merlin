@@ -324,12 +324,106 @@ void CheckLocalizedBindingInvalidation() {
              .base_color_texture->sampler_index == 2);
 }
 
+void CheckStableDrawIdentity() {
+  merlin::RenderWorld world;
+  const auto mesh = world.CreateMesh(Triangle());
+  const auto material_a = world.CreateMaterial({});
+  const auto material_b = world.CreateMaterial({});
+  merlin::InstanceDescriptor descriptor;
+  descriptor.mesh = mesh;
+  descriptor.material = material_a;
+  const auto instance = world.CreateInstance(descriptor);
+
+  merlin::extraction::SceneExtractor extractor;
+  extractor.Apply(world, world.Commit());
+  const auto initial = extractor.snapshot();
+  assert(initial->draws.size() == 1);
+  const auto draw = initial->draws.front().draw;
+  assert(draw != 0);
+  assert(initial->draws.front().revision == initial->revision);
+  assert(initial->delta->draws.upserts ==
+         std::vector<std::uint64_t>{draw});
+  assert(initial->delta->draws.removals.empty());
+  assert(initial->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
+
+  // Transform state is referenced through the persistent instance record, so
+  // it must not churn draw identity, record revision, or draw residency.
+  descriptor.transform.values[12] = 0.25F;
+  world.UpdateInstance(instance, descriptor, merlin::ChangeAspect::Transform);
+  extractor.Apply(world, world.Commit());
+  const auto transformed = extractor.snapshot();
+  assert(transformed->draws.front().draw == draw);
+  assert(transformed->draws.front().revision ==
+         initial->draws.front().revision);
+  assert(transformed->delta->draws.upserts.empty());
+  assert(transformed->delta->draws.removals.empty());
+
+  // A binding edit replaces the payload while retaining the logical ID.
+  descriptor.material = material_b;
+  world.UpdateInstance(instance, descriptor,
+                       merlin::ChangeAspect::MaterialBinding);
+  extractor.Apply(world, world.Commit());
+  const auto rebound = extractor.snapshot();
+  assert(rebound->draws.front().draw == draw);
+  assert(rebound->draws.front().revision == rebound->revision);
+  assert(rebound->delta->draws.upserts ==
+         std::vector<std::uint64_t>{draw});
+  assert(rebound->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
+  assert(rebound->delta->draws.removals.empty());
+
+  descriptor.visible = false;
+  world.UpdateInstance(instance, descriptor,
+                       merlin::ChangeAspect::Visibility);
+  extractor.Apply(world, world.Commit());
+  const auto hidden = extractor.snapshot();
+  assert(hidden->draws.empty());
+  assert(hidden->delta->draws.upserts.empty());
+  assert(hidden->delta->draws.removals ==
+         std::vector<std::uint64_t>{draw});
+
+  // Visibility retirement does not destroy logical identity. Reappearing
+  // content upserts the same draw ID rather than allocating a new identity.
+  descriptor.visible = true;
+  world.UpdateInstance(instance, descriptor,
+                       merlin::ChangeAspect::Visibility);
+  extractor.Apply(world, world.Commit());
+  const auto visible = extractor.snapshot();
+  assert(visible->draws.front().draw == draw);
+  assert(visible->delta->draws.upserts ==
+         std::vector<std::uint64_t>{draw});
+  assert(visible->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
+  assert(visible->delta->draws.removals.empty());
+
+  world.Remove(instance);
+  extractor.Apply(world, world.Commit());
+  const auto removed = extractor.snapshot();
+  assert(removed->draws.empty());
+  assert(removed->delta->draws.removals ==
+         std::vector<std::uint64_t>{draw});
+
+  const auto replacement_instance = world.CreateInstance(descriptor);
+  extractor.Apply(world, world.Commit());
+  const auto recreated = extractor.snapshot();
+  assert(recreated->draws.size() == 1);
+  assert(recreated->draws.front().instance == replacement_instance.value());
+  assert(recreated->draws.front().draw != draw);
+  assert(recreated->draws.front().draw > draw);
+  assert(recreated->delta->draws.upserts ==
+         std::vector<std::uint64_t>{recreated->draws.front().draw});
+  assert(recreated->delta->draws.upsert_indices ==
+         std::vector<std::uint32_t>{0});
+}
+
 }  // namespace
 
 int main() {
   CheckPersistentTable();
   CheckIncrementalStructuralEdits();
   CheckLocalizedBindingInvalidation();
+  CheckStableDrawIdentity();
   merlin::RenderWorld world;
   merlin::MeshDescriptor mesh;
   mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},
