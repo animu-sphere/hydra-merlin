@@ -746,6 +746,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                                 ImGuiTreeNodeFlags_DefaultOpen)) {
       if (!settings_draft_revision_ ||
           *settings_draft_revision_ != snapshot.renderer_settings.revision) {
+        settings_contract_ = snapshot.renderer_settings.contract;
         settings_clear_color_ = snapshot.renderer_settings.clear_color;
         settings_continuous_color_readback_ =
             snapshot.renderer_settings.continuous_color_readback;
@@ -754,6 +755,31 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         settings_inspection_aov_ = snapshot.renderer_settings.inspection_aov;
         settings_draft_revision_ = snapshot.renderer_settings.revision;
       }
+
+      TwoColumnTable("renderer-settings-contract", [&] {
+        const auto& contract = settings_contract_;
+        LabelValue("Schema", contract.schema_version);
+        LabelValue("Backend",
+                   render::BackendRequestName(contract.backend).data());
+        LabelValue(
+            "Presentation",
+            render::PresentationModeName(contract.presentation_mode).data());
+        LabelValue("Render path",
+                   render::RenderPathName(contract.render_path).data());
+        LabelValue("AOV", AovName(contract.aov).data());
+        LabelValue("Lighting",
+                   render::LightingModeName(contract.lighting_mode).data());
+        LabelFormattedValue("Exposure", "%.2f EV", contract.exposure_ev);
+        LabelValue("Tone mapping",
+                   render::ToneMappingName(contract.tone_mapping).data());
+        LabelValue("Alpha policy",
+                   render::AlphaPolicyName(contract.alpha_policy).data());
+        LabelValue("Debug view",
+                   render::DebugViewName(contract.debug_view).data());
+        LabelValue("Validation", contract.validation ? "enabled" : "disabled");
+        LabelValue("Telemetry",
+                   render::TelemetryModeName(contract.telemetry).data());
+      });
 
       ImGui::ColorEdit4("Clear color", settings_clear_color_.data(),
                         ImGuiColorEditFlags_Float);
@@ -1364,6 +1390,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 
   void QueueSettingsRequest() {
     DeveloperUiRendererSettingsRequest request;
+    request.contract = settings_contract_;
     request.clear_color = settings_clear_color_;
     request.continuous_color_readback = settings_continuous_color_readback_;
     request.aov_inspection_enabled = settings_aov_inspection_enabled_;
@@ -1390,6 +1417,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   bool settings_continuous_color_readback_{};
   bool settings_aov_inspection_enabled_{};
   Aov settings_inspection_aov_{Aov::Depth};
+  render::RendererSettings settings_contract_;
   float hitch_threshold_ms_{33.33F};
   float regression_threshold_percent_{10.0F};
   bool show_host_diagnostics_{true};

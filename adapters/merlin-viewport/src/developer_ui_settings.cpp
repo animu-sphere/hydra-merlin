@@ -11,6 +11,12 @@ bool ApplyDeveloperUiRendererSettings(
     DeveloperUiRendererSettings& settings,
     DeveloperUiSettingsFeedback& feedback) {
   ++feedback.serial;
+  if (const auto error =
+          render::ValidateRendererSettings(request.contract, &capabilities)) {
+    feedback.status = DeveloperUiSettingsStatus::Rejected;
+    feedback.message = error->code + ": " + error->message;
+    return false;
+  }
   for (const auto component : request.clear_color) {
     if (!std::isfinite(component) || component < 0.0F || component > 1.0F) {
       feedback.status = DeveloperUiSettingsStatus::Rejected;
@@ -43,6 +49,7 @@ bool ApplyDeveloperUiRendererSettings(
   }
 
   settings.available = true;
+  settings.contract = request.contract;
   settings.clear_color = request.clear_color;
   settings.continuous_color_readback = request.continuous_color_readback;
   settings.aov_inspection_enabled = request.aov_inspection_enabled;

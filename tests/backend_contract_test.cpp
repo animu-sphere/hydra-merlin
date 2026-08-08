@@ -1,6 +1,7 @@
 #include <merlin/render/backend.hpp>
 
 #include <cassert>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -153,6 +154,88 @@ int main() {
   assert(backend->capabilities().contract_version == kBackendContractVersion);
   assert(backend->capabilities().external_presentation);
   assert(backend->default_presentation_target());
+
+  RendererSettings settings;
+  settings.presentation_mode = PresentationMode::Native;
+  assert(!ValidateRendererSettings(settings, &backend->capabilities()));
+  settings.schema_version = kRendererSettingsSchemaVersion + 1;
+  auto settings_error =
+      ValidateRendererSettings(settings, &backend->capabilities());
+  assert(settings_error &&
+         settings_error->code == "renderer-settings.unsupported-schema");
+  settings = {};
+  settings.exposure_ev = std::numeric_limits<float>::infinity();
+  settings_error = ValidateRendererSettings(settings);
+  assert(settings_error &&
+         settings_error->code == "renderer-settings.invalid-exposure");
+  settings = {};
+  settings.backend = BackendRequest::Metal;
+  settings_error =
+      ValidateRendererSettings(settings, &backend->capabilities());
+  assert(settings_error &&
+         settings_error->code == "renderer-settings.backend-mismatch");
+  settings = {};
+  settings.render_path = RenderPath::ExperimentalVisibility;
+  settings_error =
+      ValidateRendererSettings(settings, &backend->capabilities());
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.render-path-unsupported");
+  settings = {};
+  settings.presentation_mode = PresentationMode::Native;
+  auto offscreen_capabilities = backend->capabilities();
+  offscreen_capabilities.external_presentation = false;
+  settings_error =
+      ValidateRendererSettings(settings, &offscreen_capabilities);
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.presentation-unsupported");
+  settings = {};
+  settings.validation = true;
+  settings_error =
+      ValidateRendererSettings(settings, &backend->capabilities());
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.validation-unavailable");
+  const auto require_unsupported = [&](RendererSettings candidate,
+                                       std::string_view code) {
+    const auto error =
+        ValidateRendererSettings(candidate, &backend->capabilities());
+    assert(error && error->code == code);
+  };
+  settings = {};
+  settings.aov = merlin::Aov::Normal;
+  require_unsupported(settings, "renderer-settings.aov-unsupported");
+  settings = {};
+  settings.lighting_mode = LightingMode::Environment;
+  require_unsupported(settings, "renderer-settings.lighting-unsupported");
+  settings = {};
+  settings.exposure_ev = 1.0F;
+  require_unsupported(settings, "renderer-settings.exposure-unsupported");
+  settings = {};
+  settings.tone_mapping = ToneMapping::Aces;
+  require_unsupported(settings,
+                      "renderer-settings.tone-mapping-unsupported");
+  settings = {};
+  settings.alpha_policy = AlphaPolicy::Blend;
+  require_unsupported(settings,
+                      "renderer-settings.alpha-policy-unsupported");
+  settings = {};
+  settings.debug_view = DebugView::Normal;
+  require_unsupported(settings,
+                      "renderer-settings.debug-view-unsupported");
+  settings = {};
+  settings.telemetry = TelemetryMode::Detailed;
+  require_unsupported(settings,
+                      "renderer-settings.telemetry-unsupported");
+  settings = {};
+  auto validation_capabilities = backend->capabilities();
+  validation_capabilities.validation_enabled = true;
+  settings_error =
+      ValidateRendererSettings(settings, &validation_capabilities);
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.validation-already-enabled");
 
   auto snapshot = std::make_shared<merlin::extraction::FrameSnapshot>();
   RenderRequest request;

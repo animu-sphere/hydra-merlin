@@ -114,6 +114,7 @@ struct DeveloperUiBenchmark {
 
 struct DeveloperUiRendererSettings {
   bool available{};
+  render::RendererSettings contract;
   std::array<float, 4> clear_color{0.018F, 0.025F, 0.028F, 1.0F};
   bool continuous_color_readback{};
   bool aov_inspection_enabled{};
@@ -122,6 +123,7 @@ struct DeveloperUiRendererSettings {
 };
 
 struct DeveloperUiRendererSettingsRequest {
+  render::RendererSettings contract;
   std::array<float, 4> clear_color{0.018F, 0.025F, 0.028F, 1.0F};
   bool continuous_color_readback{};
   bool aov_inspection_enabled{};
