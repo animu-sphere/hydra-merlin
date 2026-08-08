@@ -152,10 +152,21 @@ stores its stable source-local 64-bit logical identity as two 32-bit words;
 completion-safe physical slots remain replaceable addresses rather than stable
 scene identity.
 
-The milestone remains incomplete. Next are versioned/reflected geometry,
-instance, and material residency over these records, dirty-range table upload,
-native backend integration, and persistent Gaussian attribute residency
-described in the
+Versioned geometry, instance, and material residency is now in place over the
+same finite-slot boundary. Exact snapshot resource deltas avoid full table
+scans when source and base revision match; malformed indices, revision gaps,
+and source changes reconcile complete identity maps. Changed records receive
+fresh completion-safe slots, dense-table movement without a record-version
+change preserves the resident slot, and accepted upserts are coalesced into
+physical dirty ranges for bounded native copies. Geometry tracks vertex and
+index revisions independently while instance and material records use their
+unified revision. Resource-record changes reissue only dependency-indexed draw
+records, preserving logical draw IDs while moving physical draw slots so new
+frames never retain references to retired resource generations.
+
+The milestone remains incomplete. Next are native GPU Scene record packing and
+dirty-range buffer copies, renderer consumption of the persistent tables, and
+persistent Gaussian attribute residency described in the
 [GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
 [Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
 
@@ -163,9 +174,8 @@ described in the
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Build native persistent table residency and dirty-range uploads over the
-   reflected GPU Scene ABI, generation-checked draw slots, and stable snapshot
-   identity.
+2. Build native record packing, buffers, and dirty-range copies over the
+   reflected GPU Scene ABI and persistent resource/draw slots.
 3. Add persistent Gaussian attribute residency and retain range-only updates.
 4. Strengthen non-GPU and Linux gates before implementation breadth grows.
 5. Preserve the completed native Metal presentation path while extending the

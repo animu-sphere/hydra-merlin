@@ -356,11 +356,12 @@ class SceneExtractor::Impl {
 
   MaterialRecord BuildMaterial(
       std::uint64_t handle, const MaterialEntry& entry,
+      std::uint64_t record_revision,
       std::vector<MaterialFallbackRecord>& fallbacks) const {
     const auto& material = entry.descriptor;
     MaterialRecord record;
     record.material = handle;
-    record.revision = entry.revision;
+    record.revision = std::max(entry.revision, record_revision);
     record.parameter_revision = entry.parameter_revision;
     record.feature_revision = entry.feature_revision;
     record.module_revision = entry.module_revision;
@@ -455,7 +456,8 @@ class SceneExtractor::Impl {
         ++counters.copied_records;
         material_indices.emplace_hint(material_indices.end(), handle,
                                       records.size());
-        records.push_back(BuildMaterial(handle, entry, fallbacks));
+        records.push_back(
+            BuildMaterial(handle, entry, next.revision, fallbacks));
       }
       std::stable_sort(
           fallbacks.begin(), fallbacks.end(),
@@ -496,7 +498,8 @@ class SceneExtractor::Impl {
             "snapshot upsert references an unknown material");
       }
       std::vector<MaterialFallbackRecord> fallbacks;
-      auto record = BuildMaterial(handle, found->second, fallbacks);
+      auto record =
+          BuildMaterial(handle, found->second, next.revision, fallbacks);
       ++counters.visited_records;
       ++counters.copied_records;
       const auto index = material_indices.find(handle);
@@ -818,6 +821,17 @@ class SceneExtractor::Impl {
     Normalize(delta);
     next->delta = std::move(delta);
     next->build_counters = {};
+    std::map<std::uint64_t, std::pair<std::uint64_t, std::uint64_t>>
+        previous_geometry_versions;
+    for (const auto handle : next->delta->geometries.upserts) {
+      const auto index = geometry_indices.find(handle);
+      if (index != geometry_indices.end()) {
+        const auto& record = next->geometries[index->second];
+        previous_geometry_versions.emplace(
+            handle,
+            std::pair{record.vertex_revision, record.index_revision});
+      }
+    }
     const auto geometry_update = UpdateTable(
         next->geometries, geometry_indices, meshes,
         next->delta->geometries,
@@ -842,6 +856,21 @@ class SceneExtractor::Impl {
               entry.has_texcoords};
         },
         next->build_counters, initialize);
+    std::vector<std::uint64_t> changed_geometry_records;
+    changed_geometry_records.reserve(next->delta->geometries.upserts.size());
+    for (const auto handle : next->delta->geometries.upserts) {
+      const auto index = geometry_indices.find(handle);
+      if (index == geometry_indices.end()) {
+        continue;
+      }
+      const auto& record = next->geometries[index->second];
+      const auto previous_version = previous_geometry_versions.find(handle);
+      if (previous_version == previous_geometry_versions.end() ||
+          previous_version->second !=
+              std::pair{record.vertex_revision, record.index_revision}) {
+        changed_geometry_records.push_back(handle);
+      }
+    }
     next->delta->geometries.upserts.insert(
         next->delta->geometries.upserts.end(),
         geometry_update.displaced_handles.begin(),
@@ -918,6 +947,7 @@ class SceneExtractor::Impl {
     AppendDependentMaterials(next->delta->materials, sampler_materials,
                              sampler_update.displaced_handles);
     SortAndUnique(next->delta->materials);
+    const auto changed_material_records = next->delta->materials.upserts;
     const auto material_update =
         UpdateMaterials(*next, *next->delta, initialize);
     next->delta->materials.upserts.insert(
@@ -951,9 +981,13 @@ class SceneExtractor::Impl {
     AppendDependentDraws(dirty_instances, mesh_instances,
                          next->delta->geometries.removals);
     AppendDependentDraws(dirty_instances, mesh_instances,
+                         changed_geometry_records);
+    AppendDependentDraws(dirty_instances, mesh_instances,
                          geometry_update.displaced_handles);
     AppendDependentDraws(dirty_instances, material_instances,
                          next->delta->materials.removals);
+    AppendDependentDraws(dirty_instances, material_instances,
+                         changed_material_records);
     AppendDependentDraws(dirty_instances, material_instances,
                          material_update.displaced_handles);
     for (const auto handle : instance_update.displaced_handles) {
@@ -1059,10 +1093,7 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
       (erase ? resources.removals : resources.upserts)
           .push_back(change.handle);
     }
-    if (change.object_kind == ObjectKind::Instance &&
-        (change.change_kind != ChangeKind::Updated ||
-         change.HasAspect(ChangeAspect::Visibility) ||
-         change.HasAspect(ChangeAspect::MaterialBinding))) {
+    if (change.object_kind == ObjectKind::Instance) {
       std::optional<std::uint64_t> previous_sort_key;
       const auto found = impl_->instances.find(change.handle);
       if (found != impl_->instances.end()) {

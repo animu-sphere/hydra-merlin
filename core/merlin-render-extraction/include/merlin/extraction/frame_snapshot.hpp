@@ -152,9 +152,10 @@ struct DrawRecord {
   // reused by a source, so a removed and recreated logical draw cannot alias
   // completion-delayed GPU residency.
   std::uint64_t draw{};
-  // Snapshot revision at which the draw record itself last changed. Instance
-  // transforms remain in InstanceRecord and therefore do not churn this
-  // revision or the persistent draw table.
+  // Snapshot revision at which the draw record or one of its referenced GPU
+  // Scene records last changed. Resource content remains in its own record,
+  // but a fresh completion-safe resource slot must also replace dependent draw
+  // records so their physical table references stay current.
   std::uint64_t revision{};
 };
 

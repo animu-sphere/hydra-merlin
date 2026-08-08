@@ -93,6 +93,7 @@ class GpuSceneSlotAllocator {
 
  private:
   friend class GpuSceneDrawSlots;
+  friend class GpuSceneResourceSlots;
 
   enum class State : std::uint8_t { Free, Active, Retired };
 
@@ -120,6 +121,98 @@ class GpuSceneSlotAllocator {
   std::vector<std::uint32_t> free_slots_;
   std::vector<Retirement> retirements_;
   GpuSceneSlotTelemetry telemetry_;
+};
+
+enum class GpuSceneResourceTable {
+  Geometry,
+  Instance,
+  Material,
+};
+
+// A resource version names the snapshot payload that is packed into one GPU
+// Scene record. Most resources use primary only. Geometry uses both vertex and
+// index revisions so either arena reference can invalidate its table record.
+struct GpuSceneResourceVersion {
+  std::uint64_t primary{};
+  std::uint64_t secondary{};
+
+  auto operator<=>(const GpuSceneResourceVersion&) const = default;
+};
+
+struct GpuSceneDirtyRange {
+  std::uint32_t first_slot{};
+  std::uint32_t slot_count{};
+
+  auto operator<=>(const GpuSceneDirtyRange&) const = default;
+};
+
+struct GpuSceneResourceUpsert {
+  std::uint64_t resource{};
+  GpuSceneSlotHandle slot;
+  std::uint32_t snapshot_index{};
+  GpuSceneResourceVersion record_version;
+};
+
+struct GpuSceneResourceRetirement {
+  std::uint64_t resource{};
+  GpuSceneSlotHandle slot;
+};
+
+// Resource upserts name immutable physical slots and coalesced dirty ranges for
+// a native backend copy. Retired slots remain untouched until their completion
+// value is collected; a later allocation overwrites the advanced generation.
+struct GpuSceneResourceUpdatePlan {
+  GpuSceneResourceTable table{GpuSceneResourceTable::Geometry};
+  std::uint64_t source_id{};
+  std::uint64_t base_revision{};
+  std::uint64_t revision{};
+  std::uint64_t indexed_snapshot_records{};
+  bool full_reconciliation{};
+  std::vector<GpuSceneResourceUpsert> upserts;
+  std::vector<GpuSceneResourceRetirement> retirements;
+  std::vector<GpuSceneSlotHandle> collected;
+  std::vector<GpuSceneDirtyRange> dirty_ranges;
+};
+
+// Persistent identity-to-slot mapping for one geometry, instance, or material
+// table. Exact snapshot deltas are an optimization; source changes, revision
+// gaps, and malformed indices fall back to complete identity reconciliation.
+class GpuSceneResourceSlots {
+ public:
+  GpuSceneResourceSlots(GpuSceneResourceTable table, std::uint32_t capacity);
+  GpuSceneResourceSlots(const GpuSceneResourceSlots&) = delete;
+  GpuSceneResourceSlots& operator=(const GpuSceneResourceSlots&) = delete;
+
+  [[nodiscard]] GpuSceneResourceUpdatePlan Apply(
+      const extraction::FrameSnapshot& snapshot,
+      std::uint64_t last_completion_value,
+      std::uint64_t completed_value);
+  [[nodiscard]] std::vector<GpuSceneSlotHandle> Collect(
+      std::uint64_t completed_value) {
+    return slots_.Collect(completed_value);
+  }
+
+  [[nodiscard]] std::optional<GpuSceneSlotHandle> Find(
+      std::uint64_t resource) const noexcept;
+  [[nodiscard]] GpuSceneResourceTable table() const noexcept { return table_; }
+  [[nodiscard]] std::uint64_t source_id() const noexcept { return source_id_; }
+  [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
+  [[nodiscard]] std::size_t size() const noexcept { return resident_.size(); }
+  [[nodiscard]] const GpuSceneSlotTelemetry& telemetry() const noexcept {
+    return slots_.telemetry();
+  }
+
+ private:
+  struct ResidentResource {
+    GpuSceneSlotHandle slot;
+    GpuSceneResourceVersion record_version;
+  };
+
+  GpuSceneResourceTable table_;
+  GpuSceneSlotAllocator slots_;
+  std::map<std::uint64_t, ResidentResource> resident_;
+  std::uint64_t source_id_{};
+  std::uint64_t revision_{};
 };
 
 struct GpuSceneDrawUpsert {
@@ -150,6 +243,7 @@ struct GpuSceneDrawUpdatePlan {
   std::vector<GpuSceneDrawUpsert> upserts;
   std::vector<GpuSceneDrawRetirement> retirements;
   std::vector<GpuSceneSlotHandle> collected;
+  std::vector<GpuSceneDirtyRange> dirty_ranges;
 };
 
 // Persistent draw identity-to-slot mapping over FrameSnapshot. The class owns
