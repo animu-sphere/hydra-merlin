@@ -465,6 +465,22 @@ static GpuScenePackedUpdate<GpuDraw> PackDrawUpdate(
   return Finish(std::move(pending), plan.dirty_ranges);
 }
 
+static std::shared_ptr<const std::vector<std::uint32_t>> BuildDrawSlotIndices(
+    const extraction::FrameSnapshot& snapshot,
+    const GpuSceneDrawSlots& draw_slots) {
+  auto indices = std::make_shared<std::vector<std::uint32_t>>();
+  indices->reserve(snapshot.draws.size());
+  for (const auto& draw : snapshot.draws) {
+    const auto slot = draw_slots.Find(draw.draw);
+    if (draw.draw == 0 || !slot) {
+      Throw(GpuScenePackingErrorCode::MissingResidency,
+            "snapshot draw has no persistent GPU Scene slot");
+    }
+    indices->push_back(slot->index);
+  }
+  return indices;
+}
+
 GpuScenePackingState::GpuScenePackingState(
     GpuScenePackingCapacities capacities)
     : geometries_(std::make_unique<GpuSceneResourceSlots>(
@@ -498,6 +514,7 @@ GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
         snapshot, last_completion_value, completed_value);
     update.draw_plan = draws_->Apply(snapshot, last_completion_value,
                                      completed_value);
+    update.draw_slot_indices = draw_slot_indices_;
     return update;
   }
 
@@ -528,6 +545,8 @@ GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
   update.draws = PackDrawUpdate(
       snapshot, update.draw_plan, *candidate_draws, *candidate_geometries,
       *candidate_materials, *candidate_instances);
+  update.draw_slot_indices =
+      BuildDrawSlotIndices(snapshot, *candidate_draws);
   update.copy_bytes = update.geometries.copy_bytes +
                       update.instances.copy_bytes +
                       update.materials.copy_bytes + update.draws.copy_bytes;
@@ -536,6 +555,7 @@ GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
   instances_ = std::move(candidate_instances);
   materials_ = std::move(candidate_materials);
   draws_ = std::move(candidate_draws);
+  draw_slot_indices_ = update.draw_slot_indices;
   return update;
 }
 

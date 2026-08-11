@@ -1756,6 +1756,9 @@ class Renderer::Impl {
     std::uint64_t revision{};
     std::uint64_t pending_source_id{};
     std::uint64_t pending_revision{};
+    std::shared_ptr<const std::vector<std::uint32_t>> draw_slot_indices;
+    std::shared_ptr<const std::vector<std::uint32_t>>
+        pending_draw_slot_indices;
     bool has_resident_update{};
     bool pending_update{};
 
@@ -2541,6 +2544,8 @@ class Renderer::Impl {
     gpu_scene_buffers_.capacities = {};
     gpu_scene_buffers_.source_id = 0;
     gpu_scene_buffers_.revision = 0;
+    gpu_scene_buffers_.draw_slot_indices.reset();
+    gpu_scene_buffers_.pending_draw_slot_indices.reset();
     gpu_scene_buffers_.has_resident_update = false;
     gpu_scene_buffers_.pending_update = false;
   }
@@ -2652,6 +2657,23 @@ class Renderer::Impl {
     ValidateGpuSceneTableUpdate(update->draws,
                                 update->draw_plan.dirty_ranges,
                                 capacities.draws, "draw");
+    if (!update->draw_slot_indices ||
+        update->draw_slot_indices->size() != snapshot.draws.size()) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          "draw slot map does not match the request snapshot");
+    }
+    if (gpu_scene_buffers_.draw_slot_indices != update->draw_slot_indices) {
+      std::vector<bool> mapped_draw_slots(capacities.draws);
+      for (const auto slot : *update->draw_slot_indices) {
+        if (slot >= capacities.draws || mapped_draw_slots[slot]) {
+          throw RendererError(
+              RendererErrorCode::InvalidRequest, "upload GPU Scene",
+              "draw slot map contains an invalid or duplicate slot");
+        }
+        mapped_draw_slots[slot] = true;
+      }
+    }
     const auto copy_bytes = update->geometries.copy_bytes +
                             update->instances.copy_bytes +
                             update->materials.copy_bytes +
@@ -2691,6 +2713,7 @@ class Renderer::Impl {
     }
     gpu_scene_buffers_.pending_source_id = reference_plan.source_id;
     gpu_scene_buffers_.pending_revision = reference_plan.revision;
+    gpu_scene_buffers_.pending_draw_slot_indices = update->draw_slot_indices;
     gpu_scene_buffers_.pending_update = true;
     if (copy_bytes == 0) {
       return;
@@ -2743,6 +2766,8 @@ class Renderer::Impl {
     }
     gpu_scene_buffers_.source_id = gpu_scene_buffers_.pending_source_id;
     gpu_scene_buffers_.revision = gpu_scene_buffers_.pending_revision;
+    gpu_scene_buffers_.draw_slot_indices =
+        std::move(gpu_scene_buffers_.pending_draw_slot_indices);
     gpu_scene_buffers_.has_resident_update = true;
     gpu_scene_buffers_.pending_update = false;
   }
@@ -2787,6 +2812,7 @@ class Renderer::Impl {
     pending_graphics_acquire_images_.clear();
     staging_.AbandonFrame();
     gpu_scene_staging_.AbandonFrame();
+    gpu_scene_buffers_.pending_draw_slot_indices.reset();
     gpu_scene_buffers_.pending_update = false;
     for (const auto handle : pending_texture_handles_) {
       const auto texture = texture_slots_.find(handle);

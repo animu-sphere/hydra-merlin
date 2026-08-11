@@ -62,6 +62,14 @@ int main() {
     return 77;
   }
 
+  auto exhausted_gpu_scene_options = backend_options;
+  exhausted_gpu_scene_options.heap_capacity_bytes = 1024U * 1024U;
+  exhausted_gpu_scene_options.gpu_scene_capacities =
+      merlin::render::GpuScenePackingCapacities{1, 1, 1, 1'000'000};
+  const merlin::metal::BackendFactory exhausted_gpu_scene_factory(
+      exhausted_gpu_scene_options);
+  assert(!exhausted_gpu_scene_factory.availability().available);
+
   merlin::render::BackendCreateInfo create_info;
   create_info.enable_validation = true;
   create_info.frames_in_flight = 3;
@@ -171,6 +179,22 @@ int main() {
   }
   assert(invalid_gpu_scene_rejected);
 
+  auto invalid_gpu_scene_draw_map =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_gpu_scene_update);
+  invalid_gpu_scene_draw_map->draw_slot_indices =
+      std::make_shared<const std::vector<std::uint32_t>>(
+          std::vector<std::uint32_t>{gpu_scene_capacities.draws});
+  bool invalid_gpu_scene_draw_map_rejected{};
+  try {
+    (void)Render(*backend, extractor.snapshot(),
+                 invalid_gpu_scene_draw_map);
+  } catch (const merlin::render::RendererError& error) {
+    invalid_gpu_scene_draw_map_rejected =
+        error.code() == merlin::render::RendererErrorCode::InvalidRequest;
+  }
+  assert(invalid_gpu_scene_draw_map_rejected);
+
   const auto first_gpu_scene =
       Render(*backend, extractor.snapshot(), first_gpu_scene_update);
   assert(first_gpu_scene.telemetry.gpu_scene_upload_bytes ==
@@ -192,6 +216,11 @@ int main() {
              gpu_scene_capacities.draws * sizeof(merlin::render::GpuDraw));
   assert(gpu_scene_statistics.gpu_scene_staging_capacity_bytes >=
          expected_gpu_scene_bytes);
+  const auto gpu_scene_renderer_statistics = backend->statistics();
+  assert(gpu_scene_renderer_statistics.residency.renderer_allocated_bytes >=
+         gpu_scene_statistics.gpu_scene_capacity_bytes);
+  assert(gpu_scene_renderer_statistics.residency.renderer_allocated_bytes <=
+         backend_options.heap_capacity_bytes);
 
   auto static_gpu_scene_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(

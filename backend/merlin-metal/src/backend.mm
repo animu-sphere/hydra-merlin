@@ -348,6 +348,28 @@ MTLHeapDescriptor *SceneHeapDescriptor(std::uint64_t capacity_bytes) {
   return descriptor;
 }
 
+template <typename Record>
+std::uint64_t GpuSceneTableReservation(id<MTLDevice> device,
+                                       std::uint32_t capacity) {
+  const auto length = static_cast<std::uint64_t>(capacity) * sizeof(Record);
+  const auto size_and_align = [device
+      heapBufferSizeAndAlignWithLength:static_cast<NSUInteger>(length)
+                               options:MTLResourceStorageModePrivate];
+  return AlignUp(size_and_align.size, size_and_align.align);
+}
+
+std::uint64_t GpuSceneReservation(
+    id<MTLDevice> device,
+    const render::GpuScenePackingCapacities &capacities) {
+  return GpuSceneTableReservation<render::GpuGeometry>(device,
+                                                        capacities.geometries) +
+         GpuSceneTableReservation<render::GpuInstance>(device,
+                                                        capacities.instances) +
+         GpuSceneTableReservation<render::GpuMaterial>(device,
+                                                        capacities.materials) +
+         GpuSceneTableReservation<render::GpuDraw>(device, capacities.draws);
+}
+
 } // namespace
 
 AovImageLease::AovImageLease(AovImageLease&& other) noexcept
@@ -411,14 +433,13 @@ public:
                                     "newCommandQueue returned nil");
       }
 
-      if (options_.gpu_scene_capacities) {
-        CreateGpuSceneBuffers(*options_.gpu_scene_capacities);
-      }
-
       bindless_ = device_.argumentBuffersSupport == MTLArgumentBuffersTier2;
       CreateLibraryAndPipeline();
       CreateDepthState();
       CreateHeap();
+      if (options_.gpu_scene_capacities) {
+        CreateGpuSceneBuffers(*options_.gpu_scene_capacities);
+      }
       if (options_.presentation) {
         ConfigurePresentation(*options_.presentation);
       }
@@ -563,6 +584,13 @@ public:
       std::vector<Aov> readbacks;
       auto rendered = ValidateProducts(request.products, &readbacks);
       CollectRetirements();
+      if (RecordGpuSceneFailureThrough(submitted_value_)) {
+        ++statistics_.validation_messages;
+        throw render::RendererError(
+            render::RendererErrorCode::BackendFailure,
+            "submit Metal frame", gpu_scene_failure_detail_,
+            gpu_scene_failure_native_code_);
+      }
 
       auto context_index = next_context_;
       std::size_t searched{};
@@ -790,12 +818,22 @@ public:
       }
       pending.result.timings.completion_wait_ns =
           DurationNs(wait_begin, Clock::now());
-      if (pending.command.status == MTLCommandBufferStatusError) {
+
+      RecordGpuSceneFailureThrough(token.value());
+
+      const bool command_failed =
+          pending.command.status == MTLCommandBufferStatusError;
+      const bool gpu_scene_dependency_failed =
+          token.value() <= gpu_scene_invalid_through_value_;
+      if (command_failed || gpu_scene_dependency_failed) {
         ++statistics_.validation_messages;
-        const auto detail =
-            pending.command.error == nil
-                ? std::string("Metal command buffer failed")
-                : String(pending.command.error.localizedDescription);
+        const auto detail = command_failed
+                                ? (pending.command.error == nil
+                                       ? std::string(
+                                             "Metal command buffer failed")
+                                       : String(pending.command.error
+                                                    .localizedDescription))
+                                : gpu_scene_failure_detail_;
         auto &failed_frame = frames_[pending.context_index];
         // A bridge blit may still be waiting on this frame's completion event.
         // Keep the frame identified until that lease callback releases it.
@@ -803,11 +841,10 @@ public:
         if (!failed_frame.busy) {
           failed_frame.completion_value = 0;
         }
-        if (pending.has_gpu_scene_copies) {
-          InvalidateGpuSceneUpdate();
-        }
-        const auto native_code =
-            static_cast<std::int32_t>(pending.command.error.code);
+        const auto native_code = command_failed
+                                     ? static_cast<std::int32_t>(
+                                           pending.command.error.code)
+                                     : gpu_scene_failure_native_code_;
         pending_.erase(token.value());
         CollectRetirements();
         throw render::RendererError(render::RendererErrorCode::BackendFailure,
@@ -886,6 +923,7 @@ private:
     id<MTLBuffer> draws = nil;
     std::uint64_t source_id{};
     std::uint64_t revision{};
+    std::shared_ptr<const std::vector<std::uint32_t>> draw_slot_indices;
     bool has_resident_update{};
 
     [[nodiscard]] bool enabled() const noexcept {
@@ -945,9 +983,42 @@ private:
     bool has_gpu_scene_update{};
     std::uint64_t gpu_scene_source_id{};
     std::uint64_t gpu_scene_revision{};
+    std::shared_ptr<const std::vector<std::uint32_t>>
+        gpu_scene_draw_slot_indices;
     std::vector<GpuSceneCopy> gpu_scene_copies;
     std::vector<MaterialDiagnostic> material_diagnostics;
   };
+
+  bool RecordGpuSceneFailureThrough(std::uint64_t completion_value) {
+    // One Metal command queue preserves submission order. If a table upload
+    // fails, every already-submitted update chained after it is based on
+    // table contents that may only be partially resident.
+    std::uint64_t failed_value{};
+    Pending *failed_pending{};
+    for (auto &[value, candidate] : pending_) {
+      if (value <= completion_value && candidate.has_gpu_scene_copies &&
+          candidate.command.status == MTLCommandBufferStatusError &&
+          value > failed_value) {
+        failed_value = value;
+        failed_pending = &candidate;
+      }
+    }
+    if (failed_pending == nullptr ||
+        failed_value <= gpu_scene_last_failure_value_) {
+      return false;
+    }
+    gpu_scene_last_failure_value_ = failed_value;
+    gpu_scene_invalid_through_value_ =
+        std::max(gpu_scene_invalid_through_value_, submitted_value_);
+    gpu_scene_failure_detail_ =
+        failed_pending->command.error == nil
+            ? std::string("Metal GPU Scene upload failed")
+            : String(failed_pending->command.error.localizedDescription);
+    gpu_scene_failure_native_code_ =
+        static_cast<std::int32_t>(failed_pending->command.error.code);
+    InvalidateGpuSceneUpdate();
+    return true;
+  }
 
   template <typename Record>
   id<MTLBuffer> CreateGpuSceneTable(std::uint32_t capacity,
@@ -965,6 +1036,7 @@ private:
           "create Metal GPU Scene buffers",
           std::string(table_name) + " table capacity is not representable");
     }
+    const auto charged = GpuSceneTableReservation<Record>(device_, capacity);
     id<MTLBuffer> buffer =
         [device_ newBufferWithLength:static_cast<NSUInteger>(bytes)
                              options:MTLResourceStorageModePrivate];
@@ -977,6 +1049,11 @@ private:
     }
     buffer.label = [NSString
         stringWithFormat:@"hdMerlin GPU Scene %s", table_name.data()];
+    metal_statistics_.heap_resident_bytes += charged;
+    metal_statistics_.heap_peak_resident_bytes =
+        std::max(metal_statistics_.heap_peak_resident_bytes,
+                 metal_statistics_.heap_resident_bytes);
+    ++metal_statistics_.heap_allocation_count;
     return buffer;
   }
 
@@ -1111,6 +1188,24 @@ private:
     ValidateGpuSceneTableUpdate(update->draws,
                                 update->draw_plan.dirty_ranges,
                                 capacities.draws, "draw");
+    if (!update->draw_slot_indices ||
+        update->draw_slot_indices->size() != snapshot.draws.size()) {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
+          "draw slot map does not match the request snapshot");
+    }
+    if (gpu_scene_buffers_.draw_slot_indices != update->draw_slot_indices) {
+      std::vector<bool> mapped_draw_slots(capacities.draws);
+      for (const auto slot : *update->draw_slot_indices) {
+        if (slot >= capacities.draws || mapped_draw_slots[slot]) {
+          throw render::RendererError(
+              render::RendererErrorCode::InvalidRequest,
+              "upload Metal GPU Scene",
+              "draw slot map contains an invalid or duplicate slot");
+        }
+        mapped_draw_slots[slot] = true;
+      }
+    }
     const auto copy_bytes = update->geometries.copy_bytes +
                             update->instances.copy_bytes +
                             update->materials.copy_bytes +
@@ -1152,6 +1247,7 @@ private:
     build.has_gpu_scene_update = true;
     build.gpu_scene_source_id = reference_plan.source_id;
     build.gpu_scene_revision = reference_plan.revision;
+    build.gpu_scene_draw_slot_indices = update->draw_slot_indices;
     if (copy_bytes == 0) {
       build.upload_ns += DurationNs(begin, Clock::now());
       return;
@@ -1250,6 +1346,8 @@ private:
     }
     gpu_scene_buffers_.source_id = build.gpu_scene_source_id;
     gpu_scene_buffers_.revision = build.gpu_scene_revision;
+    gpu_scene_buffers_.draw_slot_indices =
+        build.gpu_scene_draw_slot_indices;
     gpu_scene_buffers_.has_resident_update = true;
   }
 
@@ -1259,6 +1357,7 @@ private:
     // restores every GPU Scene table.
     gpu_scene_buffers_.source_id = 0;
     gpu_scene_buffers_.revision = 0;
+    gpu_scene_buffers_.draw_slot_indices.reset();
     gpu_scene_buffers_.has_resident_update = false;
   }
 
@@ -1444,8 +1543,27 @@ private:
   }
 
   void CreateHeap() {
+    // GPU Scene tables remain private buffers, but their aligned footprint is
+    // reserved from the configured residency budget before sizing the shared
+    // scene heap. The two allocation pools therefore cannot exceed the limit.
+    std::uint64_t gpu_scene_reservation{};
+    if (options_.gpu_scene_capacities) {
+      gpu_scene_reservation =
+          GpuSceneReservation(device_, *options_.gpu_scene_capacities);
+    }
+    if (gpu_scene_reservation >= options_.heap_capacity_bytes) {
+      throw render::RendererError(
+          render::RendererErrorCode::ResourceExhausted,
+          "create Metal resource heap",
+          "GPU Scene tables require " +
+              std::to_string(gpu_scene_reservation) +
+              " bytes of the configured " +
+              std::to_string(options_.heap_capacity_bytes) +
+              "-byte residency budget");
+    }
     MTLHeapDescriptor *descriptor =
-        SceneHeapDescriptor(options_.heap_capacity_bytes);
+        SceneHeapDescriptor(options_.heap_capacity_bytes -
+                            gpu_scene_reservation);
     heap_ = [device_ newHeapWithDescriptor:descriptor];
     if (heap_ == nil) {
       throw render::RendererError(
@@ -2328,6 +2446,10 @@ private:
   std::size_t next_context_{};
   std::uint64_t submitted_value_{};
   std::atomic<std::uint64_t> completed_value_{};
+  std::uint64_t gpu_scene_last_failure_value_{};
+  std::uint64_t gpu_scene_invalid_through_value_{};
+  std::string gpu_scene_failure_detail_;
+  std::int32_t gpu_scene_failure_native_code_{};
   std::uint64_t uploaded_bytes_{};
   std::uint64_t readback_bytes_{};
   std::uint64_t presentation_copy_bytes_{};
@@ -2400,8 +2522,23 @@ render::BackendAvailability BackendFactory::availability() const {
     if (device == nil) {
       return {false, "no Metal device is available"};
     }
+    std::uint64_t gpu_scene_reservation{};
+    if (options_.gpu_scene_capacities) {
+      gpu_scene_reservation =
+          GpuSceneReservation(device, *options_.gpu_scene_capacities);
+    }
+    if (gpu_scene_reservation >= options_.heap_capacity_bytes) {
+      return {false,
+              "Metal GPU Scene tables require " +
+                  std::to_string(gpu_scene_reservation) +
+                  " bytes of the configured " +
+                  std::to_string(options_.heap_capacity_bytes) +
+                  "-byte scene residency budget"};
+    }
     id<MTLHeap> heap = [device
-        newHeapWithDescriptor:SceneHeapDescriptor(options_.heap_capacity_bytes)];
+        newHeapWithDescriptor:SceneHeapDescriptor(
+                                  options_.heap_capacity_bytes -
+                                  gpu_scene_reservation)];
     if (heap == nil) {
       return {false,
               "Metal resource heaps are unavailable for the configured " +

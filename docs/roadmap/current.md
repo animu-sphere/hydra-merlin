@@ -190,7 +190,9 @@ payload, range, capacity, reservation, and growth telemetry. Vulkan uses a
 dedicated persistent staging ring for device-local tables; Metal uses private
 tables with completion-safe per-frame shared staging buffers. Static accepted
 updates reserve and copy nothing; conventional Forward does not consume the
-tables yet.
+tables yet. Packed updates now carry the immutable dense draw-to-physical-slot
+dispatch map needed by that consumption path; unchanged frames share it without
+an identity scan, and Vulkan/Metal validate its size, capacity, and uniqueness.
 
 The milestone remains incomplete. Next are renderer consumption of the
 persistent tables and persistent Gaussian attribute residency described in the
