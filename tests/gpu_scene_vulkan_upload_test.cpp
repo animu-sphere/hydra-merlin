@@ -5,8 +5,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -89,7 +91,9 @@ merlin::vulkan::RenderResult Submit(
   request.width = 32;
   request.height = 32;
   request.shaders = shaders;
-  request.products = {{merlin::Aov::Color, true}};
+  request.products = {{merlin::Aov::Color, true},
+                      {merlin::Aov::PrimId, true},
+                      {merlin::Aov::InstanceId, true}};
   request.gpu_scene_update = std::move(update);
   return renderer.Resolve(renderer.Submit(request));
 }
@@ -105,12 +109,25 @@ int main(int argc, char** argv) {
   constexpr GpuScenePackingCapacities capacities{4, 4, 4, 4};
   merlin::vulkan::RendererOptions options;
   options.gpu_scene_capacities = capacities;
+  options.descriptor_backend =
+      merlin::vulkan::DescriptorBackendRequest::Bindless;
   std::optional<merlin::vulkan::Renderer> renderer;
   try {
     renderer.emplace(options);
   } catch (const std::exception& error) {
     std::cerr << "skip: Vulkan renderer unavailable: " << error.what() << '\n';
     return 77;
+  }
+
+  auto oversized_options = options;
+  oversized_options.gpu_scene_capacities = GpuScenePackingCapacities{
+      1, std::numeric_limits<std::uint32_t>::max(), 1, 1};
+  try {
+    merlin::vulkan::Renderer oversized_renderer(oversized_options);
+    assert(false && "oversized GPU Scene storage buffer was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::Unsupported);
+    assert(error.operation() == "create GPU Scene buffers");
   }
 
   const auto snapshot = MakeSnapshot();
@@ -152,15 +169,66 @@ int main(int argc, char** argv) {
     assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
   }
 
+  auto invalid_draw_reference =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_update);
+  invalid_draw_reference->draws.ranges[0].records[0].geometry_index =
+      capacities.geometries;
+  try {
+    (void)Submit(*renderer, snapshot, shaders, invalid_draw_reference);
+    assert(false && "out-of-capacity GPU Scene draw reference was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
+  }
+
+  auto invalid_material_reference =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_update);
+  invalid_material_reference->materials.ranges[0]
+      .records[0]
+      .base_color_texture_index = options.bindless_texture_capacity;
+  invalid_material_reference->materials.ranges[0]
+      .records[0]
+      .base_color_sampler_index = 0;
+  try {
+    (void)Submit(*renderer, snapshot, shaders, invalid_material_reference);
+    assert(false && "out-of-capacity bindless material reference was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
+  }
+
   // A rejected native upload must not advance table continuity or prevent the
   // original packed update from being retried.
-  const auto first = Submit(*renderer, snapshot, shaders, first_update);
+  merlin::vulkan::RenderResult first;
+  try {
+    first = Submit(*renderer, snapshot, shaders, first_update);
+  } catch (const std::exception& error) {
+    std::cerr << "gpu-scene: first table draw failed: " << error.what()
+              << '\n';
+    return 1;
+  }
   assert(first.counters.gpu_scene_upload_bytes == expected_gpu_scene_bytes);
   assert(first.counters.gpu_scene_copy_range_count == 4);
   assert(first.counters.gpu_scene_upload_ring_reserved_bytes ==
          expected_gpu_scene_bytes);
   assert(first.counters.gpu_scene_upload_ring_growth_count == 1);
   assert(first.counters.upload_bytes >= expected_gpu_scene_bytes);
+  if (first.counters.gpu_scene_draw_count != snapshot->draws.size()) {
+    throw std::runtime_error(
+        "basic Forward did not consume the persistent GPU Scene tables");
+  }
+  bool found_table_identity{};
+  for (std::size_t i = 0; i < first.prim_id.pixels.size(); ++i) {
+    if (first.prim_id.pixels[i] == identities[0].object_id) {
+      assert(first.instance_id.pixels[i] == identities[0].instance_id);
+      found_table_identity = true;
+      break;
+    }
+  }
+  if (!found_table_identity) {
+    throw std::runtime_error(
+        "table-backed Forward did not write packed object/instance IDs");
+  }
 
   const auto statistics = renderer->statistics();
   assert(statistics.gpu_scene_buffers);
@@ -180,6 +248,10 @@ int main(int argc, char** argv) {
   assert(steady.counters.gpu_scene_copy_range_count == 0);
   assert(steady.counters.gpu_scene_upload_ring_reserved_bytes == 0);
   assert(steady.counters.upload_bytes == 0);
+  if (steady.counters.gpu_scene_draw_count != snapshot->draws.size()) {
+    throw std::runtime_error(
+        "static Forward frame stopped consuming the resident GPU Scene");
+  }
 
   auto mixed_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(

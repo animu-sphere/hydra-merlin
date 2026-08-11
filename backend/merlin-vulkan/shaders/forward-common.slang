@@ -28,14 +28,23 @@ struct MaterialConstants
     float4 diffuse_environment[9];
 };
 
+#ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
 [[vk::push_constant]]
 ConstantBuffer<DrawConstants> draw_constants;
+#endif
 
 // draw_constants.texture_index and the encoded sampler index are only
 // populated when this is set, so resource reads must stay behind it.
+#ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
 bool HasBaseColorTexture()
 {
     return (draw_constants.feature_mask & kBaseColorTextureFlag) != 0u;
+}
+#endif
+
+bool HasBaseColorTexture(DrawConstants draw)
+{
+    return (draw.feature_mask & kBaseColorTextureFlag) != 0u;
 }
 
 struct ForwardVertexInput
@@ -63,33 +72,44 @@ struct ForwardFragmentOutput
 
 ForwardVertexOutput EvaluateForwardVertex(
     ForwardVertexInput input,
-    MaterialConstants material)
+    MaterialConstants material,
+    DrawConstants draw)
 {
     ForwardVertexOutput output;
     output.position = mul(
-        draw_constants.model_view_projection,
+        draw.model_view_projection,
         float4(input.position, 1.0f));
     output.color = material.base_color;
-    if ((draw_constants.feature_mask & kDisplayColorFlag) != 0u)
+    if ((draw.feature_mask & kDisplayColorFlag) != 0u)
     {
         output.color *= input.display_color;
     }
     output.shading_normal =
-        draw_constants.normal_matrix_column0.xyz * input.normal.x +
-        draw_constants.normal_matrix_column1.xyz * input.normal.y +
-        draw_constants.normal_matrix_column2.xyz * input.normal.z;
+        draw.normal_matrix_column0.xyz * input.normal.x +
+        draw.normal_matrix_column1.xyz * input.normal.y +
+        draw.normal_matrix_column2.xyz * input.normal.z;
     output.texture_coordinate = input.texcoord;
     return output;
 }
+
+#ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
+ForwardVertexOutput EvaluateForwardVertex(
+    ForwardVertexInput input,
+    MaterialConstants material)
+{
+    return EvaluateForwardVertex(input, material, draw_constants);
+}
+#endif
 
 float4 ShadeForwardSurface(
     ForwardVertexOutput input,
     MaterialConstants material,
     float4 base_color,
-    float3 shading_normal)
+    float3 shading_normal,
+    DrawConstants draw)
 {
     float4 shaded = base_color;
-    if ((draw_constants.feature_mask & kDirectionalLightFlag) != 0u)
+    if ((draw.feature_mask & kDirectionalLightFlag) != 0u)
     {
         float3 normal = normalize(shading_normal);
         float x = normal.x;
@@ -128,7 +148,7 @@ float4 ShadeForwardSurface(
         // retain detail instead of clipping every channel to white.
         shaded.rgb = shaded.rgb / (float3(1.0f, 1.0f, 1.0f) + shaded.rgb);
     }
-    if ((draw_constants.feature_mask & kMaskedAlphaFlag) != 0u &&
+    if ((draw.feature_mask & kMaskedAlphaFlag) != 0u &&
         shaded.a < material.light_color_alpha_cutoff.a)
     {
         discard;
@@ -139,22 +159,42 @@ float4 ShadeForwardSurface(
 float4 ShadeForward(
     ForwardVertexOutput input,
     MaterialConstants material,
-    float4 texture_sample)
+    float4 texture_sample,
+    DrawConstants draw)
 {
     float4 base_color = input.color;
-    if (HasBaseColorTexture())
+    if (HasBaseColorTexture(draw))
     {
         base_color *= texture_sample;
     }
     return ShadeForwardSurface(
-        input, material, base_color, input.shading_normal);
+        input, material, base_color, input.shading_normal, draw);
 }
 
-ForwardFragmentOutput MakeForwardFragmentOutput(float4 color)
+#ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
+float4 ShadeForward(
+    ForwardVertexOutput input,
+    MaterialConstants material,
+    float4 texture_sample)
+{
+    return ShadeForward(input, material, texture_sample, draw_constants);
+}
+#endif
+
+ForwardFragmentOutput MakeForwardFragmentOutput(
+    float4 color,
+    DrawConstants draw)
 {
     ForwardFragmentOutput output;
     output.color = color;
-    output.prim_id = draw_constants.prim_id;
-    output.instance_id = draw_constants.instance_id;
+    output.prim_id = draw.prim_id;
+    output.instance_id = draw.instance_id;
     return output;
 }
+
+#ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
+ForwardFragmentOutput MakeForwardFragmentOutput(float4 color)
+{
+    return MakeForwardFragmentOutput(color, draw_constants);
+}
+#endif

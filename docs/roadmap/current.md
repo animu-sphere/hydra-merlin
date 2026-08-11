@@ -190,11 +190,22 @@ payload, range, capacity, reservation, and growth telemetry. Vulkan uses a
 dedicated persistent staging ring for device-local tables; Metal uses private
 tables with completion-safe per-frame shared staging buffers. Static accepted
 updates reserve and copy nothing; conventional Forward does not consume the
-tables yet. Packed updates now carry the immutable dense draw-to-physical-slot
+tables on Metal yet. Packed updates carry the immutable dense draw-to-physical-slot
 dispatch map needed by that consumption path; unchanged frames share it without
 an identity scan, and Vulkan/Metal validate its size, capacity, and uniqueness.
 
-The milestone remains incomplete. Next are renderer consumption of the
+Vulkan basic bindless Forward now consumes the four persistent tables. CPU
+indexed submission retains geometry-buffer binding and raster state, but its
+per-draw shader input is reduced to frame view state plus the packed physical
+`GpuDraw` slot. Vertex and fragment stages resolve geometry attributes,
+transform/normal data, stable object and instance IDs, material factors, and
+bindless texture/sampler slots from the resident ABI-v1 records. Generated
+materials and devices selected onto conventional descriptors keep the existing
+Forward path. Reflection validates the storage-buffer/push-constant ABI, and
+runtime evidence checks packed ID AOV output and continued table use on a
+zero-upload static frame.
+
+The milestone remains incomplete. Next are Metal renderer consumption of the
 persistent tables and persistent Gaussian attribute residency described in the
 [GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
 [Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
@@ -203,7 +214,8 @@ persistent tables and persistent Gaussian attribute residency described in the
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Consume the Vulkan and Metal persistent tables in renderer submission.
+2. Consume the persistent tables in Metal renderer submission and retain the
+   Vulkan conventional/generated-material fallbacks.
 3. Add persistent Gaussian attribute residency and retain range-only updates.
 4. Strengthen non-GPU and Linux gates before implementation breadth grows.
 5. Preserve the completed native Metal presentation path while extending the

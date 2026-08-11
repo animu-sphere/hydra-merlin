@@ -269,6 +269,7 @@ struct FrameTelemetry {
   std::uint64_t gpu_scene_staging_reserved_bytes{};
   std::uint64_t gpu_scene_staging_growth_count{};
   std::uint64_t gpu_scene_staging_growth_bytes{};
+  std::uint64_t gpu_scene_draw_count{};
   std::uint64_t requested_aov_mask{};
   std::uint64_t rendered_aov_mask{};
   std::uint64_t cpu_readback_aov_mask{};

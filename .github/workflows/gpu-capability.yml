@@ -53,7 +53,7 @@ jobs:
       - name: Run reproducibility, viewport, headless smoke, and validation tests
         run: >-
           ctest --test-dir build-native -C ${{ matrix.build_type }}
-          -R "^merlin-(render-world|render-extraction|render-backend|backend-boundaries|shader-(contract|abi)|render-product-contract|render-artifacts|viewport-vulkan|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|resource-update|material-resources|bindless-residency|offscreen|validation))$"
+          -R "^merlin-(render-world|render-extraction|render-backend|backend-boundaries|shader-(contract|abi)|render-product-contract|render-artifacts|viewport-vulkan|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(execution-lifetime|resource-update|gpu-scene-upload|material-resources|bindless-residency|offscreen|validation))$"
           --output-on-failure --verbose
 
       - name: Record descriptor selection and exhaustion evidence
