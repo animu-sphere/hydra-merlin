@@ -169,13 +169,18 @@ Metal now allocates the same four fixed-capacity tables as private buffers and
 uses completion-safe per-frame shared staging buffers to encode one blit per
 packed dirty range. It applies the same snapshot, plan-boundary, capacity, and
 continuity checks as Vulkan; rejected updates remain retryable and unchanged
-snapshots reserve and copy nothing. Renderer consumption remains the next
-v0.15.0 layer over this ABI and residency boundary. Packed frame updates now
+snapshots reserve and copy nothing. Vulkan basic bindless Forward now consumes
+all four tables while retaining CPU indexed submission: a compact push constant
+selects the physical `GpuDraw` slot and supplies frame view state, then the
+shader resolves geometry attributes, instance transforms/IDs, material factors,
+and bindless resources from ABI-v1 storage buffers. Generated materials and
+non-bindless devices remain on conventional Forward. Metal renderer consumption
+remains the next v0.15.0 layer over this ABI and residency boundary. Packed frame updates
 also retain an immutable dense-snapshot-draw to physical-`GpuDraw`-slot map.
 Unchanged frames share the existing map without rescanning draw identities,
 and both native backends reject missing, out-of-capacity, or duplicate slots.
-This is the dispatch identity consumed by the upcoming table-backed Forward
-shader path.
+This is the dispatch identity consumed by Vulkan table-backed Forward and
+reserved for the corresponding Metal path.
 
 The shared packing layer now turns geometry, instance, material, and draw
 upserts into ABI-v1 records grouped by contiguous physical slot. It validates
@@ -185,7 +190,8 @@ through the current persistent resource mappings, requires explicit stable
 or unrepresentable arena ranges instead of truncating them. An unchanged plan
 produces no records and zero copy bytes. Vulkan native buffer allocation,
 staging, and dirty-range copies now consume this packed contract on both Vulkan
-and Metal; renderer consumption remains backend work. The
+and Metal; Vulkan renderer consumption is in place and Metal remains backend
+work. The
 four persistent mappings form one transaction boundary: packing runs against
 cloned candidates, verifies that every upsert still names the candidate's
 current owner/generation, and publishes all candidates only after every table

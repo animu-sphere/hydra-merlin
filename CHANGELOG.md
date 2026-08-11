@@ -10,6 +10,15 @@ after its public API and release process are established.
 
 ### Added
 
+- Vulkan basic bindless Forward now consumes the persistent ABI-v1 geometry,
+  instance, material, and draw tables. CPU indexed submission pushes only the
+  immutable dense-draw to physical-slot dispatch identity plus frame view
+  state; the shader resolves transforms, IDs, material factors, and bindless
+  resource indices from the resident tables. Shader reflection covers the new
+  storage-buffer and push-constant ABI, frame telemetry reports table-backed
+  draws, and runtime coverage verifies packed object/instance AOV identity on
+  both the first uploaded frame and a zero-upload static frame. Generated
+  materials and non-bindless devices retain conventional Forward fallback.
 - Optional Metal private ABI-v1 GPU Scene tables with completion-safe,
   per-frame shared staging buffers. Metal now validates the same packed
   geometry, instance, material, and draw revision boundary as Vulkan and
@@ -23,8 +32,8 @@ after its public API and release process are established.
   capacities, staged once per contiguous dirty range, synchronized for native
   graphics/compute reads on single-queue and asynchronous-transfer devices,
   and reported with exact payload, range, capacity, reservation, and growth
-  telemetry. Conventional Forward remains unchanged while table consumption is
-  implemented separately.
+  telemetry. Vulkan basic bindless Forward now consumes these tables; Metal
+  renderer consumption remains a separate slice.
 - Common GPU Scene ABI-v1 record packing for persistent geometry, instance,
   material, and draw upserts. Packing resolves current physical resource slots,
   emits ordered contiguous dirty-copy ranges, preserves stable 64-bit draw

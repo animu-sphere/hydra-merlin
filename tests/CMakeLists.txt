@@ -475,6 +475,8 @@ if(TARGET Merlin::Vulkan)
       "${MERLIN_FRAGMENT_SPV}.reflection.json"
       "${MERLIN_BINDLESS_VERTEX_SPV}.reflection.json"
       "${MERLIN_BINDLESS_FRAGMENT_SPV}.reflection.json"
+      "${MERLIN_GPU_SCENE_VERTEX_SPV}.reflection.json"
+      "${MERLIN_GPU_SCENE_FRAGMENT_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
@@ -612,6 +614,7 @@ if(TARGET merlin-headless)
   )
   target_link_libraries(merlin-gpu-scene-vulkan-upload-tests
     PRIVATE Merlin::RenderExtraction Merlin::Vulkan)
+  add_dependencies(merlin-gpu-scene-vulkan-upload-tests merlin-headless)
   add_test(
     NAME merlin-vulkan-gpu-scene-upload
     COMMAND merlin-gpu-scene-vulkan-upload-tests

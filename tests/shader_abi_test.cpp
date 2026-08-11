@@ -140,10 +140,11 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 12) {
+    if (argc != 14) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
-          "bindless.vert.json bindless.frag.json gaussian.vert.json "
+          "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
+          "gpu-scene.frag.json gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -153,18 +154,29 @@ int main(int argc, char** argv) {
     const auto conventional_fragment = CompactJson(Read(argv[2]));
     const auto bindless_vertex = CompactJson(Read(argv[3]));
     const auto bindless_fragment = CompactJson(Read(argv[4]));
-    const auto gaussian_vertex = CompactJson(Read(argv[5]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[6]));
-    const auto gaussian_fragment = CompactJson(Read(argv[7]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[8]));
-    const auto metal_vertex = CompactJson(Read(argv[9]));
-    const auto metal_fragment = CompactJson(Read(argv[10]));
-    const auto manifest = CompactJson(Read(argv[11]));
+    const auto gpu_scene_vertex = CompactJson(Read(argv[5]));
+    const auto gpu_scene_fragment = CompactJson(Read(argv[6]));
+    const auto gaussian_vertex = CompactJson(Read(argv[7]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[8]));
+    const auto gaussian_fragment = CompactJson(Read(argv[9]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[10]));
+    const auto metal_vertex = CompactJson(Read(argv[11]));
+    const auto metal_fragment = CompactJson(Read(argv[12]));
+    const auto manifest = CompactJson(Read(argv[13]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
     RequireCommonAbi(bindless_vertex);
     RequireCommonAbi(bindless_fragment);
+
+    RequireContains(gpu_scene_vertex, "\"name\":\"GpuSceneDrawConstants\"",
+                    "GPU Scene draw constants are absent from reflection");
+    RequireContains(
+        gpu_scene_vertex,
+        "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
+        "GPU Scene draw constants are not a push constant buffer");
+    RequireField(gpu_scene_vertex, "view_projection", 0, 64);
+    RequireField(gpu_scene_vertex, "draw_slot", 64, 4);
 
     RequireBinding(conventional_fragment, "base_color_texture",
                    "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
@@ -178,6 +190,16 @@ int main(int argc, char** argv) {
                    "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
     RequireBinding(bindless_fragment, "material_constants",
                    "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":0}");
+    RequireBinding(gpu_scene_vertex, "gpu_geometries",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
+    RequireBinding(gpu_scene_vertex, "gpu_instances",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
+    RequireBinding(gpu_scene_vertex, "gpu_materials",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":3}");
+    RequireBinding(gpu_scene_vertex, "gpu_draws",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
+    RequireBinding(gpu_scene_fragment, "bindless_textures",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
     RequireContains(bindless_fragment, "\"elementCount\":0",
                     "bindless descriptors are not reflected as runtime arrays");
 
@@ -193,6 +215,12 @@ int main(int argc, char** argv) {
     RequireContains(bindless_fragment,
                     "\"name\":\"forward_bindless_fragment\",\"stage\":\"fragment\"",
                     "bindless fragment entry point mismatch");
+    RequireContains(gpu_scene_vertex,
+                    "\"name\":\"forward_gpu_scene_vertex\",\"stage\":\"vertex\"",
+                    "GPU Scene vertex entry point mismatch");
+    RequireContains(gpu_scene_fragment,
+                    "\"name\":\"forward_gpu_scene_fragment\",\"stage\":\"fragment\"",
+                    "GPU Scene fragment entry point mismatch");
     RequireContains(gaussian_vertex,
                     "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
                     "Gaussian vertex entry point mismatch");
@@ -223,7 +251,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
                     "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":3",
+    RequireContains(manifest, "\"shader_abi_version\":4",
                     "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
                     "Slang toolchain series is not pinned");
@@ -239,14 +267,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 10,
+                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 12,
             "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 3);
+    static_assert(kVersion == 4);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -255,6 +283,10 @@ int main(int argc, char** argv) {
     static_assert(kBindlessTextures.binding == 1);
     static_assert(kBindlessMaterialConstants.set == 1);
     static_assert(kBindlessMaterialConstants.binding == 0);
+    static_assert(kGpuSceneGeometries.binding == 1);
+    static_assert(kGpuSceneInstances.binding == 2);
+    static_assert(kGpuSceneMaterials.binding == 3);
+    static_assert(kGpuSceneDraws.binding == 4);
   } catch (const std::exception& error) {
     std::cerr << "shader ABI contract failure: " << error.what() << '\n';
     return 1;

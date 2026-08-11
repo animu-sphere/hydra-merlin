@@ -343,6 +343,9 @@ struct FrameCounters {
   std::uint64_t gpu_scene_upload_ring_reserved_bytes{};
   std::uint64_t gpu_scene_upload_ring_growth_count{};
   std::uint64_t gpu_scene_upload_ring_growth_bytes{};
+  // Basic bindless Forward draws whose shader state was sourced from the
+  // persistent GPU Scene tables rather than per-draw scene constants.
+  std::uint64_t gpu_scene_draw_count{};
   // Aligned space reserved from the persistent mapped geometry-upload ring.
   // Texture uploads currently use completion-retired staging buffers and are
   // therefore excluded.
@@ -424,6 +427,10 @@ struct ShaderPaths {
   std::filesystem::path gaussian_fragment;
   std::filesystem::path gaussian_id_fragment;
   std::filesystem::path gaussian_id_vertex;
+  // Optional explicit table-backed Forward artifacts. Empty paths resolve
+  // beside bindless_vertex/bindless_fragment using packaged filenames.
+  std::filesystem::path gpu_scene_vertex;
+  std::filesystem::path gpu_scene_fragment;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
@@ -452,10 +459,11 @@ struct RenderRequest {
   // attachment is copied GPU-to-GPU into the acquired swapchain image; CPU
   // readback remains independently controlled by the product requests.
   bool present{};
-  // Optional native upload half of the persistent GPU Scene contract. The
+  // Optional native persistent GPU Scene contract. The
   // update must have been packed from `snapshot` and fit the capacities used
-  // to create this Renderer. Renderer consumption of these tables is a later
-  // path; conventional Forward remains unchanged while upload evidence lands.
+  // to create this Renderer. Basic bindless Forward consumes the resident
+  // tables; generated materials and non-bindless devices retain conventional
+  // Forward as an explicit fallback.
   std::shared_ptr<const render::GpuScenePackedFrameUpdate> gpu_scene_update;
 };
 

@@ -503,6 +503,8 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.gpu_scene_upload_ring_growth_count);
   WriteCounter(stream, counter_indent, "gpu_scene_upload_ring_growth_bytes",
                count.gpu_scene_upload_ring_growth_bytes);
+  WriteCounter(stream, counter_indent, "gpu_scene_draw_count",
+               count.gpu_scene_draw_count);
   WriteCounter(stream, counter_indent, "upload_ring_reserved_bytes",
                count.upload_ring_reserved_bytes);
   WriteCounter(stream, counter_indent, "readback_bytes", count.readback_bytes);

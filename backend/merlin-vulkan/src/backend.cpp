@@ -290,6 +290,8 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
         native.counters.gpu_scene_upload_ring_growth_count;
     result.telemetry.gpu_scene_staging_growth_bytes =
         native.counters.gpu_scene_upload_ring_growth_bytes;
+    result.telemetry.gpu_scene_draw_count =
+        native.counters.gpu_scene_draw_count;
     result.telemetry.presentation_copy_bytes =
         native.counters.presentation_copy_bytes;
     result.telemetry.requested_aov_mask = native.counters.requested_aov_mask;

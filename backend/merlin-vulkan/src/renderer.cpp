@@ -362,6 +362,7 @@ static_assert(shader_abi::kBindlessTextures.binding >
 constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
 constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;
 constexpr std::uint32_t kCounterClockwiseFrontFaceFlag = 1U << 30U;
+constexpr std::uint32_t kGpuScenePipelineFlag = 1U << 31U;
 constexpr std::uint32_t kSamplerIndexShift = 8U;
 constexpr std::uint32_t kSamplerIndexMask = 0xffffU;
 
@@ -3307,16 +3308,30 @@ class Renderer::Impl {
       ++frame_counters_.descriptor_layout_cache_hits;
       return;
     }
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = shader_abi::kBindlessMaterialConstants.binding;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    binding.descriptorCount = 1;
-    binding.stageFlags =
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+    bindings[0].binding = shader_abi::kBindlessMaterialConstants.binding;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags =
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    const std::array table_bindings{
+        shader_abi::kGpuSceneGeometries.binding,
+        shader_abi::kGpuSceneInstances.binding,
+        shader_abi::kGpuSceneMaterials.binding,
+        shader_abi::kGpuSceneDraws.binding,
+    };
+    for (std::size_t i = 0; i < table_bindings.size(); ++i) {
+      auto& binding = bindings[i + 1];
+      binding.binding = table_bindings[i];
+      binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      binding.descriptorCount = 1;
+      binding.stageFlags =
+          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
     VkDescriptorSetLayoutCreateInfo info{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    info.bindingCount = 1;
-    info.pBindings = &binding;
+    info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    info.pBindings = bindings.data();
     Check(vkCreateDescriptorSetLayout(
               device_, &info, nullptr,
               &bindless_material_descriptor_set_layout_),
@@ -3852,13 +3867,18 @@ class Renderer::Impl {
       descriptor_dirty = true;
     }
     if (frame.descriptor_pool == VK_NULL_HANDLE) {
-      const VkDescriptorPoolSize size{
-          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1};
+      std::array<VkDescriptorPoolSize, 2> sizes{{
+          {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1},
+          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4U},
+      }};
       VkDescriptorPoolCreateInfo pool_info{
           VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
       pool_info.maxSets = 1;
-      pool_info.poolSizeCount = 1;
-      pool_info.pPoolSizes = &size;
+      // The shared bindless layout contains the optional GPU Scene bindings.
+      // Vulkan descriptor pools must cover every binding in an allocated set
+      // even when the conventional bindless shader does not statically use it.
+      pool_info.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+      pool_info.pPoolSizes = sizes.data();
       Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
                                    &frame.descriptor_pool),
             "create bindless material descriptor pool");
@@ -3876,16 +3896,46 @@ class Renderer::Impl {
       descriptor_dirty = true;
     }
     if (descriptor_dirty) {
-      const VkDescriptorBufferInfo buffer_info{
+      std::array<VkDescriptorBufferInfo, 5> buffer_infos{};
+      buffer_infos[0] = {
           frame.material_uniforms.handle, 0, sizeof(MaterialUniforms)};
-      VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-      write.dstSet = frame.bindless_material_descriptor_set;
-      write.dstBinding = shader_abi::kBindlessMaterialConstants.binding;
-      write.descriptorCount = 1;
-      write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-      write.pBufferInfo = &buffer_info;
-      vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-      ++frame_counters_.descriptor_update_count;
+      std::array<VkWriteDescriptorSet, 5> writes{};
+      writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[0].dstSet = frame.bindless_material_descriptor_set;
+      writes[0].dstBinding =
+          shader_abi::kBindlessMaterialConstants.binding;
+      writes[0].descriptorCount = 1;
+      writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+      writes[0].pBufferInfo = &buffer_infos[0];
+      std::uint32_t write_count = 1;
+      if (gpu_scene_buffers_.enabled()) {
+        const std::array<const Buffer*, 4> table_buffers{
+            &gpu_scene_buffers_.geometries,
+            &gpu_scene_buffers_.instances,
+            &gpu_scene_buffers_.materials,
+            &gpu_scene_buffers_.draws,
+        };
+        const std::array table_binding_indices{
+            shader_abi::kGpuSceneGeometries.binding,
+            shader_abi::kGpuSceneInstances.binding,
+            shader_abi::kGpuSceneMaterials.binding,
+            shader_abi::kGpuSceneDraws.binding,
+        };
+        for (std::size_t i = 0; i < table_buffers.size(); ++i) {
+          buffer_infos[i + 1] = {
+              table_buffers[i]->handle, 0, table_buffers[i]->size};
+          auto& write = writes[i + 1];
+          write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          write.dstSet = frame.bindless_material_descriptor_set;
+          write.dstBinding = table_binding_indices[i];
+          write.descriptorCount = 1;
+          write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+          write.pBufferInfo = &buffer_infos[i + 1];
+        }
+        write_count = static_cast<std::uint32_t>(writes.size());
+      }
+      vkUpdateDescriptorSets(device_, write_count, writes.data(), 0, nullptr);
+      frame_counters_.descriptor_update_count += write_count;
     }
     frame.material_uniform_stride = uniform_stride;
 
@@ -5245,13 +5295,31 @@ class Renderer::Impl {
       const ShaderPaths& shaders, std::uint32_t variant_key,
       const GeneratedMaterialArtifact* generated_artifact = nullptr) {
     ++frame_counters_.pipeline_creation_count;
+    const bool gpu_scene_pipeline =
+        generated_artifact == nullptr &&
+        (variant_key & kGpuScenePipelineFlag) != 0U;
+    const auto gpu_scene_vertex =
+        shaders.gpu_scene_vertex.empty()
+            ? shaders.bindless_vertex.parent_path() /
+                  "triangle.gpu-scene.vert.spv"
+            : shaders.gpu_scene_vertex;
+    const auto gpu_scene_fragment =
+        shaders.gpu_scene_fragment.empty()
+            ? shaders.bindless_fragment.parent_path() /
+                  "triangle.gpu-scene.frag.spv"
+            : shaders.gpu_scene_fragment;
     const auto vertex_shader = GetShaderModule(
-        bindless_texture_table_ ? shaders.bindless_vertex : shaders.vertex);
+        gpu_scene_pipeline
+            ? gpu_scene_vertex
+            : (bindless_texture_table_ ? shaders.bindless_vertex
+                                       : shaders.vertex));
     const auto fragment_path =
         generated_artifact != nullptr
             ? generated_artifact->fragment
-            : (bindless_texture_table_ ? shaders.bindless_fragment
-                                       : shaders.fragment);
+            : (gpu_scene_pipeline
+                   ? gpu_scene_fragment
+                   : (bindless_texture_table_ ? shaders.bindless_fragment
+                                              : shaders.fragment));
     const auto fragment_shader = GetShaderModule(fragment_path);
     const auto* fragment_entry =
         generated_artifact != nullptr
@@ -6182,6 +6250,17 @@ class Renderer::Impl {
     vkCmdSetViewport(command, 0, 1, &viewport);
     vkCmdSetScissor(command, 0, 1, &scissor);
     const auto view_projection = Multiply(snapshot.projection, snapshot.view);
+    const auto gpu_scene_draw_slots =
+        gpu_scene_buffers_.pending_update
+            ? gpu_scene_buffers_.pending_draw_slot_indices
+            : (gpu_scene_buffers_.has_resident_update &&
+                       gpu_scene_buffers_.source_id == snapshot.source_id &&
+                       gpu_scene_buffers_.revision == snapshot.revision
+                   ? gpu_scene_buffers_.draw_slot_indices
+                   : nullptr);
+    const bool gpu_scene_ready =
+        bindless_texture_table_ && gpu_scene_draw_slots &&
+        gpu_scene_draw_slots->size() == draw_records_.size();
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
       const auto& geometry = geometry_records_[draw.geometry_index];
@@ -6197,6 +6276,8 @@ class Renderer::Impl {
       auto feature_mask = variant.feature_mask;
       const auto* generated_artifact =
           selected_material_artifacts_[draw.material_index];
+      const bool use_gpu_scene =
+          gpu_scene_ready && generated_artifact == nullptr;
       if (generated_artifact != nullptr) {
         ++frame_counters_.generated_material_draw_count;
       } else if (material.module) {
@@ -6208,7 +6289,10 @@ class Renderer::Impl {
                                         *generated_artifact,
                                         variant.variant_key)
               : EnsurePipeline(active_target_->shaders,
-                               variant.variant_key);
+                               variant.variant_key |
+                                   (use_gpu_scene
+                                        ? kGpuScenePipelineFlag
+                                        : 0U));
       const auto pipeline_layout =
           generated_artifact != nullptr
               ? active_target_->generated_pipeline_layouts.at(
@@ -6243,40 +6327,54 @@ class Renderer::Impl {
                                 pipeline_layout, 0, 1,
                                 &descriptor_set, 0, nullptr);
       }
-      PushConstants push;
-      push.model_view_projection =
-          Multiply(view_projection, instance.transform);
-      const auto normal_matrix = NormalMatrix(instance.transform);
-      push.normal_matrix_column0 = normal_matrix[0];
-      push.normal_matrix_column1 = normal_matrix[1];
-      push.normal_matrix_column2 = normal_matrix[2];
-      push.feature_mask = feature_mask;
-      if (material.alpha_mode == AlphaMode::Masked) {
-        push.feature_mask |= kMaskedAlphaFlag;
-      }
-      if (bindless_texture_table_ && material.base_color_texture) {
-        const auto texture_handle =
-            texture_records_[material.base_color_texture->texture_index]
-                .texture;
-        const auto sampler_handle =
-            sampler_records_[material.base_color_texture->sampler_index]
-                .sampler;
-        const auto texture_slot = texture_slots_.at(texture_handle).bindless_slot;
-        const auto sampler_slot = sampler_slots_.at(sampler_handle).bindless_slot;
-        if (sampler_slot.index > kSamplerIndexMask) {
-          throw RendererError(RendererErrorCode::Unsupported,
-                              "record bindless material",
-                              "bindless sampler index exceeds shader encoding");
+      if (use_gpu_scene) {
+        shader_abi::GpuSceneDrawConstants push;
+        push.view_projection = view_projection;
+        push.draw_slot = (*gpu_scene_draw_slots)[i];
+        vkCmdPushConstants(command, pipeline_layout,
+                           VK_SHADER_STAGE_VERTEX_BIT |
+                               VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(push), &push);
+        ++frame_counters_.gpu_scene_draw_count;
+      } else {
+        PushConstants push;
+        push.model_view_projection =
+            Multiply(view_projection, instance.transform);
+        const auto normal_matrix = NormalMatrix(instance.transform);
+        push.normal_matrix_column0 = normal_matrix[0];
+        push.normal_matrix_column1 = normal_matrix[1];
+        push.normal_matrix_column2 = normal_matrix[2];
+        push.feature_mask = feature_mask;
+        if (material.alpha_mode == AlphaMode::Masked) {
+          push.feature_mask |= kMaskedAlphaFlag;
         }
-        push.texture_index = texture_slot.index;
-        push.feature_mask |= sampler_slot.index << kSamplerIndexShift;
+        if (bindless_texture_table_ && material.base_color_texture) {
+          const auto texture_handle =
+              texture_records_[material.base_color_texture->texture_index]
+                  .texture;
+          const auto sampler_handle =
+              sampler_records_[material.base_color_texture->sampler_index]
+                  .sampler;
+          const auto texture_slot =
+              texture_slots_.at(texture_handle).bindless_slot;
+          const auto sampler_slot =
+              sampler_slots_.at(sampler_handle).bindless_slot;
+          if (sampler_slot.index > kSamplerIndexMask) {
+            throw RendererError(
+                RendererErrorCode::Unsupported,
+                "record bindless material",
+                "bindless sampler index exceeds shader encoding");
+          }
+          push.texture_index = texture_slot.index;
+          push.feature_mask |= sampler_slot.index << kSamplerIndexShift;
+        }
+        push.prim_id = static_cast<std::uint32_t>(geometry.mesh);
+        push.instance_id = static_cast<std::uint32_t>(instance.instance);
+        vkCmdPushConstants(command, pipeline_layout,
+                           VK_SHADER_STAGE_VERTEX_BIT |
+                               VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(push), &push);
       }
-      push.prim_id = static_cast<std::uint32_t>(geometry.mesh);
-      push.instance_id = static_cast<std::uint32_t>(instance.instance);
-      vkCmdPushConstants(command, pipeline_layout,
-                         VK_SHADER_STAGE_VERTEX_BIT |
-                             VK_SHADER_STAGE_FRAGMENT_BIT,
-                         0, sizeof(push), &push);
       vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
     }
     vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);

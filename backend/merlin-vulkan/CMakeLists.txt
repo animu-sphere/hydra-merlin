@@ -99,6 +99,10 @@ set(MERLIN_BINDLESS_VERTEX_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/triangle.bindless.vert.spv")
 set(MERLIN_BINDLESS_FRAGMENT_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/triangle.bindless.frag.spv")
+set(MERLIN_GPU_SCENE_VERTEX_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/triangle.gpu-scene.vert.spv")
+set(MERLIN_GPU_SCENE_FRAGMENT_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/triangle.gpu-scene.frag.spv")
 set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gaussian.vert.spv")
 set(MERLIN_GAUSSIAN_FRAGMENT_SPV
@@ -117,6 +121,10 @@ set(_merlin_shader_forward
     "${_merlin_shader_source_dir}/forward.slang")
 set(_merlin_shader_bindless
     "${_merlin_shader_source_dir}/forward-bindless.slang")
+set(_merlin_shader_gpu_scene
+    "${_merlin_shader_source_dir}/forward-gpu-scene.slang")
+set(_merlin_gpu_scene_abi
+    "${PROJECT_SOURCE_DIR}/core/merlin-render-backend/shaders/gpu-scene-abi.slang")
 set(_merlin_shader_gaussian
     "${_merlin_shader_source_dir}/gaussian.slang")
 
@@ -192,6 +200,14 @@ _merlin_compile_shader("${MERLIN_BINDLESS_FRAGMENT_SPV}" forward-bindless.slang
   forward_bindless_fragment fragment spirv "${_merlin_slang_spirv_profile}"
   spirv_1_5+spvShaderNonUniformEXT forward-bindless
   "${_merlin_bindless_features}")
+_merlin_compile_shader("${MERLIN_GPU_SCENE_VERTEX_SPV}" forward-gpu-scene.slang
+  forward_gpu_scene_vertex vertex spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5+spvShaderNonUniformEXT forward-gpu-scene
+  "${_merlin_bindless_features}+gpu_scene_abi_v1")
+_merlin_compile_shader("${MERLIN_GPU_SCENE_FRAGMENT_SPV}" forward-gpu-scene.slang
+  forward_gpu_scene_fragment fragment spirv "${_merlin_slang_spirv_profile}"
+  spirv_1_5+spvShaderNonUniformEXT forward-gpu-scene
+  "${_merlin_bindless_features}+gpu_scene_abi_v1")
 _merlin_compile_shader("${MERLIN_GAUSSIAN_VERTEX_SPV}" gaussian.slang
   gaussian_vertex vertex spirv "${_merlin_slang_spirv_profile}"
   spirv_1_5 gaussian-mvp "prepared_stream+procedural_quad")
@@ -224,6 +240,8 @@ set(_merlin_shader_reflections
   "${MERLIN_FRAGMENT_SPV}.reflection.json"
   "${MERLIN_BINDLESS_VERTEX_SPV}.reflection.json"
   "${MERLIN_BINDLESS_FRAGMENT_SPV}.reflection.json"
+  "${MERLIN_GPU_SCENE_VERTEX_SPV}.reflection.json"
+  "${MERLIN_GPU_SCENE_FRAGMENT_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
@@ -241,6 +259,7 @@ add_custom_command(
     "-DMERLIN_SHADER_ABI_VERSION:STRING=${MERLIN_SHADER_ABI_VERSION}"
     "-DMERLIN_SHADER_RECORDS_FILE:FILEPATH=${_merlin_shader_records_file}"
     "-DMERLIN_SHADER_SOURCE_DIR:PATH=${_merlin_shader_source_dir}"
+    "-DMERLIN_SHARED_SHADER_SOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}/core/merlin-render-backend/shaders"
     "-DMERLIN_SLANG_VERSION:STRING=${_merlin_slang_version}"
     "-DMERLIN_SLANG_REQUIRED_SERIES:STRING=${MERLIN_SLANG_REQUIRED_SERIES}"
     "-DMERLIN_SLANG_MATRIX_LAYOUT:STRING=${_merlin_slang_matrix_layout}"
@@ -253,12 +272,14 @@ add_custom_command(
   DEPENDS
     "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
     "${MERLIN_BINDLESS_VERTEX_SPV}" "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+    "${MERLIN_GPU_SCENE_VERTEX_SPV}" "${MERLIN_GPU_SCENE_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
     "${MERLIN_VERTEX_METAL}" "${MERLIN_FRAGMENT_METAL}"
     ${_merlin_shader_reflections}
     "${_merlin_shader_forward}" "${_merlin_shader_bindless}"
+    "${_merlin_shader_gpu_scene}" "${_merlin_gpu_scene_abi}"
     "${_merlin_shader_gaussian}"
     "${_merlin_shader_common}"
     "${MERLIN_ENVIRONMENT_HDR}"
@@ -274,6 +295,8 @@ add_custom_target(merlin-vulkan-shaders
     "${MERLIN_FRAGMENT_SPV}"
     "${MERLIN_BINDLESS_VERTEX_SPV}"
     "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+    "${MERLIN_GPU_SCENE_VERTEX_SPV}"
+    "${MERLIN_GPU_SCENE_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -290,6 +313,8 @@ set(_merlin_shader_package_files
   "${MERLIN_FRAGMENT_SPV}"
   "${MERLIN_BINDLESS_VERTEX_SPV}"
   "${MERLIN_BINDLESS_FRAGMENT_SPV}"
+  "${MERLIN_GPU_SCENE_VERTEX_SPV}"
+  "${MERLIN_GPU_SCENE_FRAGMENT_SPV}"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}"
   "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -309,6 +334,10 @@ set(MERLIN_FRAGMENT_SPV "${MERLIN_FRAGMENT_SPV}" PARENT_SCOPE)
 set(MERLIN_BINDLESS_VERTEX_SPV "${MERLIN_BINDLESS_VERTEX_SPV}" PARENT_SCOPE)
 set(MERLIN_BINDLESS_FRAGMENT_SPV
     "${MERLIN_BINDLESS_FRAGMENT_SPV}" PARENT_SCOPE)
+set(MERLIN_GPU_SCENE_VERTEX_SPV
+    "${MERLIN_GPU_SCENE_VERTEX_SPV}" PARENT_SCOPE)
+set(MERLIN_GPU_SCENE_FRAGMENT_SPV
+    "${MERLIN_GPU_SCENE_FRAGMENT_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_ID_VERTEX_SPV

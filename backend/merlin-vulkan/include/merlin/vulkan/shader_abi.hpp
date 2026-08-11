@@ -11,7 +11,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 3;
+inline constexpr std::uint32_t kVersion = 4;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -40,6 +40,14 @@ struct alignas(16) MaterialConstants {
   std::array<Vec4, 9> diffuse_environment;
 };
 
+// Table-backed Forward keeps indexed submission on the CPU while selecting a
+// persistent GpuDraw record by physical slot in the shader.
+struct alignas(16) GpuSceneDrawConstants {
+  Mat4 view_projection;
+  std::uint32_t draw_slot{};
+  std::uint32_t padding[3]{};
+};
+
 static_assert(sizeof(DrawConstants) == 128);
 static_assert(alignof(DrawConstants) == 16);
 static_assert(offsetof(DrawConstants, model_view_projection) == 0);
@@ -56,12 +64,17 @@ static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);
 static_assert(offsetof(MaterialConstants, light_color_alpha_cutoff) == 32);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
+static_assert(sizeof(GpuSceneDrawConstants) == 80);
+static_assert(alignof(GpuSceneDrawConstants) == 16);
+static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
+static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
 
 enum class ResourceClass {
   CombinedImageSampler,
   Sampler,
   SampledImage,
   UniformBuffer,
+  StorageBuffer,
 };
 
 struct ResourceBinding {
@@ -80,6 +93,14 @@ inline constexpr ResourceBinding kBindlessTextures{
     0, 1, ResourceClass::SampledImage};
 inline constexpr ResourceBinding kBindlessMaterialConstants{
     1, 0, ResourceClass::UniformBuffer};
+inline constexpr ResourceBinding kGpuSceneGeometries{
+    1, 1, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGpuSceneInstances{
+    1, 2, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGpuSceneMaterials{
+    1, 3, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGpuSceneDraws{
+    1, 4, ResourceClass::StorageBuffer};
 
 inline constexpr ShaderCapability kConventionalCapabilities =
     ShaderCapability::MaterialConstants |
