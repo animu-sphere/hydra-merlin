@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Optional Metal private ABI-v1 GPU Scene tables with completion-safe,
+  per-frame shared staging buffers. Metal now validates the same packed
+  geometry, instance, material, and draw revision boundary as Vulkan and
+  records one blit per contiguous dirty range, with exact capacity, payload,
+  range, staging reservation, and growth telemetry. Rejected updates do not
+  advance native continuity, and unchanged snapshots allocate and upload
+  nothing; renderer consumption remains a separate slice.
 - Optional Vulkan device-local ABI-v1 GPU Scene tables and a dedicated
   persistently mapped upload ring. Caller-supplied packed geometry, instance,
   material, and draw ranges are checked against their snapshot plans and fixed

@@ -182,17 +182,18 @@ be corrected and retried. Plan packing is internal and verifies each upsert
 against the candidate's current owner/generation before discarding generation
 metadata for the shader-visible copy range.
 
-The first native upload slice is now in place on Vulkan. Optional fixed-capacity
-device-local geometry, instance, material, and draw tables consume caller-packed
-updates through a dedicated persistent staging ring, validate snapshot and
-capacity continuity before recording copies, issue one copy per contiguous
-dirty range, and expose exact payload, range, capacity, reservation, and growth
-telemetry. Static accepted updates reserve and copy nothing; conventional
-Forward does not consume the tables yet.
+The first native upload slice is now in place on Vulkan and Metal. Optional
+fixed-capacity geometry, instance, material, and draw tables consume
+caller-packed updates, validate snapshot and capacity continuity before
+recording copies, issue one copy per contiguous dirty range, and expose exact
+payload, range, capacity, reservation, and growth telemetry. Vulkan uses a
+dedicated persistent staging ring for device-local tables; Metal uses private
+tables with completion-safe per-frame shared staging buffers. Static accepted
+updates reserve and copy nothing; conventional Forward does not consume the
+tables yet.
 
-The milestone remains incomplete. Next are Metal native table allocation/copy,
-renderer consumption of the persistent tables, and persistent Gaussian
-attribute residency described in the
+The milestone remains incomplete. Next are renderer consumption of the
+persistent tables and persistent Gaussian attribute residency described in the
 [GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
 [Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
 
@@ -200,8 +201,7 @@ attribute residency described in the
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Add Metal parity for native GPU Scene buffers and dirty-range copies, then
-   consume the persistent tables in renderer submission.
+2. Consume the Vulkan and Metal persistent tables in renderer submission.
 3. Add persistent Gaussian attribute residency and retain range-only updates.
 4. Strengthen non-GPU and Linux gates before implementation breadth grows.
 5. Preserve the completed native Metal presentation path while extending the

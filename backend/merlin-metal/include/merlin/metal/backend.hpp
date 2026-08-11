@@ -6,6 +6,7 @@
 
 #include <merlin/metal/resource_table.hpp>
 #include <merlin/render/backend.hpp>
+#include <merlin/render/gpu_scene_packing.hpp>
 
 namespace merlin::metal {
 
@@ -109,6 +110,10 @@ struct BackendOptions {
   std::uint32_t texture_capacity{128};
   std::uint32_t sampler_capacity{32};
   std::uint64_t heap_capacity_bytes{64ULL * 1024ULL * 1024ULL};
+  // Optional fixed capacities for the persistent ABI-v1 GPU Scene tables.
+  // Metal allocates private buffers once and stages only packed dirty ranges
+  // through completion-safe per-frame shared buffers.
+  std::optional<render::GpuScenePackingCapacities> gpu_scene_capacities;
   std::optional<PresentationOptions> presentation;
 };
 
@@ -123,6 +128,11 @@ struct MetalStatistics {
   std::uint64_t argument_buffer_update_count{};
   std::uint64_t argument_buffer_encode_count{};
   std::uint64_t scene_resource_retirements{};
+  bool gpu_scene_buffers{};
+  std::uint64_t gpu_scene_capacity_bytes{};
+  std::uint64_t gpu_scene_staging_capacity_bytes{};
+  std::uint64_t gpu_scene_staging_peak_capacity_bytes{};
+  std::uint64_t gpu_scene_staging_growth_count{};
   ResourceTableTelemetry texture_slots;
   ResourceTableTelemetry sampler_slots;
 };

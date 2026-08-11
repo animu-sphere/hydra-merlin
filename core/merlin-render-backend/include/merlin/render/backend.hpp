@@ -16,6 +16,8 @@
 
 namespace merlin::render {
 
+struct GpuScenePackedFrameUpdate;
+
 inline constexpr std::uint32_t kBackendContractVersion = 1;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 1;
 
@@ -258,6 +260,15 @@ struct FrameTelemetry {
   std::uint64_t gaussian_preparation_cache_misses{};
   std::uint64_t gaussian_draw_count{};
   std::uint64_t gaussian_upload_bytes{};
+  // ABI-v1 persistent GPU Scene payload copied from a caller-packed update.
+  // Backends record one native copy for each packed dirty range. Staging
+  // reservation/growth remains visible so a static frame can prove that it
+  // performed no upload work.
+  std::uint64_t gpu_scene_upload_bytes{};
+  std::uint64_t gpu_scene_copy_range_count{};
+  std::uint64_t gpu_scene_staging_reserved_bytes{};
+  std::uint64_t gpu_scene_staging_growth_count{};
+  std::uint64_t gpu_scene_staging_growth_bytes{};
   std::uint64_t requested_aov_mask{};
   std::uint64_t rendered_aov_mask{};
   std::uint64_t cpu_readback_aov_mask{};
@@ -333,6 +344,9 @@ class CompletionToken {
 
 struct RenderRequest {
   std::shared_ptr<const extraction::FrameSnapshot> snapshot;
+  // Optional packed ABI-v1 table update. A backend accepts this only when it
+  // was created with matching persistent GPU Scene capacities.
+  std::shared_ptr<const GpuScenePackedFrameUpdate> gpu_scene_update;
   std::uint32_t width{512};
   std::uint32_t height{512};
   Vec4 clear_color{kDefaultClearColor};
