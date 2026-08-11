@@ -171,6 +171,22 @@ int main() {
   }
   assert(invalid_gpu_scene_rejected);
 
+  auto invalid_gpu_scene_draw_map =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_gpu_scene_update);
+  invalid_gpu_scene_draw_map->draw_slot_indices =
+      std::make_shared<const std::vector<std::uint32_t>>(
+          std::vector<std::uint32_t>{gpu_scene_capacities.draws});
+  bool invalid_gpu_scene_draw_map_rejected{};
+  try {
+    (void)Render(*backend, extractor.snapshot(),
+                 invalid_gpu_scene_draw_map);
+  } catch (const merlin::render::RendererError& error) {
+    invalid_gpu_scene_draw_map_rejected =
+        error.code() == merlin::render::RendererErrorCode::InvalidRequest;
+  }
+  assert(invalid_gpu_scene_draw_map_rejected);
+
   const auto first_gpu_scene =
       Render(*backend, extractor.snapshot(), first_gpu_scene_update);
   assert(first_gpu_scene.telemetry.gpu_scene_upload_bytes ==

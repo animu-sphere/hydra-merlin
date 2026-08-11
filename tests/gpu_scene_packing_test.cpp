@@ -172,6 +172,10 @@ void TestPackedRecordsAndRanges() {
   assert(draw.primitive_count == 1);
   assert(merlin::render::GpuDrawIdentity(draw) ==
          0x1234567887654321ULL);
+  assert(update.draw_slot_indices);
+  assert(update.draw_slot_indices->size() == 1);
+  assert((*update.draw_slot_indices)[0] ==
+         state.FindDraw(0x1234567887654321ULL)->index);
   assert(update.copy_bytes == sizeof(merlin::render::GpuGeometry) +
                                   sizeof(merlin::render::GpuInstance) +
                                   sizeof(merlin::render::GpuMaterial) +
@@ -185,12 +189,14 @@ void TestStaticUpdateCopiesNothing() {
   const std::vector identities{GpuInstanceIdentity{1, 2}};
   const std::vector bindings{GpuMaterialBinding{7, 11}};
   const GpuScenePackingInputs inputs{placements, identities, bindings};
-  (void)state.Apply(snapshot, 0, 0, inputs);
+  const auto first = state.Apply(snapshot, 0, 0, inputs);
   const auto update = state.Apply(snapshot, 0, 0, {});
   assert(update.geometries.ranges.empty());
   assert(update.instances.ranges.empty());
   assert(update.materials.ranges.empty());
   assert(update.draws.ranges.empty());
+  assert(update.draw_slot_indices == first.draw_slot_indices);
+  assert(update.draw_slot_indices->size() == snapshot.draws.size());
   assert(update.copy_bytes == 0);
 }
 
@@ -227,6 +233,29 @@ void TestCommittedCandidatePreservesSlotGenerations() {
   assert(update.draws.record_count == 1);
   assert(update.instances.record_count == 0);
   assert(update.materials.record_count == 0);
+}
+
+void TestInFlightDrawMappingRemainsImmutable() {
+  auto initial = MakeSnapshot();
+  GpuScenePackingState state(GpuScenePackingCapacities{1, 1, 1, 2});
+  const std::vector placements{GpuGeometryPlacement{0, 0}};
+  const std::vector identities{GpuInstanceIdentity{1, 2}};
+  const std::vector bindings{GpuMaterialBinding{7, 11}};
+  const GpuScenePackingInputs inputs{placements, identities, bindings};
+  const auto first = state.Apply(initial, 0, 0, inputs);
+  const auto original_slot = (*first.draw_slot_indices)[0];
+
+  auto changed = initial;
+  changed.revision = 2;
+  auto draw = changed.draws[0];
+  ++draw.revision;
+  changed.draws.assign({draw});
+  const auto replacement = state.Apply(changed, 5, 0, inputs);
+
+  assert((*first.draw_slot_indices)[0] == original_slot);
+  assert((*replacement.draw_slot_indices)[0] != original_slot);
+  assert((*replacement.draw_slot_indices)[0] ==
+         state.FindDraw(draw.draw)->index);
 }
 
 void TestRejectedUpdateIsAtomicAndRetryable() {
@@ -291,6 +320,7 @@ int main() {
   TestPackedRecordsAndRanges();
   TestStaticUpdateCopiesNothing();
   TestCommittedCandidatePreservesSlotGenerations();
+  TestInFlightDrawMappingRemainsImmutable();
   TestRejectedUpdateIsAtomicAndRetryable();
   std::cout << "GPU Scene packing tests passed\n";
   return 0;

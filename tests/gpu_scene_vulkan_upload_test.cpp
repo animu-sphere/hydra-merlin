@@ -139,6 +139,19 @@ int main(int argc, char** argv) {
     assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
   }
 
+  auto invalid_draw_map =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_update);
+  invalid_draw_map->draw_slot_indices =
+      std::make_shared<const std::vector<std::uint32_t>>(
+          std::vector<std::uint32_t>{capacities.draws});
+  try {
+    (void)Submit(*renderer, snapshot, shaders, invalid_draw_map);
+    assert(false && "out-of-capacity GPU Scene draw slot was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
+  }
+
   // A rejected native upload must not advance table continuity or prevent the
   // original packed update from being retried.
   const auto first = Submit(*renderer, snapshot, shaders, first_update);

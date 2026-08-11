@@ -1111,6 +1111,22 @@ private:
     ValidateGpuSceneTableUpdate(update->draws,
                                 update->draw_plan.dirty_ranges,
                                 capacities.draws, "draw");
+    if (!update->draw_slot_indices ||
+        update->draw_slot_indices->size() != snapshot.draws.size()) {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
+          "draw slot map does not match the request snapshot");
+    }
+    std::vector<bool> mapped_draw_slots(capacities.draws);
+    for (const auto slot : *update->draw_slot_indices) {
+      if (slot >= capacities.draws || mapped_draw_slots[slot]) {
+        throw render::RendererError(
+            render::RendererErrorCode::InvalidRequest,
+            "upload Metal GPU Scene",
+            "draw slot map contains an invalid or duplicate slot");
+      }
+      mapped_draw_slots[slot] = true;
+    }
     const auto copy_bytes = update->geometries.copy_bytes +
                             update->instances.copy_bytes +
                             update->materials.copy_bytes +

@@ -170,7 +170,12 @@ uses completion-safe per-frame shared staging buffers to encode one blit per
 packed dirty range. It applies the same snapshot, plan-boundary, capacity, and
 continuity checks as Vulkan; rejected updates remain retryable and unchanged
 snapshots reserve and copy nothing. Renderer consumption remains the next
-v0.15.0 layer over this ABI and residency boundary.
+v0.15.0 layer over this ABI and residency boundary. Packed frame updates now
+also retain an immutable dense-snapshot-draw to physical-`GpuDraw`-slot map.
+Unchanged frames share the existing map without rescanning draw identities,
+and both native backends reject missing, out-of-capacity, or duplicate slots.
+This is the dispatch identity consumed by the upcoming table-backed Forward
+shader path.
 
 The shared packing layer now turns geometry, instance, material, and draw
 upserts into ABI-v1 records grouped by contiguous physical slot. It validates

@@ -106,6 +106,10 @@ struct GpuScenePackedFrameUpdate {
   GpuScenePackedUpdate<GpuInstance> instances;
   GpuScenePackedUpdate<GpuMaterial> materials;
   GpuScenePackedUpdate<GpuDraw> draws;
+  // Dense snapshot draw index -> persistent shader-visible GpuDraw slot.
+  // The immutable mapping is retained across unchanged frames so consumers
+  // can select the resident record without rescanning draw identities.
+  std::shared_ptr<const std::vector<std::uint32_t>> draw_slot_indices;
   std::uint64_t copy_bytes{};
 };
 
@@ -166,6 +170,7 @@ class GpuScenePackingState {
   std::unique_ptr<GpuSceneResourceSlots> instances_;
   std::unique_ptr<GpuSceneResourceSlots> materials_;
   std::unique_ptr<GpuSceneDrawSlots> draws_;
+  std::shared_ptr<const std::vector<std::uint32_t>> draw_slot_indices_;
 };
 
 }  // namespace merlin::render
