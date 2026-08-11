@@ -1740,6 +1740,7 @@ class Renderer::Impl {
     std::uint64_t revision{};
     std::uint64_t pending_source_id{};
     std::uint64_t pending_revision{};
+    bool has_resident_update{};
     bool pending_update{};
 
     [[nodiscard]] bool enabled() const noexcept {
@@ -2524,6 +2525,7 @@ class Renderer::Impl {
     gpu_scene_buffers_.capacities = {};
     gpu_scene_buffers_.source_id = 0;
     gpu_scene_buffers_.revision = 0;
+    gpu_scene_buffers_.has_resident_update = false;
     gpu_scene_buffers_.pending_update = false;
   }
 
@@ -2601,8 +2603,7 @@ class Renderer::Impl {
     const auto same_plan_boundary = [&](const auto& plan) {
       return plan.source_id == reference_plan.source_id &&
              plan.base_revision == reference_plan.base_revision &&
-             plan.revision == reference_plan.revision &&
-             plan.full_reconciliation == reference_plan.full_reconciliation;
+             plan.revision == reference_plan.revision;
     };
     if (!same_plan_boundary(update->instance_plan) ||
         !same_plan_boundary(update->material_plan) ||
@@ -2610,17 +2611,6 @@ class Renderer::Impl {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "upload GPU Scene",
                           "table plans do not share one revision boundary");
-    }
-    const bool unchanged =
-        gpu_scene_buffers_.source_id == reference_plan.source_id &&
-        gpu_scene_buffers_.revision == reference_plan.revision;
-    const bool continuous =
-        gpu_scene_buffers_.source_id == reference_plan.source_id &&
-        gpu_scene_buffers_.revision == reference_plan.base_revision;
-    if (!unchanged && !continuous && !reference_plan.full_reconciliation) {
-      throw RendererError(
-          RendererErrorCode::InvalidRequest, "upload GPU Scene",
-          "incremental update does not continue the resident table revision");
     }
     if (update->geometry_plan.table !=
             render::GpuSceneResourceTable::Geometry ||
@@ -2655,7 +2645,30 @@ class Renderer::Impl {
                           "upload GPU Scene",
                           "frame copy bytes do not match the table payloads");
     }
-    if (unchanged && copy_bytes != 0) {
+    const bool complete_reconciliation =
+        update->geometry_plan.full_reconciliation &&
+        update->instance_plan.full_reconciliation &&
+        update->material_plan.full_reconciliation &&
+        update->draw_plan.full_reconciliation &&
+        update->geometries.record_count == snapshot.geometries.size() &&
+        update->instances.record_count == snapshot.instances.size() &&
+        update->materials.record_count == snapshot.materials.size() &&
+        update->draws.record_count == snapshot.draws.size();
+    const bool same_source =
+        gpu_scene_buffers_.has_resident_update &&
+        gpu_scene_buffers_.source_id == reference_plan.source_id;
+    const bool unchanged =
+        same_source && gpu_scene_buffers_.revision == reference_plan.revision;
+    const bool continuous = same_source &&
+                            gpu_scene_buffers_.revision ==
+                                reference_plan.base_revision;
+    if (!unchanged && !continuous && !complete_reconciliation) {
+      throw RendererError(
+          RendererErrorCode::InvalidRequest, "upload GPU Scene",
+          "update neither continues nor completely rebuilds the resident "
+          "table revision");
+    }
+    if (unchanged && copy_bytes != 0 && !complete_reconciliation) {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "upload GPU Scene",
                           "unchanged resident revision contains copy payload");
@@ -2714,6 +2727,7 @@ class Renderer::Impl {
     }
     gpu_scene_buffers_.source_id = gpu_scene_buffers_.pending_source_id;
     gpu_scene_buffers_.revision = gpu_scene_buffers_.pending_revision;
+    gpu_scene_buffers_.has_resident_update = true;
     gpu_scene_buffers_.pending_update = false;
   }
 

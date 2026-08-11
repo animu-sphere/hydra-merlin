@@ -168,6 +168,13 @@ int main(int argc, char** argv) {
   assert(steady.counters.gpu_scene_upload_ring_reserved_bytes == 0);
   assert(steady.counters.upload_bytes == 0);
 
+  auto mixed_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *static_update);
+  mixed_update->geometry_plan.full_reconciliation = true;
+  const auto mixed = Submit(*renderer, snapshot, shaders, mixed_update);
+  assert(mixed.counters.gpu_scene_upload_bytes == 0);
+
   auto gap_snapshot = std::make_shared<FrameSnapshot>(*snapshot);
   gap_snapshot->revision = 2;
   auto gap = std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
@@ -187,6 +194,49 @@ int main(int argc, char** argv) {
   } catch (const merlin::vulkan::RendererError& error) {
     assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
   }
+
+  auto partial_rebuild =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *static_update);
+  const auto make_partial_rebuild = [](auto& plan) {
+    plan.base_revision = 0;
+    plan.revision = 2;
+    plan.full_reconciliation = true;
+  };
+  make_partial_rebuild(partial_rebuild->geometry_plan);
+  make_partial_rebuild(partial_rebuild->instance_plan);
+  make_partial_rebuild(partial_rebuild->material_plan);
+  make_partial_rebuild(partial_rebuild->draw_plan);
+  try {
+    (void)Submit(*renderer, gap_snapshot, shaders, partial_rebuild);
+    assert(false && "partial discontinuous GPU Scene rebuild was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
+  }
+
+  auto source_less_snapshot = MakeSnapshot();
+  source_less_snapshot->source_id = 0;
+  source_less_snapshot->revision = 0;
+  GpuScenePackingState source_less_packing(capacities);
+  merlin::vulkan::Renderer source_less_renderer(options);
+  const auto source_less_first_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          source_less_packing.Apply(*source_less_snapshot, 0, 0, inputs));
+  const auto source_less_first = Submit(source_less_renderer,
+                                        source_less_snapshot, shaders,
+                                        source_less_first_update);
+  assert(source_less_first.counters.gpu_scene_upload_bytes ==
+         expected_gpu_scene_bytes);
+  const auto source_less_repeat_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          source_less_packing.Apply(
+              *source_less_snapshot, source_less_first.completion_value,
+              source_less_first.completion_value, inputs));
+  const auto source_less_repeat = Submit(source_less_renderer,
+                                         source_less_snapshot, shaders,
+                                         source_less_repeat_update);
+  assert(source_less_repeat.counters.gpu_scene_upload_bytes ==
+         expected_gpu_scene_bytes);
 
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
 }
