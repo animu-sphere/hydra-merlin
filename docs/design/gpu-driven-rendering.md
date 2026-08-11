@@ -158,9 +158,17 @@ fresh physical slots into dirty ranges that a native backend can copy without
 scanning the full table. Geometry, material, and instance record changes also
 reissue only their dependency-indexed draws; stable draw identity is retained,
 but the physical draw slot changes so its table references cannot outlive a
-replaced resource slot. Native record packing, buffer allocation/copy, and
-renderer consumption remain the next v0.15.0 layers over this ABI and residency
-boundary.
+replaced resource slot. Native buffer allocation/copy and renderer consumption
+remain the next v0.15.0 layers over this ABI and residency boundary.
+
+The shared packing layer now turns geometry, instance, material, and draw
+upserts into ABI-v1 records grouped by contiguous physical slot. It validates
+the update plan against the snapshot source and revision, resolves each draw
+through the current persistent resource mappings, requires explicit stable
+32-bit object and instance identities, and rejects missing bindless residency
+or unrepresentable arena ranges instead of truncating them. An unchanged plan
+produces no records and zero copy bytes. Native buffer allocation, staging and
+dirty-range copies, followed by renderer consumption, remain backend work.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,

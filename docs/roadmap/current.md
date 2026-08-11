@@ -164,8 +164,19 @@ unified revision. Resource-record changes reissue only dependency-indexed draw
 records, preserving logical draw IDs while moving physical draw slots so new
 frames never retain references to retired resource generations.
 
-The milestone remains incomplete. Next are native GPU Scene record packing and
-dirty-range buffer copies, renderer consumption of the persistent tables, and
+The first common record-packing layer is now in place over those plans.
+Geometry, instance, material, and draw upserts become ABI-v1 records grouped
+into ordered contiguous physical-slot ranges, so a native backend can issue one
+bounded table copy per dirty range without scanning the resident table. Packing
+validates source/revision continuity, record versions, resource-table kind and
+residency, indexed-triangle payloads, finite transforms and bounds, explicit
+32-bit object/instance identities, and texture/sampler slots. Geometry arena
+offsets, ranges, counts, and primitive counts that do not fit ABI v1 are
+rejected instead of truncated. Static accepted snapshots produce no packed
+records and zero copy bytes.
+
+The milestone remains incomplete. Next are native GPU Scene buffer allocation
+and dirty-range copies, renderer consumption of the persistent tables, and
 persistent Gaussian attribute residency described in the
 [GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
 [Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
@@ -174,8 +185,8 @@ persistent Gaussian attribute residency described in the
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Build native record packing, buffers, and dirty-range copies over the
-   reflected GPU Scene ABI and persistent resource/draw slots.
+2. Wire the packed ranges into native GPU Scene buffers and dirty-range copies,
+   then consume the persistent tables in renderer submission.
 3. Add persistent Gaussian attribute residency and retain range-only updates.
 4. Strengthen non-GPU and Linux gates before implementation breadth grows.
 5. Preserve the completed native Metal presentation path while extending the
