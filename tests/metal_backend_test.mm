@@ -62,6 +62,14 @@ int main() {
     return 77;
   }
 
+  auto exhausted_gpu_scene_options = backend_options;
+  exhausted_gpu_scene_options.heap_capacity_bytes = 1024U * 1024U;
+  exhausted_gpu_scene_options.gpu_scene_capacities =
+      merlin::render::GpuScenePackingCapacities{1, 1, 1, 1'000'000};
+  const merlin::metal::BackendFactory exhausted_gpu_scene_factory(
+      exhausted_gpu_scene_options);
+  assert(!exhausted_gpu_scene_factory.availability().available);
+
   merlin::render::BackendCreateInfo create_info;
   create_info.enable_validation = true;
   create_info.frames_in_flight = 3;
@@ -208,6 +216,11 @@ int main() {
              gpu_scene_capacities.draws * sizeof(merlin::render::GpuDraw));
   assert(gpu_scene_statistics.gpu_scene_staging_capacity_bytes >=
          expected_gpu_scene_bytes);
+  const auto gpu_scene_renderer_statistics = backend->statistics();
+  assert(gpu_scene_renderer_statistics.residency.renderer_allocated_bytes >=
+         gpu_scene_statistics.gpu_scene_capacity_bytes);
+  assert(gpu_scene_renderer_statistics.residency.renderer_allocated_bytes <=
+         backend_options.heap_capacity_bytes);
 
   auto static_gpu_scene_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
