@@ -114,8 +114,10 @@ Capture the reference-path performance baselines as deterministic JSON:
 The v3 report records build/machine metadata, CPU/GPU stage distributions,
 hitches, AOV selection, transfer/allocation/descriptor work, and structural
 counters for first-frame, steady-state, camera, per-aspect edits, and AOV
-combinations. Fixed million-triangle, 10,000-mesh, 1,000-instance, and 4K
-fixtures are selectable explicitly. See the
+combinations. Fixed million-triangle, 10,000-mesh, 1,000-instance, 1M/5M/10M
+Gaussian, and 4K fixtures are selectable explicitly. Gaussian reports separate
+CPU preparation, raw-attribute sync, prepared-stream sync, and GPU raster
+timing. See the
 [benchmark guide](docs/guides/benchmarking.md) for the schema and comparison
 rules.
 

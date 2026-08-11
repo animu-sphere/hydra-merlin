@@ -70,6 +70,9 @@ Select a fixture with `--fixture`:
 | `million-triangles` | One indexed mesh and one instance with exactly 1,000,000 triangles |
 | `ten-thousand-meshes` | 10,000 independently handled one-triangle meshes and instances |
 | `thousand-instances` | 1,000 instances sharing one mesh |
+| `one-million-gaussians` | One deterministic degree-0 Gaussian resource with 1,000,000 particles |
+| `five-million-gaussians` | The same deterministic distribution scaled to 5,000,000 particles |
+| `ten-million-gaussians` | The same deterministic distribution scaled to 10,000,000 particles |
 | `aov-combinations` | The reference sequence with explicit color-only, color+depth, and all-AOV gates |
 | `4k` | The reference sequence at 3840×2160 unless width/height are overridden |
 
@@ -105,6 +108,10 @@ readback are not hidden inside a color request.
 - `render_world_update`
 - `snapshot_extraction`
 - `gpu_scene_update`
+- `gaussian_preparation`
+- `gaussian_attribute_upload`
+- `gaussian_prepared_upload`
+- `gaussian_raster`
 - `command_recording`
 - `queue_submission`
 - `completion_wait`

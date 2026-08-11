@@ -44,16 +44,17 @@ MaterialX paths agree within tolerance, lighting cost is separately observable,
 representative dielectric/metal/textured/normal-mapped/mixed-light fixtures
 exist, and Vulkan/Metal behavior is compared where both backends are available.
 
-### ⬜ v0.15.0 — Persistent GPU Scene and Gaussian resources
+### ✅ v0.15.0 — Persistent GPU Scene and Gaussian resources
 
-Complete the common GPU Scene ABI with persistent geometry, instance, material,
-and draw records; stable object/draw/material/primitive/instance IDs; reflected
-C++/shader layouts; pipeline/material sorting; descriptor-bind reduction;
-secondary-command reuse; parallel recording; instance aggregation;
-nested-instancing improvements; per-instance visibility; and revision-based
-packet invalidation. Promote the MVP's frame-owned prepared buffers and
-changed-range writes into generation-checked persistent Gaussian records, and
-add separate Gaussian ingestion/projection/sort/pair/raster timing.
+The common GPU Scene ABI now has persistent geometry, instance, material, draw,
+and Gaussian identity; stable IDs; reflected C++/shader layouts; table-backed
+Vulkan/Metal Forward consumption; descriptor-bind reduction; revision-based
+invalidation; and generation-checked completion-safe lifetime. Vulkan Gaussian
+source attributes are device-local and preserve exact aspect/range updates.
+CPU preparation, raw and prepared upload, and GPU raster timing are separate.
+GPU-driven packet generation, secondary-command reuse, parallel recording, and
+large-scale instance aggregation remain v0.16.0 submission work rather than
+requirements for this persistent-resource boundary.
 
 Exit requires static Mesh scenes to generate no new draw packets, static Gaussian
 scenes to allocate or upload nothing, partial Gaussian edits to preserve the

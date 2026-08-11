@@ -118,6 +118,12 @@ int main(int argc, char** argv) {
             "Gaussian color and ID streams were not submitted as two draws");
     Require(first.counters.gaussian_upload_bytes == 104,
             "Gaussian GPU instance upload size drifted");
+    Require(first.counters.gaussian_attribute_upload_bytes == 104,
+            "persistent Gaussian attribute upload size drifted");
+    Require(first.counters.gaussian_attribute_copy_range_count == 4,
+            "initial Gaussian attributes were not split by source aspect");
+    Require(first.counters.gaussian_attribute_generation_count == 1,
+            "initial Gaussian residency generation was not published");
     Require(first.counters.upload_bytes >=
                 first.counters.gaussian_upload_bytes,
             "Gaussian upload was not included in total upload telemetry");
@@ -150,6 +156,14 @@ int main(int argc, char** argv) {
             "static Gaussian frame missed the CPU preparation cache");
     Require(steady.counters.gaussian_upload_bytes == 0,
             "static Gaussian frame re-uploaded its prepared stream");
+    Require(steady.counters.gaussian_attribute_upload_bytes == 0,
+            "static Gaussian frame re-uploaded persistent attributes");
+    Require(steady.counters.gaussian_attribute_copy_range_count == 0,
+            "static Gaussian frame recorded an attribute copy");
+    Require(steady.counters.gaussian_attribute_generation_count == 0,
+            "static Gaussian frame published a new residency generation");
+    Require(steady.counters.allocation_count == 0,
+            "static Gaussian frame allocated a native resource");
     Require(steady.counters.gaussian_draw_count == 2,
             "static Gaussian frame lost a procedural draw");
 
@@ -164,8 +178,54 @@ int main(int argc, char** argv) {
     const auto partial = renderer->Resolve(renderer->Submit(request));
     Require(partial.counters.gaussian_upload_bytes == 52,
             "single-particle edit did not use a changed-range GPU upload");
+    Require(partial.counters.gaussian_attribute_upload_bytes == 12,
+            "single-particle SH edit did not retain raw range-only upload");
+    Require(partial.counters.gaussian_attribute_copy_range_count == 1,
+            "single-particle SH edit recorded more than one raw range");
+    Require(partial.counters.gaussian_attribute_generation_count == 1,
+            "single-particle edit did not advance residency generation");
     Require(partial.counters.gaussian_draw_count == 2,
             "partially updated Gaussian stream lost a procedural draw");
+
+    edited = world.Get(gaussian_handle);
+    edited.opacities[0] = 0.7F;
+    world.UpdateGaussian(
+        gaussian_handle, std::move(edited),
+        merlin::ChangeAspect::GaussianOpacity,
+        std::vector<merlin::ElementRange>{{0, 1}});
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    const auto opacity = renderer->Resolve(renderer->Submit(request));
+    Require(opacity.counters.gaussian_attribute_upload_bytes == sizeof(float),
+            "single-particle opacity edit did not upload one raw scalar");
+    Require(opacity.counters.gaussian_attribute_copy_range_count == 1,
+            "single-particle opacity edit recorded extra raw ranges");
+
+    edited = world.Get(gaussian_handle);
+    edited.transform.values[12] = 0.05F;
+    world.UpdateGaussian(gaussian_handle, std::move(edited),
+                         merlin::ChangeAspect::Transform);
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    const auto transformed = renderer->Resolve(renderer->Submit(request));
+    Require(transformed.counters.gaussian_attribute_upload_bytes == 0,
+            "transform-only Gaussian edit re-uploaded source attributes");
+    Require(transformed.counters.gaussian_attribute_generation_count == 1,
+            "transform-only Gaussian edit did not advance record generation");
+
+    edited = world.Get(gaussian_handle);
+    edited.visible = false;
+    world.UpdateGaussian(gaussian_handle, std::move(edited),
+                         merlin::ChangeAspect::Visibility);
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    const auto hidden = renderer->Resolve(renderer->Submit(request));
+    Require(hidden.counters.gaussian_visible_count == 0,
+            "hidden Gaussian resource still reached the prepared stream");
+    Require(hidden.counters.gaussian_attribute_upload_bytes == 0,
+            "visibility-only Gaussian edit re-uploaded source attributes");
+    Require(hidden.counters.gaussian_attribute_generation_count == 1,
+            "visibility-only Gaussian edit did not advance record generation");
     Require(renderer->statistics().validation_messages == 0,
             "Gaussian rasterization produced Vulkan validation diagnostics");
   } catch (const std::exception& error) {

@@ -273,15 +273,20 @@ struct RendererStatistics {
   // N-1 (the last submission that could reference it) completes.
   std::uint64_t geometry_range_retirements{};
   std::uint32_t pending_geometry_retirements{};
+  std::uint64_t gaussian_attribute_range_retirements{};
+  std::uint32_t pending_gaussian_attribute_retirements{};
   std::uint32_t geometry_arena_blocks{};
   ArenaTelemetry vertex_arena;
   ArenaTelemetry index_arena;
+  ArenaTelemetry gaussian_attribute_arena;
   UploadRingTelemetry upload_ring;
+  UploadRingTelemetry gaussian_attribute_upload_ring;
   UploadRingTelemetry gpu_scene_upload_ring;
   MemoryBudgetTelemetry memory_budget;
   TransferQueueTelemetry transfer_queue;
   bool gpu_scene_buffers{};
   std::uint64_t gpu_scene_capacity_bytes{};
+  std::uint32_t gaussian_attribute_resources{};
   // Logical bindless-table evidence is populated when the selected device and
   // configuration activate bindless Forward. Conventional Forward leaves
   // these fields zeroed and remains the correctness fallback.
@@ -297,6 +302,10 @@ struct RendererStatistics {
 struct FrameCpuTimings {
   // CPU work that reconciles immutable snapshot resources with GPU residency.
   std::uint64_t upload_ns{};
+  std::uint64_t gaussian_preparation_ns{};
+  std::uint64_t gaussian_attribute_upload_ns{};
+  std::uint64_t gaussian_prepared_upload_ns{};
+  std::uint64_t gaussian_raster_ns{};
   std::uint64_t command_recording_ns{};
   std::uint64_t queue_submission_ns{};
   std::uint64_t completion_wait_ns{};
@@ -329,10 +338,13 @@ struct FrameCounters {
   std::uint64_t gaussian_preparation_cache_hits{};
   std::uint64_t gaussian_preparation_cache_misses{};
   std::uint64_t gaussian_draw_count{};
+  std::uint64_t gaussian_attribute_upload_bytes{};
+  std::uint64_t gaussian_attribute_copy_range_count{};
+  std::uint64_t gaussian_attribute_generation_count{};
   std::uint64_t gaussian_upload_bytes{};
   std::uint64_t upload_bytes{};
-  // Upload payload split by resource class. Vertex, index, texture, Gaussian,
-  // and GPU Scene payload bytes sum to upload_bytes.
+  // Upload payload split by resource class. Vertex, index, texture, raw and
+  // prepared Gaussian, and GPU Scene payload bytes sum to upload_bytes.
   std::uint64_t vertex_upload_bytes{};
   std::uint64_t index_upload_bytes{};
   std::uint64_t texture_upload_bytes{};

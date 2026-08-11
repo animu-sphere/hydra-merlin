@@ -42,6 +42,10 @@ struct FrameTimings {
   std::uint64_t scene_update_ns{};
   std::uint64_t extraction_ns{};
   std::uint64_t gpu_scene_update_ns{};
+  std::uint64_t gaussian_preparation_ns{};
+  std::uint64_t gaussian_attribute_upload_ns{};
+  std::uint64_t gaussian_prepared_upload_ns{};
+  std::uint64_t gaussian_raster_ns{};
   std::uint64_t command_recording_ns{};
   std::uint64_t queue_submission_ns{};
   std::uint64_t completion_wait_ns{};
@@ -69,6 +73,8 @@ struct FixtureSummary {
   std::uint64_t mesh_count{};
   std::uint64_t instance_count{};
   std::uint64_t triangle_count{};
+  std::uint64_t gaussian_resource_count{};
+  std::uint64_t gaussian_particle_count{};
 };
 
 // The reference fixture covers shared geometry, independent materials, a
@@ -90,6 +96,7 @@ struct ScaleFixture {
   merlin::MaterialHandle material;
   std::vector<merlin::MeshHandle> meshes;
   std::vector<merlin::InstanceHandle> instances;
+  std::vector<merlin::GaussianHandle> gaussians;
 };
 
 std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
@@ -115,6 +122,9 @@ bool IsFixture(std::string_view value) {
       std::string_view("reference"), std::string_view("million-triangles"),
       std::string_view("ten-thousand-meshes"),
       std::string_view("thousand-instances"),
+      std::string_view("one-million-gaussians"),
+      std::string_view("five-million-gaussians"),
+      std::string_view("ten-million-gaussians"),
       std::string_view("aov-combinations"), std::string_view("4k")};
   return std::find(fixtures.begin(), fixtures.end(), value) != fixtures.end();
 }
@@ -151,7 +161,9 @@ Arguments ParseArguments(int argc, char** argv) {
           << "Usage: merlin-benchmark [--output FILE] [--fixture NAME] "
              "[--width N] [--height N] [--steady-frames N]\n"
              "Fixtures: reference, million-triangles, ten-thousand-meshes, "
-             "thousand-instances, aov-combinations, 4k\n";
+             "thousand-instances, one-million-gaussians, "
+             "five-million-gaussians, ten-million-gaussians, "
+             "aov-combinations, 4k\n";
       std::exit(0);
     } else {
       throw std::invalid_argument("unknown option: " + std::string(argument));
@@ -267,6 +279,35 @@ FixtureSummary PopulateScaleFixture(std::string_view name,
       add_instance(fixture.meshes.front(), i);
     }
     summary = {std::string(name), 1, 1'000, 1'000};
+  } else if (name == "one-million-gaussians" ||
+             name == "five-million-gaussians" ||
+             name == "ten-million-gaussians") {
+    const std::size_t particle_count =
+        name == "one-million-gaussians"
+            ? 1'000'000U
+            : (name == "five-million-gaussians" ? 5'000'000U : 10'000'000U);
+    merlin::GaussianDescriptor gaussian;
+    gaussian.label = std::string(name);
+    gaussian.positions.resize(particle_count);
+    gaussian.covariances.resize(
+        particle_count,
+        {0.000004F, 0.0F, 0.0F, 0.000004F, 0.0F, 0.000004F});
+    gaussian.opacities.resize(particle_count, 0.7F);
+    gaussian.spherical_harmonics_degree = 0;
+    gaussian.spherical_harmonics_coefficients.resize(
+        particle_count, {0.35F, 0.55F, 0.8F});
+    for (std::size_t index = 0; index < particle_count; ++index) {
+      const auto column = index % 1000U;
+      const auto row = (index / 1000U) % 1000U;
+      const auto layer = (index / 1'000'000U) % 10U;
+      gaussian.positions[index] = {
+          static_cast<float>(column) * 0.0018F - 0.9F,
+          static_cast<float>(row) * 0.0018F - 0.9F,
+          0.1F + static_cast<float>(layer) * 0.03F};
+    }
+    fixture.gaussians.push_back(
+        fixture.world.CreateGaussian(std::move(gaussian)));
+    summary = {std::string(name), 0, 0, 0, 1, particle_count};
   } else {
     throw std::invalid_argument("fixture is not a scale fixture");
   }
@@ -276,6 +317,12 @@ FixtureSummary PopulateScaleFixture(std::string_view name,
 FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
   FrameTimings result;
   result.gpu_scene_update_ns = timings.upload_ns;
+  result.gaussian_preparation_ns = timings.gaussian_preparation_ns;
+  result.gaussian_attribute_upload_ns =
+      timings.gaussian_attribute_upload_ns;
+  result.gaussian_prepared_upload_ns =
+      timings.gaussian_prepared_upload_ns;
+  result.gaussian_raster_ns = timings.gaussian_raster_ns;
   result.command_recording_ns = timings.command_recording_ns;
   result.queue_submission_ns = timings.queue_submission_ns;
   result.completion_wait_ns = timings.completion_wait_ns;
@@ -423,6 +470,12 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       std::pair{"render_world_update", &FrameTimings::scene_update_ns},
       std::pair{"snapshot_extraction", &FrameTimings::extraction_ns},
       std::pair{"gpu_scene_update", &FrameTimings::gpu_scene_update_ns},
+      std::pair{"gaussian_preparation", &FrameTimings::gaussian_preparation_ns},
+      std::pair{"gaussian_attribute_upload",
+                &FrameTimings::gaussian_attribute_upload_ns},
+      std::pair{"gaussian_prepared_upload",
+                &FrameTimings::gaussian_prepared_upload_ns},
+      std::pair{"gaussian_raster", &FrameTimings::gaussian_raster_ns},
       std::pair{"command_recording", &FrameTimings::command_recording_ns},
       std::pair{"queue_submission", &FrameTimings::queue_submission_ns},
       std::pair{"completion_wait", &FrameTimings::completion_wait_ns},
@@ -483,6 +536,12 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.gaussian_preparation_cache_misses);
   WriteCounter(stream, counter_indent, "gaussian_draw_count",
                count.gaussian_draw_count);
+  WriteCounter(stream, counter_indent, "gaussian_attribute_upload_bytes",
+               count.gaussian_attribute_upload_bytes);
+  WriteCounter(stream, counter_indent, "gaussian_attribute_copy_range_count",
+               count.gaussian_attribute_copy_range_count);
+  WriteCounter(stream, counter_indent, "gaussian_attribute_generation_count",
+               count.gaussian_attribute_generation_count);
   WriteCounter(stream, counter_indent, "gaussian_upload_bytes",
                count.gaussian_upload_bytes);
   WriteCounter(stream, counter_indent, "upload_bytes", count.upload_bytes);
@@ -660,6 +719,10 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   stream << ",\n    \"mesh_count\": " << fixture.mesh_count
          << ",\n    \"instance_count\": " << fixture.instance_count
          << ",\n    \"triangle_count\": " << fixture.triangle_count
+         << ",\n    \"gaussian_resource_count\": "
+         << fixture.gaussian_resource_count
+         << ",\n    \"gaussian_particle_count\": "
+         << fixture.gaussian_particle_count
          << ",\n    \"resolution\": {\n      \"width\": " << arguments.width
          << ",\n      \"height\": " << arguments.height
          << "\n    }\n  },\n  \"residency\": {\n"
@@ -682,6 +745,18 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   WriteArenaTelemetry(stream, statistics.vertex_arena, "      ");
   stream << ",\n      \"index_arena\": ";
   WriteArenaTelemetry(stream, statistics.index_arena, "      ");
+  stream << "\n    },\n    \"gaussian_attributes\": {\n"
+         << "      \"resources\": "
+         << statistics.gaussian_attribute_resources
+         << ",\n      \"pending_range_retirements\": "
+         << statistics.pending_gaussian_attribute_retirements
+         << ",\n      \"range_retirement_collections\": "
+         << statistics.gaussian_attribute_range_retirements
+         << ",\n      \"arena\": ";
+  WriteArenaTelemetry(stream, statistics.gaussian_attribute_arena, "      ");
+  stream << ",\n      \"upload_ring\": ";
+  WriteUploadRingTelemetry(stream, statistics.gaussian_attribute_upload_ring,
+                           "      ");
   stream << "\n    },\n    \"upload_ring\": ";
   WriteUploadRingTelemetry(stream, statistics.upload_ring, "    ");
   stream << ",\n    \"gpu_scene\": {\n"

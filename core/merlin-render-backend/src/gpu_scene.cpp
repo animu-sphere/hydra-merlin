@@ -38,6 +38,7 @@ std::string_view ResourceTableName(GpuSceneResourceTable table) noexcept {
     case GpuSceneResourceTable::Geometry: return "geometry";
     case GpuSceneResourceTable::Instance: return "instance";
     case GpuSceneResourceTable::Material: return "material";
+    case GpuSceneResourceTable::Gaussian: return "Gaussian";
   }
   return "unknown";
 }
@@ -56,6 +57,7 @@ const extraction::ResourceDelta& ResourceDeltaFor(
     case GpuSceneResourceTable::Geometry: return delta.geometries;
     case GpuSceneResourceTable::Instance: return delta.instances;
     case GpuSceneResourceTable::Material: return delta.materials;
+    case GpuSceneResourceTable::Gaussian: return delta.gaussians;
   }
   ThrowInvalidResourceSnapshot(table, "unknown resource table");
 }
@@ -66,6 +68,7 @@ std::size_t ResourceCount(const extraction::FrameSnapshot& snapshot,
     case GpuSceneResourceTable::Geometry: return snapshot.geometries.size();
     case GpuSceneResourceTable::Instance: return snapshot.instances.size();
     case GpuSceneResourceTable::Material: return snapshot.materials.size();
+    case GpuSceneResourceTable::Gaussian: return snapshot.gaussians.size();
   }
   return 0;
 }
@@ -80,6 +83,8 @@ std::uint64_t ResourceIdentityAt(const extraction::FrameSnapshot& snapshot,
       return snapshot.instances[index].instance;
     case GpuSceneResourceTable::Material:
       return snapshot.materials[index].material;
+    case GpuSceneResourceTable::Gaussian:
+      return snapshot.gaussians[index].gaussian;
   }
   ThrowInvalidResourceSnapshot(table, "unknown resource table");
 }
@@ -96,6 +101,11 @@ GpuSceneResourceVersion ResourceVersionAt(
       return {snapshot.instances[index].revision, 0};
     case GpuSceneResourceTable::Material:
       return {snapshot.materials[index].revision, 0};
+    case GpuSceneResourceTable::Gaussian: {
+      const auto& gaussian = snapshot.gaussians[index];
+      return {gaussian.revision, gaussian.positions ? gaussian.positions->size()
+                                                    : 0};
+    }
   }
   ThrowInvalidResourceSnapshot(table, "unknown resource table");
 }

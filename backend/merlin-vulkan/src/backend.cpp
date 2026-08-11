@@ -112,6 +112,18 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
         source.index_arena.peak_resident_bytes;
     result.residency.geometry_retiring_bytes =
         source.vertex_arena.retiring_bytes + source.index_arena.retiring_bytes;
+    result.residency.gaussian_capacity_bytes =
+        source.gaussian_attribute_arena.capacity_bytes;
+    result.residency.gaussian_resident_bytes =
+        source.gaussian_attribute_arena.resident_bytes;
+    result.residency.gaussian_peak_resident_bytes =
+        source.gaussian_attribute_arena.peak_resident_bytes;
+    result.residency.gaussian_retiring_bytes =
+        source.gaussian_attribute_arena.retiring_bytes;
+    result.residency.gaussian_upload_ring_capacity_bytes =
+        source.gaussian_attribute_upload_ring.capacity_bytes;
+    result.residency.gaussian_upload_ring_in_flight_bytes =
+        source.gaussian_attribute_upload_ring.in_flight_bytes;
     result.residency.upload_ring_capacity_bytes =
         source.upload_ring.capacity_bytes;
     result.residency.upload_ring_in_flight_bytes =
@@ -119,6 +131,10 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     result.residency.upload_ring_peak_in_flight_bytes =
         source.upload_ring.peak_in_flight_bytes;
     result.residency.geometry_blocks = source.geometry_arena_blocks;
+    result.residency.gaussian_blocks =
+        source.gaussian_attribute_arena.blocks;
+    result.residency.gaussian_resources =
+        source.gaussian_attribute_resources;
     result.residency.texture_slots_capacity =
         source.bindless_texture_slots.capacity;
     result.residency.texture_slots_in_use =
@@ -237,6 +253,10 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     result.completion_value = native.completion_value;
     result.timings = {
         native.cpu_timings.upload_ns,
+        native.cpu_timings.gaussian_preparation_ns,
+        native.cpu_timings.gaussian_attribute_upload_ns,
+        native.cpu_timings.gaussian_prepared_upload_ns,
+        native.cpu_timings.gaussian_raster_ns,
         native.cpu_timings.command_recording_ns,
         native.cpu_timings.queue_submission_ns,
         native.cpu_timings.completion_wait_ns,
@@ -278,6 +298,12 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
         native.counters.gaussian_preparation_cache_misses;
     result.telemetry.gaussian_draw_count =
         native.counters.gaussian_draw_count;
+    result.telemetry.gaussian_attribute_upload_bytes =
+        native.counters.gaussian_attribute_upload_bytes;
+    result.telemetry.gaussian_attribute_copy_range_count =
+        native.counters.gaussian_attribute_copy_range_count;
+    result.telemetry.gaussian_attribute_generation_count =
+        native.counters.gaussian_attribute_generation_count;
     result.telemetry.gaussian_upload_bytes =
         native.counters.gaussian_upload_bytes;
     result.telemetry.gpu_scene_upload_bytes =

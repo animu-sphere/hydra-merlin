@@ -8,8 +8,19 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-11
+
 ### Added
 
+- Generation-checked persistent Gaussian GPU Scene identity plus Vulkan
+  device-local position, covariance, opacity, and spherical-harmonic attribute
+  ranges. Static snapshots perform no allocation or transfer; exact particle
+  edits upload only the affected source aspect and range, while transform and
+  visibility revisions advance record generations without re-uploading
+  attributes. Benchmark and viewport telemetry now separate CPU preparation,
+  raw-attribute sync, prepared-stream sync, and GPU raster time, and opt-in
+  1M/5M/10M deterministic Gaussian fixtures complete the v0.15.0 measurement
+  boundary.
 - Vulkan basic bindless Forward now consumes the persistent ABI-v1 geometry,
   instance, material, and draw tables. CPU indexed submission pushes only the
   immutable dense-draw to physical-slot dispatch identity plus frame view
@@ -678,7 +689,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.1...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.15.0...main
+[0.15.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.0...v0.13.1
