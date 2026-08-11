@@ -607,6 +607,22 @@ if(TARGET merlin-headless)
     TIMEOUT 60
   )
 
+  add_executable(merlin-gpu-scene-vulkan-upload-tests
+    gpu_scene_vulkan_upload_test.cpp
+  )
+  target_link_libraries(merlin-gpu-scene-vulkan-upload-tests
+    PRIVATE Merlin::RenderExtraction Merlin::Vulkan)
+  add_test(
+    NAME merlin-vulkan-gpu-scene-upload
+    COMMAND merlin-gpu-scene-vulkan-upload-tests
+            "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+  )
+  set_tests_properties(merlin-vulkan-gpu-scene-upload PROPERTIES
+    LABELS "gpu;gpu-scene;uploads"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 60
+  )
+
   add_executable(merlin-material-resource-tests
     material_resource_test.cpp
   )

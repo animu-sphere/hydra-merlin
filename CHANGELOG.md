@@ -10,6 +10,14 @@ after its public API and release process are established.
 
 ### Added
 
+- Optional Vulkan device-local ABI-v1 GPU Scene tables and a dedicated
+  persistently mapped upload ring. Caller-supplied packed geometry, instance,
+  material, and draw ranges are checked against their snapshot plans and fixed
+  capacities, staged once per contiguous dirty range, synchronized for native
+  graphics/compute reads on single-queue and asynchronous-transfer devices,
+  and reported with exact payload, range, capacity, reservation, and growth
+  telemetry. Conventional Forward remains unchanged while table consumption is
+  implemented separately.
 - Common GPU Scene ABI-v1 record packing for persistent geometry, instance,
   material, and draw upserts. Packing resolves current physical resource slots,
   emits ordered contiguous dirty-copy ranges, preserves stable 64-bit draw

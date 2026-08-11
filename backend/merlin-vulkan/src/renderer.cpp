@@ -1084,6 +1084,11 @@ class Renderer::Impl {
           device_, physical_device_, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
           &memory_budget_, queue_family_, transfer_queue_family_);
       staging_.Initialize(device_, physical_device_, &memory_budget_);
+      gpu_scene_staging_.Initialize(device_, physical_device_,
+                                    &memory_budget_);
+      if (options.gpu_scene_capacities) {
+        CreateGpuSceneBuffers(*options.gpu_scene_capacities);
+      }
       CreateGaussianCornerBuffer();
     } catch (...) {
       Destroy(false);
@@ -1164,8 +1169,10 @@ class Renderer::Impl {
       frame_upload_buffers_.clear();
       retired_ranges_.clear();
       staging_.Destroy();
+      gpu_scene_staging_.Destroy();
       vertex_arena_.Destroy();
       index_arena_.Destroy();
+      DestroyGpuSceneBuffers();
       DestroyBuffer(gaussian_corner_vertices_);
       for (auto& frame : frames_) {
         DestroyTarget(frame.target);
@@ -1376,6 +1383,7 @@ class Renderer::Impl {
     PrepareMaterialDescriptors(frame, *request.snapshot);
     PrepareBindlessDescriptors();
     PrepareGaussianInstances(frame);
+    StageGpuSceneUpdate(*request.snapshot, request.gpu_scene_update.get());
     if (frame_counters_.upload_bytes != 0) {
       ++statistics_.scene_uploads;
     }
@@ -1461,6 +1469,7 @@ class Renderer::Impl {
     frame.material_diagnostics = frame_material_diagnostics_;
     CommitTextureUploads();
     CommitResourceSnapshot(*request.snapshot);
+    CommitGpuSceneUpdate();
     resource_residency_dirty_ = false;
     for (auto& buffer : frame_upload_buffers_) {
       deferred_.push_back({buffer, completion});
@@ -1469,6 +1478,7 @@ class Renderer::Impl {
     frame_upload_buffers_.clear();
     frame.cpu_timings.backend_total_ns = ElapsedNanoseconds(backend_start);
     staging_.FinishFrame(completion);
+    gpu_scene_staging_.FinishFrame(completion);
     frame.outstanding = true;
     ++statistics_.frames_submitted;
     return completion;
@@ -1612,6 +1622,7 @@ class Renderer::Impl {
     frame_counters_ = frame.counters;
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
+    gpu_scene_staging_.Collect(completion);
     CollectDeferred(completion);
     active_target_ = &frame.target;
     struct ResetActiveTarget {
@@ -1717,6 +1728,23 @@ class Renderer::Impl {
     VkImage destination{};
     std::uint32_t width{};
     std::uint32_t height{};
+  };
+
+  struct GpuSceneBuffers {
+    render::GpuScenePackingCapacities capacities;
+    Buffer geometries;
+    Buffer instances;
+    Buffer materials;
+    Buffer draws;
+    std::uint64_t source_id{};
+    std::uint64_t revision{};
+    std::uint64_t pending_source_id{};
+    std::uint64_t pending_revision{};
+    bool pending_update{};
+
+    [[nodiscard]] bool enabled() const noexcept {
+      return geometries.handle != VK_NULL_HANDLE;
+    }
   };
 
   struct RenderTarget {
@@ -2457,6 +2485,238 @@ class Renderer::Impl {
     DestroyBufferRaw(device_, buffer, &memory_budget_);
   }
 
+  template <typename Record>
+  Buffer CreateGpuSceneTable(std::uint32_t capacity) {
+    if (capacity == 0) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "create GPU Scene buffers",
+                          "every GPU Scene table capacity must be non-zero");
+    }
+    const auto bytes = static_cast<VkDeviceSize>(capacity) * sizeof(Record);
+    ++frame_counters_.allocation_count;
+    ++frame_counters_.buffer_allocation_count;
+    frame_counters_.buffer_allocation_bytes += bytes;
+    return CreateBufferRaw(
+        device_, physical_device_, bytes,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_budget_, queue_family_,
+        transfer_queue_family_);
+  }
+
+  void CreateGpuSceneBuffers(
+      render::GpuScenePackingCapacities capacities) {
+    gpu_scene_buffers_.capacities = capacities;
+    gpu_scene_buffers_.geometries =
+        CreateGpuSceneTable<render::GpuGeometry>(capacities.geometries);
+    gpu_scene_buffers_.instances =
+        CreateGpuSceneTable<render::GpuInstance>(capacities.instances);
+    gpu_scene_buffers_.materials =
+        CreateGpuSceneTable<render::GpuMaterial>(capacities.materials);
+    gpu_scene_buffers_.draws =
+        CreateGpuSceneTable<render::GpuDraw>(capacities.draws);
+  }
+
+  void DestroyGpuSceneBuffers() noexcept {
+    DestroyBuffer(gpu_scene_buffers_.geometries);
+    DestroyBuffer(gpu_scene_buffers_.instances);
+    DestroyBuffer(gpu_scene_buffers_.materials);
+    DestroyBuffer(gpu_scene_buffers_.draws);
+    gpu_scene_buffers_.capacities = {};
+    gpu_scene_buffers_.source_id = 0;
+    gpu_scene_buffers_.revision = 0;
+    gpu_scene_buffers_.pending_update = false;
+  }
+
+  template <typename Record>
+  void ValidateGpuSceneTableUpdate(
+      const render::GpuScenePackedUpdate<Record>& packed,
+      const std::vector<render::GpuSceneDirtyRange>& dirty_ranges,
+      std::uint32_t capacity, std::string_view table_name) const {
+    if (packed.ranges.size() != dirty_ranges.size()) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          std::string(table_name) +
+                              " packed ranges do not match the update plan");
+    }
+    std::uint64_t record_count{};
+    std::uint64_t copy_bytes{};
+    std::uint64_t previous_end{};
+    for (std::size_t i = 0; i < packed.ranges.size(); ++i) {
+      const auto& range = packed.ranges[i];
+      const auto& dirty = dirty_ranges[i];
+      if (range.records.empty() || range.first_slot != dirty.first_slot ||
+          range.records.size() != dirty.slot_count) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "upload GPU Scene",
+                            std::string(table_name) +
+                                " packed range does not match its dirty range");
+      }
+      const auto end = static_cast<std::uint64_t>(range.first_slot) +
+                       range.records.size();
+      if (range.first_slot < previous_end || end > capacity) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "upload GPU Scene",
+                            std::string(table_name) +
+                                " packed range is unordered or exceeds capacity");
+      }
+      previous_end = end;
+      record_count += range.records.size();
+      copy_bytes += range.records.size() * sizeof(Record);
+    }
+    if (packed.record_count != record_count ||
+        packed.copy_bytes != copy_bytes) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          std::string(table_name) +
+                              " packed telemetry does not match its payload");
+    }
+  }
+
+  void StageGpuSceneUpdate(
+      const extraction::FrameSnapshot& snapshot,
+      const render::GpuScenePackedFrameUpdate* update) {
+    if (update == nullptr) {
+      return;
+    }
+    if (!gpu_scene_buffers_.enabled()) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          "renderer has no GPU Scene table capacities");
+    }
+    const auto validate_plan = [&](const auto& plan,
+                                   std::string_view table_name) {
+      if (plan.source_id != snapshot.source_id ||
+          plan.revision != snapshot.revision) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "upload GPU Scene",
+                            std::string(table_name) +
+                                " update was not packed from the request snapshot");
+      }
+    };
+    validate_plan(update->geometry_plan, "geometry");
+    validate_plan(update->instance_plan, "instance");
+    validate_plan(update->material_plan, "material");
+    validate_plan(update->draw_plan, "draw");
+    const auto& reference_plan = update->geometry_plan;
+    const auto same_plan_boundary = [&](const auto& plan) {
+      return plan.source_id == reference_plan.source_id &&
+             plan.base_revision == reference_plan.base_revision &&
+             plan.revision == reference_plan.revision &&
+             plan.full_reconciliation == reference_plan.full_reconciliation;
+    };
+    if (!same_plan_boundary(update->instance_plan) ||
+        !same_plan_boundary(update->material_plan) ||
+        !same_plan_boundary(update->draw_plan)) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          "table plans do not share one revision boundary");
+    }
+    const bool unchanged =
+        gpu_scene_buffers_.source_id == reference_plan.source_id &&
+        gpu_scene_buffers_.revision == reference_plan.revision;
+    const bool continuous =
+        gpu_scene_buffers_.source_id == reference_plan.source_id &&
+        gpu_scene_buffers_.revision == reference_plan.base_revision;
+    if (!unchanged && !continuous && !reference_plan.full_reconciliation) {
+      throw RendererError(
+          RendererErrorCode::InvalidRequest, "upload GPU Scene",
+          "incremental update does not continue the resident table revision");
+    }
+    if (update->geometry_plan.table !=
+            render::GpuSceneResourceTable::Geometry ||
+        update->instance_plan.table !=
+            render::GpuSceneResourceTable::Instance ||
+        update->material_plan.table !=
+            render::GpuSceneResourceTable::Material) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          "resource update plans name the wrong tables");
+    }
+
+    const auto capacities = gpu_scene_buffers_.capacities;
+    ValidateGpuSceneTableUpdate(update->geometries,
+                                update->geometry_plan.dirty_ranges,
+                                capacities.geometries, "geometry");
+    ValidateGpuSceneTableUpdate(update->instances,
+                                update->instance_plan.dirty_ranges,
+                                capacities.instances, "instance");
+    ValidateGpuSceneTableUpdate(update->materials,
+                                update->material_plan.dirty_ranges,
+                                capacities.materials, "material");
+    ValidateGpuSceneTableUpdate(update->draws,
+                                update->draw_plan.dirty_ranges,
+                                capacities.draws, "draw");
+    const auto copy_bytes = update->geometries.copy_bytes +
+                            update->instances.copy_bytes +
+                            update->materials.copy_bytes +
+                            update->draws.copy_bytes;
+    if (update->copy_bytes != copy_bytes) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          "frame copy bytes do not match the table payloads");
+    }
+    if (unchanged && copy_bytes != 0) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+                          "upload GPU Scene",
+                          "unchanged resident revision contains copy payload");
+    }
+    gpu_scene_buffers_.pending_source_id = reference_plan.source_id;
+    gpu_scene_buffers_.pending_revision = reference_plan.revision;
+    gpu_scene_buffers_.pending_update = true;
+    if (copy_bytes == 0) {
+      return;
+    }
+
+    Buffer retired_staging;
+    VkDeviceSize growth_bytes{};
+    const auto reservation = gpu_scene_staging_.Reserve(
+        static_cast<VkDeviceSize>(copy_bytes), retired_staging, growth_bytes);
+    frame_counters_.gpu_scene_upload_ring_reserved_bytes +=
+        AlignUp(static_cast<VkDeviceSize>(copy_bytes), kArenaAlignment);
+    if (growth_bytes != 0) {
+      ++frame_counters_.allocation_count;
+      ++frame_counters_.buffer_allocation_count;
+      frame_counters_.buffer_allocation_bytes += copy_bytes;
+      ++frame_counters_.gpu_scene_upload_ring_growth_count;
+      frame_counters_.gpu_scene_upload_ring_growth_bytes += growth_bytes;
+      Retire(retired_staging);
+    }
+
+    VkDeviceSize cursor{};
+    const auto stage_table = [&]<typename Record>(
+                                 const render::GpuScenePackedUpdate<Record>& packed,
+                                 const Buffer& destination) {
+      for (const auto& range : packed.ranges) {
+        const auto bytes = static_cast<VkDeviceSize>(range.records.size()) *
+                           sizeof(Record);
+        std::memcpy(reservation.mapped + cursor, range.records.data(),
+                    static_cast<std::size_t>(bytes));
+        pending_copies_.push_back(
+            {reservation.buffer, reservation.offset + cursor,
+             destination.handle,
+             static_cast<VkDeviceSize>(range.first_slot) * sizeof(Record),
+             bytes});
+        cursor += bytes;
+        ++frame_counters_.gpu_scene_copy_range_count;
+      }
+    };
+    stage_table(update->geometries, gpu_scene_buffers_.geometries);
+    stage_table(update->instances, gpu_scene_buffers_.instances);
+    stage_table(update->materials, gpu_scene_buffers_.materials);
+    stage_table(update->draws, gpu_scene_buffers_.draws);
+    frame_counters_.gpu_scene_upload_bytes += copy_bytes;
+    frame_counters_.upload_bytes += copy_bytes;
+  }
+
+  void CommitGpuSceneUpdate() noexcept {
+    if (!gpu_scene_buffers_.pending_update) {
+      return;
+    }
+    gpu_scene_buffers_.source_id = gpu_scene_buffers_.pending_source_id;
+    gpu_scene_buffers_.revision = gpu_scene_buffers_.pending_revision;
+    gpu_scene_buffers_.pending_update = false;
+  }
+
   void CreateGaussianCornerBuffer() {
     constexpr std::array<Vec2, 6> corners{{
         {-1.0F, -1.0F},
@@ -2496,6 +2756,8 @@ class Renderer::Impl {
     pending_image_copies_.clear();
     pending_graphics_acquire_images_.clear();
     staging_.AbandonFrame();
+    gpu_scene_staging_.AbandonFrame();
+    gpu_scene_buffers_.pending_update = false;
     for (const auto handle : pending_texture_handles_) {
       const auto texture = texture_slots_.find(handle);
       if (texture != texture_slots_.end() &&
@@ -4285,10 +4547,14 @@ class Renderer::Impl {
       VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
       barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
       barrier.dstAccessMask =
-          VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+          VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT |
+          VK_ACCESS_SHADER_READ_BIT;
       vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                           VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &barrier,
-                           0, nullptr, 0, nullptr);
+                           VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
+                               VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           0, 1, &barrier, 0, nullptr, 0, nullptr);
     }
     pending_copies_.clear();
 
@@ -6076,7 +6342,9 @@ class Renderer::Impl {
     if (transfer_completion != 0) {
       wait_semaphores[wait_count] = transfer_timeline_semaphore_;
       wait_stages[wait_count] = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
-                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                                VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
       wait_values[wait_count] = transfer_completion;
       ++wait_count;
     }
@@ -6327,6 +6595,8 @@ class Renderer::Impl {
   DeviceArena vertex_arena_;
   DeviceArena index_arena_;
   StagingRing staging_;
+  StagingRing gpu_scene_staging_;
+  GpuSceneBuffers gpu_scene_buffers_;
   Buffer gaussian_corner_vertices_;
   std::map<std::uint64_t, GeometrySlot> geometry_slots_;
   std::map<std::uint64_t, TextureSlot> texture_slots_;
@@ -6394,6 +6664,13 @@ RendererStatistics Renderer::statistics() const noexcept {
   result.vertex_arena = impl_->vertex_arena_.telemetry();
   result.index_arena = impl_->index_arena_.telemetry();
   result.upload_ring = impl_->staging_.telemetry();
+  result.gpu_scene_upload_ring = impl_->gpu_scene_staging_.telemetry();
+  result.gpu_scene_buffers = impl_->gpu_scene_buffers_.enabled();
+  result.gpu_scene_capacity_bytes =
+      impl_->gpu_scene_buffers_.geometries.size +
+      impl_->gpu_scene_buffers_.instances.size +
+      impl_->gpu_scene_buffers_.materials.size +
+      impl_->gpu_scene_buffers_.draws.size;
   result.memory_budget = impl_->memory_budget_.telemetry();
   result.transfer_queue = {
       impl_->capabilities_.async_transfer_queue,

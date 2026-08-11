@@ -492,6 +492,17 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.index_upload_bytes);
   WriteCounter(stream, counter_indent, "texture_upload_bytes",
                count.texture_upload_bytes);
+  WriteCounter(stream, counter_indent, "gpu_scene_upload_bytes",
+               count.gpu_scene_upload_bytes);
+  WriteCounter(stream, counter_indent, "gpu_scene_copy_range_count",
+               count.gpu_scene_copy_range_count);
+  WriteCounter(stream, counter_indent,
+               "gpu_scene_upload_ring_reserved_bytes",
+               count.gpu_scene_upload_ring_reserved_bytes);
+  WriteCounter(stream, counter_indent, "gpu_scene_upload_ring_growth_count",
+               count.gpu_scene_upload_ring_growth_count);
+  WriteCounter(stream, counter_indent, "gpu_scene_upload_ring_growth_bytes",
+               count.gpu_scene_upload_ring_growth_bytes);
   WriteCounter(stream, counter_indent, "upload_ring_reserved_bytes",
                count.upload_ring_reserved_bytes);
   WriteCounter(stream, counter_indent, "readback_bytes", count.readback_bytes);
@@ -671,6 +682,14 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   WriteArenaTelemetry(stream, statistics.index_arena, "      ");
   stream << "\n    },\n    \"upload_ring\": ";
   WriteUploadRingTelemetry(stream, statistics.upload_ring, "    ");
+  stream << ",\n    \"gpu_scene\": {\n"
+         << "      \"buffers\": "
+         << (statistics.gpu_scene_buffers ? "true" : "false")
+         << ",\n      \"capacity_bytes\": "
+         << statistics.gpu_scene_capacity_bytes
+         << ",\n      \"upload_ring\": ";
+  WriteUploadRingTelemetry(stream, statistics.gpu_scene_upload_ring, "      ");
+  stream << "\n    }";
   stream << ",\n    \"transfer_queue\": {\n"
          << "      \"asynchronous\": "
          << (transfer.asynchronous ? "true" : "false")

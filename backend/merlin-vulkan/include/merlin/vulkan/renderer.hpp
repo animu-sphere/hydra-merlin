@@ -14,6 +14,7 @@
 #include <merlin/core/diagnostic.hpp>
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
+#include <merlin/render/gpu_scene_packing.hpp>
 #include <merlin/vulkan/bindless_resource_table.hpp>
 #include <merlin/vulkan/descriptor_indexing.hpp>
 
@@ -140,6 +141,11 @@ struct RendererOptions {
   std::optional<PresentationOptions> presentation;
   std::optional<BorrowedVulkanContext> borrowed_context;
   std::vector<GeneratedMaterialArtifact> generated_material_artifacts;
+  // Optional fixed capacities for the persistent ABI-v1 GPU Scene tables.
+  // Enabling these tables allocates device-local storage once. Individual
+  // RenderRequests may then supply a packed update whose dirty ranges are
+  // copied without scanning or replacing the complete tables.
+  std::optional<render::GpuScenePackingCapacities> gpu_scene_capacities;
   // Host-owned and optional. Vulkan debug callbacks may report from threads
   // other than the submit thread, so implementations must treat it as a
   // thread-safe sink whose lifetime covers this Renderer.
@@ -271,8 +277,11 @@ struct RendererStatistics {
   ArenaTelemetry vertex_arena;
   ArenaTelemetry index_arena;
   UploadRingTelemetry upload_ring;
+  UploadRingTelemetry gpu_scene_upload_ring;
   MemoryBudgetTelemetry memory_budget;
   TransferQueueTelemetry transfer_queue;
+  bool gpu_scene_buffers{};
+  std::uint64_t gpu_scene_capacity_bytes{};
   // Logical bindless-table evidence is populated when the selected device and
   // configuration activate bindless Forward. Conventional Forward leaves
   // these fields zeroed and remains the correctness fallback.
@@ -322,11 +331,18 @@ struct FrameCounters {
   std::uint64_t gaussian_draw_count{};
   std::uint64_t gaussian_upload_bytes{};
   std::uint64_t upload_bytes{};
-  // Upload payload split by resource class. Vertex, index, texture, and
-  // Gaussian payload bytes sum to upload_bytes.
+  // Upload payload split by resource class. Vertex, index, texture, Gaussian,
+  // and GPU Scene payload bytes sum to upload_bytes.
   std::uint64_t vertex_upload_bytes{};
   std::uint64_t index_upload_bytes{};
   std::uint64_t texture_upload_bytes{};
+  // ABI-v1 geometry, instance, material, and draw table payload copied from a
+  // caller-supplied packed update. One copy is recorded per packed range.
+  std::uint64_t gpu_scene_upload_bytes{};
+  std::uint64_t gpu_scene_copy_range_count{};
+  std::uint64_t gpu_scene_upload_ring_reserved_bytes{};
+  std::uint64_t gpu_scene_upload_ring_growth_count{};
+  std::uint64_t gpu_scene_upload_ring_growth_bytes{};
   // Aligned space reserved from the persistent mapped geometry-upload ring.
   // Texture uploads currently use completion-retired staging buffers and are
   // therefore excluded.
@@ -436,6 +452,11 @@ struct RenderRequest {
   // attachment is copied GPU-to-GPU into the acquired swapchain image; CPU
   // readback remains independently controlled by the product requests.
   bool present{};
+  // Optional native upload half of the persistent GPU Scene contract. The
+  // update must have been packed from `snapshot` and fit the capacities used
+  // to create this Renderer. Renderer consumption of these tables is a later
+  // path; conventional Forward remains unchanged while upload evidence lands.
+  std::shared_ptr<const render::GpuScenePackedFrameUpdate> gpu_scene_update;
 };
 
 enum class RendererErrorCode {
