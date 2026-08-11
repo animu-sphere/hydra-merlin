@@ -122,7 +122,7 @@ diagnostic history.
 The complete field and validation contract is recorded in
 [versioned renderer settings](../design/renderer-settings.md).
 
-### ⬜ v0.15.0 — Persistent GPU Scene foundation
+### ✅ v0.15.0 — Persistent GPU Scene foundation
 
 The first identity slice is in place: immutable snapshots assign non-zero,
 source-local draw IDs that do not depend on sorted table position, retain them
@@ -215,16 +215,27 @@ the existing CPU-constant path. The Metal runtime gate checks color parity,
 packed ID AOV output, draw consumption, and zero-upload static-frame reuse when
 a Metal device is available.
 
-The milestone remains incomplete. Next is persistent Gaussian attribute
-residency described in the
-[GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
-[Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
+Persistent Gaussian residency now completes the milestone. Gaussian resources
+participate in the common generation-checked finite-slot identity contract,
+while Vulkan retains device-local position, covariance, opacity, and
+spherical-harmonic ranges independently from the camera-dependent prepared
+stream. Exact snapshot deltas avoid static traversal; exact particle ranges
+upload only changed aspects when completion safety permits reuse. Transform and
+visibility changes advance the resident record generation without re-uploading
+source attributes. Runtime coverage proves zero static allocation/upload,
+12-byte single-particle SH and 4-byte opacity updates, deterministic ID output,
+and completion-safe range retirement. CPU preparation, attribute sync,
+prepared-stream sync, and GPU raster timing are independently observable in the
+backend contract, Hydra log, benchmark JSON, and viewport. Deterministic opt-in
+1M, 5M, and 10M Gaussian fixtures provide the scale measurement inputs.
+
+The implementation exit criteria and v0.15.0 release metadata are complete.
+Tag publication follows main CI and is intentionally outside this worktree.
 
 ## Near-term execution order
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Add persistent Gaussian attribute residency and retain range-only updates.
-4. Strengthen non-GPU and Linux gates before implementation breadth grows.
-5. Preserve the completed native Metal presentation path while extending the
+2. Strengthen non-GPU and Linux gates before implementation breadth grows.
+3. Preserve the completed native Metal presentation path while extending the
    shared viewport diagnostics and platform evidence.

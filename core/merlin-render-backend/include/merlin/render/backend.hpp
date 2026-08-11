@@ -213,10 +213,18 @@ struct RendererStatistics {
     std::uint64_t geometry_resident_bytes{};
     std::uint64_t geometry_peak_resident_bytes{};
     std::uint64_t geometry_retiring_bytes{};
+    std::uint64_t gaussian_capacity_bytes{};
+    std::uint64_t gaussian_resident_bytes{};
+    std::uint64_t gaussian_peak_resident_bytes{};
+    std::uint64_t gaussian_retiring_bytes{};
+    std::uint64_t gaussian_upload_ring_capacity_bytes{};
+    std::uint64_t gaussian_upload_ring_in_flight_bytes{};
     std::uint64_t upload_ring_capacity_bytes{};
     std::uint64_t upload_ring_in_flight_bytes{};
     std::uint64_t upload_ring_peak_in_flight_bytes{};
     std::uint32_t geometry_blocks{};
+    std::uint32_t gaussian_blocks{};
+    std::uint32_t gaussian_resources{};
     std::uint32_t texture_slots_capacity{};
     std::uint32_t texture_slots_in_use{};
     std::uint32_t texture_slots_retiring{};
@@ -229,6 +237,10 @@ struct RendererStatistics {
 
 struct FrameTimings {
   std::uint64_t upload_ns{};
+  std::uint64_t gaussian_preparation_ns{};
+  std::uint64_t gaussian_attribute_upload_ns{};
+  std::uint64_t gaussian_prepared_upload_ns{};
+  std::uint64_t gaussian_raster_ns{};
   std::uint64_t command_recording_ns{};
   std::uint64_t queue_submission_ns{};
   std::uint64_t completion_wait_ns{};
@@ -259,6 +271,9 @@ struct FrameTelemetry {
   std::uint64_t gaussian_preparation_cache_hits{};
   std::uint64_t gaussian_preparation_cache_misses{};
   std::uint64_t gaussian_draw_count{};
+  std::uint64_t gaussian_attribute_upload_bytes{};
+  std::uint64_t gaussian_attribute_copy_range_count{};
+  std::uint64_t gaussian_attribute_generation_count{};
   std::uint64_t gaussian_upload_bytes{};
   // ABI-v1 persistent GPU Scene payload copied from a caller-packed update.
   // Backends record one native copy for each packed dirty range. Staging

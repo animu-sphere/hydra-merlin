@@ -1837,6 +1837,20 @@ class SceneBridge {
                << result.telemetry.gaussian_draw_count
                << " gaussian_upload_bytes="
                << result.telemetry.gaussian_upload_bytes
+               << " gaussian_attribute_upload_bytes="
+               << result.telemetry.gaussian_attribute_upload_bytes
+               << " gaussian_attribute_copy_ranges="
+               << result.telemetry.gaussian_attribute_copy_range_count
+               << " gaussian_attribute_generations="
+               << result.telemetry.gaussian_attribute_generation_count
+               << " gaussian_preparation_ns="
+               << result.timings.gaussian_preparation_ns
+               << " gaussian_attribute_upload_ns="
+               << result.timings.gaussian_attribute_upload_ns
+               << " gaussian_prepared_upload_ns="
+               << result.timings.gaussian_prepared_upload_ns
+               << " gaussian_raster_ns="
+               << result.timings.gaussian_raster_ns
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height

@@ -174,8 +174,8 @@ all four tables while retaining CPU indexed submission: a compact push constant
 selects the physical `GpuDraw` slot and supplies frame view state, then the
 shader resolves geometry attributes, instance transforms/IDs, material factors,
 and bindless resources from ABI-v1 storage buffers. Generated materials and
-non-bindless devices remain on conventional Forward. Metal renderer consumption
-remains the next v0.15.0 layer over this ABI and residency boundary. Packed frame updates
+non-bindless devices remain on conventional Forward. Metal bindless Forward now
+consumes the same four tables through its dedicated native pipeline. Packed frame updates
 also retain an immutable dense-snapshot-draw to physical-`GpuDraw`-slot map.
 Unchanged frames share the existing map without rescanning draw identities,
 and both native backends reject missing, out-of-capacity, or duplicate slots.
@@ -190,14 +190,22 @@ through the current persistent resource mappings, requires explicit stable
 or unrepresentable arena ranges instead of truncating them. An unchanged plan
 produces no records and zero copy bytes. Vulkan native buffer allocation,
 staging, and dirty-range copies now consume this packed contract on both Vulkan
-and Metal; Vulkan renderer consumption is in place and Metal remains backend
-work. The
+and Metal, and both renderers consume the resulting tables. The
 four persistent mappings form one transaction boundary: packing runs against
 cloned candidates, verifies that every upsert still names the candidate's
 current owner/generation, and publishes all candidates only after every table
 succeeds. A rejection cannot advance residency or leave an unwritten record
 classified as static on retry. The unchanged-source/revision path bypasses
 candidate cloning and packing-input traversal entirely.
+
+Gaussian resource identity now participates in the same finite generation-
+checked slot boundary. Vulkan retains source-space position, covariance,
+opacity, and spherical-harmonic payloads in separate device-local arena ranges;
+exact snapshot and particle deltas avoid unrelated traversal and preserve
+aspect/range-only copies. Transform, visibility, and policy revisions advance
+the resident resource generation without re-uploading source attributes.
+Camera-dependent projection and sorting remain a separate prepared stream until
+v0.16.0 moves those stages to compute.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,

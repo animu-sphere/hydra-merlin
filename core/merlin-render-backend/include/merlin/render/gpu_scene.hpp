@@ -134,6 +134,7 @@ enum class GpuSceneResourceTable {
   Geometry,
   Instance,
   Material,
+  Gaussian,
 };
 
 // A resource version names the snapshot payload that is packed into one GPU

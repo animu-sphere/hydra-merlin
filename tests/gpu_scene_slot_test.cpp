@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <tuple>
@@ -14,6 +15,7 @@ namespace {
 using merlin::extraction::DrawRecord;
 using merlin::extraction::FrameSnapshot;
 using merlin::extraction::GeometryRecord;
+using merlin::extraction::GaussianRecord;
 using merlin::extraction::InstanceRecord;
 using merlin::extraction::MaterialRecord;
 using merlin::extraction::SnapshotDelta;
@@ -89,6 +91,9 @@ SnapshotDelta TableDelta(GpuSceneResourceTable table,
     case GpuSceneResourceTable::Material:
       resource_delta = &delta.materials;
       break;
+    case GpuSceneResourceTable::Gaussian:
+      resource_delta = &delta.gaussians;
+      break;
   }
   resource_delta->upserts = std::move(upserts);
   resource_delta->removals = std::move(removals);
@@ -154,6 +159,29 @@ FrameSnapshot MaterialSnapshot(
     records.push_back(record);
   }
   snapshot.materials.assign(std::move(records));
+  snapshot.delta = std::move(delta);
+  return snapshot;
+}
+
+FrameSnapshot GaussianSnapshot(
+    std::uint64_t source, std::uint64_t revision,
+    std::vector<std::tuple<std::uint64_t, std::uint64_t, std::size_t>>
+        gaussians,
+    std::optional<SnapshotDelta> delta = std::nullopt) {
+  FrameSnapshot snapshot;
+  snapshot.source_id = source;
+  snapshot.revision = revision;
+  std::vector<GaussianRecord> records;
+  records.reserve(gaussians.size());
+  for (const auto& [resource, record_revision, particle_count] : gaussians) {
+    GaussianRecord record;
+    record.gaussian = resource;
+    record.revision = record_revision;
+    record.positions =
+        std::make_shared<const std::vector<merlin::Vec3>>(particle_count);
+    records.push_back(std::move(record));
+  }
+  snapshot.gaussians.assign(std::move(records));
   snapshot.delta = std::move(delta);
   return snapshot;
 }
@@ -408,6 +436,38 @@ void TestInstanceAndMaterialSlots() {
   assert(materials.table() == GpuSceneResourceTable::Material);
 }
 
+void TestGaussianSlots() {
+  GpuSceneResourceSlots gaussians(GpuSceneResourceTable::Gaussian, 3);
+  const auto initial = GaussianSnapshot(71, 1, {{800, 1, 4}});
+  const auto initial_plan = gaussians.Apply(initial, 0, 0);
+  assert(initial_plan.upserts.size() == 1);
+  assert(initial_plan.upserts.front().record_version ==
+         (GpuSceneResourceVersion{1, 4}));
+  const auto original = *gaussians.Find(800);
+
+  const auto static_plan = gaussians.Apply(initial, 0, 0);
+  assert(static_plan.indexed_snapshot_records == 0);
+  assert(static_plan.upserts.empty());
+
+  const auto changed = GaussianSnapshot(
+      71, 2, {{800, 2, 4}},
+      TableDelta(GpuSceneResourceTable::Gaussian, 1, {800}, {}, {0}));
+  const auto changed_plan = gaussians.Apply(changed, 6, 5);
+  assert(!changed_plan.full_reconciliation);
+  assert(changed_plan.indexed_snapshot_records == 1);
+  assert(changed_plan.upserts.size() == 1);
+  assert(changed_plan.retirements.front().slot == original);
+  assert(*gaussians.Find(800) != original);
+
+  const auto resized = GaussianSnapshot(
+      71, 3, {{800, 2, 8}},
+      TableDelta(GpuSceneResourceTable::Gaussian, 2, {800}, {}, {0}));
+  const auto resized_plan = gaussians.Apply(resized, 7, 6);
+  assert(resized_plan.upserts.size() == 1);
+  assert(resized_plan.upserts.front().record_version ==
+         (GpuSceneResourceVersion{2, 8}));
+}
+
 void TestResourceFailureAtomicity() {
   GpuSceneResourceSlots slots(GpuSceneResourceTable::Instance, 1);
   const auto initial = InstanceSnapshot(61, 1, {{700, 1}});
@@ -454,6 +514,7 @@ int main() {
   TestInvalidSnapshots();
   TestPersistentGeometrySlots();
   TestInstanceAndMaterialSlots();
+  TestGaussianSlots();
   TestResourceFailureAtomicity();
   std::cout << "GPU Scene slot tests passed\n";
   return 0;

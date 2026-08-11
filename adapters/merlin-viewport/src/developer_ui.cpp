@@ -1072,7 +1072,21 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         LabelValue("Sorting fallbacks",
                    snapshot.telemetry.gaussian_sorting_policy_fallback_count);
         LabelValue("Draws", snapshot.telemetry.gaussian_draw_count);
-        LabelBytes("Upload", snapshot.telemetry.gaussian_upload_bytes);
+        LabelBytes("Attribute upload",
+                   snapshot.telemetry.gaussian_attribute_upload_bytes);
+        LabelValue("Attribute ranges",
+                   snapshot.telemetry.gaussian_attribute_copy_range_count);
+        LabelValue("Residency generations",
+                   snapshot.telemetry.gaussian_attribute_generation_count);
+        LabelBytes("Prepared upload", snapshot.telemetry.gaussian_upload_bytes);
+        LabelMilliseconds("CPU prepare",
+                          snapshot.timings.gaussian_preparation_ns);
+        LabelMilliseconds("Attribute sync",
+                          snapshot.timings.gaussian_attribute_upload_ns);
+        LabelMilliseconds("Prepared sync",
+                          snapshot.timings.gaussian_prepared_upload_ns);
+        LabelMilliseconds("GPU raster",
+                          snapshot.timings.gaussian_raster_ns);
       });
       if (snapshot.telemetry.gaussian_invalid_culled_count != 0) {
         ImGui::TextColored(ImVec4(1.0F, 0.55F, 0.25F, 1.0F),
@@ -1154,6 +1168,16 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         LabelBytes("Geometry retiring",
                    residency.geometry_retiring_bytes);
         LabelValue("Geometry blocks", residency.geometry_blocks);
+        LabelBytes("Gaussian capacity",
+                   residency.gaussian_capacity_bytes);
+        LabelBytes("Gaussian resident",
+                   residency.gaussian_resident_bytes);
+        LabelBytes("Gaussian retiring",
+                   residency.gaussian_retiring_bytes);
+        LabelValue("Gaussian blocks", residency.gaussian_blocks);
+        LabelValue("Gaussian resources", residency.gaussian_resources);
+        LabelBytes("Gaussian upload ring",
+                   residency.gaussian_upload_ring_capacity_bytes);
         LabelBytes("Upload ring capacity",
                    residency.upload_ring_capacity_bytes);
         LabelBytes("Upload ring in flight",

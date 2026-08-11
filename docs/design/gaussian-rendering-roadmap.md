@@ -35,7 +35,7 @@ Mesh/Gaussian output, deterministic fixtures, and native-viewport performance
 evidence. It is a correctness baseline; GPU sorting, tiling, streaming, LOD,
 compression, and out-of-core residency are explicitly out of scope.
 
-### v0.15.0 — Persistent Gaussian resources and measurement
+### v0.15.0 — Persistent Gaussian resources and measurement (complete)
 
 Add generation-checked persistent GPU records for position, covariance or
 scale/rotation, opacity, spherical harmonics, primitive/instance identity,
@@ -48,6 +48,15 @@ Exit requires zero steady-state Gaussian allocation/upload in static scenes,
 range-only partial uploads, stable IDs, deterministic CPU reference output,
 separate CPU/GPU stage timing, and 1M/5M/10M representative fixtures. The
 common persistent GPU Scene and draw identity work shares this foundation.
+
+Delivered evidence uses generation-checked resource slots and device-local
+Vulkan ranges for position, covariance, opacity, and spherical harmonics.
+Transform/visibility revisions update resident metadata without attribute
+transfer; exact particle edits retain range-only copies. The backend, Hydra
+diagnostics, viewport, and benchmark schema separately expose CPU preparation,
+attribute sync, prepared sync, and GPU raster time. Selectable deterministic
+`one-million-gaussians`, `five-million-gaussians`, and
+`ten-million-gaussians` fixtures provide the required scale inputs.
 
 ### v0.16.0 — GPU-driven Gaussian baseline
 

@@ -1084,7 +1084,17 @@ class Renderer::Impl {
       index_arena_.Initialize(
           device_, physical_device_, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
           &memory_budget_, queue_family_, transfer_queue_family_);
+      constexpr auto gaussian_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      gaussian_position_arena_.Initialize(device_, physical_device_,
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
+      gaussian_covariance_arena_.Initialize(device_, physical_device_,
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
+      gaussian_opacity_arena_.Initialize(device_, physical_device_,
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
+      gaussian_radiance_arena_.Initialize(device_, physical_device_,
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
       staging_.Initialize(device_, physical_device_, &memory_budget_);
+      gaussian_staging_.Initialize(device_, physical_device_, &memory_budget_);
       gpu_scene_staging_.Initialize(device_, physical_device_,
                                     &memory_budget_);
       if (options.gpu_scene_capacities) {
@@ -1170,7 +1180,12 @@ class Renderer::Impl {
       frame_upload_buffers_.clear();
       retired_ranges_.clear();
       staging_.Destroy();
+      gaussian_staging_.Destroy();
       gpu_scene_staging_.Destroy();
+      gaussian_position_arena_.Destroy();
+      gaussian_covariance_arena_.Destroy();
+      gaussian_opacity_arena_.Destroy();
+      gaussian_radiance_arena_.Destroy();
       vertex_arena_.Destroy();
       index_arena_.Destroy();
       DestroyGpuSceneBuffers();
@@ -1312,6 +1327,9 @@ class Renderer::Impl {
     } reclaim_presentation{*this, frame, frame.present_pending};
 
     const auto upload_start = CpuClock::now();
+    std::uint64_t gaussian_preparation_ns{};
+    std::uint64_t gaussian_attribute_upload_ns{};
+    std::uint64_t gaussian_prepared_upload_ns{};
     geometry_records_.Sync(request.snapshot->geometries);
     texture_records_.Sync(request.snapshot->textures);
     sampler_records_.Sync(request.snapshot->samplers);
@@ -1330,8 +1348,10 @@ class Renderer::Impl {
     if (gaussian_preparation_cache_hit) {
       ++frame_counters_.gaussian_preparation_cache_hits;
     } else {
+      const auto gaussian_preparation_start = CpuClock::now();
       prepared_gaussians_ = detail::PrepareGaussianFrame(
           *request.snapshot, {request.width, request.height});
+      gaussian_preparation_ns = ElapsedNanoseconds(gaussian_preparation_start);
       gaussian_preparation_source_ = request.snapshot->gaussians;
       gaussian_preparation_view_ = request.snapshot->view;
       gaussian_preparation_projection_ = request.snapshot->projection;
@@ -1383,7 +1403,14 @@ class Renderer::Impl {
     SyncSamplers(*request.snapshot, resource_sync_mode);
     PrepareMaterialDescriptors(frame, *request.snapshot);
     PrepareBindlessDescriptors();
+    const auto gaussian_attribute_upload_start = CpuClock::now();
+    SyncGaussianAttributes(*request.snapshot, resource_sync_mode);
+    gaussian_attribute_upload_ns =
+        ElapsedNanoseconds(gaussian_attribute_upload_start);
+    const auto gaussian_prepared_upload_start = CpuClock::now();
     PrepareGaussianInstances(frame);
+    gaussian_prepared_upload_ns =
+        ElapsedNanoseconds(gaussian_prepared_upload_start);
     StageGpuSceneUpdate(*request.snapshot, request.gpu_scene_update.get());
     if (frame_counters_.upload_bytes != 0) {
       ++statistics_.scene_uploads;
@@ -1414,7 +1441,7 @@ class Renderer::Impl {
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
           "begin frame command buffer");
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
-      vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0, 2);
+      vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0, 4);
       vkCmdWriteTimestamp(frame.command_buffer,
                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                           frame.timestamp_pool, 0);
@@ -1437,6 +1464,11 @@ class Renderer::Impl {
 
     frame.cpu_timings = {};
     frame.cpu_timings.upload_ns = upload_ns;
+    frame.cpu_timings.gaussian_preparation_ns = gaussian_preparation_ns;
+    frame.cpu_timings.gaussian_attribute_upload_ns =
+        gaussian_attribute_upload_ns;
+    frame.cpu_timings.gaussian_prepared_upload_ns =
+        gaussian_prepared_upload_ns;
     frame.cpu_timings.command_recording_ns = recording_ns;
     // Keep every operation after successful queue submission non-allocating.
     deferred_.reserve(deferred_.size() + frame_upload_buffers_.size());
@@ -1478,6 +1510,7 @@ class Renderer::Impl {
     }
     frame_upload_buffers_.clear();
     staging_.FinishFrame(completion);
+    gaussian_staging_.FinishFrame(completion);
     gpu_scene_staging_.FinishFrame(completion);
     frame.outstanding = true;
     ++statistics_.frames_submitted;
@@ -1493,6 +1526,7 @@ class Renderer::Impl {
         latest_completed_value_ =
             std::max(latest_completed_value_, completion);
         staging_.Collect(completion);
+        gaussian_staging_.Collect(completion);
         gpu_scene_staging_.Collect(completion);
         CollectDeferred(completion);
         frame.outstanding = false;
@@ -1645,6 +1679,7 @@ class Renderer::Impl {
     frame_counters_ = frame.counters;
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
+    gaussian_staging_.Collect(completion);
     gpu_scene_staging_.Collect(completion);
     CollectDeferred(completion);
     active_target_ = &frame.target;
@@ -1678,6 +1713,8 @@ class Renderer::Impl {
     result.cpu_timings.completion_wait_ns = wait_ns;
     result.cpu_timings.readback_ns = readback_ns;
     result.cpu_timings.gpu_execution_ns = ReadGpuExecutionNanoseconds(frame);
+    result.cpu_timings.gaussian_raster_ns =
+        ReadGaussianRasterNanoseconds(frame);
     result.cpu_timings.backend_total_ns += ElapsedNanoseconds(resolve_start);
     ++frame_counters_.wait_count;
     ++frame_counters_.resolve_count;
@@ -1730,6 +1767,24 @@ class Renderer::Impl {
     BufferRange vertices;
     BufferRange indices;
     std::uint32_t index_count{};
+  };
+
+  struct GaussianAttributeSlot {
+    std::uint64_t record_revision{};
+    std::uint64_t positions_revision{};
+    std::uint64_t covariance_revision{};
+    std::uint64_t opacity_revision{};
+    std::uint64_t radiance_revision{};
+    std::uint64_t policy_revision{};
+    std::uint64_t transform_revision{};
+    std::uint64_t visibility_revision{};
+    std::uint32_t generation{};
+    std::uint32_t particle_count{};
+    std::uint32_t coefficients_per_particle{};
+    BufferRange positions;
+    BufferRange covariances;
+    BufferRange opacities;
+    BufferRange radiance;
   };
 
   struct RetiredRange {
@@ -2495,7 +2550,7 @@ class Renderer::Impl {
         VkQueryPoolCreateInfo query_info{
             VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        query_info.queryCount = 2;
+        query_info.queryCount = 4;
         Check(vkCreateQueryPool(device_, &query_info, nullptr,
                                 &frame.timestamp_pool),
               "create frame timestamp query pool");
@@ -2870,6 +2925,7 @@ class Renderer::Impl {
     pending_image_copies_.clear();
     pending_graphics_acquire_images_.clear();
     staging_.AbandonFrame();
+    gaussian_staging_.AbandonFrame();
     gpu_scene_staging_.AbandonFrame();
     gpu_scene_buffers_.pending_draw_slot_indices.reset();
     gpu_scene_buffers_.pending_update = false;
@@ -4415,6 +4471,286 @@ class Renderer::Impl {
     frame_counters_.descriptor_update_count += writes.size();
   }
 
+  void ReleaseGaussianAttributes(GaussianAttributeSlot& slot) {
+    ReleaseRange(gaussian_position_arena_, slot.positions);
+    ReleaseRange(gaussian_covariance_arena_, slot.covariances);
+    ReleaseRange(gaussian_opacity_arena_, slot.opacities);
+    ReleaseRange(gaussian_radiance_arena_, slot.radiance);
+  }
+
+  // Retains source-space Gaussian attributes independently of the
+  // camera-dependent prepared stream. Exact snapshot deltas visit only changed
+  // resources; exact particle ranges visit only changed elements of the
+  // affected attribute arrays when completion safety permits in-place reuse.
+  void SyncGaussianAttributes(const extraction::FrameSnapshot& snapshot,
+                              ResourceSyncMode mode) {
+    if (mode == ResourceSyncMode::Unchanged) {
+      return;
+    }
+
+    std::vector<const extraction::GaussianRecord*> records;
+    if (mode == ResourceSyncMode::ReplaceAll) {
+      for (auto& [handle, slot] : gaussian_attribute_slots_) {
+        (void)handle;
+        ReleaseGaussianAttributes(slot);
+      }
+      gaussian_attribute_slots_.clear();
+      records.reserve(snapshot.gaussians.size());
+      for (const auto& gaussian : snapshot.gaussians) {
+        records.push_back(&gaussian);
+      }
+    } else if (mode == ResourceSyncMode::Full) {
+      std::set<std::uint64_t> snapshot_handles;
+      for (const auto& gaussian : snapshot.gaussians) {
+        snapshot_handles.insert(gaussian.gaussian);
+        records.push_back(&gaussian);
+      }
+      for (auto slot = gaussian_attribute_slots_.begin();
+           slot != gaussian_attribute_slots_.end();) {
+        if (!snapshot_handles.contains(slot->first)) {
+          ReleaseGaussianAttributes(slot->second);
+          slot = gaussian_attribute_slots_.erase(slot);
+        } else {
+          ++slot;
+        }
+      }
+    } else {
+      const auto& delta = snapshot.delta->gaussians;
+      for (const auto handle : delta.removals) {
+        const auto slot = gaussian_attribute_slots_.find(handle);
+        if (slot == gaussian_attribute_slots_.end()) {
+          continue;
+        }
+        ReleaseGaussianAttributes(slot->second);
+        gaussian_attribute_slots_.erase(slot);
+      }
+      records.reserve(delta.upserts.size());
+      for (std::size_t index = 0; index < delta.upserts.size(); ++index) {
+        const auto* record =
+            FindDeltaRecord(snapshot.gaussians, delta, index,
+                            [](const extraction::GaussianRecord& gaussian) {
+                              return gaussian.gaussian;
+                            });
+        if (!record) {
+          throw RendererError(RendererErrorCode::InvalidRequest,
+                              "synchronize Gaussian attributes",
+                              "snapshot Gaussian delta has no matching record");
+        }
+        records.push_back(record);
+      }
+    }
+
+    struct Upload {
+      const extraction::GaussianRecord* record{};
+      GaussianAttributeSlot* slot{};
+      bool inserted{};
+      bool positions{};
+      bool covariances{};
+      bool opacities{};
+      bool radiance{};
+      bool partial{};
+      std::uint32_t coefficient_count{};
+    };
+    std::vector<Upload> uploads;
+    VkDeviceSize staging_bytes{};
+    const bool resident_ranges_reusable =
+        latest_completed_value_ >= timeline_value_;
+
+    const auto checked_bytes = [](std::size_t count, std::size_t element_size,
+                                  std::string_view label) -> VkDeviceSize {
+      if (count > std::numeric_limits<VkDeviceSize>::max() / element_size) {
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "synchronize Gaussian attributes",
+                            std::string(label) + " payload is too large");
+      }
+      return static_cast<VkDeviceSize>(count * element_size);
+    };
+    for (const auto* record : records) {
+      if (!record->positions || !record->covariances || !record->opacities ||
+          !record->spherical_harmonics_coefficients ||
+          record->positions->size() != record->covariances->size() ||
+          record->positions->size() != record->opacities->size() ||
+          record->positions->size() >
+              std::numeric_limits<std::uint32_t>::max() ||
+          record->spherical_harmonics_degree > 3) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "synchronize Gaussian attributes",
+                            "Gaussian attribute payload is malformed");
+      }
+      const auto coefficient_count = (record->spherical_harmonics_degree + 1U) *
+                                     (record->spherical_harmonics_degree + 1U);
+      if (record->spherical_harmonics_coefficients->size() !=
+          record->positions->size() * coefficient_count) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "synchronize Gaussian attributes",
+                            "Gaussian SH payload size is inconsistent");
+      }
+      for (const auto& range : record->particle_ranges) {
+        if (range.first > record->positions->size() ||
+            range.count > record->positions->size() - range.first) {
+          throw RendererError(RendererErrorCode::InvalidRequest,
+                              "synchronize Gaussian attributes",
+                              "Gaussian changed range is out of bounds");
+        }
+      }
+
+      const auto [entry, inserted] =
+          gaussian_attribute_slots_.try_emplace(record->gaussian);
+      auto& slot = entry->second;
+      Upload upload{record, &slot, inserted};
+      upload.coefficient_count = coefficient_count;
+      upload.positions =
+          inserted || slot.positions_revision != record->positions_revision;
+      upload.covariances =
+          inserted || slot.covariance_revision != record->covariance_revision;
+      upload.opacities =
+          inserted || slot.opacity_revision != record->opacity_revision;
+      upload.radiance = inserted ||
+                        slot.radiance_revision != record->radiance_revision ||
+                        slot.coefficients_per_particle != coefficient_count;
+      const bool attributes_changed = upload.positions || upload.covariances ||
+                                      upload.opacities || upload.radiance;
+      const bool record_changed =
+          inserted || slot.record_revision != record->revision;
+      if (!attributes_changed && !record_changed) {
+        continue;
+      }
+
+      const auto position_bytes =
+          checked_bytes(record->positions->size(), sizeof(Vec3), "position");
+      const auto covariance_bytes = checked_bytes(
+          record->covariances->size(), sizeof(Covariance3), "covariance");
+      const auto opacity_bytes =
+          checked_bytes(record->opacities->size(), sizeof(float), "opacity");
+      const auto radiance_bytes =
+          checked_bytes(record->spherical_harmonics_coefficients->size(),
+                        sizeof(Vec3), "spherical-harmonic");
+      upload.partial =
+          attributes_changed && resident_ranges_reusable && !inserted &&
+          slot.record_revision == record->particle_base_revision &&
+          !record->particle_ranges.empty() &&
+          slot.particle_count == record->positions->size() &&
+          slot.coefficients_per_particle == coefficient_count &&
+          (!upload.positions ||
+           slot.positions.size == AlignUp(position_bytes, kArenaAlignment)) &&
+          (!upload.covariances ||
+           slot.covariances.size ==
+               AlignUp(covariance_bytes, kArenaAlignment)) &&
+          (!upload.opacities ||
+           slot.opacities.size == AlignUp(opacity_bytes, kArenaAlignment)) &&
+          (!upload.radiance ||
+           slot.radiance.size == AlignUp(radiance_bytes, kArenaAlignment));
+
+      const auto add_bytes = [&](std::size_t element_size,
+                                 std::uint32_t multiplier = 1U) {
+        if (upload.partial) {
+          for (const auto& range : record->particle_ranges) {
+            staging_bytes +=
+                AlignUp(checked_bytes(static_cast<std::size_t>(range.count) *
+                                          multiplier,
+                                      element_size, "changed range"),
+                        kArenaAlignment);
+          }
+        } else {
+          staging_bytes +=
+              AlignUp(checked_bytes(record->positions->size() * multiplier,
+                                    element_size, "attribute"),
+                      kArenaAlignment);
+        }
+      };
+      if (upload.positions) add_bytes(sizeof(Vec3));
+      if (upload.covariances) add_bytes(sizeof(Covariance3));
+      if (upload.opacities) add_bytes(sizeof(float));
+      if (upload.radiance) add_bytes(sizeof(Vec3), coefficient_count);
+      uploads.push_back(upload);
+    }
+
+    if (uploads.empty()) {
+      return;
+    }
+    StagingRing::Reservation reservation;
+    if (staging_bytes != 0) {
+      Buffer retired_staging;
+      VkDeviceSize growth_bytes{};
+      reservation = gaussian_staging_.Reserve(staging_bytes, retired_staging,
+                                              growth_bytes);
+      if (growth_bytes != 0) {
+        ++frame_counters_.allocation_count;
+        ++frame_counters_.buffer_allocation_count;
+        frame_counters_.buffer_allocation_bytes += staging_bytes;
+        Retire(retired_staging);
+      }
+    }
+
+    VkDeviceSize cursor{};
+    const auto stage = [&](const void* payload, VkDeviceSize bytes,
+                           DeviceArena& arena, const BufferRange& range,
+                           VkDeviceSize destination_offset) {
+      if (bytes == 0) return;
+      std::memcpy(reservation.mapped + cursor, payload,
+                  static_cast<std::size_t>(bytes));
+      pending_copies_.push_back({reservation.buffer,
+                                 reservation.offset + cursor,
+                                 arena.buffer(range.block),
+                                 range.offset + destination_offset, bytes});
+      cursor += AlignUp(bytes, kArenaAlignment);
+      frame_counters_.upload_bytes += bytes;
+      frame_counters_.gaussian_attribute_upload_bytes += bytes;
+      ++frame_counters_.gaussian_attribute_copy_range_count;
+    };
+    for (auto& upload : uploads) {
+      auto& slot = *upload.slot;
+      const auto& record = *upload.record;
+      const auto particle_count = record.positions->size();
+      const auto upload_attribute =
+          [&](bool changed, const auto& payload, std::size_t stride,
+              std::uint32_t multiplier, DeviceArena& arena,
+              BufferRange& range) {
+            if (!changed) return;
+            const auto total_bytes =
+                checked_bytes(particle_count * multiplier, stride, "attribute");
+            if (!upload.partial) {
+              EnsureRange(arena, range, total_bytes);
+              stage(payload.data(), total_bytes, arena, range, 0);
+              return;
+            }
+            for (const auto& changed_range : record.particle_ranges) {
+              const auto first =
+                static_cast<std::size_t>(changed_range.first) * multiplier;
+              const auto count =
+                static_cast<std::size_t>(changed_range.count) * multiplier;
+              stage(payload.data() + first,
+                    checked_bytes(count, stride, "changed range"), arena, range,
+                    checked_bytes(first, stride, "changed offset"));
+            }
+          };
+      upload_attribute(upload.positions, *record.positions, sizeof(Vec3), 1,
+                       gaussian_position_arena_, slot.positions);
+      upload_attribute(upload.covariances, *record.covariances,
+                       sizeof(Covariance3), 1, gaussian_covariance_arena_,
+                       slot.covariances);
+      upload_attribute(upload.opacities, *record.opacities, sizeof(float), 1,
+                       gaussian_opacity_arena_, slot.opacities);
+      upload_attribute(upload.radiance,
+                       *record.spherical_harmonics_coefficients, sizeof(Vec3),
+                       upload.coefficient_count, gaussian_radiance_arena_,
+                       slot.radiance);
+
+      slot.record_revision = record.revision;
+      slot.positions_revision = record.positions_revision;
+      slot.covariance_revision = record.covariance_revision;
+      slot.opacity_revision = record.opacity_revision;
+      slot.radiance_revision = record.radiance_revision;
+      slot.policy_revision = record.policy_revision;
+      slot.transform_revision = record.transform_revision;
+      slot.visibility_revision = record.visibility_revision;
+      slot.particle_count = static_cast<std::uint32_t>(particle_count);
+      slot.coefficients_per_particle = upload.coefficient_count;
+      ++slot.generation;
+      if (slot.generation == 0) ++slot.generation;
+      ++frame_counters_.gaussian_attribute_generation_count;
+    }
+  }
   // Reconciles GPU geometry residency with one immutable snapshot. Continuous
   // SceneExtractor revisions select only delta records; unrelated scene edits
   // and static frames do not walk the full geometry table. Revision gaps,
@@ -4834,7 +5170,14 @@ class Renderer::Impl {
     while (range != retired_ranges_.end()) {
       if (range->retire_value <= completed) {
         range->arena->Release(range->range);
-        ++statistics_.geometry_range_retirements;
+        if (range->arena == &gaussian_position_arena_ ||
+            range->arena == &gaussian_covariance_arena_ ||
+            range->arena == &gaussian_opacity_arena_ ||
+            range->arena == &gaussian_radiance_arena_) {
+          ++statistics_.gaussian_attribute_range_retirements;
+        } else {
+          ++statistics_.geometry_range_retirements;
+        }
         range = retired_ranges_.erase(range);
       } else {
         ++range;
@@ -6436,6 +6779,10 @@ class Renderer::Impl {
       vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
     }
     vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
+    if (frame.timestamp_pool != VK_NULL_HANDLE) {
+      vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+                          frame.timestamp_pool, 2);
+    }
     if (frame.gaussian_instance_count != 0) {
       const auto pipeline = EnsureGaussianPipeline(active_target_->shaders);
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -6477,6 +6824,10 @@ class Renderer::Impl {
                          0, sizeof(push), &push);
       vkCmdDraw(command, 6, frame.gaussian_instance_count, 0, 0);
       ++frame_counters_.gaussian_draw_count;
+    }
+    if (frame.timestamp_pool != VK_NULL_HANDLE) {
+      vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+                          frame.timestamp_pool, 3);
     }
     vkCmdEndRenderPass(command);
 
@@ -6628,12 +6979,17 @@ class Renderer::Impl {
     }
   }
 
-  std::uint64_t ReadGpuExecutionNanoseconds(const FrameContext& frame) const {
+  std::uint64_t ReadGpuTimestampSpanNanoseconds(
+      const FrameContext& frame, std::uint32_t first,
+      std::uint32_t second) const {
     if (frame.timestamp_pool == VK_NULL_HANDLE) {
       return 0;
     }
+    if (second != first + 1U) {
+      throw std::logic_error("timestamp span queries must be adjacent");
+    }
     std::array<std::uint64_t, 2> timestamps{};
-    Check(vkGetQueryPoolResults(device_, frame.timestamp_pool, 0,
+    Check(vkGetQueryPoolResults(device_, frame.timestamp_pool, first,
                                 static_cast<std::uint32_t>(timestamps.size()),
                                 sizeof(timestamps), timestamps.data(),
                                 sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT),
@@ -6645,6 +7001,15 @@ class Renderer::Impl {
     const auto ticks = (timestamps[1] - timestamps[0]) & mask;
     return static_cast<std::uint64_t>(
         static_cast<long double>(ticks) * timestamp_period_ns_);
+  }
+
+  std::uint64_t ReadGpuExecutionNanoseconds(const FrameContext& frame) const {
+    return ReadGpuTimestampSpanNanoseconds(frame, 0, 1);
+  }
+
+  std::uint64_t ReadGaussianRasterNanoseconds(
+      const FrameContext& frame) const {
+    return ReadGpuTimestampSpanNanoseconds(frame, 2, 3);
   }
 
   ImageRgba8 ReadColor(std::uint32_t width, std::uint32_t height) {
@@ -6807,11 +7172,17 @@ class Renderer::Impl {
   detail::DiffuseEnvironment environment_lighting_;
   DeviceArena vertex_arena_;
   DeviceArena index_arena_;
+  DeviceArena gaussian_position_arena_;
+  DeviceArena gaussian_covariance_arena_;
+  DeviceArena gaussian_opacity_arena_;
+  DeviceArena gaussian_radiance_arena_;
   StagingRing staging_;
+  StagingRing gaussian_staging_;
   StagingRing gpu_scene_staging_;
   GpuSceneBuffers gpu_scene_buffers_;
   Buffer gaussian_corner_vertices_;
   std::map<std::uint64_t, GeometrySlot> geometry_slots_;
+  std::map<std::uint64_t, GaussianAttributeSlot> gaussian_attribute_slots_;
   std::map<std::uint64_t, TextureSlot> texture_slots_;
   std::map<std::uint64_t, SamplerSlot> sampler_slots_;
   std::vector<RetiredRange> retired_ranges_;
@@ -6870,13 +7241,37 @@ RendererStatistics Renderer::statistics() const noexcept {
       impl_->validation_messages_.load(std::memory_order_relaxed);
   result.aov_image_export_count = impl_->aov_image_export_count_;
   result.active_aov_image_leases = impl_->active_aov_image_leases_;
-  result.pending_geometry_retirements =
-      static_cast<std::uint32_t>(impl_->retired_ranges_.size());
+  result.pending_geometry_retirements = 0;
+  result.pending_gaussian_attribute_retirements = 0;
   result.geometry_arena_blocks =
       impl_->vertex_arena_.block_count() + impl_->index_arena_.block_count();
   result.vertex_arena = impl_->vertex_arena_.telemetry();
   result.index_arena = impl_->index_arena_.telemetry();
+  const auto add_gaussian_arena = [&](const ArenaTelemetry& source) {
+    auto& destination = result.gaussian_attribute_arena;
+    destination.capacity_bytes += source.capacity_bytes;
+    destination.resident_bytes += source.resident_bytes;
+    destination.peak_resident_bytes += source.peak_resident_bytes;
+    destination.free_bytes += source.free_bytes;
+    destination.largest_free_span_bytes = std::max(
+        destination.largest_free_span_bytes, source.largest_free_span_bytes);
+    destination.retiring_bytes += source.retiring_bytes;
+    destination.allocation_count += source.allocation_count;
+    destination.release_count += source.release_count;
+    destination.active_ranges += source.active_ranges;
+    destination.peak_active_ranges += source.peak_active_ranges;
+    destination.retiring_ranges += source.retiring_ranges;
+    destination.free_spans += source.free_spans;
+    destination.blocks += source.blocks;
+    destination.growth_count += source.growth_count;
+  };
+  add_gaussian_arena(impl_->gaussian_position_arena_.telemetry());
+  add_gaussian_arena(impl_->gaussian_covariance_arena_.telemetry());
+  add_gaussian_arena(impl_->gaussian_opacity_arena_.telemetry());
+  add_gaussian_arena(impl_->gaussian_radiance_arena_.telemetry());
   result.upload_ring = impl_->staging_.telemetry();
+  result.gaussian_attribute_upload_ring =
+      impl_->gaussian_staging_.telemetry();
   result.gpu_scene_upload_ring = impl_->gpu_scene_staging_.telemetry();
   result.gpu_scene_buffers = impl_->gpu_scene_buffers_.enabled();
   result.gpu_scene_capacity_bytes =
@@ -6884,6 +7279,8 @@ RendererStatistics Renderer::statistics() const noexcept {
       impl_->gpu_scene_buffers_.instances.size +
       impl_->gpu_scene_buffers_.materials.size +
       impl_->gpu_scene_buffers_.draws.size;
+  result.gaussian_attribute_resources =
+      static_cast<std::uint32_t>(impl_->gaussian_attribute_slots_.size());
   result.memory_budget = impl_->memory_budget_.telemetry();
   result.transfer_queue = {
       impl_->capabilities_.async_transfer_queue,
@@ -6895,9 +7292,16 @@ RendererStatistics Renderer::statistics() const noexcept {
       impl_->transfer_timeline_value_,
   };
   for (const auto& retired : impl_->retired_ranges_) {
-    auto* arena = retired.arena == &impl_->vertex_arena_
-                      ? &result.vertex_arena
-                      : &result.index_arena;
+    auto* arena = &result.gaussian_attribute_arena;
+    if (retired.arena == &impl_->vertex_arena_) {
+      arena = &result.vertex_arena;
+      ++result.pending_geometry_retirements;
+    } else if (retired.arena == &impl_->index_arena_) {
+      arena = &result.index_arena;
+      ++result.pending_geometry_retirements;
+    } else {
+      ++result.pending_gaussian_attribute_retirements;
+    }
     ++arena->retiring_ranges;
     arena->retiring_bytes += retired.range.size;
   }
