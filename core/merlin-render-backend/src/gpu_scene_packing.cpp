@@ -27,15 +27,18 @@ std::uint32_t CheckedU32(std::uint64_t value, std::string_view name) {
 
 void RequirePlan(const GpuSceneResourceUpdatePlan& plan,
                  GpuSceneResourceTable table,
-                 const extraction::FrameSnapshot& snapshot) {
-  if (plan.table != table) {
+                 const extraction::FrameSnapshot& snapshot,
+                 const GpuSceneResourceSlots& slots) {
+  if (plan.table != table || slots.table() != table) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
           "resource update plan targets the wrong table");
   }
   if (plan.source_id != snapshot.source_id ||
-      plan.revision != snapshot.revision) {
+      plan.revision != snapshot.revision ||
+      slots.source_id() != snapshot.source_id ||
+      slots.revision() != snapshot.revision) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "resource update plan source or revision does not match the snapshot");
+          "resource update plan is not current for the slot table");
   }
 }
 
@@ -294,11 +297,12 @@ GpuScenePackingError::GpuScenePackingError(GpuScenePackingErrorCode code,
                                            std::string message)
     : std::runtime_error(std::move(message)), code_(code) {}
 
-GpuScenePackedUpdate<GpuGeometry> PackGpuGeometryUpdate(
+static GpuScenePackedUpdate<GpuGeometry> PackGeometryUpdate(
     const extraction::FrameSnapshot& snapshot,
     const GpuSceneResourceUpdatePlan& plan,
+    const GpuSceneResourceSlots& slots,
     std::span<const GpuGeometryPlacement> placements) {
-  RequirePlan(plan, GpuSceneResourceTable::Geometry, snapshot);
+  RequirePlan(plan, GpuSceneResourceTable::Geometry, snapshot, slots);
   if (placements.size() != snapshot.geometries.size()) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
           "geometry placement count does not match the snapshot");
@@ -314,7 +318,8 @@ GpuScenePackedUpdate<GpuGeometry> PackGpuGeometryUpdate(
     if (source.mesh != upsert.resource ||
         upsert.record_version !=
             GpuSceneResourceVersion{source.vertex_revision,
-                                    source.index_revision}) {
+                                    source.index_revision} ||
+        slots.Find(upsert.resource) != upsert.slot) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
             "geometry upsert identity does not match the snapshot");
     }
@@ -324,11 +329,12 @@ GpuScenePackedUpdate<GpuGeometry> PackGpuGeometryUpdate(
   return Finish(std::move(pending), plan.dirty_ranges);
 }
 
-GpuScenePackedUpdate<GpuInstance> PackGpuInstanceUpdate(
+static GpuScenePackedUpdate<GpuInstance> PackInstanceUpdate(
     const extraction::FrameSnapshot& snapshot,
     const GpuSceneResourceUpdatePlan& plan,
+    const GpuSceneResourceSlots& slots,
     std::span<const GpuInstanceIdentity> identities) {
-  RequirePlan(plan, GpuSceneResourceTable::Instance, snapshot);
+  RequirePlan(plan, GpuSceneResourceTable::Instance, snapshot, slots);
   if (identities.size() != snapshot.instances.size()) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
           "instance identity count does not match the snapshot");
@@ -343,7 +349,8 @@ GpuScenePackedUpdate<GpuInstance> PackGpuInstanceUpdate(
     const auto& source = snapshot.instances[upsert.snapshot_index];
     if (source.instance != upsert.resource ||
         upsert.record_version !=
-            GpuSceneResourceVersion{source.revision, 0}) {
+            GpuSceneResourceVersion{source.revision, 0} ||
+        slots.Find(upsert.resource) != upsert.slot) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
             "instance upsert identity does not match the snapshot");
     }
@@ -353,11 +360,12 @@ GpuScenePackedUpdate<GpuInstance> PackGpuInstanceUpdate(
   return Finish(std::move(pending), plan.dirty_ranges);
 }
 
-GpuScenePackedUpdate<GpuMaterial> PackGpuMaterialUpdate(
+static GpuScenePackedUpdate<GpuMaterial> PackMaterialUpdate(
     const extraction::FrameSnapshot& snapshot,
     const GpuSceneResourceUpdatePlan& plan,
+    const GpuSceneResourceSlots& slots,
     std::span<const GpuMaterialBinding> bindings) {
-  RequirePlan(plan, GpuSceneResourceTable::Material, snapshot);
+  RequirePlan(plan, GpuSceneResourceTable::Material, snapshot, slots);
   if (bindings.size() != snapshot.materials.size()) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
           "material binding count does not match the snapshot");
@@ -372,7 +380,8 @@ GpuScenePackedUpdate<GpuMaterial> PackGpuMaterialUpdate(
     const auto& source = snapshot.materials[upsert.snapshot_index];
     if (source.material != upsert.resource ||
         upsert.record_version !=
-            GpuSceneResourceVersion{source.revision, 0}) {
+            GpuSceneResourceVersion{source.revision, 0} ||
+        slots.Find(upsert.resource) != upsert.slot) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
             "material upsert identity does not match the snapshot");
     }
@@ -382,16 +391,19 @@ GpuScenePackedUpdate<GpuMaterial> PackGpuMaterialUpdate(
   return Finish(std::move(pending), plan.dirty_ranges);
 }
 
-GpuScenePackedUpdate<GpuDraw> PackGpuDrawUpdate(
+static GpuScenePackedUpdate<GpuDraw> PackDrawUpdate(
     const extraction::FrameSnapshot& snapshot,
     const GpuSceneDrawUpdatePlan& plan,
+    const GpuSceneDrawSlots& draw_slots,
     const GpuSceneResourceSlots& geometries,
     const GpuSceneResourceSlots& materials,
     const GpuSceneResourceSlots& instances) {
   if (plan.source_id != snapshot.source_id ||
-      plan.revision != snapshot.revision) {
+      plan.revision != snapshot.revision ||
+      draw_slots.source_id() != snapshot.source_id ||
+      draw_slots.revision() != snapshot.revision) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "draw update plan source or revision does not match the snapshot");
+          "draw update plan is not current for the slot table");
   }
   if (geometries.table() != GpuSceneResourceTable::Geometry ||
       materials.table() != GpuSceneResourceTable::Material ||
@@ -419,6 +431,7 @@ GpuScenePackedUpdate<GpuDraw> PackGpuDrawUpdate(
     const auto& source = snapshot.draws[upsert.snapshot_index];
     if (source.draw == 0 || source.draw != upsert.draw ||
         source.revision != upsert.record_revision ||
+        draw_slots.Find(upsert.draw) != upsert.slot ||
         source.geometry_index >= snapshot.geometries.size() ||
         source.material_index >= snapshot.materials.size() ||
         source.instance_index >= snapshot.instances.size()) {
@@ -450,6 +463,80 @@ GpuScenePackedUpdate<GpuDraw> PackGpuDrawUpdate(
     pending.Add(upsert.slot.index, record);
   }
   return Finish(std::move(pending), plan.dirty_ranges);
+}
+
+GpuScenePackingState::GpuScenePackingState(
+    GpuScenePackingCapacities capacities)
+    : geometries_(std::make_unique<GpuSceneResourceSlots>(
+          GpuSceneResourceTable::Geometry, capacities.geometries)),
+      instances_(std::make_unique<GpuSceneResourceSlots>(
+          GpuSceneResourceTable::Instance, capacities.instances)),
+      materials_(std::make_unique<GpuSceneResourceSlots>(
+          GpuSceneResourceTable::Material, capacities.materials)),
+      draws_(std::make_unique<GpuSceneDrawSlots>(capacities.draws)) {}
+
+GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
+    const extraction::FrameSnapshot& snapshot,
+    std::uint64_t last_completion_value, std::uint64_t completed_value,
+    const GpuScenePackingInputs& inputs) {
+  const bool unchanged =
+      snapshot.source_id != 0 && geometries_->source_id() == snapshot.source_id &&
+      geometries_->revision() == snapshot.revision &&
+      instances_->source_id() == snapshot.source_id &&
+      instances_->revision() == snapshot.revision &&
+      materials_->source_id() == snapshot.source_id &&
+      materials_->revision() == snapshot.revision &&
+      draws_->source_id() == snapshot.source_id &&
+      draws_->revision() == snapshot.revision;
+  if (unchanged) {
+    GpuScenePackedFrameUpdate update;
+    update.geometry_plan = geometries_->Apply(
+        snapshot, last_completion_value, completed_value);
+    update.instance_plan = instances_->Apply(
+        snapshot, last_completion_value, completed_value);
+    update.material_plan = materials_->Apply(
+        snapshot, last_completion_value, completed_value);
+    update.draw_plan = draws_->Apply(snapshot, last_completion_value,
+                                     completed_value);
+    return update;
+  }
+
+  auto candidate_geometries = geometries_->Clone();
+  auto candidate_instances = instances_->Clone();
+  auto candidate_materials = materials_->Clone();
+  auto candidate_draws = draws_->Clone();
+
+  GpuScenePackedFrameUpdate update;
+  update.geometry_plan = candidate_geometries->Apply(
+      snapshot, last_completion_value, completed_value);
+  update.instance_plan = candidate_instances->Apply(
+      snapshot, last_completion_value, completed_value);
+  update.material_plan = candidate_materials->Apply(
+      snapshot, last_completion_value, completed_value);
+  update.draw_plan = candidate_draws->Apply(
+      snapshot, last_completion_value, completed_value);
+
+  update.geometries = PackGeometryUpdate(
+      snapshot, update.geometry_plan, *candidate_geometries,
+      inputs.geometry_placements);
+  update.instances = PackInstanceUpdate(
+      snapshot, update.instance_plan, *candidate_instances,
+      inputs.instance_identities);
+  update.materials = PackMaterialUpdate(
+      snapshot, update.material_plan, *candidate_materials,
+      inputs.material_bindings);
+  update.draws = PackDrawUpdate(
+      snapshot, update.draw_plan, *candidate_draws, *candidate_geometries,
+      *candidate_materials, *candidate_instances);
+  update.copy_bytes = update.geometries.copy_bytes +
+                      update.instances.copy_bytes +
+                      update.materials.copy_bytes + update.draws.copy_bytes;
+
+  geometries_ = std::move(candidate_geometries);
+  instances_ = std::move(candidate_instances);
+  materials_ = std::move(candidate_materials);
+  draws_ = std::move(candidate_draws);
+  return update;
 }
 
 }  // namespace merlin::render

@@ -15,7 +15,10 @@ after its public API and release process are established.
   emits ordered contiguous dirty-copy ranges, preserves stable 64-bit draw
   identity, reports exact copy bytes, and rejects stale plans, missing
   residency, invalid payloads, and values that cannot fit the 32-bit ABI rather
-  than truncating them. Static snapshots emit no packed records or copy work.
+  than truncating them. Geometry, instance, material, and draw packing is
+  transactional: rejected updates preserve the complete prior slot state and
+  remain retryable, while stale owner/generation plans cannot reach native copy
+  ranges. Static snapshots emit no packed records or copy work.
 - Versioned persistent GPU Scene residency for geometry, instance, and
   material tables. Exact snapshot deltas now preserve unchanged physical
   slots, changed in-flight records move to fresh completion-safe generations,

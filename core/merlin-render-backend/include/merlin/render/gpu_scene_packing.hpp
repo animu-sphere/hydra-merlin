@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -83,26 +84,88 @@ struct GpuScenePackedUpdate {
   std::uint64_t copy_bytes{};
 };
 
-[[nodiscard]] GpuScenePackedUpdate<GpuGeometry> PackGpuGeometryUpdate(
-    const extraction::FrameSnapshot& snapshot,
-    const GpuSceneResourceUpdatePlan& plan,
-    std::span<const GpuGeometryPlacement> placements);
+struct GpuScenePackingCapacities {
+  std::uint32_t geometries{};
+  std::uint32_t instances{};
+  std::uint32_t materials{};
+  std::uint32_t draws{};
+};
 
-[[nodiscard]] GpuScenePackedUpdate<GpuInstance> PackGpuInstanceUpdate(
-    const extraction::FrameSnapshot& snapshot,
-    const GpuSceneResourceUpdatePlan& plan,
-    std::span<const GpuInstanceIdentity> identities);
+struct GpuScenePackingInputs {
+  std::span<const GpuGeometryPlacement> geometry_placements;
+  std::span<const GpuInstanceIdentity> instance_identities;
+  std::span<const GpuMaterialBinding> material_bindings;
+};
 
-[[nodiscard]] GpuScenePackedUpdate<GpuMaterial> PackGpuMaterialUpdate(
-    const extraction::FrameSnapshot& snapshot,
-    const GpuSceneResourceUpdatePlan& plan,
-    std::span<const GpuMaterialBinding> bindings);
+struct GpuScenePackedFrameUpdate {
+  GpuSceneResourceUpdatePlan geometry_plan;
+  GpuSceneResourceUpdatePlan instance_plan;
+  GpuSceneResourceUpdatePlan material_plan;
+  GpuSceneDrawUpdatePlan draw_plan;
+  GpuScenePackedUpdate<GpuGeometry> geometries;
+  GpuScenePackedUpdate<GpuInstance> instances;
+  GpuScenePackedUpdate<GpuMaterial> materials;
+  GpuScenePackedUpdate<GpuDraw> draws;
+  std::uint64_t copy_bytes{};
+};
 
-[[nodiscard]] GpuScenePackedUpdate<GpuDraw> PackGpuDrawUpdate(
-    const extraction::FrameSnapshot& snapshot,
-    const GpuSceneDrawUpdatePlan& plan,
-    const GpuSceneResourceSlots& geometries,
-    const GpuSceneResourceSlots& materials,
-    const GpuSceneResourceSlots& instances);
+// Owns the four persistent GPU Scene mappings as one transaction boundary.
+// Apply evaluates the snapshot against cloned candidate mappings, packs every
+// dirty record, and publishes the candidates only after all packing succeeds.
+// A rejected update therefore leaves source/revision, generations,
+// retirements, telemetry, and free-slot order unchanged.
+class GpuScenePackingState {
+ public:
+  explicit GpuScenePackingState(GpuScenePackingCapacities capacities);
+  GpuScenePackingState(const GpuScenePackingState&) = delete;
+  GpuScenePackingState& operator=(const GpuScenePackingState&) = delete;
+
+  [[nodiscard]] GpuScenePackedFrameUpdate Apply(
+      const extraction::FrameSnapshot& snapshot,
+      std::uint64_t last_completion_value,
+      std::uint64_t completed_value,
+      const GpuScenePackingInputs& inputs);
+
+  [[nodiscard]] std::uint64_t source_id() const noexcept {
+    return geometries_->source_id();
+  }
+  [[nodiscard]] std::uint64_t revision() const noexcept {
+    return geometries_->revision();
+  }
+  [[nodiscard]] std::size_t geometry_count() const noexcept {
+    return geometries_->size();
+  }
+  [[nodiscard]] std::size_t instance_count() const noexcept {
+    return instances_->size();
+  }
+  [[nodiscard]] std::size_t material_count() const noexcept {
+    return materials_->size();
+  }
+  [[nodiscard]] std::size_t draw_count() const noexcept {
+    return draws_->size();
+  }
+  [[nodiscard]] std::optional<GpuSceneSlotHandle> FindGeometry(
+      std::uint64_t resource) const noexcept {
+    return geometries_->Find(resource);
+  }
+  [[nodiscard]] std::optional<GpuSceneSlotHandle> FindInstance(
+      std::uint64_t resource) const noexcept {
+    return instances_->Find(resource);
+  }
+  [[nodiscard]] std::optional<GpuSceneSlotHandle> FindMaterial(
+      std::uint64_t resource) const noexcept {
+    return materials_->Find(resource);
+  }
+  [[nodiscard]] std::optional<GpuSceneSlotHandle> FindDraw(
+      std::uint64_t draw) const noexcept {
+    return draws_->Find(draw);
+  }
+
+ private:
+  std::unique_ptr<GpuSceneResourceSlots> geometries_;
+  std::unique_ptr<GpuSceneResourceSlots> instances_;
+  std::unique_ptr<GpuSceneResourceSlots> materials_;
+  std::unique_ptr<GpuSceneDrawSlots> draws_;
+};
 
 }  // namespace merlin::render

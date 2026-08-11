@@ -168,7 +168,13 @@ through the current persistent resource mappings, requires explicit stable
 32-bit object and instance identities, and rejects missing bindless residency
 or unrepresentable arena ranges instead of truncating them. An unchanged plan
 produces no records and zero copy bytes. Native buffer allocation, staging and
-dirty-range copies, followed by renderer consumption, remain backend work.
+dirty-range copies, followed by renderer consumption, remain backend work. The
+four persistent mappings form one transaction boundary: packing runs against
+cloned candidates, verifies that every upsert still names the candidate's
+current owner/generation, and publishes all candidates only after every table
+succeeds. A rejection cannot advance residency or leave an unwritten record
+classified as static on retry. The unchanged-source/revision path bypasses
+candidate cloning and packing-input traversal entirely.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,

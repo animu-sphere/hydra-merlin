@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -14,6 +15,8 @@
 #include <merlin/render/gpu_scene_abi.hpp>
 
 namespace merlin::render {
+
+class GpuScenePackingState;
 
 inline constexpr std::uint32_t kInvalidGpuSceneSlotIndex = ~std::uint32_t{};
 
@@ -94,6 +97,10 @@ class GpuSceneSlotAllocator {
  private:
   friend class GpuSceneDrawSlots;
   friend class GpuSceneResourceSlots;
+
+  struct CloneTag {};
+
+  GpuSceneSlotAllocator(const GpuSceneSlotAllocator& source, CloneTag);
 
   enum class State : std::uint8_t { Free, Active, Retired };
 
@@ -203,10 +210,17 @@ class GpuSceneResourceSlots {
   }
 
  private:
+  friend class GpuScenePackingState;
+
+  struct CloneTag {};
+
   struct ResidentResource {
     GpuSceneSlotHandle slot;
     GpuSceneResourceVersion record_version;
   };
+
+  GpuSceneResourceSlots(const GpuSceneResourceSlots& source, CloneTag);
+  [[nodiscard]] std::unique_ptr<GpuSceneResourceSlots> Clone() const;
 
   GpuSceneResourceTable table_;
   GpuSceneSlotAllocator slots_;
@@ -274,10 +288,17 @@ class GpuSceneDrawSlots {
   }
 
  private:
+  friend class GpuScenePackingState;
+
+  struct CloneTag {};
+
   struct ResidentDraw {
     GpuSceneSlotHandle slot;
     std::uint64_t record_revision{};
   };
+
+  GpuSceneDrawSlots(const GpuSceneDrawSlots& source, CloneTag);
+  [[nodiscard]] std::unique_ptr<GpuSceneDrawSlots> Clone() const;
 
   GpuSceneSlotAllocator slots_;
   std::map<std::uint64_t, ResidentDraw> resident_;

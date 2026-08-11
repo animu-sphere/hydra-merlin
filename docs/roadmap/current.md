@@ -172,8 +172,15 @@ validates source/revision continuity, record versions, resource-table kind and
 residency, indexed-triangle payloads, finite transforms and bounds, explicit
 32-bit object/instance identities, and texture/sampler slots. Geometry arena
 offsets, ranges, counts, and primitive counts that do not fit ABI v1 are
-rejected instead of truncated. Static accepted snapshots produce no packed
-records and zero copy bytes.
+rejected instead of truncated. Static accepted snapshots bypass candidate
+cloning and input traversal, producing no packed records and zero copy bytes.
+Changed geometry, instance, material, and draw mappings are evaluated as cloned
+candidates and published together only after every record packs successfully.
+Rejected updates leave revisions, slot generations,
+retirements, telemetry, and free-slot order unchanged, so the same snapshot can
+be corrected and retried. Plan packing is internal and verifies each upsert
+against the candidate's current owner/generation before discarding generation
+metadata for the shader-visible copy range.
 
 The milestone remains incomplete. Next are native GPU Scene buffer allocation
 and dirty-range copies, renderer consumption of the persistent tables, and

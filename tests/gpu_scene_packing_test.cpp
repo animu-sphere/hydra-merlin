@@ -24,11 +24,11 @@ using merlin::extraction::TextureBindingRecord;
 using merlin::render::GpuGeometryPlacement;
 using merlin::render::GpuInstanceIdentity;
 using merlin::render::GpuMaterialBinding;
-using merlin::render::GpuSceneDrawSlots;
+using merlin::render::GpuScenePackingCapacities;
 using merlin::render::GpuScenePackingError;
 using merlin::render::GpuScenePackingErrorCode;
-using merlin::render::GpuSceneResourceSlots;
-using merlin::render::GpuSceneResourceTable;
+using merlin::render::GpuScenePackingInputs;
+using merlin::render::GpuScenePackingState;
 
 template <typename Callback>
 void ExpectError(Callback&& callback, GpuScenePackingErrorCode code,
@@ -103,23 +103,16 @@ FrameSnapshot MakeSnapshot() {
 
 void TestPackedRecordsAndRanges() {
   auto snapshot = MakeSnapshot();
-  GpuSceneResourceSlots geometries(GpuSceneResourceTable::Geometry, 4);
-  GpuSceneResourceSlots materials(GpuSceneResourceTable::Material, 4);
-  GpuSceneResourceSlots instances(GpuSceneResourceTable::Instance, 4);
-  GpuSceneDrawSlots draws(4);
-
-  const auto geometry_plan = geometries.Apply(snapshot, 0, 0);
-  const auto material_plan = materials.Apply(snapshot, 0, 0);
-  const auto instance_plan = instances.Apply(snapshot, 0, 0);
-  const auto draw_plan = draws.Apply(snapshot, 0, 0);
+  GpuScenePackingState state(GpuScenePackingCapacities{4, 4, 4, 4});
 
   const std::vector placements{GpuGeometryPlacement{64, 256}};
   const std::vector identities{
       GpuInstanceIdentity{17, 23, 0x00ff00ffU, 9}};
   const std::vector bindings{GpuMaterialBinding{7, 11}};
+  const auto update = state.Apply(
+      snapshot, 0, 0, GpuScenePackingInputs{placements, identities, bindings});
 
-  const auto packed_geometry = merlin::render::PackGpuGeometryUpdate(
-      snapshot, geometry_plan, placements);
+  const auto& packed_geometry = update.geometries;
   assert(packed_geometry.ranges.size() == 1);
   assert(packed_geometry.ranges[0].first_slot == 0);
   assert(packed_geometry.record_count == 1);
@@ -144,8 +137,7 @@ void TestPackedRecordsAndRanges() {
   assert(geometry.bounds_min.w == 0.0F);
   assert(geometry.bounds_max.w == 0.0F);
 
-  const auto packed_instance = merlin::render::PackGpuInstanceUpdate(
-      snapshot, instance_plan, identities);
+  const auto& packed_instance = update.instances;
   const auto& instance = packed_instance.ranges[0].records[0];
   assert(instance.object_id == 17);
   assert(instance.instance_id == 23);
@@ -156,8 +148,7 @@ void TestPackedRecordsAndRanges() {
   assert(Near(instance.normal_matrix_columns[2].z, 0.125F));
   assert(instance.normal_matrix_columns[0].w == 0.0F);
 
-  const auto packed_material = merlin::render::PackGpuMaterialUpdate(
-      snapshot, material_plan, bindings);
+  const auto& packed_material = update.materials;
   const auto& material = packed_material.ranges[0].records[0];
   assert(Near(material.base_color.x, 0.1F));
   assert(Near(material.surface_factors.x, 0.75F));
@@ -172,75 +163,126 @@ void TestPackedRecordsAndRanges() {
   assert(material.base_color_sampler_index == 11);
   assert(material.base_color_texcoord_set == 1);
 
-  const auto packed_draw = merlin::render::PackGpuDrawUpdate(
-      snapshot, draw_plan, geometries, materials, instances);
+  const auto& packed_draw = update.draws;
   const auto& draw = packed_draw.ranges[0].records[0];
-  assert(draw.geometry_index == geometries.Find(101)->index);
-  assert(draw.material_index == materials.Find(202)->index);
-  assert(draw.instance_index == instances.Find(303)->index);
+  assert(draw.geometry_index == state.FindGeometry(101)->index);
+  assert(draw.material_index == state.FindMaterial(202)->index);
+  assert(draw.instance_index == state.FindInstance(303)->index);
   assert(draw.primitive_base == 0);
   assert(draw.primitive_count == 1);
   assert(merlin::render::GpuDrawIdentity(draw) ==
          0x1234567887654321ULL);
+  assert(update.copy_bytes == sizeof(merlin::render::GpuGeometry) +
+                                  sizeof(merlin::render::GpuInstance) +
+                                  sizeof(merlin::render::GpuMaterial) +
+                                  sizeof(merlin::render::GpuDraw));
 }
 
 void TestStaticUpdateCopiesNothing() {
   auto snapshot = MakeSnapshot();
-  GpuSceneResourceSlots geometries(GpuSceneResourceTable::Geometry, 2);
-  (void)geometries.Apply(snapshot, 0, 0);
-  const auto plan = geometries.Apply(snapshot, 0, 0);
+  GpuScenePackingState state(GpuScenePackingCapacities{2, 2, 2, 2});
   const std::vector placements{GpuGeometryPlacement{0, 0}};
-  const auto packed =
-      merlin::render::PackGpuGeometryUpdate(snapshot, plan, placements);
-  assert(packed.ranges.empty());
-  assert(packed.record_count == 0);
-  assert(packed.copy_bytes == 0);
+  const std::vector identities{GpuInstanceIdentity{1, 2}};
+  const std::vector bindings{GpuMaterialBinding{7, 11}};
+  const GpuScenePackingInputs inputs{placements, identities, bindings};
+  (void)state.Apply(snapshot, 0, 0, inputs);
+  const auto update = state.Apply(snapshot, 0, 0, {});
+  assert(update.geometries.ranges.empty());
+  assert(update.instances.ranges.empty());
+  assert(update.materials.ranges.empty());
+  assert(update.draws.ranges.empty());
+  assert(update.copy_bytes == 0);
 }
 
-void TestPackingFailures() {
+void TestCommittedCandidatePreservesSlotGenerations() {
+  auto initial = MakeSnapshot();
+  GpuScenePackingState state(GpuScenePackingCapacities{1, 1, 1, 1});
+  const std::vector placements{GpuGeometryPlacement{0, 0}};
+  const std::vector identities{GpuInstanceIdentity{1, 2}};
+  const std::vector bindings{GpuMaterialBinding{7, 11}};
+  const GpuScenePackingInputs inputs{placements, identities, bindings};
+  (void)state.Apply(initial, 0, 0, inputs);
+  const auto original_geometry = *state.FindGeometry(101);
+  const auto original_draw = *state.FindDraw(0x1234567887654321ULL);
+
+  auto changed = initial;
+  changed.revision = 2;
+  auto geometry = changed.geometries[0];
+  ++geometry.vertex_revision;
+  changed.geometries.assign({geometry});
+  auto draw = changed.draws[0];
+  ++draw.revision;
+  changed.draws.assign({draw});
+
+  const auto update = state.Apply(changed, 1, 1, inputs);
+  const auto current_geometry = *state.FindGeometry(101);
+  const auto current_draw = *state.FindDraw(0x1234567887654321ULL);
+  assert(current_geometry.index == original_geometry.index);
+  assert(current_geometry.owner == original_geometry.owner);
+  assert(current_geometry.generation != original_geometry.generation);
+  assert(current_draw.index == original_draw.index);
+  assert(current_draw.owner == original_draw.owner);
+  assert(current_draw.generation != original_draw.generation);
+  assert(update.geometries.record_count == 1);
+  assert(update.draws.record_count == 1);
+  assert(update.instances.record_count == 0);
+  assert(update.materials.record_count == 0);
+}
+
+void TestRejectedUpdateIsAtomicAndRetryable() {
   auto snapshot = MakeSnapshot();
-  GpuSceneResourceSlots geometries(GpuSceneResourceTable::Geometry, 2);
-  GpuSceneResourceSlots materials(GpuSceneResourceTable::Material, 2);
-  GpuSceneResourceSlots instances(GpuSceneResourceTable::Instance, 2);
-  GpuSceneDrawSlots draws(2);
-  const auto geometry_plan = geometries.Apply(snapshot, 0, 0);
-  const auto material_plan = materials.Apply(snapshot, 0, 0);
-  (void)instances.Apply(snapshot, 0, 0);
-  const auto draw_plan = draws.Apply(snapshot, 0, 0);
+  GpuScenePackingState state(GpuScenePackingCapacities{2, 2, 2, 2});
+  const std::vector identities{GpuInstanceIdentity{1, 2}};
+  const std::vector bindings{GpuMaterialBinding{7, 11}};
 
   const std::vector too_large{
       GpuGeometryPlacement{std::uint64_t{1} << 32U, 0}};
   ExpectError(
       [&] {
-        (void)merlin::render::PackGpuGeometryUpdate(snapshot, geometry_plan,
-                                                     too_large);
+        (void)state.Apply(
+            snapshot, 0, 0,
+            GpuScenePackingInputs{too_large, identities, bindings});
       },
       GpuScenePackingErrorCode::UnrepresentableValue, "vertex offset");
+  assert(state.revision() == 0);
+  assert(state.geometry_count() == 0);
+  assert(state.instance_count() == 0);
+  assert(state.material_count() == 0);
+  assert(state.draw_count() == 0);
 
   const std::vector overflowing_range{GpuGeometryPlacement{
       std::numeric_limits<std::uint32_t>::max() - 15ULL, 0}};
   ExpectError(
       [&] {
-        (void)merlin::render::PackGpuGeometryUpdate(snapshot, geometry_plan,
-                                                     overflowing_range);
+        (void)state.Apply(
+            snapshot, 0, 0,
+            GpuScenePackingInputs{overflowing_range, identities, bindings});
       },
       GpuScenePackingErrorCode::UnrepresentableValue, "arena range");
 
   const std::vector missing_binding{GpuMaterialBinding{}};
+  const std::vector placements{GpuGeometryPlacement{64, 256}};
   ExpectError(
       [&] {
-        (void)merlin::render::PackGpuMaterialUpdate(snapshot, material_plan,
-                                                     missing_binding);
+        (void)state.Apply(
+            snapshot, 0, 0,
+            GpuScenePackingInputs{placements, identities, missing_binding});
       },
       GpuScenePackingErrorCode::MissingResidency, "texture and sampler");
+  assert(state.revision() == 0);
+  assert(state.geometry_count() == 0);
+  assert(state.instance_count() == 0);
+  assert(state.material_count() == 0);
+  assert(state.draw_count() == 0);
 
-  GpuSceneResourceSlots missing_materials(GpuSceneResourceTable::Material, 2);
-  ExpectError(
-      [&] {
-        (void)merlin::render::PackGpuDrawUpdate(
-            snapshot, draw_plan, geometries, missing_materials, instances);
-      },
-      GpuScenePackingErrorCode::MissingResidency, "resource slot tables");
+  const auto recovered = state.Apply(
+      snapshot, 0, 0,
+      GpuScenePackingInputs{placements, identities, bindings});
+  assert(recovered.geometries.record_count == 1);
+  assert(recovered.instances.record_count == 1);
+  assert(recovered.materials.record_count == 1);
+  assert(recovered.draws.record_count == 1);
+  assert(state.revision() == snapshot.revision);
 }
 
 }  // namespace
@@ -248,7 +290,8 @@ void TestPackingFailures() {
 int main() {
   TestPackedRecordsAndRanges();
   TestStaticUpdateCopiesNothing();
-  TestPackingFailures();
+  TestCommittedCandidatePreservesSlotGenerations();
+  TestRejectedUpdateIsAtomicAndRetryable();
   std::cout << "GPU Scene packing tests passed\n";
   return 0;
 }
