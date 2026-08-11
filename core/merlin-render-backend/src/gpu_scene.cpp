@@ -234,6 +234,15 @@ GpuSceneSlotAllocator::GpuSceneSlotAllocator(std::string_view label,
   }
 }
 
+GpuSceneSlotAllocator::GpuSceneSlotAllocator(
+    const GpuSceneSlotAllocator& source, CloneTag)
+    : label_(source.label_),
+      owner_(source.owner_),
+      slots_(source.slots_),
+      free_slots_(source.free_slots_),
+      retirements_(source.retirements_),
+      telemetry_(source.telemetry_) {}
+
 GpuSceneSlotHandle GpuSceneSlotAllocator::HandleFor(
     std::uint32_t index) const noexcept {
   return {index, slots_[index].generation, owner_};
@@ -383,6 +392,19 @@ GpuSceneResourceSlots::GpuSceneResourceSlots(GpuSceneResourceTable table,
       slots_("GPU Scene " + std::string(ResourceTableName(table)) + " table",
              capacity) {}
 
+GpuSceneResourceSlots::GpuSceneResourceSlots(
+    const GpuSceneResourceSlots& source, CloneTag)
+    : table_(source.table_),
+      slots_(source.slots_, GpuSceneSlotAllocator::CloneTag{}),
+      resident_(source.resident_),
+      source_id_(source.source_id_),
+      revision_(source.revision_) {}
+
+std::unique_ptr<GpuSceneResourceSlots> GpuSceneResourceSlots::Clone() const {
+  return std::unique_ptr<GpuSceneResourceSlots>(
+      new GpuSceneResourceSlots(*this, CloneTag{}));
+}
+
 std::optional<GpuSceneSlotHandle> GpuSceneResourceSlots::Find(
     std::uint64_t resource) const noexcept {
   const auto found = resident_.find(resource);
@@ -531,6 +553,18 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
 
 GpuSceneDrawSlots::GpuSceneDrawSlots(std::uint32_t capacity)
     : slots_("GPU Scene draw table", capacity) {}
+
+GpuSceneDrawSlots::GpuSceneDrawSlots(const GpuSceneDrawSlots& source,
+                                     CloneTag)
+    : slots_(source.slots_, GpuSceneSlotAllocator::CloneTag{}),
+      resident_(source.resident_),
+      source_id_(source.source_id_),
+      revision_(source.revision_) {}
+
+std::unique_ptr<GpuSceneDrawSlots> GpuSceneDrawSlots::Clone() const {
+  return std::unique_ptr<GpuSceneDrawSlots>(
+      new GpuSceneDrawSlots(*this, CloneTag{}));
+}
 
 std::optional<GpuSceneSlotHandle> GpuSceneDrawSlots::Find(
     std::uint64_t draw) const noexcept {

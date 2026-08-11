@@ -79,6 +79,16 @@ add_test(NAME merlin-gpu-scene-slots COMMAND merlin-gpu-scene-slot-tests)
 set_tests_properties(merlin-gpu-scene-slots PROPERTIES
   LABELS "gpu-scene;lifetime")
 
+add_executable(merlin-gpu-scene-packing-tests
+  gpu_scene_packing_test.cpp
+)
+target_link_libraries(merlin-gpu-scene-packing-tests
+  PRIVATE Merlin::RenderBackend)
+add_test(NAME merlin-gpu-scene-packing
+  COMMAND merlin-gpu-scene-packing-tests)
+set_tests_properties(merlin-gpu-scene-packing PROPERTIES
+  LABELS "gpu-scene;packing")
+
 if(TARGET Merlin::Vulkan)
   set(_merlin_gpu_scene_abi_source
       "${CMAKE_CURRENT_SOURCE_DIR}/data/gpu-scene-abi-wrapper.slang")
