@@ -189,9 +189,10 @@ recording copies, issue one copy per contiguous dirty range, and expose exact
 payload, range, capacity, reservation, and growth telemetry. Vulkan uses a
 dedicated persistent staging ring for device-local tables; Metal uses private
 tables with completion-safe per-frame shared staging buffers. Static accepted
-updates reserve and copy nothing; conventional Forward does not consume the
-tables on Metal yet. Packed updates carry the immutable dense draw-to-physical-slot
-dispatch map needed by that consumption path; unchanged frames share it without
+updates reserve and copy nothing. Conventional Forward remains the fallback on
+Metal when bindless tables are unavailable. Packed updates carry the immutable
+dense draw-to-physical-slot dispatch map needed by that consumption path;
+unchanged frames share it without
 an identity scan, and Vulkan/Metal validate its size, capacity, and uniqueness.
 
 Vulkan basic bindless Forward now consumes the four persistent tables. CPU
@@ -205,8 +206,17 @@ Forward path. Reflection validates the storage-buffer/push-constant ABI, and
 runtime evidence checks packed ID AOV output and continued table use on a
 zero-upload static frame.
 
-The milestone remains incomplete. Next are Metal renderer consumption of the
-persistent tables and persistent Gaussian attribute residency described in the
+Metal bindless Forward now consumes the same four persistent tables through a
+dedicated Metal pipeline. The per-draw input is reduced to view state plus the
+physical draw slot; Metal vertex and fragment stages resolve the shared ABI-v1
+geometry, instance, material, and draw records, including bindless texture and
+sampler indices. Conventional devices and generated-material fallback retain
+the existing CPU-constant path. The Metal runtime gate checks color parity,
+packed ID AOV output, draw consumption, and zero-upload static-frame reuse when
+a Metal device is available.
+
+The milestone remains incomplete. Next is persistent Gaussian attribute
+residency described in the
 [GPU-driven rendering policy](../design/gpu-driven-rendering.md) and
 [Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
 
@@ -214,9 +224,7 @@ persistent tables and persistent Gaussian attribute residency described in the
 
 1. Keep the released v0.10.0 boundary narrow; do not broaden node coverage
    merely to claim general MaterialX. Production quality belongs to v0.18.0.
-2. Consume the persistent tables in Metal renderer submission and retain the
-   Vulkan conventional/generated-material fallbacks.
-3. Add persistent Gaussian attribute residency and retain range-only updates.
+2. Add persistent Gaussian attribute residency and retain range-only updates.
 4. Strengthen non-GPU and Linux gates before implementation breadth grows.
 5. Preserve the completed native Metal presentation path while extending the
    shared viewport diagnostics and platform evidence.

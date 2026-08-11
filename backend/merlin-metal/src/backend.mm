@@ -122,6 +122,12 @@ struct alignas(16) MaterialConstants {
   Vec4 light_color_alpha_cutoff;
 };
 
+struct alignas(16) GpuSceneDrawConstants {
+  Mat4 view_projection;
+  std::uint32_t draw_slot{};
+  std::uint32_t padding[3]{};
+};
+
 static_assert(offsetof(extraction::DrawVertex, position) == 0);
 static_assert(offsetof(extraction::DrawVertex, normal) == 12);
 static_assert(offsetof(extraction::DrawVertex, color) == 24);
@@ -129,6 +135,10 @@ static_assert(offsetof(extraction::DrawVertex, texcoord) == 40);
 static_assert(sizeof(extraction::DrawVertex) == 48);
 static_assert(sizeof(DrawConstants) == 144);
 static_assert(sizeof(MaterialConstants) == 48);
+static_assert(sizeof(GpuSceneDrawConstants) == 80);
+static_assert(alignof(GpuSceneDrawConstants) == 16);
+static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
+static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
 
 const char *kShaderSource = R"METAL(
 #include <metal_stdlib>
@@ -200,8 +210,8 @@ vertex VertexOutput merlin_vertex(
 
 FragmentOutput shade(
     VertexOutput input,
-    constant DrawConstants& draw,
-    constant MaterialConstants& material,
+    DrawConstants draw,
+    MaterialConstants material,
     float4 texture_sample) {
   float4 color = material.base_color * input.color;
   if ((draw.feature_mask & kBaseColorTextureFlag) != 0u) {
@@ -249,6 +259,141 @@ fragment FragmentOutput merlin_fragment_conventional(
     sample_value = base_color_texture.sample(base_color_sampler, input.texcoord);
   }
   return shade(input, draw, material, sample_value);
+}
+
+struct GpuSceneDrawConstants {
+  float4x4 view_projection;
+  uint draw_slot;
+  uint3 padding;
+};
+
+struct GpuGeometry {
+  uint vertex_offset;
+  uint vertex_count;
+  uint index_offset;
+  uint index_count;
+  uint index_type;
+  uint attribute_mask;
+  uint meshlet_offset;
+  uint meshlet_count;
+  float4 bounds_min;
+  float4 bounds_max;
+};
+
+struct GpuInstance {
+  float4x4 transform;
+  float4 normal_matrix_columns[3];
+  uint object_id;
+  uint instance_id;
+  uint visibility_mask;
+  uint flags;
+};
+
+struct GpuMaterial {
+  float4 base_color;
+  float4 surface_factors;
+  uint material_class_flags;
+  uint base_color_texture_index;
+  uint base_color_sampler_index;
+  uint base_color_texcoord_set;
+};
+
+struct GpuDraw {
+  uint geometry_index;
+  uint material_index;
+  uint instance_index;
+  uint primitive_base;
+  uint primitive_count;
+  uint flags;
+  uint draw_id_low;
+  uint draw_id_high;
+};
+
+DrawConstants LoadGpuDrawConstants(
+    constant GpuSceneDrawConstants& scene,
+    GpuGeometry geometry, GpuInstance instance, GpuMaterial material) {
+  DrawConstants result;
+  result.model_view_projection =
+      scene.view_projection * instance.transform;
+  result.normal_matrix_column0 = instance.normal_matrix_columns[0];
+  result.normal_matrix_column1 = instance.normal_matrix_columns[1];
+  result.normal_matrix_column2 = instance.normal_matrix_columns[2];
+  result.feature_mask = material.material_class_flags & 0x0000ffffu;
+  if ((geometry.attribute_mask & 2u) == 0u) {
+    result.feature_mask &= ~kDisplayColorFlag;
+  }
+  if ((geometry.attribute_mask & 4u) == 0u ||
+      material.base_color_texture_index == 0xffffffffu ||
+      material.base_color_sampler_index == 0xffffffffu) {
+    result.feature_mask &= ~kBaseColorTextureFlag;
+  }
+  if ((material.material_class_flags & (1u << 16u)) != 0u) {
+    result.feature_mask |= kMaskedAlphaFlag;
+  }
+  result.prim_id = instance.object_id;
+  result.instance_id = instance.instance_id;
+  result.texture_index = material.base_color_texture_index;
+  result.sampler_index = material.base_color_sampler_index;
+  return result;
+}
+
+MaterialConstants LoadGpuMaterialConstants(
+    GpuMaterial material, constant MaterialConstants& base_material) {
+  MaterialConstants result = base_material;
+  result.base_color = material.base_color;
+  result.light_color_alpha_cutoff.a = material.surface_factors.z;
+  return result;
+}
+
+vertex VertexOutput merlin_vertex_gpu_scene(
+    VertexInput input [[stage_in]],
+    constant GpuSceneDrawConstants& gpu_scene_constants [[buffer(1)]],
+    device const GpuGeometry* gpu_geometries [[buffer(4)]],
+    device const GpuInstance* gpu_instances [[buffer(5)]],
+    device const GpuMaterial* gpu_materials [[buffer(6)]],
+    device const GpuDraw* gpu_draws [[buffer(7)]]) {
+  GpuDraw draw = gpu_draws[gpu_scene_constants.draw_slot];
+  GpuGeometry geometry = gpu_geometries[draw.geometry_index];
+  GpuInstance instance = gpu_instances[draw.instance_index];
+  GpuMaterial material = gpu_materials[draw.material_index];
+  DrawConstants constants =
+      LoadGpuDrawConstants(gpu_scene_constants, geometry, instance, material);
+  VertexOutput output;
+  output.position = constants.model_view_projection * float4(input.position, 1.0);
+  output.color = ((constants.feature_mask & kDisplayColorFlag) != 0u)
+      ? input.color : float4(1.0);
+  output.shading_normal =
+      constants.normal_matrix_column0.xyz * input.normal.x +
+      constants.normal_matrix_column1.xyz * input.normal.y +
+      constants.normal_matrix_column2.xyz * input.normal.z;
+  output.texcoord = input.texcoord;
+  return output;
+}
+
+fragment FragmentOutput merlin_fragment_gpu_scene(
+    VertexOutput input [[stage_in]],
+    constant GpuSceneDrawConstants& gpu_scene_constants [[buffer(1)]],
+    constant MaterialConstants& base_material [[buffer(2)]],
+    constant ResourceTable& resources [[buffer(3)]],
+    device const GpuGeometry* gpu_geometries [[buffer(4)]],
+    device const GpuInstance* gpu_instances [[buffer(5)]],
+    device const GpuMaterial* gpu_materials [[buffer(6)]],
+    device const GpuDraw* gpu_draws [[buffer(7)]]) {
+  GpuDraw draw = gpu_draws[gpu_scene_constants.draw_slot];
+  GpuGeometry geometry = gpu_geometries[draw.geometry_index];
+  GpuInstance instance = gpu_instances[draw.instance_index];
+  GpuMaterial material = gpu_materials[draw.material_index];
+  DrawConstants constants =
+      LoadGpuDrawConstants(gpu_scene_constants, geometry, instance, material);
+  MaterialConstants effective_material =
+      LoadGpuMaterialConstants(material, base_material);
+  float4 texture_sample = float4(1.0);
+  if ((constants.feature_mask & kBaseColorTextureFlag) != 0u) {
+    texture_sample = resources.textures[material.base_color_texture_index].sample(
+        resources.samplers[material.base_color_sampler_index],
+        input.texcoord);
+  }
+  return shade(input, constants, effective_material, texture_sample);
 }
 
 struct PresentationVertexOutput {
@@ -1422,6 +1567,32 @@ private:
                                   static_cast<std::int32_t>(error.code));
     }
     if (bindless_) {
+      id<MTLFunction> gpu_scene_vertex =
+          [library_ newFunctionWithName:@"merlin_vertex_gpu_scene"];
+      id<MTLFunction> gpu_scene_fragment =
+          [library_ newFunctionWithName:@"merlin_fragment_gpu_scene"];
+      if (gpu_scene_vertex == nil || gpu_scene_fragment == nil) {
+        throw render::RendererError(
+            render::RendererErrorCode::BackendFailure,
+            "load Metal GPU Scene entry point",
+            "compiled GPU Scene entry point is missing");
+      }
+      descriptor.label = @"hdMerlin GPU Scene Forward";
+      descriptor.vertexFunction = gpu_scene_vertex;
+      descriptor.fragmentFunction = gpu_scene_fragment;
+      gpu_scene_pipeline_ =
+          [device_ newRenderPipelineStateWithDescriptor:descriptor
+                                                  error:&error];
+      if (gpu_scene_pipeline_ == nil) {
+        throw render::RendererError(
+            render::RendererErrorCode::BackendFailure,
+            "create Metal GPU Scene pipeline",
+            error == nil ? "newRenderPipelineState returned nil"
+                         : String(error.localizedDescription),
+            static_cast<std::int32_t>(error.code));
+      }
+    }
+    if (bindless_) {
       argument_encoder_ = [fragment newArgumentEncoderWithBufferIndex:3];
       if (argument_encoder_ == nil) {
         throw render::RendererError(render::RendererErrorCode::BackendFailure,
@@ -2086,7 +2257,35 @@ private:
 
     const auto view_projection =
         Multiply(request.snapshot->projection, request.snapshot->view);
-    for (const auto &draw : request.snapshot->draws) {
+    const auto gpu_scene_draw_slots =
+        build.has_gpu_scene_update
+            ? build.gpu_scene_draw_slot_indices
+            : (gpu_scene_buffers_.has_resident_update &&
+                       gpu_scene_buffers_.source_id ==
+                           request.snapshot->source_id &&
+                       gpu_scene_buffers_.revision == request.snapshot->revision
+                   ? gpu_scene_buffers_.draw_slot_indices
+                   : nullptr);
+    const bool gpu_scene_ready =
+        bindless_ && gpu_scene_pipeline_ != nil && gpu_scene_draw_slots &&
+        gpu_scene_draw_slots->size() == request.snapshot->draws.size();
+    if (gpu_scene_ready) {
+      [encoder useResource:gpu_scene_buffers_.geometries
+                     usage:MTLResourceUsageRead
+                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
+      [encoder useResource:gpu_scene_buffers_.instances
+                     usage:MTLResourceUsageRead
+                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
+      [encoder useResource:gpu_scene_buffers_.materials
+                     usage:MTLResourceUsageRead
+                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
+      [encoder useResource:gpu_scene_buffers_.draws
+                     usage:MTLResourceUsageRead
+                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
+    }
+    for (std::size_t draw_index = 0;
+         draw_index < request.snapshot->draws.size(); ++draw_index) {
+      const auto &draw = request.snapshot->draws[draw_index];
       if (draw.geometry_index >= request.snapshot->geometries.size() ||
           draw.material_index >= request.snapshot->materials.size() ||
           draw.instance_index >= request.snapshot->instances.size()) {
@@ -2185,13 +2384,51 @@ private:
         build.material_diagnostics.push_back(std::move(diagnostic));
       }
 
+      const bool use_gpu_scene = gpu_scene_ready && !material.module;
       const auto material_constants = MakeMaterial(material, *request.snapshot);
+      [encoder setRenderPipelineState:use_gpu_scene ? gpu_scene_pipeline_
+                                                    : pipeline_];
       [encoder setVertexBuffer:geometry->second.vertices offset:0 atIndex:0];
-      [encoder setVertexBytes:&constants length:sizeof(constants) atIndex:1];
-      [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:1];
       [encoder setFragmentBytes:&material_constants
                          length:sizeof(material_constants)
                         atIndex:2];
+      if (use_gpu_scene) {
+        GpuSceneDrawConstants gpu_scene_constants;
+        gpu_scene_constants.view_projection = view_projection;
+        gpu_scene_constants.draw_slot = (*gpu_scene_draw_slots)[draw_index];
+        [encoder setVertexBytes:&gpu_scene_constants
+                          length:sizeof(gpu_scene_constants)
+                         atIndex:1];
+        [encoder setFragmentBytes:&gpu_scene_constants
+                            length:sizeof(gpu_scene_constants)
+                           atIndex:1];
+        [encoder setVertexBuffer:gpu_scene_buffers_.geometries
+                           offset:0
+                          atIndex:4];
+        [encoder setVertexBuffer:gpu_scene_buffers_.instances
+                           offset:0
+                          atIndex:5];
+        [encoder setVertexBuffer:gpu_scene_buffers_.materials
+                           offset:0
+                          atIndex:6];
+        [encoder setVertexBuffer:gpu_scene_buffers_.draws offset:0 atIndex:7];
+        [encoder setFragmentBuffer:gpu_scene_buffers_.geometries
+                             offset:0
+                            atIndex:4];
+        [encoder setFragmentBuffer:gpu_scene_buffers_.instances
+                             offset:0
+                            atIndex:5];
+        [encoder setFragmentBuffer:gpu_scene_buffers_.materials
+                             offset:0
+                            atIndex:6];
+        [encoder setFragmentBuffer:gpu_scene_buffers_.draws
+                             offset:0
+                            atIndex:7];
+        ++build.telemetry.gpu_scene_draw_count;
+      } else {
+        [encoder setVertexBytes:&constants length:sizeof(constants) atIndex:1];
+        [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:1];
+      }
       if (!bindless_) {
         [encoder setFragmentTexture:texture atIndex:0];
         [encoder setFragmentSamplerState:sampler atIndex:0];
@@ -2419,6 +2656,7 @@ private:
   id<MTLSharedEvent> completion_event_;
   id<MTLLibrary> library_;
   id<MTLRenderPipelineState> pipeline_;
+  id<MTLRenderPipelineState> gpu_scene_pipeline_;
   id<MTLRenderPipelineState> presentation_pipeline_;
   id<MTLDepthStencilState> depth_state_;
   id<MTLArgumentEncoder> argument_encoder_;
