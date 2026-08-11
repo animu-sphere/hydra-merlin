@@ -165,8 +165,12 @@ plans name the request snapshot and fit their configured capacities, and
 synchronizes transfer writes for later graphics or compute shader reads on both
 single-queue and asynchronous-transfer devices. Exact
 copy/range/ring/capacity telemetry makes static zero-upload behavior observable.
-Metal allocation/copy and renderer consumption remain the next v0.15.0 layers
-over this ABI and residency boundary.
+Metal now allocates the same four fixed-capacity tables as private buffers and
+uses completion-safe per-frame shared staging buffers to encode one blit per
+packed dirty range. It applies the same snapshot, plan-boundary, capacity, and
+continuity checks as Vulkan; rejected updates remain retryable and unchanged
+snapshots reserve and copy nothing. Renderer consumption remains the next
+v0.15.0 layer over this ABI and residency boundary.
 
 The shared packing layer now turns geometry, instance, material, and draw
 upserts into ABI-v1 records grouped by contiguous physical slot. It validates
@@ -175,8 +179,8 @@ through the current persistent resource mappings, requires explicit stable
 32-bit object and instance identities, and rejects missing bindless residency
 or unrepresentable arena ranges instead of truncating them. An unchanged plan
 produces no records and zero copy bytes. Vulkan native buffer allocation,
-staging, and dirty-range copies now consume this packed contract; Metal parity
-and renderer consumption remain backend work. The
+staging, and dirty-range copies now consume this packed contract on both Vulkan
+and Metal; renderer consumption remains backend work. The
 four persistent mappings form one transaction boundary: packing runs against
 cloned candidates, verifies that every upsert still names the candidate's
 current owner/generation, and publishes all candidates only after every table

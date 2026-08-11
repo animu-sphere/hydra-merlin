@@ -26,9 +26,12 @@ std::uint8_t CenterChannel(const merlin::render::RenderResult &result,
 
 merlin::render::RenderResult
 Render(merlin::render::Backend &backend,
-       std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot) {
+       std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
+       std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate>
+           gpu_scene_update = {}) {
   merlin::render::RenderRequest request;
   request.snapshot = std::move(snapshot);
+  request.gpu_scene_update = std::move(gpu_scene_update);
   request.width = 64;
   request.height = 64;
   request.products = {
@@ -49,6 +52,9 @@ int main() {
   backend_options.texture_capacity = 1;
   backend_options.sampler_capacity = 1;
   backend_options.heap_capacity_bytes = 8U * 1024U * 1024U;
+  constexpr merlin::render::GpuScenePackingCapacities gpu_scene_capacities{
+      8, 8, 8, 8};
+  backend_options.gpu_scene_capacities = gpu_scene_capacities;
   merlin::metal::BackendFactory factory(backend_options);
   const auto availability = factory.availability();
   if (!availability.available) {
@@ -120,6 +126,84 @@ int main() {
          static_cast<std::uint32_t>(mesh_handle.value()));
   assert(result.instance_id.pixels[center] ==
          static_cast<std::uint32_t>(instance_handle.value()));
+
+  // Metal consumes the same packed ABI-v1 contract as Vulkan: invalid native
+  // ranges are rejected transactionally, the initial update copies one range
+  // per table, and an unchanged snapshot allocates or uploads nothing.
+  merlin::render::GpuScenePackingState gpu_scene_packing(
+      gpu_scene_capacities);
+  const std::vector geometry_placements{
+      merlin::render::GpuGeometryPlacement{0, 0}};
+  const std::vector instance_identities{
+      merlin::render::GpuInstanceIdentity{
+          static_cast<std::uint32_t>(instance_handle.value()),
+          static_cast<std::uint32_t>(instance_handle.value())}};
+  const std::vector material_bindings{
+      merlin::render::GpuMaterialBinding{0, 0}};
+  const merlin::render::GpuScenePackingInputs gpu_scene_inputs{
+      geometry_placements, instance_identities, material_bindings};
+  auto first_gpu_scene_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          gpu_scene_packing.Apply(*extractor.snapshot(),
+                                  result.completion_value,
+                                  result.completion_value,
+                                  gpu_scene_inputs));
+  const auto expected_gpu_scene_bytes =
+      sizeof(merlin::render::GpuGeometry) +
+      sizeof(merlin::render::GpuInstance) +
+      sizeof(merlin::render::GpuMaterial) + sizeof(merlin::render::GpuDraw);
+  assert(first_gpu_scene_update->copy_bytes == expected_gpu_scene_bytes);
+
+  auto invalid_gpu_scene_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_gpu_scene_update);
+  invalid_gpu_scene_update->geometries.ranges[0].first_slot =
+      gpu_scene_capacities.geometries;
+  invalid_gpu_scene_update->geometry_plan.dirty_ranges[0].first_slot =
+      gpu_scene_capacities.geometries;
+  bool invalid_gpu_scene_rejected{};
+  try {
+    (void)Render(*backend, extractor.snapshot(), invalid_gpu_scene_update);
+  } catch (const merlin::render::RendererError &error) {
+    invalid_gpu_scene_rejected =
+        error.code() == merlin::render::RendererErrorCode::InvalidRequest &&
+        error.operation() == "upload Metal GPU Scene";
+  }
+  assert(invalid_gpu_scene_rejected);
+
+  const auto first_gpu_scene =
+      Render(*backend, extractor.snapshot(), first_gpu_scene_update);
+  assert(first_gpu_scene.telemetry.gpu_scene_upload_bytes ==
+         expected_gpu_scene_bytes);
+  assert(first_gpu_scene.telemetry.gpu_scene_copy_range_count == 4);
+  assert(first_gpu_scene.telemetry.gpu_scene_staging_reserved_bytes ==
+         expected_gpu_scene_bytes);
+  assert(first_gpu_scene.telemetry.gpu_scene_staging_growth_count == 1);
+  const auto gpu_scene_statistics =
+      dynamic_cast<merlin::metal::Backend &>(*backend).metal_statistics();
+  assert(gpu_scene_statistics.gpu_scene_buffers);
+  assert(gpu_scene_statistics.gpu_scene_capacity_bytes ==
+         gpu_scene_capacities.geometries *
+                 sizeof(merlin::render::GpuGeometry) +
+             gpu_scene_capacities.instances *
+                 sizeof(merlin::render::GpuInstance) +
+             gpu_scene_capacities.materials *
+                 sizeof(merlin::render::GpuMaterial) +
+             gpu_scene_capacities.draws * sizeof(merlin::render::GpuDraw));
+  assert(gpu_scene_statistics.gpu_scene_staging_capacity_bytes >=
+         expected_gpu_scene_bytes);
+
+  auto static_gpu_scene_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          gpu_scene_packing.Apply(*extractor.snapshot(),
+                                  first_gpu_scene.completion_value,
+                                  first_gpu_scene.completion_value, {}));
+  assert(static_gpu_scene_update->copy_bytes == 0);
+  const auto static_gpu_scene =
+      Render(*backend, extractor.snapshot(), static_gpu_scene_update);
+  assert(static_gpu_scene.telemetry.gpu_scene_upload_bytes == 0);
+  assert(static_gpu_scene.telemetry.gpu_scene_copy_range_count == 0);
+  assert(static_gpu_scene.telemetry.gpu_scene_staging_reserved_bytes == 0);
 
   // Keep a pair of independently changing revisions whose old XOR cache key
   // collides. Metal must compare both revisions instead of treating the

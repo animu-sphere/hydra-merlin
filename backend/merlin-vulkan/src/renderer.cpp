@@ -1459,14 +1459,8 @@ class Renderer::Impl {
     reclaim_presentation.armed = false;
     frame.cpu_timings.queue_submission_ns =
         ElapsedNanoseconds(submission_start);
-    if (frame.present_pending) {
-      const auto presentation_start = CpuClock::now();
-      PresentFrame(frame);
-      frame.cpu_timings.presentation_ns =
-          ElapsedNanoseconds(presentation_start);
-    }
     frame.counters = frame_counters_;
-    frame.material_diagnostics = frame_material_diagnostics_;
+    frame.material_diagnostics = std::move(frame_material_diagnostics_);
     CommitTextureUploads();
     CommitResourceSnapshot(*request.snapshot);
     CommitGpuSceneUpdate();
@@ -1476,11 +1470,33 @@ class Renderer::Impl {
       buffer = {};
     }
     frame_upload_buffers_.clear();
-    frame.cpu_timings.backend_total_ns = ElapsedNanoseconds(backend_start);
     staging_.FinishFrame(completion);
     gpu_scene_staging_.FinishFrame(completion);
     frame.outstanding = true;
     ++statistics_.frames_submitted;
+    if (frame.present_pending) {
+      const auto presentation_start = CpuClock::now();
+      try {
+        PresentFrame(frame);
+      } catch (...) {
+        // Queue submission succeeded, so the staging reservations cannot be
+        // abandoned or reused just because presentation failed. No completion
+        // token can be returned on this path; wait and retire it here instead.
+        WaitForFrame(frame, std::chrono::nanoseconds::max());
+        latest_completed_value_ =
+            std::max(latest_completed_value_, completion);
+        staging_.Collect(completion);
+        gpu_scene_staging_.Collect(completion);
+        CollectDeferred(completion);
+        frame.outstanding = false;
+        frame.counters = {};
+        frame.material_diagnostics.clear();
+        throw;
+      }
+      frame.cpu_timings.presentation_ns =
+          ElapsedNanoseconds(presentation_start);
+    }
+    frame.cpu_timings.backend_total_ns = ElapsedNanoseconds(backend_start);
     return completion;
   }
 

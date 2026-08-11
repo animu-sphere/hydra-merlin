@@ -163,6 +163,7 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     }
     RenderRequest native;
     native.snapshot = request.snapshot;
+    native.gpu_scene_update = request.gpu_scene_update;
     native.width = request.width;
     native.height = request.height;
     native.shaders = shaders_;
@@ -279,6 +280,16 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
         native.counters.gaussian_draw_count;
     result.telemetry.gaussian_upload_bytes =
         native.counters.gaussian_upload_bytes;
+    result.telemetry.gpu_scene_upload_bytes =
+        native.counters.gpu_scene_upload_bytes;
+    result.telemetry.gpu_scene_copy_range_count =
+        native.counters.gpu_scene_copy_range_count;
+    result.telemetry.gpu_scene_staging_reserved_bytes =
+        native.counters.gpu_scene_upload_ring_reserved_bytes;
+    result.telemetry.gpu_scene_staging_growth_count =
+        native.counters.gpu_scene_upload_ring_growth_count;
+    result.telemetry.gpu_scene_staging_growth_bytes =
+        native.counters.gpu_scene_upload_ring_growth_bytes;
     result.telemetry.presentation_copy_bytes =
         native.counters.presentation_copy_bytes;
     result.telemetry.requested_aov_mask = native.counters.requested_aov_mask;
