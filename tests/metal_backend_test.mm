@@ -142,10 +142,11 @@ int main() {
       gpu_scene_capacities);
   const std::vector geometry_placements{
       merlin::render::GpuGeometryPlacement{0, 0}};
+  constexpr std::uint32_t gpu_object_id = 7001;
+  constexpr std::uint32_t gpu_instance_id = 8001;
   const std::vector instance_identities{
       merlin::render::GpuInstanceIdentity{
-          static_cast<std::uint32_t>(instance_handle.value()),
-          static_cast<std::uint32_t>(instance_handle.value())}};
+          gpu_object_id, gpu_instance_id}};
   const std::vector material_bindings{
       merlin::render::GpuMaterialBinding{0, 0}};
   const merlin::render::GpuScenePackingInputs gpu_scene_inputs{
@@ -197,6 +198,20 @@ int main() {
 
   const auto first_gpu_scene =
       Render(*backend, extractor.snapshot(), first_gpu_scene_update);
+  assert(CenterChannel(first_gpu_scene, 0) >= 126 &&
+         CenterChannel(first_gpu_scene, 0) <= 129);
+  assert(CenterChannel(first_gpu_scene, 1) >= 31 &&
+         CenterChannel(first_gpu_scene, 1) <= 33);
+  assert(CenterChannel(first_gpu_scene, 2) >= 15 &&
+         CenterChannel(first_gpu_scene, 2) <= 17);
+  if (backend->capabilities().bindless_textures) {
+    assert(first_gpu_scene.telemetry.gpu_scene_draw_count ==
+           extractor.snapshot()->draws.size());
+    assert(first_gpu_scene.prim_id.pixels[center] == gpu_object_id);
+    assert(first_gpu_scene.instance_id.pixels[center] == gpu_instance_id);
+  } else {
+    assert(first_gpu_scene.telemetry.gpu_scene_draw_count == 0);
+  }
   assert(first_gpu_scene.telemetry.gpu_scene_upload_bytes ==
          expected_gpu_scene_bytes);
   assert(first_gpu_scene.telemetry.gpu_scene_copy_range_count == 4);
@@ -230,6 +245,12 @@ int main() {
   assert(static_gpu_scene_update->copy_bytes == 0);
   const auto static_gpu_scene =
       Render(*backend, extractor.snapshot(), static_gpu_scene_update);
+  if (backend->capabilities().bindless_textures) {
+    assert(static_gpu_scene.telemetry.gpu_scene_draw_count ==
+           extractor.snapshot()->draws.size());
+  } else {
+    assert(static_gpu_scene.telemetry.gpu_scene_draw_count == 0);
+  }
   assert(static_gpu_scene.telemetry.gpu_scene_upload_bytes == 0);
   assert(static_gpu_scene.telemetry.gpu_scene_copy_range_count == 0);
   assert(static_gpu_scene.telemetry.gpu_scene_staging_reserved_bytes == 0);
