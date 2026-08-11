@@ -158,8 +158,15 @@ fresh physical slots into dirty ranges that a native backend can copy without
 scanning the full table. Geometry, material, and instance record changes also
 reissue only their dependency-indexed draws; stable draw identity is retained,
 but the physical draw slot changes so its table references cannot outlive a
-replaced resource slot. Native buffer allocation/copy and renderer consumption
-remain the next v0.15.0 layers over this ABI and residency boundary.
+replaced resource slot. Vulkan now optionally allocates fixed-capacity
+device-local buffers for all four ABI-v1 tables. A dedicated persistently
+mapped upload ring stages one native copy per packed dirty range, validates that
+plans name the request snapshot and fit their configured capacities, and
+synchronizes transfer writes for later graphics or compute shader reads on both
+single-queue and asynchronous-transfer devices. Exact
+copy/range/ring/capacity telemetry makes static zero-upload behavior observable.
+Metal allocation/copy and renderer consumption remain the next v0.15.0 layers
+over this ABI and residency boundary.
 
 The shared packing layer now turns geometry, instance, material, and draw
 upserts into ABI-v1 records grouped by contiguous physical slot. It validates
@@ -167,8 +174,9 @@ the update plan against the snapshot source and revision, resolves each draw
 through the current persistent resource mappings, requires explicit stable
 32-bit object and instance identities, and rejects missing bindless residency
 or unrepresentable arena ranges instead of truncating them. An unchanged plan
-produces no records and zero copy bytes. Native buffer allocation, staging and
-dirty-range copies, followed by renderer consumption, remain backend work. The
+produces no records and zero copy bytes. Vulkan native buffer allocation,
+staging, and dirty-range copies now consume this packed contract; Metal parity
+and renderer consumption remain backend work. The
 four persistent mappings form one transaction boundary: packing runs against
 cloned candidates, verifies that every upsert still names the candidate's
 current owner/generation, and publishes all candidates only after every table

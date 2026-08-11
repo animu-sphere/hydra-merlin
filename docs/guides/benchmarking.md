@@ -127,11 +127,14 @@ readback bytes; requested, rendered, and CPU-readback AOV masks/counts; waits,
 resolves, and maps; buffer/image allocation counts and bytes; geometry arena
 suballocation/release; shader, descriptor-layout, pipeline, geometry, texture,
 sampler, and scene cache behavior; descriptor pool/allocation/update work; and
-pipeline creation. Upload evidence splits vertex, index, and texture payload
-bytes, aligned mapped-ring reservations, stable geometry-range reuse, and arena
-or ring growth. Bindless-capable runs additionally split sampled-image and
-sampler descriptor writes so steady-state and localized-edit scaling can be
-checked independently of the conventional reference descriptors. Transfer
+pipeline creation. Upload evidence splits vertex, index, texture, and optional
+GPU Scene table payload bytes, aligned mapped-ring reservations, stable
+geometry-range reuse, and arena or ring growth. GPU Scene-enabled runs also
+report dirty-copy range count, fixed table capacity, and their dedicated upload
+ring's reservation, growth, and in-flight state. Bindless-capable runs
+additionally split sampled-image and sampler descriptor writes so steady-state
+and localized-edit scaling can be checked independently of the conventional
+reference descriptors. Transfer
 submission and image ownership-transfer counters distinguish dedicated-queue
 upload work from the single-queue fallback. The top-level
 `residency` object retains vertex/index arena capacity, resident/peak/free/
