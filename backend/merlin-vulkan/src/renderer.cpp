@@ -1454,6 +1454,12 @@ class Renderer::Impl {
         wait_info.pValues = &transfer_completion;
         (void)vkWaitSemaphores(device_, &wait_info,
                                std::numeric_limits<std::uint64_t>::max());
+        if (frame_counters_.gpu_scene_copy_range_count != 0) {
+          // The completed transfer may have replaced slots that the resident
+          // CPU revision still names. Do not reuse that revision after the
+          // graphics submission which would have committed it fails.
+          InvalidateGpuSceneUpdate();
+        }
       }
       throw;
     }
@@ -2012,6 +2018,8 @@ class Renderer::Impl {
     capabilities_.device_id = properties.properties.deviceID;
     capabilities_.max_image_dimension_2d =
         properties.properties.limits.maxImageDimension2D;
+    max_storage_buffer_range_ =
+        properties.properties.limits.maxStorageBufferRange;
     capabilities_.timeline_semaphore =
         borrowed.timeline_semaphore_enabled;
     capabilities_.validation_enabled = options.enable_validation;
@@ -2287,6 +2295,8 @@ class Renderer::Impl {
     capabilities_.device_id = properties.properties.deviceID;
     capabilities_.max_image_dimension_2d =
         properties.properties.limits.maxImageDimension2D;
+    max_storage_buffer_range_ =
+        properties.properties.limits.maxStorageBufferRange;
     uniform_buffer_alignment_ = std::max<VkDeviceSize>(
         16U, properties.properties.limits.minUniformBufferOffsetAlignment);
     capabilities_.validation_enabled = use_validation;
@@ -2514,6 +2524,11 @@ class Renderer::Impl {
                           "every GPU Scene table capacity must be non-zero");
     }
     const auto bytes = static_cast<VkDeviceSize>(capacity) * sizeof(Record);
+    if (bytes > max_storage_buffer_range_) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "create GPU Scene buffers",
+          "GPU Scene table exceeds the device maxStorageBufferRange limit");
+    }
     ++frame_counters_.allocation_count;
     ++frame_counters_.buffer_allocation_count;
     frame_counters_.buffer_allocation_bytes += bytes;
@@ -2658,6 +2673,38 @@ class Renderer::Impl {
     ValidateGpuSceneTableUpdate(update->draws,
                                 update->draw_plan.dirty_ranges,
                                 capacities.draws, "draw");
+    for (const auto& range : update->materials.ranges) {
+      for (const auto& material : range.records) {
+        const bool has_texture = material.base_color_texture_index !=
+                                 render::kInvalidGpuSceneTableIndex;
+        const bool has_sampler = material.base_color_sampler_index !=
+                                 render::kInvalidGpuSceneTableIndex;
+        if (has_texture != has_sampler) {
+          throw RendererError(
+              RendererErrorCode::InvalidRequest, "upload GPU Scene",
+              "material texture and sampler table references are incomplete");
+        }
+        if (has_texture && bindless_texture_table_ &&
+            (material.base_color_texture_index >=
+                 bindless_texture_views_.size() ||
+             material.base_color_sampler_index >= bindless_samplers_.size())) {
+          throw RendererError(
+              RendererErrorCode::InvalidRequest, "upload GPU Scene",
+              "material texture or sampler reference exceeds bindless capacity");
+        }
+      }
+    }
+    for (const auto& range : update->draws.ranges) {
+      for (const auto& draw : range.records) {
+        if (draw.geometry_index >= capacities.geometries ||
+            draw.instance_index >= capacities.instances ||
+            draw.material_index >= capacities.materials) {
+          throw RendererError(
+              RendererErrorCode::InvalidRequest, "upload GPU Scene",
+              "draw record contains an out-of-capacity table reference");
+        }
+      }
+    }
     if (!update->draw_slot_indices ||
         update->draw_slot_indices->size() != snapshot.draws.size()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
@@ -2770,6 +2817,17 @@ class Renderer::Impl {
     gpu_scene_buffers_.draw_slot_indices =
         std::move(gpu_scene_buffers_.pending_draw_slot_indices);
     gpu_scene_buffers_.has_resident_update = true;
+    gpu_scene_buffers_.pending_update = false;
+  }
+
+  void InvalidateGpuSceneUpdate() noexcept {
+    gpu_scene_buffers_.source_id = 0;
+    gpu_scene_buffers_.revision = 0;
+    gpu_scene_buffers_.pending_source_id = 0;
+    gpu_scene_buffers_.pending_revision = 0;
+    gpu_scene_buffers_.draw_slot_indices.reset();
+    gpu_scene_buffers_.pending_draw_slot_indices.reset();
+    gpu_scene_buffers_.has_resident_update = false;
     gpu_scene_buffers_.pending_update = false;
   }
 
@@ -6718,6 +6776,7 @@ class Renderer::Impl {
   std::uint64_t active_aov_image_leases_{};
   std::uint64_t latest_completed_value_{};
   VkDeviceSize uniform_buffer_alignment_{16U};
+  VkDeviceSize max_storage_buffer_range_{};
   bool owns_vulkan_context_{true};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};

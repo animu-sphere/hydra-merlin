@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -118,6 +119,17 @@ int main(int argc, char** argv) {
     return 77;
   }
 
+  auto oversized_options = options;
+  oversized_options.gpu_scene_capacities = GpuScenePackingCapacities{
+      1, std::numeric_limits<std::uint32_t>::max(), 1, 1};
+  try {
+    merlin::vulkan::Renderer oversized_renderer(oversized_options);
+    assert(false && "oversized GPU Scene storage buffer was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::Unsupported);
+    assert(error.operation() == "create GPU Scene buffers");
+  }
+
   const auto snapshot = MakeSnapshot();
   GpuScenePackingState packing(capacities);
   const std::vector placements{GpuGeometryPlacement{64, 256}};
@@ -153,6 +165,34 @@ int main(int argc, char** argv) {
   try {
     (void)Submit(*renderer, snapshot, shaders, invalid_draw_map);
     assert(false && "out-of-capacity GPU Scene draw slot was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
+  }
+
+  auto invalid_draw_reference =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_update);
+  invalid_draw_reference->draws.ranges[0].records[0].geometry_index =
+      capacities.geometries;
+  try {
+    (void)Submit(*renderer, snapshot, shaders, invalid_draw_reference);
+    assert(false && "out-of-capacity GPU Scene draw reference was accepted");
+  } catch (const merlin::vulkan::RendererError& error) {
+    assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
+  }
+
+  auto invalid_material_reference =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          *first_update);
+  invalid_material_reference->materials.ranges[0]
+      .records[0]
+      .base_color_texture_index = options.bindless_texture_capacity;
+  invalid_material_reference->materials.ranges[0]
+      .records[0]
+      .base_color_sampler_index = 0;
+  try {
+    (void)Submit(*renderer, snapshot, shaders, invalid_material_reference);
+    assert(false && "out-of-capacity bindless material reference was accepted");
   } catch (const merlin::vulkan::RendererError& error) {
     assert(error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest);
   }
