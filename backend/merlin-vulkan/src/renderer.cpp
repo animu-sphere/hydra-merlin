@@ -4646,8 +4646,9 @@ class Renderer::Impl {
         if (upload.partial) {
           for (const auto& range : record->particle_ranges) {
             staging_bytes +=
-                AlignUp(checked_bytes(range.count * multiplier, element_size,
-                                      "changed range"),
+                AlignUp(checked_bytes(static_cast<std::size_t>(range.count) *
+                                          multiplier,
+                                      element_size, "changed range"),
                         kArenaAlignment);
           }
         } else {
@@ -4714,8 +4715,10 @@ class Renderer::Impl {
               return;
             }
             for (const auto& changed_range : record.particle_ranges) {
-              const auto first = changed_range.first * multiplier;
-              const auto count = changed_range.count * multiplier;
+              const auto first =
+                static_cast<std::size_t>(changed_range.first) * multiplier;
+              const auto count =
+                static_cast<std::size_t>(changed_range.count) * multiplier;
               stage(payload.data() + first,
                     checked_bytes(count, stride, "changed range"), arena, range,
                     checked_bytes(first, stride, "changed offset"));
