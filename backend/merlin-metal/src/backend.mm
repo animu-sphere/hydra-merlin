@@ -645,6 +645,7 @@ public:
       pending.rendered_aovs = std::move(rendered);
       pending.readback_aovs = std::move(readbacks);
       pending.drawable = drawable;
+      pending.has_gpu_scene_copies = !build.gpu_scene_copies.empty();
       pending.result.scene_revision = request.snapshot->revision;
       pending.result.completion_value = value;
       pending.result.telemetry = build.telemetry;
@@ -802,6 +803,9 @@ public:
         if (!failed_frame.busy) {
           failed_frame.completion_value = 0;
         }
+        if (pending.has_gpu_scene_copies) {
+          InvalidateGpuSceneUpdate();
+        }
         const auto native_code =
             static_cast<std::int32_t>(pending.command.error.code);
         pending_.erase(token.value());
@@ -930,6 +934,7 @@ private:
     std::uint32_t height{};
     std::vector<Aov> rendered_aovs;
     std::vector<Aov> readback_aovs;
+    bool has_gpu_scene_copies{};
     render::RenderResult result;
   };
 
@@ -1246,6 +1251,15 @@ private:
     gpu_scene_buffers_.source_id = build.gpu_scene_source_id;
     gpu_scene_buffers_.revision = build.gpu_scene_revision;
     gpu_scene_buffers_.has_resident_update = true;
+  }
+
+  void InvalidateGpuSceneUpdate() noexcept {
+    // A failed command buffer may have applied only part of its blit copies.
+    // Reject incremental and zero-copy updates until a complete reconciliation
+    // restores every GPU Scene table.
+    gpu_scene_buffers_.source_id = 0;
+    gpu_scene_buffers_.revision = 0;
+    gpu_scene_buffers_.has_resident_update = false;
   }
 
   void CreateLibraryAndPipeline() {
