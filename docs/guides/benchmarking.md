@@ -70,6 +70,7 @@ Select a fixture with `--fixture`:
 | `million-triangles` | One indexed mesh and one instance with exactly 1,000,000 triangles |
 | `ten-thousand-meshes` | 10,000 independently handled one-triangle meshes and instances |
 | `thousand-instances` | 1,000 instances sharing one mesh |
+| `gpu-driven-small-objects` | The same shared indexed triangle at 1,000, 10,000, and 100,000 instances, measured through conventional and required GPU-driven indexed submission |
 | `one-million-gaussians` | One deterministic degree-0 Gaussian resource with 1,000,000 particles |
 | `five-million-gaussians` | The same deterministic distribution scaled to 5,000,000 particles |
 | `ten-million-gaussians` | The same deterministic distribution scaled to 10,000,000 particles |
@@ -78,6 +79,22 @@ Select a fixture with `--fixture`:
 
 Large fixtures are explicit so the normal CTest remains fast. Capture them on
 the same controlled machine when comparing scale or 4K behavior.
+
+`gpu-driven-small-objects` is an opt-in capability fixture. It requires
+bindless GPU Scene tables, `drawIndirectFirstInstance`, indirect count, and
+shader draw parameters; it fails explicitly instead of silently comparing a
+fallback on unsupported devices. For each draw-count tier it emits an `update`
+baseline followed by warmed `conventional` and `gpu-driven` steady-state
+baselines. Candidate lists are warmed in every reusable frame context, so the
+steady GPU-driven baselines require zero candidate upload, descriptor rewrite,
+and first-use allocation, isolating command recording from residency setup. A
+representative capture command is:
+
+```powershell
+./build/adapters/merlin-benchmark/Release/merlin-benchmark.exe `
+  --fixture gpu-driven-small-objects --width 64 --height 64 `
+  --steady-frames 10 --output gpu-driven-small-objects.json
+```
 
 ### Reference baselines
 
@@ -168,7 +185,6 @@ The detailed delivery gates are defined in the
 
 | Planned fixture | Content | Primary decision |
 | --- | --- | --- |
-| `gpu-driven-small-objects` | Many shared small meshes, hundreds of thousands of instances, materials, and textures | Bindless update scaling, CPU submission slope, instance/draw compaction |
 | `visibility-bandwidth` | High resolution, material-heavy opaque Mesh, UV seams, primitive boundaries, and controlled overdraw | Visibility raster/resolve cost and bandwidth against Forward |
 | `meshlet-large-static` | Tens of millions of static triangles with substantial off-screen area | Meshlet build/cache cost, fine-culling rejection, emitted-triangle reduction |
 | `occlusion-heavy` | Urban/interior layers and repeatable camera cuts | Hi-Z rejection, conservative history reset, visibility stability |
@@ -185,7 +201,14 @@ implementation:
   material-bind reduction remain later evidence additions.
 - GPU-driven indexed rendering reports candidate/visible draws, rejection by
   enabled stage, generated indirect commands, command-generation/culling time,
-  and CPU command-recording slope with increasing draw count.
+  and command-buffer-recording slope with increasing draw count. The initial
+  `gpu-driven-small-objects` fixture establishes that narrowly scoped slope and
+  bounded native indirect submission for one shared geometry/material. It also
+  requires exact color, depth, primitive-ID, and instance-ID parity with the
+  conventional baseline at every tier. GPU-driven batch preparation remains in
+  `gpu_scene_update`; inspect it and `total_frame` independently because this
+  fixture does not yet claim draw-count-independent total CPU preparation.
+  Broader material, texture, and geometry diversity remains follow-up evidence.
 - Visibility reports selected derivative mode, visibility-raster and material-
   resolve time separately, supported/fallback draw counts, and Forward
   differential-image metadata for each material feature.

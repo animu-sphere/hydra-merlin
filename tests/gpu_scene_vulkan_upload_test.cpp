@@ -357,6 +357,36 @@ int main(int argc, char** argv) {
   assert(culled.counters.upload_bytes == 0);
   assert(culled.counters.gpu_scene_draw_count == 0);
 
+  // Warm every reusable frame context, then prove that an unchanged native
+  // batch retains both its candidate payload and storage-buffer descriptors.
+  // Camera/culling changes may still dispatch compute, but must not rewrite
+  // descriptors whose buffers, offsets, and ranges are unchanged.
+  auto gpu_driven_completion = culled.completion_value;
+  for (std::uint32_t frame = 0;
+       frame < renderer->statistics().frame_context_count; ++frame) {
+    auto warm_update =
+        std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+            packing.Apply(*snapshot, gpu_driven_completion,
+                          gpu_driven_completion, {}));
+    const auto warm = Submit(
+        *renderer, snapshot, shaders, warm_update,
+        merlin::vulkan::GpuDrivenIndexedMode::Require);
+    gpu_driven_completion = warm.completion_value;
+  }
+  auto gpu_driven_static_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          packing.Apply(*snapshot, gpu_driven_completion,
+                        gpu_driven_completion, {}));
+  const auto gpu_driven_static = Submit(
+      *renderer, snapshot, shaders, gpu_driven_static_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(gpu_driven_static.counters.gpu_driven_candidate_upload_bytes == 0);
+  assert(gpu_driven_static.counters.descriptor_pool_creation_count == 0);
+  assert(gpu_driven_static.counters.descriptor_allocation_count == 0);
+  assert(gpu_driven_static.counters.descriptor_update_count == 0);
+  assert(gpu_driven_static.counters.upload_bytes == 0);
+  gpu_driven_completion = gpu_driven_static.completion_value;
+
   const auto statistics = renderer->statistics();
   assert(statistics.gpu_scene_buffers);
   assert(statistics.gpu_scene_capacity_bytes ==
@@ -368,7 +398,7 @@ int main(int argc, char** argv) {
 
   auto static_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(packing.Apply(
-          *snapshot, culled.completion_value, culled.completion_value, {}));
+          *snapshot, gpu_driven_completion, gpu_driven_completion, {}));
   assert(static_update->copy_bytes == 0);
   const auto steady = Submit(*renderer, snapshot, shaders, static_update);
   assert(steady.counters.gpu_scene_upload_bytes == 0);
