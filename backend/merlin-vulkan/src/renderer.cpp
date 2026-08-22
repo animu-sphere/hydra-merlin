@@ -1514,6 +1514,13 @@ class Renderer::Impl {
           // graphics submission which would have committed it fails.
           InvalidateGpuSceneUpdate();
         }
+        if (frame.gpu_driven.candidate_upload_pending) {
+          // The transfer has already replaced the device-local candidate
+          // list, but the failed graphics submission did not publish its
+          // shadow. Force the next request to upload whichever sequence it
+          // selects instead of comparing against stale CPU state.
+          InvalidateGpuDrivenCandidates(frame);
+        }
       }
       throw;
     }
@@ -3124,6 +3131,13 @@ class Renderer::Impl {
     }
     resources.candidate_draw_slot_shadow =
         std::move(resources.pending_candidate_draw_slot_shadow);
+    resources.candidate_upload_pending = false;
+  }
+
+  static void InvalidateGpuDrivenCandidates(FrameContext& frame) noexcept {
+    auto& resources = frame.gpu_driven;
+    resources.candidate_draw_slot_shadow.clear();
+    resources.pending_candidate_draw_slot_shadow.clear();
     resources.candidate_upload_pending = false;
   }
 
