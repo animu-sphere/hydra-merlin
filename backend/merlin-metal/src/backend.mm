@@ -721,10 +721,6 @@ public:
                                     "submit Metal frame",
                                     "render extent is invalid");
       }
-      if (request.presentation) {
-        ValidatePresentation(request.presentation, "submit Metal frame");
-        UpdatePresentationExtent(request.width, request.height);
-      }
       if (render::GpuDrivenIndexedModeName(
               request.gpu_driven_indexed.mode) == "unknown") {
         throw render::RendererError(
@@ -736,6 +732,10 @@ public:
         throw render::RendererError(
             render::RendererErrorCode::Unsupported, "submit Metal frame",
             "required GPU-driven indexed Forward execution is unavailable");
+      }
+      if (request.presentation) {
+        ValidatePresentation(request.presentation, "submit Metal frame");
+        UpdatePresentationExtent(request.width, request.height);
       }
 
       std::vector<Aov> readbacks;
