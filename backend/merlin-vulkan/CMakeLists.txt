@@ -110,6 +110,8 @@ set(MERLIN_GPU_DRIVEN_VERTEX_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gpu-driven-forward.vert.spv")
 set(MERLIN_GPU_DRIVEN_FRAGMENT_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gpu-driven-forward.frag.spv")
+set(MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-prepare.comp.spv")
 set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gaussian.vert.spv")
 set(MERLIN_GAUSSIAN_FRAGMENT_SPV
@@ -134,6 +136,8 @@ set(_merlin_shader_gpu_driven_indexed
     "${_merlin_shader_source_dir}/gpu-driven-indexed.slang")
 set(_merlin_shader_gpu_driven_forward
     "${_merlin_shader_source_dir}/forward-gpu-driven.slang")
+set(_merlin_shader_gaussian_prepare
+    "${_merlin_shader_source_dir}/gaussian-prepare.slang")
 set(_merlin_gpu_scene_abi
     "${PROJECT_SOURCE_DIR}/core/merlin-render-backend/shaders/gpu-scene-abi.slang")
 set(_merlin_shader_gaussian
@@ -231,6 +235,10 @@ _merlin_compile_shader("${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}"
   forward-gpu-driven.slang forward_gpu_driven_fragment fragment spirv
   "${_merlin_slang_spirv_profile}" spirv_1_5+spvShaderNonUniformEXT
   gpu-driven-forward "${_merlin_bindless_features}+gpu_scene_abi_v1")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
+  gaussian-prepare.slang gaussian_prepare_compact compute spirv
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-prepare-compact
+  "persistent_gaussian_attributes+projection+culling+parallel_atomic_compaction")
 _merlin_compile_shader("${MERLIN_GAUSSIAN_VERTEX_SPV}" gaussian.slang
   gaussian_vertex vertex spirv "${_merlin_slang_spirv_profile}"
   spirv_1_5 gaussian-mvp "prepared_stream+procedural_quad")
@@ -268,6 +276,7 @@ set(_merlin_shader_reflections
   "${MERLIN_GPU_DRIVEN_INDEXED_COMPUTE_SPV}.reflection.json"
   "${MERLIN_GPU_DRIVEN_VERTEX_SPV}.reflection.json"
   "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
@@ -301,6 +310,7 @@ add_custom_command(
     "${MERLIN_GPU_SCENE_VERTEX_SPV}" "${MERLIN_GPU_SCENE_FRAGMENT_SPV}"
     "${MERLIN_GPU_DRIVEN_INDEXED_COMPUTE_SPV}"
     "${MERLIN_GPU_DRIVEN_VERTEX_SPV}" "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}"
+    "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
@@ -310,6 +320,7 @@ add_custom_command(
     "${_merlin_shader_gpu_scene}" "${_merlin_gpu_scene_abi}"
     "${_merlin_shader_gpu_driven_indexed}"
     "${_merlin_shader_gpu_driven_forward}"
+    "${_merlin_shader_gaussian_prepare}"
     "${_merlin_shader_gaussian}"
     "${_merlin_shader_common}"
     "${MERLIN_ENVIRONMENT_HDR}"
@@ -330,6 +341,7 @@ add_custom_target(merlin-vulkan-shaders
     "${MERLIN_GPU_DRIVEN_INDEXED_COMPUTE_SPV}"
     "${MERLIN_GPU_DRIVEN_VERTEX_SPV}"
     "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}"
+    "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -351,6 +363,7 @@ set(_merlin_shader_package_files
   "${MERLIN_GPU_DRIVEN_INDEXED_COMPUTE_SPV}"
   "${MERLIN_GPU_DRIVEN_VERTEX_SPV}"
   "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}"
+  "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}"
   "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -380,6 +393,8 @@ set(MERLIN_GPU_DRIVEN_VERTEX_SPV
     "${MERLIN_GPU_DRIVEN_VERTEX_SPV}" PARENT_SCOPE)
 set(MERLIN_GPU_DRIVEN_FRAGMENT_SPV
     "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV
+    "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_ID_VERTEX_SPV

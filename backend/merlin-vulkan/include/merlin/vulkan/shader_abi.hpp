@@ -13,7 +13,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 5;
+inline constexpr std::uint32_t kVersion = 6;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -89,6 +89,66 @@ struct alignas(16) GpuDrivenForwardConstants {
   Mat4 view_projection;
 };
 
+inline constexpr std::uint32_t kGaussianPrepareWorkgroupSize = 64U;
+
+[[nodiscard]] constexpr std::uint32_t GaussianPrepareWorkgroupCount(
+    std::uint32_t candidate_count) noexcept {
+  return candidate_count == 0U
+             ? 0U
+             : 1U + (candidate_count - 1U) /
+                        kGaussianPrepareWorkgroupSize;
+}
+
+enum class GaussianCandidateResult : std::uint32_t {
+  Visible,
+  OpacityCulled,
+  FrustumCulled,
+  InvalidCulled,
+};
+
+// One dispatch processes one resident Gaussian resource. The constants use a
+// uniform descriptor because this two-matrix block exceeds Vulkan's guaranteed
+// 128-byte push-constant limit. The four source bindings are byte-addressed
+// because their arena payloads are tightly packed.
+struct alignas(16) GaussianPrepareConstants {
+  Mat4 local_to_camera;
+  Mat4 projection;
+  Vec2 viewport_size;
+  float sigma_extent{3.0F};
+  float minimum_variance_pixels{0.25F};
+  std::uint32_t resource_id_low{};
+  std::uint32_t resource_id_high{};
+  std::uint32_t particle_count{};
+  std::uint32_t coefficients_per_particle{};
+  std::uint32_t spherical_harmonics_degree{};
+  std::uint32_t projection_mode{};
+  std::uint32_t sorting_mode{};
+  std::uint32_t padding{};
+};
+
+struct alignas(16) GaussianPreparedRecord {
+  Vec2 center_pixels;
+  float radius_pixels{};
+  float depth{};
+  Vec3 inverse_conic;
+  float opacity{};
+  Vec3 radiance;
+  float sort_key{};
+  std::uint32_t resource_id_low{};
+  std::uint32_t resource_id_high{};
+  std::uint32_t particle_id{};
+  std::uint32_t padding{};
+};
+
+struct alignas(16) GaussianPrepareDispatchCounters {
+  std::uint32_t candidate_count{};
+  std::uint32_t visible_count{};
+  std::uint32_t opacity_culled_count{};
+  std::uint32_t frustum_culled_count{};
+  std::uint32_t invalid_culled_count{};
+  std::uint32_t padding[3]{};
+};
+
 static_assert(sizeof(DrawConstants) == 128);
 static_assert(alignof(DrawConstants) == 16);
 static_assert(offsetof(DrawConstants, model_view_projection) == 0);
@@ -128,6 +188,29 @@ static_assert(offsetof(GpuDrivenIndexedDispatchCounters,
 static_assert(sizeof(GpuDrivenForwardConstants) == 64);
 static_assert(alignof(GpuDrivenForwardConstants) == 16);
 static_assert(offsetof(GpuDrivenForwardConstants, view_projection) == 0);
+static_assert(sizeof(GaussianPrepareConstants) == 176);
+static_assert(alignof(GaussianPrepareConstants) == 16);
+static_assert(offsetof(GaussianPrepareConstants, local_to_camera) == 0);
+static_assert(offsetof(GaussianPrepareConstants, projection) == 64);
+static_assert(offsetof(GaussianPrepareConstants, viewport_size) == 128);
+static_assert(offsetof(GaussianPrepareConstants, sigma_extent) == 136);
+static_assert(offsetof(GaussianPrepareConstants, resource_id_low) == 144);
+static_assert(offsetof(GaussianPrepareConstants, particle_count) == 152);
+static_assert(offsetof(GaussianPrepareConstants,
+                       spherical_harmonics_degree) == 160);
+static_assert(offsetof(GaussianPrepareConstants, sorting_mode) == 168);
+static_assert(sizeof(GaussianPreparedRecord) == 64);
+static_assert(alignof(GaussianPreparedRecord) == 16);
+static_assert(offsetof(GaussianPreparedRecord, center_pixels) == 0);
+static_assert(offsetof(GaussianPreparedRecord, inverse_conic) == 16);
+static_assert(offsetof(GaussianPreparedRecord, radiance) == 32);
+static_assert(offsetof(GaussianPreparedRecord, resource_id_low) == 48);
+static_assert(offsetof(GaussianPreparedRecord, particle_id) == 56);
+static_assert(sizeof(GaussianPrepareDispatchCounters) == 32);
+static_assert(alignof(GaussianPrepareDispatchCounters) == 16);
+static_assert(offsetof(GaussianPrepareDispatchCounters, candidate_count) == 0);
+static_assert(offsetof(GaussianPrepareDispatchCounters, invalid_culled_count) ==
+              16);
 static_assert(sizeof(render::GpuIndexedIndirectCommand) == 20);
 
 enum class ResourceClass {
@@ -170,6 +253,22 @@ inline constexpr ResourceBinding kGpuDrivenIndirectCommands{
     2, 2, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGpuDrivenDispatchCounters{
     2, 3, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianPositions{
+    3, 0, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianCovariances{
+    3, 1, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianOpacities{
+    3, 2, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianRadiance{
+    3, 3, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianCandidateResults{
+    3, 4, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianPreparedRecords{
+    3, 5, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianPrepareCounters{
+    3, 6, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianPrepareConstants{
+    3, 7, ResourceClass::UniformBuffer};
 
 inline constexpr ShaderCapability kConventionalCapabilities =
     ShaderCapability::MaterialConstants |
