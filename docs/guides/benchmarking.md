@@ -201,10 +201,14 @@ implementation:
   material-bind reduction remain later evidence additions.
 - GPU-driven indexed rendering reports candidate/visible draws, rejection by
   enabled stage, generated indirect commands, command-generation/culling time,
-  and CPU command-recording slope with increasing draw count. The initial
-  `gpu-driven-small-objects` fixture establishes that slope and bounded native
-  indirect submission for one shared geometry/material; broader material,
-  texture, and geometry diversity remains follow-up evidence.
+  and command-buffer-recording slope with increasing draw count. The initial
+  `gpu-driven-small-objects` fixture establishes that narrowly scoped slope and
+  bounded native indirect submission for one shared geometry/material. It also
+  requires exact color, depth, primitive-ID, and instance-ID parity with the
+  conventional baseline at every tier. GPU-driven batch preparation remains in
+  `gpu_scene_update`; inspect it and `total_frame` independently because this
+  fixture does not yet claim draw-count-independent total CPU preparation.
+  Broader material, texture, and geometry diversity remains follow-up evidence.
 - Visibility reports selected derivative mode, visibility-raster and material-
   resolve time separately, supported/fallback draw counts, and Forward
   differential-image metadata for each material feature.

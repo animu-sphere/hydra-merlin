@@ -980,6 +980,38 @@ void AssertStatic(const merlin::vulkan::FrameCounters& counters,
   }
 }
 
+template <typename Image>
+void RequireSameImage(const Image& conventional, const Image& gpu_driven,
+                      std::string_view name, std::uint32_t draw_count) {
+  if (conventional.product != gpu_driven.product ||
+      conventional.row_pitch_bytes != gpu_driven.row_pitch_bytes ||
+      conventional.pixels != gpu_driven.pixels) {
+    throw std::runtime_error(
+        "GPU-driven " + std::string(name) + " output differs from " +
+        "conventional submission at " + std::to_string(draw_count) +
+        " draws");
+  }
+}
+
+void RequireSameOutput(const merlin::vulkan::RenderResult& conventional,
+                       const merlin::vulkan::RenderResult& gpu_driven,
+                       std::uint32_t draw_count) {
+  if (conventional.rendered_aovs != gpu_driven.rendered_aovs ||
+      conventional.cpu_readback_aovs != gpu_driven.cpu_readback_aovs ||
+      conventional.scene_revision != gpu_driven.scene_revision) {
+    throw std::runtime_error(
+        "GPU-driven render-product metadata differs from conventional "
+        "submission at " +
+        std::to_string(draw_count) + " draws");
+  }
+  RequireSameImage(conventional.color, gpu_driven.color, "color", draw_count);
+  RequireSameImage(conventional.depth, gpu_driven.depth, "depth", draw_count);
+  RequireSameImage(conventional.prim_id, gpu_driven.prim_id, "primId",
+                   draw_count);
+  RequireSameImage(conventional.instance_id, gpu_driven.instance_id,
+                   "instanceId", draw_count);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1076,9 +1108,10 @@ int main(int argc, char** argv) {
       std::vector<FrameTimings> samples;
       samples.reserve(arguments.steady_frames);
       merlin::vulkan::FrameCounters counters;
+      merlin::vulkan::RenderResult last_result;
       for (std::uint32_t frame = 0; frame < arguments.steady_frames; ++frame) {
         const auto start = CpuClock::now();
-        const auto result = render();
+        auto result = render();
         auto timing = FromBackend(result.cpu_timings);
         timing.total_frame_ns = ElapsedNanoseconds(start);
         samples.push_back(timing);
@@ -1087,10 +1120,12 @@ int main(int argc, char** argv) {
         } else if (result.counters != counters) {
           throw std::runtime_error("steady-state structural counters changed");
         }
+        last_result = std::move(result);
       }
       AssertStatic(counters, name);
       baselines.push_back(
           {std::move(name), std::move(samples), counters, {}});
+      return last_result;
     };
 
     const bool reference_fixture =
@@ -1209,7 +1244,8 @@ int main(int argc, char** argv) {
         });
 
         warm_path(merlin::vulkan::GpuDrivenIndexedMode::Disabled);
-        steady("conventional-" + std::to_string(draw_count));
+        const auto conventional =
+            steady("conventional-" + std::to_string(draw_count));
         if (baselines.back().counters.gpu_driven_candidate_draw_count != 0 ||
             baselines.back().counters.gpu_driven_indirect_draw_count != 0) {
           throw std::runtime_error(
@@ -1217,7 +1253,8 @@ int main(int argc, char** argv) {
         }
 
         warm_path(merlin::vulkan::GpuDrivenIndexedMode::Require);
-        steady("gpu-driven-" + std::to_string(draw_count));
+        const auto gpu_driven =
+            steady("gpu-driven-" + std::to_string(draw_count));
         const auto& counters = baselines.back().counters;
         if (counters.gpu_driven_candidate_draw_count != draw_count ||
             counters.gpu_driven_visible_draw_count != draw_count ||
@@ -1228,6 +1265,7 @@ int main(int argc, char** argv) {
               "GPU-driven scale baseline violated bounded steady-state "
               "submission");
         }
+        RequireSameOutput(conventional, gpu_driven, draw_count);
       }
     } else {
       ScaleFixture fixture;

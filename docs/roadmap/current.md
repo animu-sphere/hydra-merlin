@@ -313,9 +313,13 @@ frame context before capturing steady-state timing, requires zero static GPU
 Scene/candidate upload and descriptor rewrite, and retains candidate, visible,
 rejection, and native indirect-draw counters alongside `command_recording_ns`.
 Unsupported devices fail the explicit capability request instead of recording
-fallback as GPU-driven evidence. This establishes a reproducible CPU
-submission-slope contract; controlled hardware captures and broader
-geometry/material diversity remain evidence follow-up.
+fallback as GPU-driven evidence. Exact color, depth, primitive-ID, and
+instance-ID output must match the conventional baseline at every tier. This
+establishes a reproducible command-buffer-recording slope contract, not a claim
+that total CPU preparation is draw-count independent: native batch preparation
+remains visible in `gpu_scene_update` and `total_frame`. Controlled hardware
+captures, draw-count-independent preparation, and broader geometry/material
+diversity remain evidence follow-up.
 
 The Gaussian compute preparation path remains incomplete. This slice is
 therefore not the complete v0.16.0 support claim.
