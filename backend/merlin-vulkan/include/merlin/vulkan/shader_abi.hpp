@@ -106,8 +106,10 @@ enum class GaussianCandidateResult : std::uint32_t {
   InvalidCulled,
 };
 
-// One dispatch processes one resident Gaussian resource. The four source
-// bindings are byte-addressed because their arena payloads are tightly packed.
+// One dispatch processes one resident Gaussian resource. The constants use a
+// uniform descriptor because this two-matrix block exceeds Vulkan's guaranteed
+// 128-byte push-constant limit. The four source bindings are byte-addressed
+// because their arena payloads are tightly packed.
 struct alignas(16) GaussianPrepareConstants {
   Mat4 local_to_camera;
   Mat4 projection;
@@ -265,6 +267,8 @@ inline constexpr ResourceBinding kGaussianPreparedRecords{
     3, 5, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGaussianPrepareCounters{
     3, 6, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianPrepareConstants{
+    3, 7, ResourceClass::UniformBuffer};
 
 inline constexpr ShaderCapability kConventionalCapabilities =
     ShaderCapability::MaterialConstants |

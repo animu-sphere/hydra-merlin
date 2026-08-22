@@ -61,7 +61,9 @@ struct GaussianPrepareDispatchCounters
     uint padding2;
 };
 
-[[vk::push_constant]]
+// This block intentionally uses a uniform descriptor: its two matrices make
+// it 176 bytes, larger than Vulkan's guaranteed 128-byte push-constant limit.
+[[vk::binding(7, 3)]]
 ConstantBuffer<GaussianPrepareConstants> gaussian_prepare_constants;
 
 // Byte-addressed inputs match the existing tightly packed arena payloads:

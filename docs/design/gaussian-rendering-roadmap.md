@@ -79,10 +79,12 @@ The first delivered slice fixes the projection/culling/compaction shader ABI.
 One 64-thread Vulkan compute dispatch per resident resource reads the existing
 tightly packed attribute arena ranges, evaluates perspective or tangential
 projection and degree 0–3 radiance, records explicit opacity/frustum/invalid
-rejections, and atomically compacts 64-byte prepared records. Those records
-retain a sort key and stable resource/particle tie-break identity. Runtime
-dispatch and the sort/tile/raster stages remain follow-up; the CPU-sorted path
-is still the selected reference and fallback.
+rejections, and atomically compacts 64-byte prepared records. Its two-matrix
+176-byte constants use a uniform descriptor rather than exceeding Vulkan's
+guaranteed push-constant limit. The prepared records retain a sort key and
+stable resource/particle tie-break identity. Runtime dispatch and the
+sort/tile/raster stages remain follow-up; the CPU-sorted path is still the
+selected reference and fallback.
 
 ### v0.17.0 — Contribution-aware culling and adaptive bounds
 

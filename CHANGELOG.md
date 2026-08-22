@@ -16,9 +16,9 @@ after its public API and release process are established.
   conservatively classifies and atomically compacts visible particles, evaluates
   authored degree 0–3 radiance, and emits stable resource/particle identity plus
   sort keys and structured counters for later radix-sort/tile stages. Shader ABI
-  v6 fixes the C++/Slang constants, prepared-record, counter, and descriptor
-  layouts through SPIR-V reflection and packages the compute artifact while the
-  CPU-sorted raster path remains the runtime fallback.
+  v6 fixes the C++/Slang uniform-backed constants, prepared-record, counter,
+  and descriptor layouts through SPIR-V reflection and packages the compute
+  artifact while the CPU-sorted raster path remains the runtime fallback.
 - Renderer settings schema v2 and backend contract v2 now expose GPU-driven
   indexed Forward as a submission policy independent of render-path selection.
   Disabled, preferred-with-explicit-fallback, and required modes plus the

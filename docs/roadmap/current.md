@@ -327,8 +327,9 @@ spherical-harmonic arena payloads without a CPU-prepared candidate stream,
 performs projection, conservative culling, radiance evaluation, and atomic
 visible-record compaction, and retains resource/particle identity plus the
 authored sorting key for later stages. Shader ABI v6 reflection-checks its
-constants, descriptors, 64-byte prepared record, and rejection counters. This
-is an artifact and ABI boundary only: runtime dispatch, deterministic radix
+uniform-backed constants, descriptors, 64-byte prepared record, and rejection
+counters without exceeding the Vulkan push-constant baseline. This is an
+artifact and ABI boundary only: runtime dispatch, deterministic radix
 sorting, Gaussian-tile pairing/ranges, indirect raster, and reference-image
 evidence still retain the CPU-sorted fallback.
 

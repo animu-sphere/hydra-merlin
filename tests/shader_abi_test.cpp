@@ -285,10 +285,8 @@ int main(int argc, char** argv) {
     RequireContains(gaussian_prepare_compute,
                     "\"name\":\"GaussianPrepareConstants\"",
                     "Gaussian prepare constants are absent from reflection");
-    RequireContains(
-        gaussian_prepare_compute,
-        "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
-        "Gaussian prepare constants are not a push constant buffer");
+    RequireBinding(gaussian_prepare_compute, "gaussian_prepare_constants",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":7}");
     RequireField(gaussian_prepare_compute, "local_to_camera", 0, 64);
     RequireField(gaussian_prepare_compute, "projection", 64, 64);
     RequireField(gaussian_prepare_compute, "viewport_size", 128, 8);
@@ -406,6 +404,10 @@ int main(int argc, char** argv) {
     static_assert(kGaussianPositions.binding == 0);
     static_assert(kGaussianPreparedRecords.binding == 5);
     static_assert(kGaussianPrepareCounters.binding == 6);
+    static_assert(kGaussianPrepareConstants.set == 3);
+    static_assert(kGaussianPrepareConstants.binding == 7);
+    static_assert(kGaussianPrepareConstants.resource_class ==
+                  ResourceClass::UniformBuffer);
     static_assert(GaussianPrepareWorkgroupCount(0) == 0);
     static_assert(GaussianPrepareWorkgroupCount(1) == 1);
     static_assert(GaussianPrepareWorkgroupCount(64) == 1);
