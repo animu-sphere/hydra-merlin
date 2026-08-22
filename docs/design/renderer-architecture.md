@@ -75,7 +75,7 @@ logical presentation and completion handles, submit/resolve, common timings and
 counters, and structured errors. Vulkan-specific diagnostics and every native
 object remain in `Merlin::Vulkan`.
 
-Host configuration uses the exact-version `RendererSettings` contract. Its v1
+Host configuration uses the exact-version `RendererSettings` contract. Its v2
 backend, presentation, render-path, AOV, lighting, exposure/tone-mapping, alpha,
 debug-view, validation, and telemetry vocabulary plus capability-rejection
 rules are defined in [versioned renderer settings](renderer-settings.md).

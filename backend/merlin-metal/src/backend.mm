@@ -725,6 +725,18 @@ public:
         ValidatePresentation(request.presentation, "submit Metal frame");
         UpdatePresentationExtent(request.width, request.height);
       }
+      if (render::GpuDrivenIndexedModeName(
+              request.gpu_driven_indexed.mode) == "unknown") {
+        throw render::RendererError(
+            render::RendererErrorCode::InvalidRequest, "submit Metal frame",
+            "GPU-driven indexed submission mode is invalid");
+      }
+      if (request.gpu_driven_indexed.mode ==
+          render::GpuDrivenIndexedMode::Require) {
+        throw render::RendererError(
+            render::RendererErrorCode::Unsupported, "submit Metal frame",
+            "required GPU-driven indexed Forward execution is unavailable");
+      }
 
       std::vector<Aov> readbacks;
       auto rendered = ValidateProducts(request.products, &readbacks);
@@ -822,6 +834,10 @@ public:
       pending.result.scene_revision = request.snapshot->revision;
       pending.result.completion_value = value;
       pending.result.telemetry = build.telemetry;
+      if (request.gpu_driven_indexed.mode ==
+          render::GpuDrivenIndexedMode::Prefer) {
+        ++pending.result.telemetry.gpu_driven_fallback_count;
+      }
       pending.result.timings.upload_ns = build.upload_ns;
       pending.result.timings.command_recording_ns =
           DurationNs(record_begin, record_end);

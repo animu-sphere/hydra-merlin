@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Renderer settings schema v2 and backend contract v2 now expose GPU-driven
+  indexed Forward as a submission policy independent of render-path selection.
+  Disabled, preferred-with-explicit-fallback, and required modes plus the
+  visibility mask and both culling switches travel through the backend-neutral
+  request. Vulkan maps the public policy to its native runtime, Metal rejects
+  required execution and records preferred fallback, and the native and Hydra
+  development viewport expose the live selection with revisioned validation.
 - A Vulkan GPU-driven indexed compute and opt-in renderer
   execution contract that consumes
   persistent GPU Scene tables and native arena-batch candidate slots, mirrors

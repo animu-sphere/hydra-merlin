@@ -18,13 +18,14 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 1;
-inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 1;
+inline constexpr std::uint32_t kBackendContractVersion = 2;
+inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 2;
 
 enum class BackendKind { Vulkan, Metal };
 enum class BackendRequest { Automatic, Vulkan, Metal };
 enum class PresentationMode { Automatic, Offscreen, Native, Host };
 enum class RenderPath { Forward, ExperimentalVisibility };
+enum class GpuDrivenIndexedMode { Disabled, Prefer, Require };
 enum class LightingMode { Diagnostic, Environment, Authored };
 enum class ToneMapping { None, Reinhard, Aces };
 enum class AlphaPolicy { Opaque, Mask, Blend };
@@ -69,6 +70,26 @@ enum class TelemetryMode { Off, Basic, Detailed };
   }
   return "unknown";
 }
+
+[[nodiscard]] constexpr std::string_view GpuDrivenIndexedModeName(
+    GpuDrivenIndexedMode mode) noexcept {
+  switch (mode) {
+    case GpuDrivenIndexedMode::Disabled: return "disabled";
+    case GpuDrivenIndexedMode::Prefer: return "prefer";
+    case GpuDrivenIndexedMode::Require: return "require";
+  }
+  return "unknown";
+}
+
+struct GpuDrivenIndexedSettings {
+  GpuDrivenIndexedMode mode{GpuDrivenIndexedMode::Disabled};
+  std::uint32_t visibility_mask{~std::uint32_t{}};
+  bool enable_visibility_mask_culling{true};
+  bool enable_frustum_culling{true};
+
+  friend constexpr bool operator==(const GpuDrivenIndexedSettings&,
+                                   const GpuDrivenIndexedSettings&) = default;
+};
 
 [[nodiscard]] constexpr std::string_view LightingModeName(
     LightingMode mode) noexcept {
@@ -131,6 +152,7 @@ struct RendererSettings {
   BackendRequest backend{BackendRequest::Automatic};
   PresentationMode presentation_mode{PresentationMode::Automatic};
   RenderPath render_path{RenderPath::Forward};
+  GpuDrivenIndexedSettings gpu_driven_indexed;
   Aov aov{Aov::Color};
   LightingMode lighting_mode{LightingMode::Diagnostic};
   float exposure_ev{};
@@ -177,6 +199,9 @@ struct RendererCapabilities {
   bool cpu_readback{};
   bool validation_enabled{};
   bool generated_materials{};
+  // True only when this backend instance has the device features and
+  // persistent GPU Scene configuration required by indexed-indirect Forward.
+  bool gpu_driven_indexed{};
   RendererLimits limits;
 };
 
@@ -371,6 +396,10 @@ struct RenderRequest {
   // Optional packed ABI-v1 table update. A backend accepts this only when it
   // was created with matching persistent GPU Scene capacities.
   std::shared_ptr<const GpuScenePackedFrameUpdate> gpu_scene_update;
+  // Forward indexed-draw submission policy. Prefer records an explicit
+  // fallback when the request or backend cannot select GPU-driven execution;
+  // Require reports Unsupported instead.
+  GpuDrivenIndexedSettings gpu_driven_indexed;
   std::uint32_t width{512};
   std::uint32_t height{512};
   Vec4 clear_color{kDefaultClearColor};

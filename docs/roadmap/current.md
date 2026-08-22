@@ -113,12 +113,15 @@ version covers backend, presentation mode, Forward/experimental path, AOV,
 lighting mode, exposure/tone mapping, alpha policy, debug views, validation,
 and telemetry controls.
 
-`RendererSettings` v1 now defines that vocabulary in the backend-neutral
+`RendererSettings` v2 now defines that vocabulary in the backend-neutral
 contract, validates exact schema and field values, and rejects backend,
 presentation, experimental-path, validation, and not-yet-connected execution
 choices with stable codes. The development viewport exposes the applied
 contract and routes rejections through its existing revisioned feedback and
-diagnostic history.
+diagnostic history. Version 2 adds GPU-driven indexed Forward selection as an
+independent submission policy with disabled, preferred-with-fallback, and
+required modes, forwards its visibility mask and culling switches through the
+backend-neutral request, and capability-gates required execution.
 The complete field and validation contract is recorded in
 [versioned renderer settings](../design/renderer-settings.md).
 
@@ -303,8 +306,8 @@ rejection counters. Batch selection rejects or falls back before dispatch when
 the required group count exceeds the device's
 `maxComputeWorkGroupCount[0]` limit.
 
-Public renderer-settings selection, large-scene command recording evidence,
-and the Gaussian compute preparation path remain incomplete. This slice is
+Large-scene command recording evidence and the Gaussian compute preparation
+path remain incomplete. This slice is
 therefore runtime evidence, not the complete v0.16.0 support claim.
 
 ## Near-term execution order

@@ -339,6 +339,10 @@ void DrawSettingsFeedback(const DeveloperUiSettingsFeedback& feedback) {
 
 constexpr std::array<Aov, 4> kInspectableAovs{
     Aov::Color, Aov::Depth, Aov::PrimId, Aov::InstanceId};
+constexpr std::array<render::GpuDrivenIndexedMode, 3>
+    kGpuDrivenIndexedModes{render::GpuDrivenIndexedMode::Disabled,
+                           render::GpuDrivenIndexedMode::Prefer,
+                           render::GpuDrivenIndexedMode::Require};
 
 void DrawAovPreview(const DeveloperUiAovPreview& preview) {
   if (!preview.available || preview.preview_width == 0 ||
@@ -725,6 +729,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                    capabilities.timestamp_queries ? "yes" : "no");
         LabelValue("Generated materials",
                    capabilities.generated_materials ? "yes" : "fallback");
+        LabelValue("GPU-driven indexed",
+                   capabilities.gpu_driven_indexed ? "available" :
+                                                     "fallback");
         LabelValue("Validation",
                    capabilities.validation_enabled ? "enabled" : "disabled");
         LabelValue("External presentation",
@@ -766,6 +773,10 @@ class ImGuiDeveloperUi final : public DeveloperUi {
             render::PresentationModeName(contract.presentation_mode).data());
         LabelValue("Render path",
                    render::RenderPathName(contract.render_path).data());
+        LabelValue("GPU-driven indexed",
+                   render::GpuDrivenIndexedModeName(
+                       contract.gpu_driven_indexed.mode)
+                       .data());
         LabelValue("AOV", AovName(contract.aov).data());
         LabelValue("Lighting",
                    render::LightingModeName(contract.lighting_mode).data());
@@ -780,6 +791,43 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         LabelValue("Telemetry",
                    render::TelemetryModeName(contract.telemetry).data());
       });
+
+      if (ImGui::BeginCombo(
+              "Indexed draw submission",
+              render::GpuDrivenIndexedModeName(
+                  settings_contract_.gpu_driven_indexed.mode)
+                  .data())) {
+        for (const auto mode : kGpuDrivenIndexedModes) {
+          const bool selected =
+              settings_contract_.gpu_driven_indexed.mode == mode;
+          if (ImGui::Selectable(
+                  render::GpuDrivenIndexedModeName(mode).data(), selected)) {
+            settings_contract_.gpu_driven_indexed.mode = mode;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::BeginDisabled(
+          settings_contract_.gpu_driven_indexed.mode ==
+          render::GpuDrivenIndexedMode::Disabled);
+      ImGui::InputScalar(
+          "Visibility mask", ImGuiDataType_U32,
+          &settings_contract_.gpu_driven_indexed.visibility_mask, nullptr,
+          nullptr, "%08X", ImGuiInputTextFlags_CharsHexadecimal);
+      ImGui::Checkbox(
+          "Visibility-mask culling",
+          &settings_contract_.gpu_driven_indexed
+               .enable_visibility_mask_culling);
+      ImGui::Checkbox("Frustum culling",
+                      &settings_contract_.gpu_driven_indexed
+                           .enable_frustum_culling);
+      ImGui::EndDisabled();
+      ImGui::TextDisabled(
+          "Prefer falls back to conventional Forward; Require rejects an "
+          "unavailable GPU-driven path.");
 
       ImGui::ColorEdit4("Clear color", settings_clear_color_.data(),
                         ImGuiColorEditFlags_Float);
@@ -813,6 +861,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       }
       ImGui::SameLine();
       if (ImGui::Button("Apply defaults")) {
+        settings_contract_.gpu_driven_indexed = {};
         settings_clear_color_ = {0.018F, 0.025F, 0.028F, 1.0F};
         settings_continuous_color_readback_ = false;
         settings_aov_inspection_enabled_ = false;
