@@ -290,6 +290,7 @@ struct FrameTelemetry {
   std::uint64_t gpu_driven_visibility_mask_culled_count{};
   std::uint64_t gpu_driven_frustum_culled_count{};
   std::uint64_t gpu_driven_indirect_draw_count{};
+  // Zero when the backend reuses an unchanged resident candidate sequence.
   std::uint64_t gpu_driven_candidate_upload_bytes{};
   std::uint64_t gpu_driven_fallback_count{};
   std::uint64_t requested_aov_mask{};

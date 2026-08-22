@@ -371,6 +371,8 @@ struct FrameCounters {
   std::uint64_t gpu_scene_draw_count{};
   // Explicit GPU-driven indexed Forward evidence. Candidate slots are
   // compacted by compute and consumed by indexed-indirect-count submission.
+  // Candidate upload bytes are zero when a frame context can reuse its
+  // unchanged device-local physical-slot sequence.
   std::uint64_t gpu_driven_candidate_draw_count{};
   std::uint64_t gpu_driven_visible_draw_count{};
   std::uint64_t gpu_driven_visibility_mask_culled_count{};
