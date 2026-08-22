@@ -267,13 +267,14 @@ to be selectable for validation.
 The initial Vulkan runtime slice deliberately selects only one physical
 vertex/index arena and graphics-pipeline batch. An explicit native request
 chooses disabled, preferred-with-fallback, or required execution. The selected
-path uploads physical draw-slot candidates, runs the deterministic reference
-compute kernel, executes its device-local command/count output with
+path retains physical draw-slot candidates in the reusable frame context,
+uploads them only when the ordered slot sequence changes, runs the deterministic
+reference compute kernel, executes its device-local command/count output with
 `vkCmdDrawIndexedIndirectCount`, and resolves the draw through `firstInstance`
 in the Forward stages. This proves the execution and synchronization ABI while
-leaving multi-batch grouping, persistent candidate reuse, parallel compaction,
-and public settings integration as required follow-up before the completion
-criteria above are claimed.
+leaving multi-batch grouping, parallel compaction, and public settings
+integration as required follow-up before the completion criteria above are
+claimed.
 
 ## Opaque Visibility Buffer
 

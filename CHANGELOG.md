@@ -25,8 +25,11 @@ after its public API and release process are established.
   `drawIndirectFirstInstance`, `drawIndirectCount`, and
   `shaderDrawParameters`. Runtime coverage validates visible color/ID output,
   visibility-mask culling to a zero draw count, async-transfer synchronization,
-  structured counters, and explicit preferred/required fallback boundaries;
-  multi-batch and parallel compaction remain follow-up work.
+  structured counters, and explicit preferred/required fallback boundaries.
+  Reusable frame contexts now retain unchanged candidate draw-slot sequences,
+  making camera/culling-only frames zero-upload while preserving exact
+  candidate-count and replacement-upload telemetry; multi-batch and parallel
+  compaction remain follow-up work.
 
 ## [0.15.0] - 2026-08-11
 

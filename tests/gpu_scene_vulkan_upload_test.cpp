@@ -283,6 +283,8 @@ int main(int argc, char** argv) {
   assert(culled.counters.gpu_driven_visible_draw_count == 0);
   assert(culled.counters.gpu_driven_visibility_mask_culled_count == 1);
   assert(culled.counters.gpu_driven_frustum_culled_count == 0);
+  assert(culled.counters.gpu_driven_candidate_upload_bytes == 0);
+  assert(culled.counters.upload_bytes == 0);
   assert(culled.counters.gpu_scene_draw_count == 0);
 
   const auto statistics = renderer->statistics();
@@ -406,6 +408,8 @@ int main(int argc, char** argv) {
   const auto multi = Submit(
       *renderer, multi_snapshot, shaders, multi_update,
       merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(multi.counters.gpu_driven_candidate_upload_bytes ==
+         multi_snapshot->draws.size() * sizeof(std::uint32_t));
   assert(multi.counters.gpu_driven_visible_draw_count == 2);
   bool found_first_identity{};
   bool found_second_identity{};

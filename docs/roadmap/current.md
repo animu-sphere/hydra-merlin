@@ -274,13 +274,18 @@ per-culling-reason, indirect-draw, candidate-upload, and fallback counts, and a
 validation-enabled Vulkan test covers visible color/ID output plus a zero-count
 visibility-mask-culling submission on the asynchronous-transfer path.
 
-Multi-arena and mixed-pipeline batching, persistent zero-upload candidate lists,
-parallel compaction, public renderer-settings selection, large-scene command
-recording evidence, and the Gaussian compute preparation path remain
-incomplete. `Prefer` falls back to table-backed/conventional Forward at the
-initial batch boundary, while `Require` returns an actionable unsupported
-reason; this slice is therefore runtime evidence, not the complete v0.16.0
-support claim.
+Candidate draw-slot sequences now remain resident in each reusable Vulkan frame
+context. An unchanged sequence skips staging reservation and transfer even when
+camera or culling inputs change, while a changed or capacity-growing sequence is
+uploaded before compute dispatch. Candidate-count telemetry remains populated
+on both paths and candidate-upload bytes distinguish reuse from replacement.
+
+Multi-arena and mixed-pipeline batching, parallel compaction, public
+renderer-settings selection, large-scene command recording evidence, and the
+Gaussian compute preparation path remain incomplete. `Prefer` falls back to
+table-backed/conventional Forward at the initial batch boundary, while
+`Require` returns an actionable unsupported reason; this slice is therefore
+runtime evidence, not the complete v0.16.0 support claim.
 
 ## Near-term execution order
 

@@ -1514,6 +1514,13 @@ class Renderer::Impl {
           // graphics submission which would have committed it fails.
           InvalidateGpuSceneUpdate();
         }
+        if (frame.gpu_driven.candidate_upload_pending) {
+          // The transfer has already replaced the device-local candidate
+          // list, but the failed graphics submission did not publish its
+          // shadow. Force the next request to upload whichever sequence it
+          // selects instead of comparing against stale CPU state.
+          InvalidateGpuDrivenCandidates(frame);
+        }
       }
       throw;
     }
@@ -1525,6 +1532,7 @@ class Renderer::Impl {
     CommitTextureUploads();
     CommitResourceSnapshot(*request.snapshot);
     CommitGpuSceneUpdate();
+    CommitGpuDrivenCandidates(frame);
     resource_residency_dirty_ = false;
     for (auto& buffer : frame_upload_buffers_) {
       deferred_.push_back({buffer, completion});
@@ -1902,6 +1910,14 @@ class Renderer::Impl {
     std::uint32_t index_block{kInvalidBlock};
     std::uint32_t pipeline_variant{};
     VkPipeline compute_pipeline{};
+    // The device-local candidate list remains valid while this frame context
+    // is idle. Reusing the context with an identical physical-slot sequence
+    // therefore needs no staging reservation or transfer. Keep a separate
+    // pending value so a failed queue submission cannot publish bytes that
+    // never reached the device.
+    std::vector<std::uint32_t> candidate_draw_slot_shadow;
+    std::vector<std::uint32_t> pending_candidate_draw_slot_shadow;
+    bool candidate_upload_pending{};
     bool selected{};
   };
 
@@ -2996,6 +3012,7 @@ class Renderer::Impl {
     auto& resources = frame.gpu_driven;
     resources.selected = false;
     resources.candidate_count = 0;
+    resources.candidate_upload_pending = false;
     if (request.gpu_driven_indexed.mode == GpuDrivenIndexedMode::Disabled ||
         draw_records_.size() == 0) {
       return;
@@ -3074,26 +3091,30 @@ class Renderer::Impl {
         EnsureGpuDrivenComputePipeline(request.shaders);
     EnsureGpuDrivenFrameResources(
         frame, static_cast<std::uint32_t>(draw_slots->size()));
-    const auto bytes = static_cast<VkDeviceSize>(draw_slots->size()) *
-                       sizeof(std::uint32_t);
-    Buffer retired_staging;
-    VkDeviceSize growth_bytes{};
-    const auto reservation = gpu_driven_staging_.Reserve(
-        bytes, retired_staging, growth_bytes);
-    if (growth_bytes != 0) {
-      ++frame_counters_.allocation_count;
-      ++frame_counters_.buffer_allocation_count;
-      frame_counters_.buffer_allocation_bytes += growth_bytes;
-      Retire(retired_staging);
+    if (resources.candidate_draw_slot_shadow != *draw_slots) {
+      const auto bytes = static_cast<VkDeviceSize>(draw_slots->size()) *
+                         sizeof(std::uint32_t);
+      Buffer retired_staging;
+      VkDeviceSize growth_bytes{};
+      const auto reservation = gpu_driven_staging_.Reserve(
+          bytes, retired_staging, growth_bytes);
+      if (growth_bytes != 0) {
+        ++frame_counters_.allocation_count;
+        ++frame_counters_.buffer_allocation_count;
+        frame_counters_.buffer_allocation_bytes += growth_bytes;
+        Retire(retired_staging);
+      }
+      std::memcpy(reservation.mapped, draw_slots->data(),
+                  static_cast<std::size_t>(bytes));
+      pending_copies_.push_back(
+          {reservation.buffer, reservation.offset,
+           resources.candidate_draw_slots.handle, 0, bytes});
+      resources.pending_candidate_draw_slot_shadow = *draw_slots;
+      resources.candidate_upload_pending = true;
+      frame_counters_.gpu_driven_candidate_upload_bytes = bytes;
+      frame_counters_.upload_bytes += bytes;
     }
-    std::memcpy(reservation.mapped, draw_slots->data(),
-                static_cast<std::size_t>(bytes));
-    pending_copies_.push_back(
-        {reservation.buffer, reservation.offset,
-         resources.candidate_draw_slots.handle, 0, bytes});
     frame_counters_.gpu_driven_candidate_draw_count = draw_slots->size();
-    frame_counters_.gpu_driven_candidate_upload_bytes = bytes;
-    frame_counters_.upload_bytes += bytes;
     resources.candidate_count =
         static_cast<std::uint32_t>(draw_slots->size());
     resources.vertex_block = first_slot.vertices.block;
@@ -3101,6 +3122,23 @@ class Renderer::Impl {
     resources.pipeline_variant = first_variant.variant_key;
     resources.compute_pipeline = compute_pipeline;
     resources.selected = true;
+  }
+
+  static void CommitGpuDrivenCandidates(FrameContext& frame) noexcept {
+    auto& resources = frame.gpu_driven;
+    if (!resources.candidate_upload_pending) {
+      return;
+    }
+    resources.candidate_draw_slot_shadow =
+        std::move(resources.pending_candidate_draw_slot_shadow);
+    resources.candidate_upload_pending = false;
+  }
+
+  static void InvalidateGpuDrivenCandidates(FrameContext& frame) noexcept {
+    auto& resources = frame.gpu_driven;
+    resources.candidate_draw_slot_shadow.clear();
+    resources.pending_candidate_draw_slot_shadow.clear();
+    resources.candidate_upload_pending = false;
   }
 
   void InvalidateGpuSceneUpdate() noexcept {
