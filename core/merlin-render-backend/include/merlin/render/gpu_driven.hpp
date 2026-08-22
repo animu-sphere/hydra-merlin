@@ -61,21 +61,42 @@ struct GpuDrivenIndexedConfig {
   bool enable_frustum_culling{true};
 };
 
+// Native geometry arenas may grow into multiple buffers whose byte offsets
+// each restart at zero. This physical identity stays outside the common shader
+// record while allowing the reference planner to form executable batches.
+struct GpuDrivenGeometryBinding {
+  std::uint32_t vertex_arena_block{kInvalidGpuSceneTableIndex};
+  std::uint32_t index_arena_block{kInvalidGpuSceneTableIndex};
+
+  friend constexpr bool operator==(const GpuDrivenGeometryBinding&,
+                                   const GpuDrivenGeometryBinding&) = default;
+};
+
 struct GpuDrivenIndexedCounters {
   std::uint64_t candidate_draw_count{};
   std::uint64_t visible_draw_count{};
   std::uint64_t visibility_mask_culled_count{};
   std::uint64_t frustum_culled_count{};
   std::uint64_t indirect_command_count{};
+  std::uint64_t indirect_batch_count{};
+};
+
+// Commands in one batch share the vertex and index buffers that a native API
+// binds before executing its indirect command range. Batch sequence and command
+// order preserve visible candidate order, and the physical draw slot remains
+// the command's first-instance identity.
+struct GpuDrivenIndexedBatch {
+  GpuDrivenGeometryBinding binding;
+  std::vector<std::uint32_t> visible_draw_slots;
+  std::vector<GpuIndexedIndirectCommand> commands;
 };
 
 // CPU reference result for the first GPU-driven indexed Forward stage. The
-// visible slot list deliberately stays separate from the generated commands:
-// later shaders can consume the compacted identity directly while native APIs
-// consume the command buffer and count.
+// global visible slot list retains compaction order for validation and future
+// shader consumers; native APIs execute the block-safe command batches.
 struct GpuDrivenIndexedPlan {
   std::vector<std::uint32_t> visible_draw_slots;
-  std::vector<GpuIndexedIndirectCommand> commands;
+  std::vector<GpuDrivenIndexedBatch> batches;
   GpuDrivenIndexedCounters counters;
 };
 
@@ -86,6 +107,7 @@ struct GpuDrivenIndexedPlan {
 [[nodiscard]] GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
     std::span<const std::uint32_t> candidate_draw_slots,
     std::span<const GpuGeometry> geometries,
+    std::span<const GpuDrivenGeometryBinding> geometry_bindings,
     std::span<const GpuInstance> instances,
     std::span<const GpuMaterial> materials,
     std::span<const GpuDraw> draws,

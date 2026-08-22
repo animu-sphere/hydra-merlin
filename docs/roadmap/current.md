@@ -238,10 +238,13 @@ The first backend-neutral indexed-draw reference is in place. It consumes
 persistent physical `GpuDraw` slots, validates geometry, material, and instance
 residency, applies independently selectable visibility-mask and conservative
 zero-to-one clip frustum culling, preserves the physical draw slot through
-compaction, and generates a native-neutral indexed-indirect command layout.
-Exact candidate, visible, per-stage rejection, and command counts make it
-suitable as the CPU correctness oracle for the native compute path. Malformed
-identities, ranges, bounds, transforms, duplicate candidates, and
+compaction, and generates native-neutral indexed-indirect command batches.
+Vertex and index arena block identity remains outside the shader-visible scene
+record and partitions commands into batches with one bindable buffer pair, so
+block-local byte offsets never alias after an arena grows. Exact candidate,
+visible, per-stage rejection, command, and batch counts make the result suitable
+as the CPU correctness oracle for the native compute path. Malformed identities,
+ranges, bounds, transforms, duplicate candidates, missing block residency, and
 unrepresentable arena offsets are rejected before a partial plan is returned.
 
 Vulkan compute execution, device-local visible/command/count buffers,

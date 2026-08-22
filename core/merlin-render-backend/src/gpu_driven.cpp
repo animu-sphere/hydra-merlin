@@ -164,6 +164,7 @@ GpuDrivenIndexedError::GpuDrivenIndexedError(
 GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
     std::span<const std::uint32_t> candidate_draw_slots,
     std::span<const GpuGeometry> geometries,
+    std::span<const GpuDrivenGeometryBinding> geometry_bindings,
     std::span<const GpuInstance> instances,
     std::span<const GpuMaterial> materials,
     std::span<const GpuDraw> draws,
@@ -177,10 +178,13 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
     Throw(GpuDrivenIndexedErrorCode::InvalidConfiguration,
           "GPU-driven candidate count exceeds the command-count ABI");
   }
+  if (geometry_bindings.size() != geometries.size()) {
+    Throw(GpuDrivenIndexedErrorCode::InvalidConfiguration,
+          "GPU-driven geometry binding count does not match the table");
+  }
 
   GpuDrivenIndexedPlan result;
   result.visible_draw_slots.reserve(candidate_draw_slots.size());
-  result.commands.reserve(candidate_draw_slots.size());
   result.counters.candidate_draw_count = candidate_draw_slots.size();
 
   std::vector<bool> seen_draw_slots(draws.size());
@@ -203,7 +207,13 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
             "GPU-driven draw references a missing GPU Scene record");
     }
     const auto& geometry = geometries[draw.geometry_index];
+    const auto& binding = geometry_bindings[draw.geometry_index];
     const auto& instance = instances[draw.instance_index];
+    if (binding.vertex_arena_block == kInvalidGpuSceneTableIndex ||
+        binding.index_arena_block == kInvalidGpuSceneTableIndex) {
+      Throw(GpuDrivenIndexedErrorCode::MissingResidency,
+            "GPU-driven geometry has no native arena block binding");
+    }
     ValidateRecord(geometry, instance, draw);
 
     if (config.enable_visibility_mask_culling &&
@@ -218,11 +228,18 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
     }
 
     result.visible_draw_slots.push_back(draw_slot);
-    result.commands.push_back(MakeCommand(geometry, draw, draw_slot));
+    if (result.batches.empty() ||
+        result.batches.back().binding != binding) {
+      result.batches.push_back(GpuDrivenIndexedBatch{binding});
+    }
+    auto& batch = result.batches.back();
+    batch.visible_draw_slots.push_back(draw_slot);
+    batch.commands.push_back(MakeCommand(geometry, draw, draw_slot));
   }
 
   result.counters.visible_draw_count = result.visible_draw_slots.size();
-  result.counters.indirect_command_count = result.commands.size();
+  result.counters.indirect_command_count = result.visible_draw_slots.size();
+  result.counters.indirect_batch_count = result.batches.size();
   return result;
 }
 
