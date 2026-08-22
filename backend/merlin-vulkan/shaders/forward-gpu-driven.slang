@@ -15,7 +15,8 @@ struct GpuDrivenForwardVertexInput
     [[vk::location(1)]] float3 normal : NORMAL;
     [[vk::location(2)]] float4 display_color : COLOR0;
     [[vk::location(3)]] float2 texcoord : TEXCOORD0;
-    uint draw_slot : SV_InstanceID;
+    uint instance_id : SV_InstanceID;
+    uint base_instance : SV_StartInstanceLocation;
 };
 
 struct GpuDrivenForwardVertexOutput
@@ -78,20 +79,21 @@ MaterialConstants LoadGpuDrivenMaterial(uint draw_slot)
 GpuDrivenForwardVertexOutput forward_gpu_driven_vertex(
     GpuDrivenForwardVertexInput input)
 {
-    DrawConstants draw = LoadGpuDrivenDrawConstants(input.draw_slot);
+    uint draw_slot = input.instance_id + input.base_instance;
+    DrawConstants draw = LoadGpuDrivenDrawConstants(draw_slot);
     ForwardVertexInput conventional_input;
     conventional_input.position = input.position;
     conventional_input.normal = input.normal;
     conventional_input.display_color = input.display_color;
     conventional_input.texcoord = input.texcoord;
     ForwardVertexOutput evaluated = EvaluateForwardVertex(
-        conventional_input, LoadGpuDrivenMaterial(input.draw_slot), draw);
+        conventional_input, LoadGpuDrivenMaterial(draw_slot), draw);
     GpuDrivenForwardVertexOutput output;
     output.position = evaluated.position;
     output.color = evaluated.color;
     output.shading_normal = evaluated.shading_normal;
     output.texture_coordinate = evaluated.texture_coordinate;
-    output.draw_slot = input.draw_slot;
+    output.draw_slot = draw_slot;
     return output;
 }
 

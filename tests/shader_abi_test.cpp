@@ -243,6 +243,9 @@ int main(int argc, char** argv) {
     RequireField(gpu_driven_vertex, "view_projection", 0, 64);
     RequireContains(gpu_driven_vertex,
                     "\"semanticName\":\"SV_INSTANCEID\"",
+                    "GPU-driven Forward does not consume the local instance ID");
+    RequireContains(gpu_driven_vertex,
+                    "\"semanticName\":\"SV_STARTINSTANCELOCATION\"",
                     "GPU-driven Forward does not consume firstInstance");
     RequireBinding(gpu_driven_vertex, "gpu_geometries",
                    "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");

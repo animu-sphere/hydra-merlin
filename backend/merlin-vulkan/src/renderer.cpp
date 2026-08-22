@@ -2146,6 +2146,8 @@ class Renderer::Impl {
     capabilities_.device_id = properties.properties.deviceID;
     capabilities_.max_image_dimension_2d =
         properties.properties.limits.maxImageDimension2D;
+    max_draw_indirect_count_ =
+        properties.properties.limits.maxDrawIndirectCount;
     max_storage_buffer_range_ =
         properties.properties.limits.maxStorageBufferRange;
     capabilities_.timeline_semaphore =
@@ -2428,6 +2430,8 @@ class Renderer::Impl {
     capabilities_.device_id = properties.properties.deviceID;
     capabilities_.max_image_dimension_2d =
         properties.properties.limits.maxImageDimension2D;
+    max_draw_indirect_count_ =
+        properties.properties.limits.maxDrawIndirectCount;
     max_storage_buffer_range_ =
         properties.properties.limits.maxStorageBufferRange;
     uniform_buffer_alignment_ = std::max<VkDeviceSize>(
@@ -3031,6 +3035,10 @@ class Renderer::Impl {
     if (!bindless_texture_table_ || !draw_slots ||
         draw_slots->size() != draw_records_.size()) {
       unavailable("persistent bindless GPU Scene state is unavailable");
+      return;
+    }
+    if (draw_slots->size() > max_draw_indirect_count_) {
+      unavailable("candidate count exceeds maxDrawIndirectCount");
       return;
     }
     if (std::any_of(selected_material_artifacts_.begin(),
@@ -7688,6 +7696,7 @@ class Renderer::Impl {
   std::uint64_t latest_completed_value_{};
   VkDeviceSize uniform_buffer_alignment_{16U};
   VkDeviceSize max_storage_buffer_range_{};
+  std::uint32_t max_draw_indirect_count_{};
   bool owns_vulkan_context_{true};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};

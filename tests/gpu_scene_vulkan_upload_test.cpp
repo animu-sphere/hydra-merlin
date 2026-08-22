@@ -69,6 +69,29 @@ std::shared_ptr<FrameSnapshot> MakeSnapshot() {
   return snapshot;
 }
 
+std::shared_ptr<FrameSnapshot> MakeMultiDrawSnapshot() {
+  auto snapshot = MakeSnapshot();
+  snapshot->source_id = 42;
+  snapshot->revision = 2;
+  auto first_instance = snapshot->instances[0];
+  first_instance.transform.values[12] = -0.5F;
+  snapshot->instances.replace(0, first_instance);
+
+  auto second_instance = first_instance;
+  second_instance.instance = 304;
+  second_instance.revision = 7;
+  second_instance.transform.values[12] = 0.5F;
+  snapshot->instances.push_back(second_instance);
+
+  auto second_draw = snapshot->draws[0];
+  second_draw.instance_index = 1;
+  second_draw.instance = second_instance.instance;
+  second_draw.draw = 0x2234567887654321ULL;
+  second_draw.revision = 8;
+  snapshot->draws.push_back(second_draw);
+  return snapshot;
+}
+
 merlin::vulkan::ShaderPaths MakeShaders(const std::filesystem::path& root) {
   return {root / "triangle.vert.spv",
           root / "triangle.frag.spv",
@@ -365,6 +388,35 @@ int main(int argc, char** argv) {
   assert(fallback.counters.gpu_driven_fallback_count == 1);
   assert(fallback.counters.gpu_driven_candidate_draw_count == 0);
   assert(fallback.counters.draw_count == snapshot->draws.size());
+
+  const auto multi_snapshot = MakeMultiDrawSnapshot();
+  GpuScenePackingState multi_packing(capacities);
+  const std::vector multi_placements{GpuGeometryPlacement{0, 0}};
+  const std::vector multi_identities{
+      GpuInstanceIdentity{17, 23}, GpuInstanceIdentity{18, 24}};
+  const std::vector multi_bindings{GpuMaterialBinding{}};
+  auto multi_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          multi_packing.Apply(
+              *multi_snapshot, 0, 0,
+              GpuScenePackingInputs{multi_placements, multi_identities,
+                                    multi_bindings}));
+  assert(multi_update->draw_slot_indices->size() == 2);
+  assert((*multi_update->draw_slot_indices)[1] != 0);
+  const auto multi = Submit(
+      *renderer, multi_snapshot, shaders, multi_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(multi.counters.gpu_driven_visible_draw_count == 2);
+  bool found_first_identity{};
+  bool found_second_identity{};
+  for (const auto id : multi.prim_id.pixels) {
+    found_first_identity = found_first_identity || id == 17;
+    found_second_identity = found_second_identity || id == 18;
+  }
+  if (!found_first_identity || !found_second_identity) {
+    throw std::runtime_error(
+        "GPU-driven Forward did not preserve non-zero firstInstance identity");
+  }
 
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
 }
