@@ -127,6 +127,10 @@ struct BorrowedVulkanContext {
   // Required when indirect draws encode a non-zero firstInstance. Hosts must
   // report device enablement, not only physical-device support.
   bool draw_indirect_first_instance_enabled{};
+  // Required by the opt-in GPU-driven path. As above, these state host device
+  // enablement; physical-device support alone is insufficient.
+  bool draw_indirect_count_enabled{};
+  bool shader_draw_parameters_enabled{};
 };
 
 struct RendererOptions {
@@ -191,6 +195,8 @@ struct RendererCapabilities {
   DescriptorIndexingLimits descriptor_indexing_limits;
   DescriptorIndexingSelection descriptor_indexing_selection;
   bool draw_indirect_first_instance{};
+  bool draw_indirect_count{};
+  bool shader_draw_parameters{};
 };
 
 // Persistent device-local arena state. `resident_bytes` includes ranges that
@@ -348,7 +354,8 @@ struct FrameCounters {
   std::uint64_t gaussian_upload_bytes{};
   std::uint64_t upload_bytes{};
   // Upload payload split by resource class. Vertex, index, texture, raw and
-  // prepared Gaussian, and GPU Scene payload bytes sum to upload_bytes.
+  // prepared Gaussian, GPU Scene, and GPU-driven candidate payload bytes sum
+  // to upload_bytes.
   std::uint64_t vertex_upload_bytes{};
   std::uint64_t index_upload_bytes{};
   std::uint64_t texture_upload_bytes{};
@@ -362,6 +369,15 @@ struct FrameCounters {
   // Basic bindless Forward draws whose shader state was sourced from the
   // persistent GPU Scene tables rather than per-draw scene constants.
   std::uint64_t gpu_scene_draw_count{};
+  // Explicit GPU-driven indexed Forward evidence. Candidate slots are
+  // compacted by compute and consumed by indexed-indirect-count submission.
+  std::uint64_t gpu_driven_candidate_draw_count{};
+  std::uint64_t gpu_driven_visible_draw_count{};
+  std::uint64_t gpu_driven_visibility_mask_culled_count{};
+  std::uint64_t gpu_driven_frustum_culled_count{};
+  std::uint64_t gpu_driven_indirect_draw_count{};
+  std::uint64_t gpu_driven_candidate_upload_bytes{};
+  std::uint64_t gpu_driven_fallback_count{};
   // Aligned space reserved from the persistent mapped geometry-upload ring.
   // Texture uploads currently use completion-retired staging buffers and are
   // therefore excluded.
@@ -447,8 +463,26 @@ struct ShaderPaths {
   // beside bindless_vertex/bindless_fragment using packaged filenames.
   std::filesystem::path gpu_scene_vertex;
   std::filesystem::path gpu_scene_fragment;
+  // Empty paths resolve beside the table-backed Forward artifacts using the
+  // packaged GPU-driven filenames.
+  std::filesystem::path gpu_driven_compute;
+  std::filesystem::path gpu_driven_vertex;
+  std::filesystem::path gpu_driven_fragment;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
+};
+
+enum class GpuDrivenIndexedMode {
+  Disabled,
+  Prefer,
+  Require,
+};
+
+struct GpuDrivenIndexedRequest {
+  GpuDrivenIndexedMode mode{GpuDrivenIndexedMode::Disabled};
+  std::uint32_t visibility_mask{~std::uint32_t{}};
+  bool enable_visibility_mask_culling{true};
+  bool enable_frustum_culling{true};
 };
 
 struct RenderProductRequest {
@@ -481,6 +515,10 @@ struct RenderRequest {
   // tables; generated materials and non-bindless devices retain conventional
   // Forward as an explicit fallback.
   std::shared_ptr<const render::GpuScenePackedFrameUpdate> gpu_scene_update;
+  // GPU-driven indexed Forward remains opt-in while its supported batch
+  // boundary expands. Prefer falls back to table-backed Forward; Require
+  // reports an actionable Unsupported error.
+  GpuDrivenIndexedRequest gpu_driven_indexed;
 };
 
 enum class RendererErrorCode {

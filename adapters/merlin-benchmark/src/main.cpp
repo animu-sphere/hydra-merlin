@@ -564,6 +564,22 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.gpu_scene_upload_ring_growth_bytes);
   WriteCounter(stream, counter_indent, "gpu_scene_draw_count",
                count.gpu_scene_draw_count);
+  WriteCounter(stream, counter_indent, "gpu_driven_candidate_draw_count",
+               count.gpu_driven_candidate_draw_count);
+  WriteCounter(stream, counter_indent, "gpu_driven_visible_draw_count",
+               count.gpu_driven_visible_draw_count);
+  WriteCounter(stream, counter_indent,
+               "gpu_driven_visibility_mask_culled_count",
+               count.gpu_driven_visibility_mask_culled_count);
+  WriteCounter(stream, counter_indent,
+               "gpu_driven_frustum_culled_count",
+               count.gpu_driven_frustum_culled_count);
+  WriteCounter(stream, counter_indent, "gpu_driven_indirect_draw_count",
+               count.gpu_driven_indirect_draw_count);
+  WriteCounter(stream, counter_indent, "gpu_driven_candidate_upload_bytes",
+               count.gpu_driven_candidate_upload_bytes);
+  WriteCounter(stream, counter_indent, "gpu_driven_fallback_count",
+               count.gpu_driven_fallback_count);
   WriteCounter(stream, counter_indent, "upload_ring_reserved_bytes",
                count.upload_ring_reserved_bytes);
   WriteCounter(stream, counter_indent, "readback_bytes", count.readback_bytes);
@@ -710,6 +726,10 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
          << (capabilities.timestamp_queries ? "true" : "false")
          << ",\n    \"draw_indirect_first_instance\": "
          << (capabilities.draw_indirect_first_instance ? "true" : "false")
+         << ",\n    \"draw_indirect_count\": "
+         << (capabilities.draw_indirect_count ? "true" : "false")
+         << ",\n    \"shader_draw_parameters\": "
+         << (capabilities.shader_draw_parameters ? "true" : "false")
          << ",\n    \"generated_materials\": "
          << (capabilities.generated_materials ? "true" : "false")
          << ",\n    \"async_transfer_queue\": "

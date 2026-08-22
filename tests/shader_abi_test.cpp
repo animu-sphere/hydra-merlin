@@ -140,11 +140,12 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 15) {
+    if (argc != 17) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
           "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
-          "gpu-scene.frag.json gpu-driven.comp.json gaussian.vert.json "
+          "gpu-scene.frag.json gpu-driven.comp.json gpu-driven.vert.json "
+          "gpu-driven.frag.json gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -157,13 +158,15 @@ int main(int argc, char** argv) {
     const auto gpu_scene_vertex = CompactJson(Read(argv[5]));
     const auto gpu_scene_fragment = CompactJson(Read(argv[6]));
     const auto gpu_driven_compute = CompactJson(Read(argv[7]));
-    const auto gaussian_vertex = CompactJson(Read(argv[8]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[9]));
-    const auto gaussian_fragment = CompactJson(Read(argv[10]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[11]));
-    const auto metal_vertex = CompactJson(Read(argv[12]));
-    const auto metal_fragment = CompactJson(Read(argv[13]));
-    const auto manifest = CompactJson(Read(argv[14]));
+    const auto gpu_driven_vertex = CompactJson(Read(argv[8]));
+    const auto gpu_driven_fragment = CompactJson(Read(argv[9]));
+    const auto gaussian_vertex = CompactJson(Read(argv[10]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[11]));
+    const auto gaussian_fragment = CompactJson(Read(argv[12]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[13]));
+    const auto metal_vertex = CompactJson(Read(argv[14]));
+    const auto metal_fragment = CompactJson(Read(argv[15]));
+    const auto manifest = CompactJson(Read(argv[16]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -234,6 +237,21 @@ int main(int argc, char** argv) {
     RequireField(gpu_driven_compute, "first_instance", 16, 4);
     RequireField(gpu_driven_compute, "visibility_mask_culled_count", 8, 4);
     RequireField(gpu_driven_compute, "frustum_culled_count", 12, 4);
+    RequireContains(gpu_driven_vertex,
+                    "\"name\":\"GpuDrivenForwardConstants\"",
+                    "GPU-driven Forward constants are absent");
+    RequireField(gpu_driven_vertex, "view_projection", 0, 64);
+    RequireContains(gpu_driven_vertex,
+                    "\"semanticName\":\"SV_INSTANCEID\"",
+                    "GPU-driven Forward does not consume firstInstance");
+    RequireBinding(gpu_driven_vertex, "gpu_geometries",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
+    RequireBinding(gpu_driven_vertex, "gpu_instances",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
+    RequireBinding(gpu_driven_fragment, "gpu_materials",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":3}");
+    RequireBinding(gpu_driven_fragment, "gpu_draws",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
     RequireContains(bindless_fragment, "\"elementCount\":0",
                     "bindless descriptors are not reflected as runtime arrays");
 
@@ -304,7 +322,7 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 13,
+                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 15,
             "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");

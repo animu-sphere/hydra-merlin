@@ -10,16 +10,23 @@ after its public API and release process are established.
 
 ### Added
 
-- A deterministic Vulkan GPU-driven indexed compute contract that consumes
+- A deterministic Vulkan GPU-driven indexed compute and opt-in renderer
+  execution contract that consumes
   persistent GPU Scene tables and native arena-batch candidate slots, mirrors
   the CPU oracle's visibility-mask and conservative frustum culling, and emits
   compact Vulkan-compatible indexed-indirect commands plus structured culling
   results and counters. Shader ABI v5 now reflection-checks and packages the
   compute artifact, resource bindings, push constants, command layout, and
-  counter layout ahead of renderer execution and parallel compaction work.
-  Vulkan device creation and borrowed-host negotiation now explicitly enable
-  and report `drawIndirectFirstInstance`, which the stable physical draw-slot
-  encoding requires.
+  counter layout. The first single-arena/pipeline runtime slice writes
+  device-local indirect/count buffers, executes them through
+  `vkCmdDrawIndexedIndirectCount`, and resolves the stable physical draw slot
+  from `firstInstance` in dedicated Forward stages. Vulkan device creation and
+  borrowed-host negotiation now explicitly enable and report
+  `drawIndirectFirstInstance`, `drawIndirectCount`, and
+  `shaderDrawParameters`. Runtime coverage validates visible color/ID output,
+  visibility-mask culling to a zero draw count, async-transfer synchronization,
+  structured counters, and explicit preferred/required fallback boundaries;
+  multi-batch and parallel compaction remain follow-up work.
 
 ## [0.15.0] - 2026-08-11
 

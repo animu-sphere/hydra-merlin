@@ -1099,6 +1099,8 @@ class Renderer::Impl {
       gaussian_staging_.Initialize(device_, physical_device_, &memory_budget_);
       gpu_scene_staging_.Initialize(device_, physical_device_,
                                     &memory_budget_);
+      gpu_driven_staging_.Initialize(device_, physical_device_,
+                                     &memory_budget_);
       if (options.gpu_scene_capacities) {
         CreateGpuSceneBuffers(*options.gpu_scene_capacities);
       }
@@ -1184,6 +1186,7 @@ class Renderer::Impl {
       staging_.Destroy();
       gaussian_staging_.Destroy();
       gpu_scene_staging_.Destroy();
+      gpu_driven_staging_.Destroy();
       gaussian_position_arena_.Destroy();
       gaussian_covariance_arena_.Destroy();
       gaussian_opacity_arena_.Destroy();
@@ -1197,6 +1200,7 @@ class Renderer::Impl {
         DestroyBuffer(frame.material_uniforms);
         DestroyBuffer(frame.generated_parameter_uniforms);
         DestroyBuffer(frame.gaussian_instances);
+        DestroyGpuDrivenFrameResources(frame.gpu_driven);
         if (frame.image_available != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, frame.image_available, nullptr);
         }
@@ -1239,6 +1243,19 @@ class Renderer::Impl {
       if (bindless_material_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(
             device_, bindless_material_descriptor_set_layout_, nullptr);
+      }
+      for (const auto& [path, pipeline] : gpu_driven_pipelines_) {
+        (void)path;
+        vkDestroyPipeline(device_, pipeline, nullptr);
+      }
+      gpu_driven_pipelines_.clear();
+      if (gpu_driven_pipeline_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device_, gpu_driven_pipeline_layout_, nullptr);
+      }
+      if (gpu_driven_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device_,
+                                     gpu_driven_descriptor_set_layout_,
+                                     nullptr);
       }
       if (timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
@@ -1414,6 +1431,7 @@ class Renderer::Impl {
     gaussian_prepared_upload_ns =
         ElapsedNanoseconds(gaussian_prepared_upload_start);
     StageGpuSceneUpdate(*request.snapshot, request.gpu_scene_update.get());
+    PrepareGpuDrivenIndexed(frame, *request.snapshot, request);
     if (frame_counters_.upload_bytes != 0) {
       ++statistics_.scene_uploads;
     }
@@ -1453,6 +1471,8 @@ class Renderer::Impl {
     } else {
       RecordUploads(frame.command_buffer, false);
     }
+    RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
+                            request.gpu_driven_indexed);
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
                  request.clear_color,
                  frame.cpu_readback_aovs);
@@ -1514,6 +1534,7 @@ class Renderer::Impl {
     staging_.FinishFrame(completion);
     gaussian_staging_.FinishFrame(completion);
     gpu_scene_staging_.FinishFrame(completion);
+    gpu_driven_staging_.FinishFrame(completion);
     frame.outstanding = true;
     ++statistics_.frames_submitted;
     if (frame.present_pending) {
@@ -1530,6 +1551,7 @@ class Renderer::Impl {
         staging_.Collect(completion);
         gaussian_staging_.Collect(completion);
         gpu_scene_staging_.Collect(completion);
+        gpu_driven_staging_.Collect(completion);
         CollectDeferred(completion);
         frame.outstanding = false;
         frame.counters = {};
@@ -1679,10 +1701,12 @@ class Renderer::Impl {
     WaitForFrame(frame, timeout);
     const auto wait_ns = ElapsedNanoseconds(wait_start);
     frame_counters_ = frame.counters;
+    ResolveGpuDrivenCounters(frame);
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
     gaussian_staging_.Collect(completion);
     gpu_scene_staging_.Collect(completion);
+    gpu_driven_staging_.Collect(completion);
     CollectDeferred(completion);
     active_target_ = &frame.target;
     struct ResetActiveTarget {
@@ -1850,6 +1874,7 @@ class Renderer::Impl {
     VkFramebuffer framebuffer{};
     VkPipelineLayout pipeline_layout{};
     std::map<std::uint32_t, VkPipeline> pipelines;
+    std::map<std::uint32_t, VkPipeline> gpu_driven_pipelines;
     std::map<std::string, VkPipelineLayout> generated_pipeline_layouts;
     std::map<std::pair<std::string, std::uint32_t>, VkPipeline>
         generated_pipelines;
@@ -1861,6 +1886,23 @@ class Renderer::Impl {
     Buffer instance_id_readback;
     ShaderPaths shaders;
     std::vector<Aov> cpu_readback_aovs;
+  };
+
+  struct GpuDrivenFrameResources {
+    Buffer candidate_draw_slots;
+    Buffer candidate_results;
+    Buffer indirect_commands;
+    Buffer dispatch_counters;
+    Buffer counter_readback;
+    VkDescriptorPool descriptor_pool{};
+    VkDescriptorSet descriptor_set{};
+    std::uint32_t capacity{};
+    std::uint32_t candidate_count{};
+    std::uint32_t vertex_block{kInvalidBlock};
+    std::uint32_t index_block{kInvalidBlock};
+    std::uint32_t pipeline_variant{};
+    VkPipeline compute_pipeline{};
+    bool selected{};
   };
 
   struct FrameContext {
@@ -1899,6 +1941,7 @@ class Renderer::Impl {
     std::uint64_t gaussian_preparation_generation{};
     std::uint32_t gaussian_instance_count{};
     std::vector<MaterialDiagnostic> material_diagnostics;
+    GpuDrivenFrameResources gpu_driven;
   };
 
   struct SwapchainState {
@@ -2042,6 +2085,15 @@ class Renderer::Impl {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features.pNext = &timeline;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
+    VkPhysicalDeviceVulkan11Features vulkan11{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    VkPhysicalDeviceVulkan12Features vulkan12{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 versioned_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    versioned_features.pNext = &vulkan11;
+    vulkan11.pNext = &vulkan12;
+    vkGetPhysicalDeviceFeatures2(physical_device_, &versioned_features);
     if (borrowed.timeline_semaphore_enabled &&
         timeline.timelineSemaphore != VK_TRUE) {
       throw RendererError(
@@ -2055,6 +2107,18 @@ class Renderer::Impl {
           RendererErrorCode::Unsupported, "borrow Vulkan context",
           "application declared drawIndirectFirstInstance on a device that "
           "does not support it");
+    }
+    if (borrowed.draw_indirect_count_enabled &&
+        vulkan12.drawIndirectCount != VK_TRUE) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "borrow Vulkan context",
+          "application declared drawIndirectCount on a device that does not support it");
+    }
+    if (borrowed.shader_draw_parameters_enabled &&
+        vulkan11.shaderDrawParameters != VK_TRUE) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "borrow Vulkan context",
+          "application declared shaderDrawParameters on a device that does not support it");
     }
 
     VkFormatProperties depth_properties{};
@@ -2088,6 +2152,9 @@ class Renderer::Impl {
         borrowed.timeline_semaphore_enabled;
     capabilities_.draw_indirect_first_instance =
         borrowed.draw_indirect_first_instance_enabled;
+    capabilities_.draw_indirect_count = borrowed.draw_indirect_count_enabled;
+    capabilities_.shader_draw_parameters =
+        borrowed.shader_draw_parameters_enabled;
     capabilities_.validation_enabled = options.enable_validation;
     capabilities_.graphics_queue = true;
     capabilities_.compute_queue =
@@ -2395,9 +2462,22 @@ class Renderer::Impl {
     VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features.pNext = &timeline;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
+    VkPhysicalDeviceVulkan11Features vulkan11{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    VkPhysicalDeviceVulkan12Features vulkan12{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 versioned_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    versioned_features.pNext = &vulkan11;
+    vulkan11.pNext = &vulkan12;
+    vkGetPhysicalDeviceFeatures2(physical_device_, &versioned_features);
     capabilities_.timeline_semaphore = timeline.timelineSemaphore == VK_TRUE;
     capabilities_.draw_indirect_first_instance =
         features.features.drawIndirectFirstInstance == VK_TRUE;
+    capabilities_.draw_indirect_count =
+        vulkan12.drawIndirectCount == VK_TRUE;
+    capabilities_.shader_draw_parameters =
+        vulkan11.shaderDrawParameters == VK_TRUE;
     capabilities_.async_transfer_queue =
         options.enable_async_transfer && capabilities_.timeline_semaphore &&
         transfer_queue_family_ != queue_family_;
@@ -2470,30 +2550,26 @@ class Renderer::Impl {
     VkPhysicalDeviceFeatures enabled_core_features{};
     enabled_core_features.drawIndirectFirstInstance =
         capabilities_.draw_indirect_first_instance ? VK_TRUE : VK_FALSE;
-    VkPhysicalDeviceTimelineSemaphoreFeatures enabled_timeline{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
-    enabled_timeline.timelineSemaphore = VK_TRUE;
-    VkPhysicalDeviceDescriptorIndexingFeatures enabled_descriptor_indexing{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
-    enabled_descriptor_indexing.shaderSampledImageArrayNonUniformIndexing =
-        VK_TRUE;
-    enabled_descriptor_indexing.descriptorBindingSampledImageUpdateAfterBind =
-        VK_TRUE;
-    enabled_descriptor_indexing.descriptorBindingPartiallyBound = VK_TRUE;
-    enabled_descriptor_indexing.descriptorBindingVariableDescriptorCount =
-        VK_TRUE;
-    enabled_descriptor_indexing.runtimeDescriptorArray = VK_TRUE;
-    void* enabled_features = nullptr;
-    if (capabilities_.timeline_semaphore) {
-      enabled_timeline.pNext = enabled_features;
-      enabled_features = &enabled_timeline;
-    }
+    VkPhysicalDeviceVulkan11Features enabled_vulkan11{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    enabled_vulkan11.shaderDrawParameters =
+        capabilities_.shader_draw_parameters ? VK_TRUE : VK_FALSE;
+    VkPhysicalDeviceVulkan12Features enabled_vulkan12{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    enabled_vulkan12.timelineSemaphore =
+        capabilities_.timeline_semaphore ? VK_TRUE : VK_FALSE;
+    enabled_vulkan12.drawIndirectCount =
+        capabilities_.draw_indirect_count ? VK_TRUE : VK_FALSE;
     if (capabilities_.descriptor_indexing_selection.selected_backend ==
         DescriptorBackend::Bindless) {
-      enabled_descriptor_indexing.pNext = enabled_features;
-      enabled_features = &enabled_descriptor_indexing;
+      enabled_vulkan12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+      enabled_vulkan12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+      enabled_vulkan12.descriptorBindingPartiallyBound = VK_TRUE;
+      enabled_vulkan12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+      enabled_vulkan12.runtimeDescriptorArray = VK_TRUE;
     }
-    device_info.pNext = enabled_features;
+    enabled_vulkan11.pNext = &enabled_vulkan12;
+    device_info.pNext = &enabled_vulkan11;
     device_info.pEnabledFeatures = &enabled_core_features;
     device_info.queueCreateInfoCount =
         static_cast<std::uint32_t>(queue_infos.size());
@@ -2576,12 +2652,17 @@ class Renderer::Impl {
   }
 
   Buffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-                      VkMemoryPropertyFlags properties) {
+                      VkMemoryPropertyFlags properties,
+                      std::uint32_t first_queue_family =
+                          VK_QUEUE_FAMILY_IGNORED,
+                      std::uint32_t second_queue_family =
+                          VK_QUEUE_FAMILY_IGNORED) {
     ++frame_counters_.allocation_count;
     ++frame_counters_.buffer_allocation_count;
     frame_counters_.buffer_allocation_bytes += size;
     return CreateBufferRaw(device_, physical_device_, size, usage, properties,
-                           &memory_budget_);
+                           &memory_budget_, first_queue_family,
+                           second_queue_family);
   }
 
   void DestroyBuffer(Buffer& buffer) noexcept {
@@ -2636,6 +2717,19 @@ class Renderer::Impl {
     gpu_scene_buffers_.pending_draw_slot_indices.reset();
     gpu_scene_buffers_.has_resident_update = false;
     gpu_scene_buffers_.pending_update = false;
+  }
+
+  void DestroyGpuDrivenFrameResources(
+      GpuDrivenFrameResources& resources) noexcept {
+    DestroyBuffer(resources.candidate_draw_slots);
+    DestroyBuffer(resources.candidate_results);
+    DestroyBuffer(resources.indirect_commands);
+    DestroyBuffer(resources.dispatch_counters);
+    DestroyBuffer(resources.counter_readback);
+    if (resources.descriptor_pool != VK_NULL_HANDLE) {
+      vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
+    }
+    resources = {};
   }
 
   template <typename Record>
@@ -2892,6 +2986,115 @@ class Renderer::Impl {
     gpu_scene_buffers_.pending_update = false;
   }
 
+  void PrepareGpuDrivenIndexed(FrameContext& frame,
+                               const extraction::FrameSnapshot& snapshot,
+                               const RenderRequest& request) {
+    auto& resources = frame.gpu_driven;
+    resources.selected = false;
+    resources.candidate_count = 0;
+    if (request.gpu_driven_indexed.mode == GpuDrivenIndexedMode::Disabled ||
+        draw_records_.size() == 0) {
+      return;
+    }
+    const auto unavailable = [&](std::string detail) {
+      if (request.gpu_driven_indexed.mode == GpuDrivenIndexedMode::Require) {
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "select GPU-driven indexed Forward",
+                            std::move(detail));
+      }
+      ++frame_counters_.gpu_driven_fallback_count;
+    };
+    if (!capabilities_.draw_indirect_first_instance) {
+      unavailable("drawIndirectFirstInstance was not enabled");
+      return;
+    }
+    if (!capabilities_.draw_indirect_count) {
+      unavailable("drawIndirectCount was not enabled");
+      return;
+    }
+    if (!capabilities_.shader_draw_parameters) {
+      unavailable("shaderDrawParameters was not enabled");
+      return;
+    }
+    if (!capabilities_.compute_queue) {
+      unavailable("the selected graphics queue does not support compute");
+      return;
+    }
+    const auto draw_slots =
+        gpu_scene_buffers_.pending_update
+            ? gpu_scene_buffers_.pending_draw_slot_indices
+            : (gpu_scene_buffers_.has_resident_update &&
+                       gpu_scene_buffers_.source_id == snapshot.source_id &&
+                       gpu_scene_buffers_.revision == snapshot.revision
+                   ? gpu_scene_buffers_.draw_slot_indices
+                   : nullptr);
+    if (!bindless_texture_table_ || !draw_slots ||
+        draw_slots->size() != draw_records_.size()) {
+      unavailable("persistent bindless GPU Scene state is unavailable");
+      return;
+    }
+    if (std::any_of(selected_material_artifacts_.begin(),
+                    selected_material_artifacts_.end(),
+                    [](const auto* artifact) { return artifact != nullptr; })) {
+      unavailable("generated material pipelines require conventional submission");
+      return;
+    }
+
+    const auto& first_draw = draw_records_[0];
+    const auto& first_geometry = geometry_records_[first_draw.geometry_index];
+    const auto& first_slot = geometry_slots_.at(first_geometry.mesh);
+    const auto first_variant = MakeDrawPipelineVariant(first_draw, snapshot);
+    constexpr auto pipeline_state_mask =
+        kMaskedAlphaFlag | kDoubleSidedFlag |
+        kCounterClockwiseFrontFaceFlag;
+    for (std::size_t i = 1; i < draw_records_.size(); ++i) {
+      const auto& draw = draw_records_[i];
+      const auto& geometry = geometry_records_[draw.geometry_index];
+      const auto& slot = geometry_slots_.at(geometry.mesh);
+      const auto variant = MakeDrawPipelineVariant(draw, snapshot);
+      if (slot.vertices.block != first_slot.vertices.block ||
+          slot.indices.block != first_slot.indices.block ||
+          ((variant.variant_key ^ first_variant.variant_key) &
+           pipeline_state_mask) != 0U) {
+        unavailable(
+            "the initial runtime supports one arena/pipeline batch per frame");
+        return;
+      }
+    }
+
+    const auto compute_pipeline =
+        EnsureGpuDrivenComputePipeline(request.shaders);
+    EnsureGpuDrivenFrameResources(
+        frame, static_cast<std::uint32_t>(draw_slots->size()));
+    const auto bytes = static_cast<VkDeviceSize>(draw_slots->size()) *
+                       sizeof(std::uint32_t);
+    Buffer retired_staging;
+    VkDeviceSize growth_bytes{};
+    const auto reservation = gpu_driven_staging_.Reserve(
+        bytes, retired_staging, growth_bytes);
+    if (growth_bytes != 0) {
+      ++frame_counters_.allocation_count;
+      ++frame_counters_.buffer_allocation_count;
+      frame_counters_.buffer_allocation_bytes += growth_bytes;
+      Retire(retired_staging);
+    }
+    std::memcpy(reservation.mapped, draw_slots->data(),
+                static_cast<std::size_t>(bytes));
+    pending_copies_.push_back(
+        {reservation.buffer, reservation.offset,
+         resources.candidate_draw_slots.handle, 0, bytes});
+    frame_counters_.gpu_driven_candidate_draw_count = draw_slots->size();
+    frame_counters_.gpu_driven_candidate_upload_bytes = bytes;
+    frame_counters_.upload_bytes += bytes;
+    resources.candidate_count =
+        static_cast<std::uint32_t>(draw_slots->size());
+    resources.vertex_block = first_slot.vertices.block;
+    resources.index_block = first_slot.indices.block;
+    resources.pipeline_variant = first_variant.variant_key;
+    resources.compute_pipeline = compute_pipeline;
+    resources.selected = true;
+  }
+
   void InvalidateGpuSceneUpdate() noexcept {
     gpu_scene_buffers_.source_id = 0;
     gpu_scene_buffers_.revision = 0;
@@ -2944,6 +3147,7 @@ class Renderer::Impl {
     staging_.AbandonFrame();
     gaussian_staging_.AbandonFrame();
     gpu_scene_staging_.AbandonFrame();
+    gpu_driven_staging_.AbandonFrame();
     gpu_scene_buffers_.pending_draw_slot_indices.reset();
     gpu_scene_buffers_.pending_update = false;
     for (const auto handle : pending_texture_handles_) {
@@ -3457,7 +3661,8 @@ class Renderer::Impl {
       binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       binding.descriptorCount = 1;
       binding.stageFlags =
-          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+          VK_SHADER_STAGE_COMPUTE_BIT;
     }
     VkDescriptorSetLayoutCreateInfo info{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -3468,6 +3673,172 @@ class Renderer::Impl {
               &bindless_material_descriptor_set_layout_),
           "create bindless material descriptor layout");
     ++frame_counters_.descriptor_layout_cache_misses;
+  }
+
+  void EnsureGpuDrivenDescriptorAndPipelineLayouts() {
+    if (gpu_driven_descriptor_set_layout_ != VK_NULL_HANDLE) {
+      return;
+    }
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+    const std::array binding_numbers{
+        shader_abi::kGpuDrivenCandidateDrawSlots.binding,
+        shader_abi::kGpuDrivenCandidateResults.binding,
+        shader_abi::kGpuDrivenIndirectCommands.binding,
+        shader_abi::kGpuDrivenDispatchCounters.binding,
+    };
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
+      bindings[i].binding = binding_numbers[i];
+      bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      bindings[i].descriptorCount = 1;
+      bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    layout_info.pBindings = bindings.data();
+    Check(vkCreateDescriptorSetLayout(device_, &layout_info, nullptr,
+                                      &gpu_driven_descriptor_set_layout_),
+          "create GPU-driven descriptor layout");
+    ++frame_counters_.descriptor_layout_cache_misses;
+
+    const std::array set_layouts{
+        bindless_descriptor_set_layout_,
+        bindless_material_descriptor_set_layout_,
+        gpu_driven_descriptor_set_layout_,
+    };
+    VkPushConstantRange push_range{};
+    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_range.size = sizeof(shader_abi::GpuDrivenIndexedConstants);
+    VkPipelineLayoutCreateInfo pipeline_layout_info{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pipeline_layout_info.setLayoutCount =
+        static_cast<std::uint32_t>(set_layouts.size());
+    pipeline_layout_info.pSetLayouts = set_layouts.data();
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_range;
+    Check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr,
+                                 &gpu_driven_pipeline_layout_),
+          "create GPU-driven pipeline layout");
+  }
+
+  VkPipeline EnsureGpuDrivenComputePipeline(const ShaderPaths& shaders) {
+    EnsureGpuDrivenDescriptorAndPipelineLayouts();
+    const auto path = shaders.gpu_driven_compute.empty()
+                          ? shaders.bindless_vertex.parent_path() /
+                                "gpu-driven-indexed.comp.spv"
+                          : shaders.gpu_driven_compute;
+    const auto found = gpu_driven_pipelines_.find(path);
+    if (found != gpu_driven_pipelines_.end()) {
+      ++frame_counters_.pipeline_cache_hits;
+      return found->second;
+    }
+    VkPipelineShaderStageCreateInfo stage{
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = GetShaderModule(path);
+    stage.pName = "main";
+    VkComputePipelineCreateInfo info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    info.stage = stage;
+    info.layout = gpu_driven_pipeline_layout_;
+    VkPipeline pipeline{};
+    Check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &info, nullptr,
+                                   &pipeline),
+          "create GPU-driven compute pipeline");
+    gpu_driven_pipelines_.emplace(path, pipeline);
+    ++frame_counters_.pipeline_creation_count;
+    ++frame_counters_.pipeline_cache_misses;
+    return pipeline;
+  }
+
+  void EnsureGpuDrivenFrameResources(FrameContext& frame,
+                                     std::uint32_t candidate_count) {
+    auto& resources = frame.gpu_driven;
+    if (resources.capacity >= candidate_count &&
+        resources.descriptor_set != VK_NULL_HANDLE) {
+      return;
+    }
+    DestroyGpuDrivenFrameResources(resources);
+    resources.capacity = std::max(candidate_count, 1U);
+    const auto slot_bytes = static_cast<VkDeviceSize>(resources.capacity) *
+                            sizeof(std::uint32_t);
+    const auto command_bytes = static_cast<VkDeviceSize>(resources.capacity) *
+                               sizeof(render::GpuIndexedIndirectCommand);
+    if (slot_bytes > max_storage_buffer_range_ ||
+        command_bytes > max_storage_buffer_range_) {
+      resources.capacity = 0;
+      throw RendererError(RendererErrorCode::Unsupported,
+                          "create GPU-driven frame buffers",
+                          "candidate or command storage exceeds maxStorageBufferRange");
+    }
+    resources.candidate_draw_slots = CreateBuffer(
+        slot_bytes,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, queue_family_,
+        transfer_queue_family_);
+    resources.candidate_results = CreateBuffer(
+        slot_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.indirect_commands = CreateBuffer(
+        command_bytes,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.dispatch_counters = CreateBuffer(
+        sizeof(shader_abi::GpuDrivenIndexedDispatchCounters),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.counter_readback = CreateBuffer(
+        sizeof(shader_abi::GpuDrivenIndexedDispatchCounters),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    const VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4};
+    VkDescriptorPoolCreateInfo pool_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.maxSets = 1;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &pool_size;
+    Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
+                                 &resources.descriptor_pool),
+          "create GPU-driven descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+    VkDescriptorSetAllocateInfo allocate{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocate.descriptorPool = resources.descriptor_pool;
+    allocate.descriptorSetCount = 1;
+    allocate.pSetLayouts = &gpu_driven_descriptor_set_layout_;
+    Check(vkAllocateDescriptorSets(device_, &allocate,
+                                   &resources.descriptor_set),
+          "allocate GPU-driven descriptor set");
+    ++frame_counters_.descriptor_allocation_count;
+
+    const std::array descriptor_buffers{
+        &resources.candidate_draw_slots, &resources.candidate_results,
+        &resources.indirect_commands, &resources.dispatch_counters,
+    };
+    const std::array descriptor_bindings{
+        shader_abi::kGpuDrivenCandidateDrawSlots.binding,
+        shader_abi::kGpuDrivenCandidateResults.binding,
+        shader_abi::kGpuDrivenIndirectCommands.binding,
+        shader_abi::kGpuDrivenDispatchCounters.binding,
+    };
+    std::array<VkDescriptorBufferInfo, 4> buffer_infos{};
+    std::array<VkWriteDescriptorSet, 4> writes{};
+    for (std::size_t i = 0; i < writes.size(); ++i) {
+      buffer_infos[i] = {descriptor_buffers[i]->handle, 0,
+                         descriptor_buffers[i]->size};
+      writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[i].dstSet = resources.descriptor_set;
+      writes[i].dstBinding = descriptor_bindings[i];
+      writes[i].descriptorCount = 1;
+      writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[i].pBufferInfo = &buffer_infos[i];
+    }
+    vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
+    frame_counters_.descriptor_update_count += writes.size();
   }
 
   void WriteBindlessDescriptors(
@@ -5248,6 +5619,16 @@ class Renderer::Impl {
       throw RendererError(RendererErrorCode::InvalidRequest,
                           "validate render request", "snapshot is null");
     }
+    switch (request.gpu_driven_indexed.mode) {
+      case GpuDrivenIndexedMode::Disabled:
+      case GpuDrivenIndexedMode::Prefer:
+      case GpuDrivenIndexedMode::Require:
+        break;
+      default:
+        throw RendererError(RendererErrorCode::InvalidRequest,
+                            "validate render request",
+                            "GPU-driven indexed mode is invalid");
+    }
     ValidateExtent(request.width, request.height);
     if (!std::isfinite(request.clear_color.x) ||
         !std::isfinite(request.clear_color.y) ||
@@ -5711,7 +6092,8 @@ class Renderer::Impl {
 
   VkPipeline CreatePipeline(
       const ShaderPaths& shaders, std::uint32_t variant_key,
-      const GeneratedMaterialArtifact* generated_artifact = nullptr) {
+      const GeneratedMaterialArtifact* generated_artifact = nullptr,
+      bool gpu_driven_pipeline = false) {
     ++frame_counters_.pipeline_creation_count;
     const bool gpu_scene_pipeline =
         generated_artifact == nullptr &&
@@ -5726,15 +6108,29 @@ class Renderer::Impl {
             ? shaders.bindless_fragment.parent_path() /
                   "triangle.gpu-scene.frag.spv"
             : shaders.gpu_scene_fragment;
+    const auto gpu_driven_vertex =
+        shaders.gpu_driven_vertex.empty()
+            ? shaders.bindless_vertex.parent_path() /
+                  "gpu-driven-forward.vert.spv"
+            : shaders.gpu_driven_vertex;
+    const auto gpu_driven_fragment =
+        shaders.gpu_driven_fragment.empty()
+            ? shaders.bindless_fragment.parent_path() /
+                  "gpu-driven-forward.frag.spv"
+            : shaders.gpu_driven_fragment;
     const auto vertex_shader = GetShaderModule(
-        gpu_scene_pipeline
+        gpu_driven_pipeline
+            ? gpu_driven_vertex
+            : gpu_scene_pipeline
             ? gpu_scene_vertex
             : (bindless_texture_table_ ? shaders.bindless_vertex
                                        : shaders.vertex));
     const auto fragment_path =
         generated_artifact != nullptr
             ? generated_artifact->fragment
-            : (gpu_scene_pipeline
+            : (gpu_driven_pipeline
+                   ? gpu_driven_fragment
+                   : gpu_scene_pipeline
                    ? gpu_scene_fragment
                    : (bindless_texture_table_ ? shaders.bindless_fragment
                                               : shaders.fragment));
@@ -5845,6 +6241,19 @@ class Renderer::Impl {
     }
     const auto pipeline = CreatePipeline(shaders, variant_key);
     active_target_->pipelines.emplace(variant_key, pipeline);
+    return pipeline;
+  }
+
+  VkPipeline EnsureGpuDrivenGraphicsPipeline(const ShaderPaths& shaders,
+                                             std::uint32_t variant_key) {
+    const auto found = active_target_->gpu_driven_pipelines.find(variant_key);
+    if (found != active_target_->gpu_driven_pipelines.end()) {
+      ++frame_counters_.pipeline_cache_hits;
+      return found->second;
+    }
+    ++frame_counters_.pipeline_cache_misses;
+    const auto pipeline = CreatePipeline(shaders, variant_key, nullptr, true);
+    active_target_->gpu_driven_pipelines.emplace(variant_key, pipeline);
     return pipeline;
   }
 
@@ -6011,6 +6420,11 @@ class Renderer::Impl {
       (void)key;
       vkDestroyPipeline(device_, pipeline, nullptr);
     }
+    for (const auto& [key, pipeline] : target.gpu_driven_pipelines) {
+      (void)key;
+      vkDestroyPipeline(device_, pipeline, nullptr);
+    }
+    target.gpu_driven_pipelines.clear();
     for (const auto& [key, pipeline] : target.generated_pipelines) {
       (void)key;
       vkDestroyPipeline(device_, pipeline, nullptr);
@@ -6644,6 +7058,53 @@ class Renderer::Impl {
     }
   }
 
+  void RecordGpuDrivenDispatch(VkCommandBuffer command,
+                               const FrameContext& frame,
+                               const extraction::FrameSnapshot& snapshot,
+                               const GpuDrivenIndexedRequest& request) {
+    if (!frame.gpu_driven.selected) {
+      return;
+    }
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+                      frame.gpu_driven.compute_pipeline);
+    const std::array descriptor_sets{
+        bindless_descriptor_set_, frame.bindless_material_descriptor_set,
+        frame.gpu_driven.descriptor_set};
+    const std::uint32_t dynamic_offset{};
+    vkCmdBindDescriptorSets(
+        command, VK_PIPELINE_BIND_POINT_COMPUTE,
+        gpu_driven_pipeline_layout_, 0,
+        static_cast<std::uint32_t>(descriptor_sets.size()),
+        descriptor_sets.data(), 1, &dynamic_offset);
+    shader_abi::GpuDrivenIndexedConstants constants;
+    constants.view_projection = Multiply(snapshot.projection, snapshot.view);
+    constants.visibility_mask = request.visibility_mask;
+    constants.candidate_count = frame.gpu_driven.candidate_count;
+    constants.flags = 0;
+    if (request.enable_visibility_mask_culling) {
+      constants.flags |= shader_abi::kGpuDrivenVisibilityMaskCulling;
+    }
+    if (request.enable_frustum_culling) {
+      constants.flags |= shader_abi::kGpuDrivenFrustumCulling;
+    }
+    vkCmdPushConstants(command, gpu_driven_pipeline_layout_,
+                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
+                       &constants);
+    vkCmdDispatch(command, 1, 1, 1);
+    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+                            VK_ACCESS_SHADER_READ_BIT |
+                            VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(
+        command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 1, &barrier, 0, nullptr, 0, nullptr);
+  }
+
   void RecordFrame(VkCommandBuffer command,
                    const FrameContext& frame,
                    const extraction::FrameSnapshot& snapshot,
@@ -6679,7 +7140,38 @@ class Renderer::Impl {
     const bool gpu_scene_ready =
         bindless_texture_table_ && gpu_scene_draw_slots &&
         gpu_scene_draw_slots->size() == draw_records_.size();
-    for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+    if (frame.gpu_driven.selected) {
+      const auto& driven = frame.gpu_driven;
+      const auto vertex_buffer = vertex_arena_.buffer(driven.vertex_block);
+      constexpr VkDeviceSize zero_offset{};
+      vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer, &zero_offset);
+      vkCmdBindIndexBuffer(command, index_arena_.buffer(driven.index_block), 0,
+                           VK_INDEX_TYPE_UINT32);
+      const auto pipeline = EnsureGpuDrivenGraphicsPipeline(
+          active_target_->shaders, driven.pipeline_variant);
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+      const std::array descriptor_sets{
+          bindless_descriptor_set_, frame.bindless_material_descriptor_set};
+      const std::uint32_t dynamic_offset{};
+      vkCmdBindDescriptorSets(
+          command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+          active_target_->pipeline_layout, 0,
+          static_cast<std::uint32_t>(descriptor_sets.size()),
+          descriptor_sets.data(), 1, &dynamic_offset);
+      const shader_abi::GpuDrivenForwardConstants push{view_projection};
+      vkCmdPushConstants(command, active_target_->pipeline_layout,
+                         VK_SHADER_STAGE_VERTEX_BIT |
+                             VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(push), &push);
+      vkCmdDrawIndexedIndirectCount(
+          command, driven.indirect_commands.handle, 0,
+          driven.dispatch_counters.handle,
+          offsetof(shader_abi::GpuDrivenIndexedDispatchCounters,
+                   visible_count),
+          driven.candidate_count, sizeof(render::GpuIndexedIndirectCommand));
+      frame_counters_.gpu_driven_indirect_draw_count = 1;
+    } else {
+      for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
       const auto& geometry = geometry_records_[draw.geometry_index];
       const auto& slot = geometry_slots_.at(geometry.mesh);
@@ -6793,7 +7285,8 @@ class Renderer::Impl {
                                VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(push), &push);
       }
-      vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
+        vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
+      }
     }
     vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
@@ -6847,6 +7340,13 @@ class Renderer::Impl {
                           frame.timestamp_pool, 3);
     }
     vkCmdEndRenderPass(command);
+
+    if (frame.gpu_driven.selected) {
+      const VkBufferCopy copy{
+          0, 0, sizeof(shader_abi::GpuDrivenIndexedDispatchCounters)};
+      vkCmdCopyBuffer(command, frame.gpu_driven.dispatch_counters.handle,
+                      frame.gpu_driven.counter_readback.handle, 1, &copy);
+    }
 
     if (HasAov(cpu_readback_aovs, Aov::Color)) {
       VkBufferImageCopy copy{};
@@ -7083,6 +7583,35 @@ class Renderer::Impl {
     return result;
   }
 
+  void ResolveGpuDrivenCounters(FrameContext& frame) {
+    if (!frame.gpu_driven.selected) {
+      return;
+    }
+    void* mapped{};
+    Check(vkMapMemory(device_, frame.gpu_driven.counter_readback.memory, 0,
+                      sizeof(shader_abi::GpuDrivenIndexedDispatchCounters), 0,
+                      &mapped),
+          "map GPU-driven dispatch counters");
+    shader_abi::GpuDrivenIndexedDispatchCounters counters;
+    std::memcpy(&counters, mapped, sizeof(counters));
+    vkUnmapMemory(device_, frame.gpu_driven.counter_readback.memory);
+    if (counters.candidate_count != frame.gpu_driven.candidate_count ||
+        static_cast<std::uint64_t>(counters.visible_count) +
+                counters.visibility_mask_culled_count +
+                counters.frustum_culled_count !=
+            counters.candidate_count) {
+      throw RendererError(RendererErrorCode::BackendFailure,
+                          "resolve GPU-driven dispatch counters",
+                          "compute counters violate the candidate partition");
+    }
+    frame_counters_.gpu_driven_visible_draw_count = counters.visible_count;
+    frame_counters_.gpu_driven_visibility_mask_culled_count =
+        counters.visibility_mask_culled_count;
+    frame_counters_.gpu_driven_frustum_culled_count =
+        counters.frustum_culled_count;
+    frame_counters_.gpu_scene_draw_count = counters.visible_count;
+  }
+
   static VKAPI_ATTR VkBool32 VKAPI_CALL ValidationCallback(
       VkDebugUtilsMessageSeverityFlagBitsEXT severity,
       VkDebugUtilsMessageTypeFlagsEXT type,
@@ -7196,6 +7725,7 @@ class Renderer::Impl {
   StagingRing staging_;
   StagingRing gaussian_staging_;
   StagingRing gpu_scene_staging_;
+  StagingRing gpu_driven_staging_;
   GpuSceneBuffers gpu_scene_buffers_;
   Buffer gaussian_corner_vertices_;
   std::map<std::uint64_t, GeometrySlot> geometry_slots_;
@@ -7216,6 +7746,9 @@ class Renderer::Impl {
   bool force_reserved_bindless_texture_writes_{};
   VkDescriptorSetLayout bindless_descriptor_set_layout_{};
   VkDescriptorSetLayout bindless_material_descriptor_set_layout_{};
+  VkDescriptorSetLayout gpu_driven_descriptor_set_layout_{};
+  VkPipelineLayout gpu_driven_pipeline_layout_{};
+  std::map<std::filesystem::path, VkPipeline> gpu_driven_pipelines_;
   VkDescriptorPool bindless_descriptor_pool_{};
   VkDescriptorSet bindless_descriptor_set_{};
   TextureSlot fallback_texture_;
