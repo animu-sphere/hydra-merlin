@@ -281,14 +281,17 @@ uploaded before compute dispatch. Candidate-count telemetry remains populated
 on both paths and candidate-upload bytes distinguish reuse from replacement.
 
 Vulkan GPU-driven execution now partitions the stable draw sequence into
-consecutive arena/pipeline batches. Each batch owns completion-safe candidate,
-result, indirect-command, and counter buffers, receives one compute dispatch,
+consecutive arena/pipeline batches. Each frame context owns one aligned shared
+candidate, result, indirect-command, counter, and counter-readback buffer plus
+one descriptor pool; batches address bounded ranges rather than creating native
+memory allocations per draw group. Each batch receives one compute dispatch,
 binds its vertex/index arena blocks and raster pipeline, and submits one
-indexed-indirect-count draw. Candidate uploads from all changed batches share a
-single staging-ring reservation, unchanged per-frame-context batch sequences
-remain zero-upload, and resolved culling counters are validated per batch before
-being accumulated for frame telemetry. Validation-backed mixed-pipeline
-coverage proves two raster-state batches without falling back.
+indexed-indirect-count draw. Candidate uploads from all changed or relocated
+batches share a single staging-ring reservation, unchanged per-frame-context
+batch sequences remain zero-upload, and resolved culling counters are validated
+per batch before being accumulated for frame telemetry. Validation-backed
+coverage proves both mixed-pipeline output and a 32-batch alternating-state
+scene with buffer and descriptor-pool allocations equal to a one-batch control.
 
 Parallel compaction, public renderer-settings selection, large-scene command
 recording evidence, and the Gaussian compute preparation path remain

@@ -30,11 +30,12 @@ after its public API and release process are established.
   making camera/culling-only frames zero-upload while preserving exact
   candidate-count and replacement-upload telemetry. The runtime now partitions
   consecutive draws across multiple vertex/index arena and raster-pipeline
-  batches, gives each batch independent compute/indirect/count resources,
-  combines changed candidate lists into one staging reservation, and validates
-  then aggregates per-batch culling telemetry. Validation-backed mixed-pipeline
-  coverage keeps `Require` on the GPU-driven path across two raster-state
-  batches; parallel compaction remains follow-up work.
+  batches, addresses aligned per-batch ranges in five frame-shared buffers and
+  one descriptor pool, combines changed candidate lists into one staging
+  reservation, and validates then aggregates per-batch culling telemetry.
+  Validation-backed mixed-pipeline and 32-batch alternating-state coverage keep
+  `Require` on the GPU-driven path without draw-group-proportional native memory
+  allocations; parallel compaction remains follow-up work.
 
 ## [0.15.0] - 2026-08-11
 
