@@ -2245,6 +2245,10 @@ class Renderer::Impl {
         properties.properties.limits.maxStorageBufferRange;
     max_compute_work_group_count_x_ =
         properties.properties.limits.maxComputeWorkGroupCount[0];
+    max_per_stage_descriptor_storage_buffers_ =
+        properties.properties.limits.maxPerStageDescriptorStorageBuffers;
+    max_descriptor_set_storage_buffers_ =
+        properties.properties.limits.maxDescriptorSetStorageBuffers;
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     capabilities_.timeline_semaphore =
@@ -2533,6 +2537,10 @@ class Renderer::Impl {
         properties.properties.limits.maxStorageBufferRange;
     max_compute_work_group_count_x_ =
         properties.properties.limits.maxComputeWorkGroupCount[0];
+    max_per_stage_descriptor_storage_buffers_ =
+        properties.properties.limits.maxPerStageDescriptorStorageBuffers;
+    max_descriptor_set_storage_buffers_ =
+        properties.properties.limits.maxDescriptorSetStorageBuffers;
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     uniform_buffer_alignment_ = std::max<VkDeviceSize>(
@@ -3359,6 +3367,19 @@ class Renderer::Impl {
       unavailable("the selected graphics queue does not support compute");
       return;
     }
+    // Creating the pipeline layout below is a valid-usage violation, not a
+    // recoverable error, on a device that guarantees only the Vulkan minimum
+    // of four storage buffers. Preflight both limits so Prefer can still fall
+    // back to the CPU reference.
+    if (kGaussianPrepareStorageBufferCount >
+            max_per_stage_descriptor_storage_buffers_ ||
+        kGaussianPrepareStorageBufferCount >
+            max_descriptor_set_storage_buffers_) {
+      unavailable("the Gaussian preparation layout exceeds "
+                  "maxPerStageDescriptorStorageBuffers or "
+                  "maxDescriptorSetStorageBuffers");
+      return;
+    }
 
     struct Selection {
       const extraction::GaussianRecord* record{};
@@ -3449,6 +3470,13 @@ class Renderer::Impl {
         constants_bytes, static_cast<std::uint32_t>(selections.size()));
     resources.compute_pipeline = compute_pipeline;
     resources.batches.resize(selections.size());
+    // The dispatches feed one global sort, so every batch must key its records
+    // in the same domain the CPU reference chose for this frame.
+    const auto sorting_mode =
+        detail::SelectGaussianSortingPolicy(snapshot).mode ==
+                GaussianSortingMode::CameraDistance
+            ? 1U
+            : 0U;
     std::vector<shader_abi::GaussianPrepareConstants> constants(
         selections.size());
     for (std::size_t i = 0; i < selections.size(); ++i) {
@@ -3483,11 +3511,7 @@ class Renderer::Impl {
                   GaussianProjectionMode::Tangential
               ? 1U
               : 0U;
-      value.sorting_mode =
-          selection.record->sorting_mode ==
-                  GaussianSortingMode::CameraDistance
-              ? 1U
-              : 0U;
+      value.sorting_mode = sorting_mode;
     }
     void* mapped{};
     Check(vkMapMemory(device_, resources.constants.memory, 0,
@@ -4306,6 +4330,13 @@ class Renderer::Impl {
     frame_counters_.descriptor_update_count += writes.size();
   }
 
+  // The compute set below binds every Gaussian attribute range plus the
+  // compacted outputs. Vulkan only guarantees four storage buffers per stage
+  // and per set, so the counts are named here and preflighted against the
+  // device limits before selection.
+  static constexpr std::uint32_t kGaussianPrepareStorageBufferCount{7U};
+  static constexpr std::uint32_t kGaussianPrepareUniformBufferCount{1U};
+
   void EnsureGaussianPrepareDescriptorAndPipelineLayouts() {
     if (gaussian_prepare_descriptor_set_layout_ != VK_NULL_HANDLE) {
       return;
@@ -4317,8 +4348,11 @@ class Renderer::Impl {
               &gaussian_prepare_empty_descriptor_set_layout_),
           "create Gaussian preparation empty descriptor layout");
 
-    std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
-    const std::array storage_bindings{
+    std::array<VkDescriptorSetLayoutBinding,
+               kGaussianPrepareStorageBufferCount +
+                   kGaussianPrepareUniformBufferCount>
+        bindings{};
+    static constexpr std::array storage_bindings{
         shader_abi::kGaussianPositions.binding,
         shader_abi::kGaussianCovariances.binding,
         shader_abi::kGaussianOpacities.binding,
@@ -4327,6 +4361,8 @@ class Renderer::Impl {
         shader_abi::kGaussianPreparedRecords.binding,
         shader_abi::kGaussianPrepareCounters.binding,
     };
+    static_assert(storage_bindings.size() ==
+                  kGaussianPrepareStorageBufferCount);
     for (std::size_t i = 0; i < storage_bindings.size(); ++i) {
       bindings[i].binding = storage_bindings[i];
       bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -4365,10 +4401,17 @@ class Renderer::Impl {
 
   VkPipeline EnsureGaussianPrepareComputePipeline(const ShaderPaths& shaders) {
     EnsureGaussianPrepareDescriptorAndPipelineLayouts();
-    const auto path = shaders.gaussian_prepare_compute.empty()
-                          ? shaders.gaussian_vertex.parent_path() /
-                                "gaussian-prepare.comp.spv"
-                          : shaders.gaussian_prepare_compute;
+    // gaussian_vertex is itself optional and then resolves beside the base
+    // vertex artifact; an empty parent_path() would look in the working
+    // directory instead of the packaged shader directory.
+    const auto gaussian_vertex_directory =
+        shaders.gaussian_vertex.empty()
+            ? shaders.vertex.parent_path()
+            : shaders.gaussian_vertex.parent_path();
+    const auto path =
+        shaders.gaussian_prepare_compute.empty()
+            ? gaussian_vertex_directory / "gaussian-prepare.comp.spv"
+            : shaders.gaussian_prepare_compute;
     const auto found = gaussian_prepare_compute_pipelines_.find(path);
     if (found != gaussian_prepare_compute_pipelines_.end()) {
       ++frame_counters_.pipeline_cache_hits;
@@ -8542,6 +8585,8 @@ class Renderer::Impl {
   VkDeviceSize max_storage_buffer_range_{};
   std::uint32_t max_draw_indirect_count_{};
   std::uint32_t max_compute_work_group_count_x_{};
+  std::uint32_t max_per_stage_descriptor_storage_buffers_{};
+  std::uint32_t max_descriptor_set_storage_buffers_{};
   bool owns_vulkan_context_{true};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};

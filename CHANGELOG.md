@@ -21,8 +21,12 @@ after its public API and release process are established.
   artifact. Vulkan can now opt into one native dispatch per visible resident
   Gaussian resource, with frame-owned output/uniform storage, aligned arena
   bindings, completion-safe counter readback, partition validation, and
-  explicit preferred/required selection. The CPU-sorted raster path remains
-  the image-producing fallback until GPU sort, tiling, and indirect raster land.
+  explicit preferred/required selection. Selection preflights the device
+  storage-buffer descriptor limits, every dispatch keys its records with the
+  one frame-wide sorting policy the CPU reference selects, and an omitted
+  compute artifact resolves beside the effective Gaussian vertex artifact. The
+  CPU-sorted raster path remains the image-producing fallback until GPU sort,
+  tiling, and indirect raster land.
 - Renderer settings schema v2 and backend contract v2 now expose GPU-driven
   indexed Forward as a submission policy independent of render-path selection.
   Disabled, preferred-with-explicit-fallback, and required modes plus the

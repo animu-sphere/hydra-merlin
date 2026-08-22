@@ -52,6 +52,22 @@ struct GaussianPreparationResult {
   GaussianPreparationCounters counters;
 };
 
+// The one sorting policy every consumer of a frame must agree on. Z depth and
+// camera distance are incomparable key domains, so a frame whose visible
+// resources disagree is re-keyed to Z depth for all of them.
+struct GaussianSortingPolicy {
+  GaussianSortingMode mode{GaussianSortingMode::ZDepth};
+  // Non-zero only for a mixed-policy frame: how many visible resources were
+  // re-keyed, matching sorting_policy_fallback_count.
+  std::uint64_t fallback_resource_count{};
+};
+
+// Shared by the CPU reference and the GPU preparation dispatch so both key
+// their records identically; a per-record authored mode must never reach a
+// global sort directly.
+[[nodiscard]] GaussianSortingPolicy SelectGaussianSortingPolicy(
+    const extraction::FrameSnapshot& snapshot);
+
 // Evaluates the Graphdeco-compatible real spherical-harmonic basis used by
 // OpenUSD Gaussian splats. Coefficients are ordered by increasing degree.
 [[nodiscard]] Vec3 EvaluateGaussianRadiance(

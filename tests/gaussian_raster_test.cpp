@@ -198,6 +198,42 @@ int main(int argc, char** argv) {
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
 
+    // The Gaussian vertex artifact is itself optional, so an omitted compute
+    // artifact must resolve beside the packaged artifact that vertex path
+    // resolves to rather than beside an empty path.
+    const auto authored_gaussian_vertex = request.shaders.gaussian_vertex;
+    request.shaders.gaussian_vertex.clear();
+    const auto resolved = renderer->Resolve(renderer->Submit(request));
+    Require(resolved.counters.gaussian_gpu_preparation_dispatch_count == 1 &&
+                resolved.counters.gaussian_gpu_preparation_fallback_count == 0,
+            "omitted Gaussian artifacts did not resolve the packaged compute "
+            "artifact");
+    request.shaders.gaussian_vertex = authored_gaussian_vertex;
+
+    // Z depth and camera distance are incomparable key domains, so a frame
+    // authoring both re-keys every visible resource to Z depth. The GPU
+    // dispatch has to adopt that same frame-wide policy: per-record authored
+    // modes would feed the later global sort two different key domains.
+    auto distance_descriptor = world.Get(gaussian_handle);
+    distance_descriptor.label = "distance-sorted-splat";
+    distance_descriptor.sorting_mode =
+        merlin::GaussianSortingMode::CameraDistance;
+    const auto distance_gaussian =
+        world.CreateGaussian(std::move(distance_descriptor));
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    const auto mixed_sorting = renderer->Resolve(renderer->Submit(request));
+    Require(mixed_sorting.counters.gaussian_sorting_policy_fallback_count == 2,
+            "mixed authored sorting policy was not diagnosed per resource");
+    Require(mixed_sorting.counters.gaussian_gpu_preparation_dispatch_count == 2,
+            "mixed sorting policy suppressed a GPU preparation dispatch");
+    Require(mixed_sorting.counters.gaussian_gpu_preparation_visible_count ==
+                mixed_sorting.counters.gaussian_visible_count,
+            "mixed sorting policy diverged from the CPU reference partition");
+    world.Remove(distance_gaussian);
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+
     auto secondary_descriptor = world.Get(gaussian_handle);
     secondary_descriptor.label = "fully-culled-splat";
     secondary_descriptor.positions.resize(1);
