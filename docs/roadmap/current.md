@@ -261,10 +261,26 @@ the command stream encodes the persistent physical draw slot in
 `drawIndirectFirstInstance`; borrowed contexts must declare that the host
 enabled it before a future runtime path may be selected.
 
-Vulkan renderer execution, device-local visible/command/count buffers,
-multi-draw indirect raster submission, Forward image parity, and the Gaussian
-compute preparation path remain incomplete; this reference contract is not a
-runtime GPU-driven support claim.
+The first opt-in Vulkan renderer execution slice is now in place for one native
+arena/pipeline batch. It uploads persistent draw-slot candidates, dispatches
+the reference compute kernel into device-local result, indirect-command, and
+count buffers, synchronizes compute writes into
+`vkCmdDrawIndexedIndirectCount`, and carries the physical draw slot through
+`firstInstance` into a dedicated table-backed Forward shader. Owned devices
+enable and report `drawIndirectCount` and `shaderDrawParameters` alongside
+`drawIndirectFirstInstance`; borrowed hosts must explicitly declare all three
+before the path can be required. Runtime telemetry reports candidate, visible,
+per-culling-reason, indirect-draw, candidate-upload, and fallback counts, and a
+validation-enabled Vulkan test covers visible color/ID output plus a zero-count
+visibility-mask-culling submission on the asynchronous-transfer path.
+
+Multi-arena and mixed-pipeline batching, persistent zero-upload candidate lists,
+parallel compaction, public renderer-settings selection, large-scene command
+recording evidence, and the Gaussian compute preparation path remain
+incomplete. `Prefer` falls back to table-backed/conventional Forward at the
+initial batch boundary, while `Require` returns an actionable unsupported
+reason; this slice is therefore runtime evidence, not the complete v0.16.0
+support claim.
 
 ## Near-term execution order
 

@@ -76,6 +76,10 @@ struct alignas(16) GpuDrivenIndexedDispatchCounters {
   std::uint32_t frustum_culled_count{};
 };
 
+struct alignas(16) GpuDrivenForwardConstants {
+  Mat4 view_projection;
+};
+
 static_assert(sizeof(DrawConstants) == 128);
 static_assert(alignof(DrawConstants) == 16);
 static_assert(offsetof(DrawConstants, model_view_projection) == 0);
@@ -112,6 +116,9 @@ static_assert(offsetof(GpuDrivenIndexedDispatchCounters,
                        visibility_mask_culled_count) == 8);
 static_assert(offsetof(GpuDrivenIndexedDispatchCounters,
                        frustum_culled_count) == 12);
+static_assert(sizeof(GpuDrivenForwardConstants) == 64);
+static_assert(alignof(GpuDrivenForwardConstants) == 16);
+static_assert(offsetof(GpuDrivenForwardConstants, view_projection) == 0);
 static_assert(sizeof(render::GpuIndexedIndirectCommand) == 20);
 
 enum class ResourceClass {

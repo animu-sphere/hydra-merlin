@@ -69,6 +69,29 @@ std::shared_ptr<FrameSnapshot> MakeSnapshot() {
   return snapshot;
 }
 
+std::shared_ptr<FrameSnapshot> MakeMultiDrawSnapshot() {
+  auto snapshot = MakeSnapshot();
+  snapshot->source_id = 42;
+  snapshot->revision = 2;
+  auto first_instance = snapshot->instances[0];
+  first_instance.transform.values[12] = -0.5F;
+  snapshot->instances.replace(0, first_instance);
+
+  auto second_instance = first_instance;
+  second_instance.instance = 304;
+  second_instance.revision = 7;
+  second_instance.transform.values[12] = 0.5F;
+  snapshot->instances.push_back(second_instance);
+
+  auto second_draw = snapshot->draws[0];
+  second_draw.instance_index = 1;
+  second_draw.instance = second_instance.instance;
+  second_draw.draw = 0x2234567887654321ULL;
+  second_draw.revision = 8;
+  snapshot->draws.push_back(second_draw);
+  return snapshot;
+}
+
 merlin::vulkan::ShaderPaths MakeShaders(const std::filesystem::path& root) {
   return {root / "triangle.vert.spv",
           root / "triangle.frag.spv",
@@ -85,7 +108,10 @@ merlin::vulkan::RenderResult Submit(
     merlin::vulkan::Renderer& renderer,
     const std::shared_ptr<const FrameSnapshot>& snapshot,
     const merlin::vulkan::ShaderPaths& shaders,
-    std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate> update) {
+    std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate> update,
+    merlin::vulkan::GpuDrivenIndexedMode gpu_driven =
+        merlin::vulkan::GpuDrivenIndexedMode::Disabled,
+    std::uint32_t visibility_mask = ~std::uint32_t{}) {
   merlin::vulkan::RenderRequest request;
   request.snapshot = snapshot;
   request.width = 32;
@@ -95,6 +121,10 @@ merlin::vulkan::RenderResult Submit(
                       {merlin::Aov::PrimId, true},
                       {merlin::Aov::InstanceId, true}};
   request.gpu_scene_update = std::move(update);
+  if (gpu_driven != merlin::vulkan::GpuDrivenIndexedMode::Disabled) {
+    request.gpu_driven_indexed.mode = gpu_driven;
+    request.gpu_driven_indexed.visibility_mask = visibility_mask;
+  }
   return renderer.Resolve(renderer.Submit(request));
 }
 
@@ -108,6 +138,7 @@ int main(int argc, char** argv) {
 
   constexpr GpuScenePackingCapacities capacities{4, 4, 4, 4};
   merlin::vulkan::RendererOptions options;
+  options.enable_validation = true;
   options.gpu_scene_capacities = capacities;
   options.descriptor_backend =
       merlin::vulkan::DescriptorBackendRequest::Bindless;
@@ -132,7 +163,9 @@ int main(int argc, char** argv) {
 
   const auto snapshot = MakeSnapshot();
   GpuScenePackingState packing(capacities);
-  const std::vector placements{GpuGeometryPlacement{64, 256}};
+  // The first renderer-resident mesh occupies the beginning of both arenas;
+  // GPU-driven indirect commands consume these block-local byte offsets.
+  const std::vector placements{GpuGeometryPlacement{0, 0}};
   const std::vector identities{GpuInstanceIdentity{17, 23}};
   const std::vector bindings{GpuMaterialBinding{}};
   const auto inputs = GpuScenePackingInputs{placements, identities, bindings};
@@ -201,7 +234,8 @@ int main(int argc, char** argv) {
   // original packed update from being retried.
   merlin::vulkan::RenderResult first;
   try {
-    first = Submit(*renderer, snapshot, shaders, first_update);
+    first = Submit(*renderer, snapshot, shaders, first_update,
+                   merlin::vulkan::GpuDrivenIndexedMode::Require);
   } catch (const std::exception& error) {
     std::cerr << "gpu-scene: first table draw failed: " << error.what()
               << '\n';
@@ -217,6 +251,15 @@ int main(int argc, char** argv) {
     throw std::runtime_error(
         "basic Forward did not consume the persistent GPU Scene tables");
   }
+  assert(first.counters.gpu_driven_candidate_draw_count ==
+         snapshot->draws.size());
+  assert(first.counters.gpu_driven_visible_draw_count ==
+         snapshot->draws.size());
+  assert(first.counters.gpu_driven_visibility_mask_culled_count == 0);
+  assert(first.counters.gpu_driven_frustum_culled_count == 0);
+  assert(first.counters.gpu_driven_indirect_draw_count == 1);
+  assert(first.counters.gpu_driven_candidate_upload_bytes ==
+         snapshot->draws.size() * sizeof(std::uint32_t));
   bool found_table_identity{};
   for (std::size_t i = 0; i < first.prim_id.pixels.size(); ++i) {
     if (first.prim_id.pixels[i] == identities[0].object_id) {
@@ -230,6 +273,18 @@ int main(int argc, char** argv) {
         "table-backed Forward did not write packed object/instance IDs");
   }
 
+  auto culled_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(packing.Apply(
+          *snapshot, first.completion_value, first.completion_value, {}));
+  const auto culled = Submit(
+      *renderer, snapshot, shaders, culled_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Require, 0U);
+  assert(culled.counters.gpu_driven_candidate_draw_count == 1);
+  assert(culled.counters.gpu_driven_visible_draw_count == 0);
+  assert(culled.counters.gpu_driven_visibility_mask_culled_count == 1);
+  assert(culled.counters.gpu_driven_frustum_culled_count == 0);
+  assert(culled.counters.gpu_scene_draw_count == 0);
+
   const auto statistics = renderer->statistics();
   assert(statistics.gpu_scene_buffers);
   assert(statistics.gpu_scene_capacity_bytes ==
@@ -241,7 +296,7 @@ int main(int argc, char** argv) {
 
   auto static_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(packing.Apply(
-          *snapshot, first.completion_value, first.completion_value, {}));
+          *snapshot, culled.completion_value, culled.completion_value, {}));
   assert(static_update->copy_bytes == 0);
   const auto steady = Submit(*renderer, snapshot, shaders, static_update);
   assert(steady.counters.gpu_scene_upload_bytes == 0);
@@ -322,6 +377,46 @@ int main(int argc, char** argv) {
                                          source_less_repeat_update);
   assert(source_less_repeat.counters.gpu_scene_upload_bytes ==
          expected_gpu_scene_bytes);
+
+  auto fallback_options = options;
+  fallback_options.descriptor_backend =
+      merlin::vulkan::DescriptorBackendRequest::Conventional;
+  merlin::vulkan::Renderer fallback_renderer(fallback_options);
+  const auto fallback = Submit(
+      fallback_renderer, snapshot, shaders, first_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Prefer);
+  assert(fallback.counters.gpu_driven_fallback_count == 1);
+  assert(fallback.counters.gpu_driven_candidate_draw_count == 0);
+  assert(fallback.counters.draw_count == snapshot->draws.size());
+
+  const auto multi_snapshot = MakeMultiDrawSnapshot();
+  GpuScenePackingState multi_packing(capacities);
+  const std::vector multi_placements{GpuGeometryPlacement{0, 0}};
+  const std::vector multi_identities{
+      GpuInstanceIdentity{17, 23}, GpuInstanceIdentity{18, 24}};
+  const std::vector multi_bindings{GpuMaterialBinding{}};
+  auto multi_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          multi_packing.Apply(
+              *multi_snapshot, 0, 0,
+              GpuScenePackingInputs{multi_placements, multi_identities,
+                                    multi_bindings}));
+  assert(multi_update->draw_slot_indices->size() == 2);
+  assert((*multi_update->draw_slot_indices)[1] != 0);
+  const auto multi = Submit(
+      *renderer, multi_snapshot, shaders, multi_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(multi.counters.gpu_driven_visible_draw_count == 2);
+  bool found_first_identity{};
+  bool found_second_identity{};
+  for (const auto id : multi.prim_id.pixels) {
+    found_first_identity = found_first_identity || id == 17;
+    found_second_identity = found_second_identity || id == 18;
+  }
+  if (!found_first_identity || !found_second_identity) {
+    throw std::runtime_error(
+        "GPU-driven Forward did not preserve non-zero firstInstance identity");
+  }
 
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
 }

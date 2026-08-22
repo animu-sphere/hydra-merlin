@@ -251,6 +251,10 @@ void WriteMetadata(const std::filesystem::path& path,
          << (capabilities.timeline_semaphore ? "true" : "false")
          << ",\n    \"draw_indirect_first_instance\": "
          << (capabilities.draw_indirect_first_instance ? "true" : "false")
+         << ",\n    \"draw_indirect_count\": "
+         << (capabilities.draw_indirect_count ? "true" : "false")
+         << ",\n    \"shader_draw_parameters\": "
+         << (capabilities.shader_draw_parameters ? "true" : "false")
          << ",\n    \"queues\": {\n"
          << "      \"graphics_family\": "
          << capabilities.graphics_queue_family
@@ -618,6 +622,10 @@ int main(int argc, char** argv) {
               << "Indirect first instance: "
               << (capabilities.draw_indirect_first_instance ? "yes" : "no")
               << '\n'
+              << "Indirect count: "
+              << (capabilities.draw_indirect_count ? "yes" : "no") << '\n'
+              << "Shader draw parameters: "
+              << (capabilities.shader_draw_parameters ? "yes" : "no") << '\n'
               << "Async transfer queue: "
               << (capabilities.async_transfer_queue ? "yes" : "no") << '\n'
               << "Device-local budget: "

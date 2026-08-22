@@ -285,6 +285,13 @@ struct FrameTelemetry {
   std::uint64_t gpu_scene_staging_growth_count{};
   std::uint64_t gpu_scene_staging_growth_bytes{};
   std::uint64_t gpu_scene_draw_count{};
+  std::uint64_t gpu_driven_candidate_draw_count{};
+  std::uint64_t gpu_driven_visible_draw_count{};
+  std::uint64_t gpu_driven_visibility_mask_culled_count{};
+  std::uint64_t gpu_driven_frustum_culled_count{};
+  std::uint64_t gpu_driven_indirect_draw_count{};
+  std::uint64_t gpu_driven_candidate_upload_bytes{};
+  std::uint64_t gpu_driven_fallback_count{};
   std::uint64_t requested_aov_mask{};
   std::uint64_t rendered_aov_mask{};
   std::uint64_t cpu_readback_aov_mask{};

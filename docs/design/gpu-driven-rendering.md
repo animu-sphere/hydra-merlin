@@ -1,7 +1,7 @@
 # GPU-driven rendering policy
 
-**Status:** approved direction, not an implementation claim · **Last reviewed:**
-2026-07-14
+**Status:** approved direction, not a complete implementation claim · **Last
+reviewed:** 2026-08-22
 
 This document is the design source of truth for bindless resources, the GPU
 Scene, GPU-driven indexed drawing, the opaque Visibility Buffer path, and
@@ -263,6 +263,17 @@ selection identity. Both candidate and visible counts are recorded.
 Completion requires CPU command-recording cost to stop scaling linearly with
 draw count, Forward output to match the conventional path, and culling on/off
 to be selectable for validation.
+
+The initial Vulkan runtime slice deliberately selects only one physical
+vertex/index arena and graphics-pipeline batch. An explicit native request
+chooses disabled, preferred-with-fallback, or required execution. The selected
+path uploads physical draw-slot candidates, runs the deterministic reference
+compute kernel, executes its device-local command/count output with
+`vkCmdDrawIndexedIndirectCount`, and resolves the draw through `firstInstance`
+in the Forward stages. This proves the execution and synchronization ABI while
+leaving multi-batch grouping, persistent candidate reuse, parallel compaction,
+and public settings integration as required follow-up before the completion
+criteria above are claimed.
 
 ## Opaque Visibility Buffer
 

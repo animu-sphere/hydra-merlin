@@ -27,6 +27,8 @@ struct VulkanContext {
   VkQueue queue{};
   std::uint32_t queue_family{};
   bool draw_indirect_first_instance_enabled{};
+  bool draw_indirect_count_enabled{};
+  bool shader_draw_parameters_enabled{};
 
   ~VulkanContext() {
     if (device != VK_NULL_HANDLE) {
@@ -98,6 +100,15 @@ bool CreateContext(VulkanContext& result) {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features.pNext = &timeline;
     vkGetPhysicalDeviceFeatures2(candidate, &features);
+    VkPhysicalDeviceVulkan11Features vulkan11{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    VkPhysicalDeviceVulkan12Features vulkan12{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 versioned_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    versioned_features.pNext = &vulkan11;
+    vulkan11.pNext = &vulkan12;
+    vkGetPhysicalDeviceFeatures2(candidate, &versioned_features);
     if (timeline.timelineSemaphore != VK_TRUE) {
       continue;
     }
@@ -117,15 +128,20 @@ bool CreateContext(VulkanContext& result) {
       queue_info.queueFamilyIndex = index;
       queue_info.queueCount = 1;
       queue_info.pQueuePriorities = &priority;
-      VkPhysicalDeviceTimelineSemaphoreFeatures enabled_timeline{
-          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
-      enabled_timeline.timelineSemaphore = VK_TRUE;
+      VkPhysicalDeviceVulkan11Features enabled_vulkan11{
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+      enabled_vulkan11.shaderDrawParameters = vulkan11.shaderDrawParameters;
+      VkPhysicalDeviceVulkan12Features enabled_vulkan12{
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+      enabled_vulkan12.timelineSemaphore = VK_TRUE;
+      enabled_vulkan12.drawIndirectCount = vulkan12.drawIndirectCount;
+      enabled_vulkan11.pNext = &enabled_vulkan12;
       VkDeviceCreateInfo device_info{
           VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
       VkPhysicalDeviceFeatures enabled_core_features{};
       enabled_core_features.drawIndirectFirstInstance =
           features.features.drawIndirectFirstInstance;
-      device_info.pNext = &enabled_timeline;
+      device_info.pNext = &enabled_vulkan11;
       device_info.pEnabledFeatures = &enabled_core_features;
       device_info.queueCreateInfoCount = 1;
       device_info.pQueueCreateInfos = &queue_info;
@@ -137,6 +153,10 @@ bool CreateContext(VulkanContext& result) {
       result.queue_family = index;
       result.draw_indirect_first_instance_enabled =
           enabled_core_features.drawIndirectFirstInstance == VK_TRUE;
+      result.draw_indirect_count_enabled =
+          enabled_vulkan12.drawIndirectCount == VK_TRUE;
+      result.shader_draw_parameters_enabled =
+          enabled_vulkan11.shaderDrawParameters == VK_TRUE;
       vkGetDeviceQueue(result.device, index, 0, &result.queue);
       return result.queue != VK_NULL_HANDLE;
     }
@@ -156,6 +176,9 @@ merlin::vulkan::BorrowedVulkanContext Describe(
   result.timeline_semaphore_enabled = true;
   result.draw_indirect_first_instance_enabled =
       context.draw_indirect_first_instance_enabled;
+  result.draw_indirect_count_enabled = context.draw_indirect_count_enabled;
+  result.shader_draw_parameters_enabled =
+      context.shader_draw_parameters_enabled;
   result.debug_utils_enabled = true;
   return result;
 }
@@ -228,6 +251,10 @@ int main() {
         !capabilities.timeline_semaphore ||
         capabilities.draw_indirect_first_instance !=
             context.draw_indirect_first_instance_enabled ||
+        capabilities.draw_indirect_count !=
+            context.draw_indirect_count_enabled ||
+        capabilities.shader_draw_parameters !=
+            context.shader_draw_parameters_enabled ||
         capabilities.async_transfer_queue ||
         capabilities.queue_ownership_transfers ||
         capabilities.graphics_queue_family != context.queue_family ||
