@@ -299,7 +299,9 @@ rules and atomically reserves its compact indirect-command slot while retaining
 the persistent physical draw slot in `firstInstance`; per-batch counters are
 cleared on the GPU before dispatch. Validation-backed coverage exercises 130
 candidates across multiple workgroups with exact visible and visibility-mask
-rejection counters.
+rejection counters. Batch selection rejects or falls back before dispatch when
+the required group count exceeds the device's
+`maxComputeWorkGroupCount[0]` limit.
 
 Public renderer-settings selection, large-scene command recording evidence,
 and the Gaussian compute preparation path remain incomplete. This slice is

@@ -2180,6 +2180,8 @@ class Renderer::Impl {
         properties.properties.limits.maxDrawIndirectCount;
     max_storage_buffer_range_ =
         properties.properties.limits.maxStorageBufferRange;
+    max_compute_work_group_count_x_ =
+        properties.properties.limits.maxComputeWorkGroupCount[0];
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     capabilities_.timeline_semaphore =
@@ -2466,6 +2468,8 @@ class Renderer::Impl {
         properties.properties.limits.maxDrawIndirectCount;
     max_storage_buffer_range_ =
         properties.properties.limits.maxStorageBufferRange;
+    max_compute_work_group_count_x_ =
+        properties.properties.limits.maxComputeWorkGroupCount[0];
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     uniform_buffer_alignment_ = std::max<VkDeviceSize>(
@@ -3121,6 +3125,19 @@ class Renderer::Impl {
                     });
     if (oversized_batch) {
       unavailable("an arena/pipeline batch exceeds maxDrawIndirectCount");
+      return;
+    }
+    const auto excessive_compute_batch =
+        std::any_of(selections.begin(), selections.end(),
+                    [&](const auto& batch) {
+                      return shader_abi::GpuDrivenIndexedWorkgroupCount(
+                                 static_cast<std::uint32_t>(
+                                     batch.draw_slots.size())) >
+                             max_compute_work_group_count_x_;
+                    });
+    if (excessive_compute_batch) {
+      unavailable(
+          "an arena/pipeline batch exceeds maxComputeWorkGroupCount[0]");
       return;
     }
 
@@ -7299,8 +7316,7 @@ class Renderer::Impl {
                          VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
                          &constants);
       const auto workgroup_count =
-          1U + (batch.candidate_count - 1U) /
-                   shader_abi::kGpuDrivenIndexedWorkgroupSize;
+          shader_abi::GpuDrivenIndexedWorkgroupCount(batch.candidate_count);
       vkCmdDispatch(command, workgroup_count, 1, 1);
     }
     VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
@@ -7935,6 +7951,7 @@ class Renderer::Impl {
   VkDeviceSize storage_buffer_alignment_{4U};
   VkDeviceSize max_storage_buffer_range_{};
   std::uint32_t max_draw_indirect_count_{};
+  std::uint32_t max_compute_work_group_count_x_{};
   bool owns_vulkan_context_{true};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};

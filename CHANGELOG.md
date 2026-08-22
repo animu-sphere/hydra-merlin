@@ -39,6 +39,8 @@ after its public API and release process are established.
   in 64-thread compute workgroups with atomic counter and command-slot
   reservation; validation-backed coverage exercises 130 candidates across
   multiple workgroups with mixed visible and visibility-mask-culled results.
+  Batch selection rejects or falls back before dispatch when the required
+  group count exceeds the device's `maxComputeWorkGroupCount[0]` limit.
 
 ## [0.15.0] - 2026-08-11
 

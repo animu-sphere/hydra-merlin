@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,12 @@ using merlin::render::GpuMaterialBinding;
 using merlin::render::GpuScenePackingCapacities;
 using merlin::render::GpuScenePackingInputs;
 using merlin::render::GpuScenePackingState;
+
+void Require(bool condition, std::string_view message) {
+  if (!condition) {
+    throw std::runtime_error(std::string(message));
+  }
+}
 
 std::shared_ptr<FrameSnapshot> MakeSnapshot() {
   auto snapshot = std::make_shared<FrameSnapshot>();
@@ -605,15 +612,21 @@ int main(int argc, char** argv) {
   const auto parallel = Submit(
       parallel_renderer, parallel_snapshot, shaders, parallel_update,
       merlin::vulkan::GpuDrivenIndexedMode::Require);
-  assert(parallel.counters.gpu_driven_candidate_draw_count ==
-         parallel_candidate_count);
-  assert(parallel.counters.gpu_driven_visible_draw_count ==
-         parallel_candidate_count - parallel_culled_count);
-  assert(parallel.counters.gpu_driven_visibility_mask_culled_count ==
-         parallel_culled_count);
-  assert(parallel.counters.gpu_driven_frustum_culled_count == 0);
-  assert(parallel.counters.gpu_driven_indirect_draw_count == 1);
-  assert(parallel.counters.gpu_driven_fallback_count == 0);
+  Require(parallel.counters.gpu_driven_candidate_draw_count ==
+              parallel_candidate_count,
+          "parallel candidate count is incorrect");
+  Require(parallel.counters.gpu_driven_visible_draw_count ==
+              parallel_candidate_count - parallel_culled_count,
+          "parallel visible count is incorrect");
+  Require(parallel.counters.gpu_driven_visibility_mask_culled_count ==
+              parallel_culled_count,
+          "parallel visibility-mask culling count is incorrect");
+  Require(parallel.counters.gpu_driven_frustum_culled_count == 0,
+          "parallel frustum culling count is incorrect");
+  Require(parallel.counters.gpu_driven_indirect_draw_count == 1,
+          "parallel batch did not issue one indirect draw");
+  Require(parallel.counters.gpu_driven_fallback_count == 0,
+          "parallel batch unexpectedly fell back");
 
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
 }
