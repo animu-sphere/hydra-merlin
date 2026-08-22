@@ -18,7 +18,11 @@ after its public API and release process are established.
   sort keys and structured counters for later radix-sort/tile stages. Shader ABI
   v6 fixes the C++/Slang uniform-backed constants, prepared-record, counter,
   and descriptor layouts through SPIR-V reflection and packages the compute
-  artifact while the CPU-sorted raster path remains the runtime fallback.
+  artifact. Vulkan can now opt into one native dispatch per visible resident
+  Gaussian resource, with frame-owned output/uniform storage, aligned arena
+  bindings, completion-safe counter readback, partition validation, and
+  explicit preferred/required selection. The CPU-sorted raster path remains
+  the image-producing fallback until GPU sort, tiling, and indirect raster land.
 - Renderer settings schema v2 and backend contract v2 now expose GPU-driven
   indexed Forward as a submission policy independent of render-path selection.
   Disabled, preferred-with-explicit-fallback, and required modes plus the

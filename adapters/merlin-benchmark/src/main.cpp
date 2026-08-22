@@ -578,6 +578,27 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                count.gaussian_preparation_cache_hits);
   WriteCounter(stream, counter_indent, "gaussian_preparation_cache_misses",
                count.gaussian_preparation_cache_misses);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_preparation_dispatch_count",
+               count.gaussian_gpu_preparation_dispatch_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_preparation_candidate_count",
+               count.gaussian_gpu_preparation_candidate_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_preparation_visible_count",
+               count.gaussian_gpu_preparation_visible_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_preparation_opacity_culled_count",
+               count.gaussian_gpu_preparation_opacity_culled_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_preparation_frustum_culled_count",
+               count.gaussian_gpu_preparation_frustum_culled_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_preparation_invalid_culled_count",
+               count.gaussian_gpu_preparation_invalid_culled_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_preparation_fallback_count",
+               count.gaussian_gpu_preparation_fallback_count);
   WriteCounter(stream, counter_indent, "gaussian_draw_count",
                count.gaussian_draw_count);
   WriteCounter(stream, counter_indent, "gaussian_attribute_upload_bytes",

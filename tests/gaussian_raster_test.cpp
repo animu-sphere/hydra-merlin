@@ -1,6 +1,7 @@
-// Exercises the v0.14.1 Vulkan Gaussian MVP end to end: prepared-stream
-// upload, procedural ellipse rasterization, alpha compositing, Mesh depth
-// composition, ID output, and steady-state frame-local upload reuse.
+// Exercises the Vulkan Gaussian path end to end: GPU projection/culling
+// dispatch and counter readback beside the CPU-sorted reference raster,
+// prepared-stream upload, procedural ellipse rasterization, alpha compositing,
+// Mesh depth composition, ID output, and steady-state frame-local reuse.
 
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
@@ -110,10 +111,22 @@ int main(int argc, char** argv) {
                         {merlin::Aov::Depth, true},
                         {merlin::Aov::PrimId, true},
                         {merlin::Aov::InstanceId, true}};
+    request.gpu_driven_gaussian_preparation =
+        merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
 
     const auto first = renderer->Resolve(renderer->Submit(request));
     Require(first.counters.gaussian_visible_count == 2,
             "prepared stream did not retain the visible Gaussians");
+    Require(first.counters.gaussian_gpu_preparation_dispatch_count == 1,
+            "GPU Gaussian preparation did not dispatch per resource");
+    Require(first.counters.gaussian_gpu_preparation_candidate_count == 2 &&
+                first.counters.gaussian_gpu_preparation_visible_count == 2,
+            "GPU Gaussian preparation counters lost visible particles");
+    Require(
+        first.counters.gaussian_gpu_preparation_opacity_culled_count == 0 &&
+            first.counters.gaussian_gpu_preparation_frustum_culled_count == 0 &&
+            first.counters.gaussian_gpu_preparation_invalid_culled_count == 0,
+        "GPU Gaussian preparation unexpectedly rejected a visible particle");
     Require(first.counters.gaussian_draw_count == 2,
             "Gaussian color and ID streams were not submitted as two draws");
     Require(first.counters.gaussian_upload_bytes == 104,
@@ -166,6 +179,50 @@ int main(int argc, char** argv) {
             "static Gaussian frame allocated a native resource");
     Require(steady.counters.gaussian_draw_count == 2,
             "static Gaussian frame lost a procedural draw");
+    Require(steady.counters.gaussian_gpu_preparation_dispatch_count == 1 &&
+                steady.counters.gaussian_gpu_preparation_visible_count == 2,
+            "static Gaussian frame lost GPU preparation evidence");
+
+    request.gpu_driven_gaussian_preparation =
+        merlin::vulkan::GpuDrivenGaussianPreparationMode::Prefer;
+    request.shaders.gaussian_prepare_compute =
+        shader_dir / "missing-gaussian-prepare.comp.spv";
+    const auto fallback = renderer->Resolve(renderer->Submit(request));
+    Require(fallback.counters.gaussian_gpu_preparation_fallback_count == 1 &&
+                fallback.counters.gaussian_gpu_preparation_dispatch_count == 0,
+            "preferred GPU Gaussian preparation did not retain CPU fallback");
+    Require(fallback.counters.gaussian_visible_count == 2 &&
+                fallback.counters.gaussian_draw_count == 2,
+            "GPU Gaussian preparation fallback lost the reference raster");
+    request.shaders.gaussian_prepare_compute.clear();
+    request.gpu_driven_gaussian_preparation =
+        merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
+
+    auto secondary_descriptor = world.Get(gaussian_handle);
+    secondary_descriptor.label = "fully-culled-splat";
+    secondary_descriptor.positions.resize(1);
+    secondary_descriptor.covariances.resize(1);
+    secondary_descriptor.opacities = {0.0F};
+    secondary_descriptor.spherical_harmonics_coefficients.resize(1);
+    const auto secondary_gaussian =
+        world.CreateGaussian(std::move(secondary_descriptor));
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    const auto multiple_resources =
+        renderer->Resolve(renderer->Submit(request));
+    Require(
+        multiple_resources.counters.gaussian_gpu_preparation_dispatch_count ==
+                2 &&
+            multiple_resources.counters
+                    .gaussian_gpu_preparation_candidate_count == 3 &&
+            multiple_resources.counters.gaussian_gpu_preparation_visible_count ==
+                2 &&
+            multiple_resources.counters
+                    .gaussian_gpu_preparation_opacity_culled_count == 1,
+        "per-resource GPU Gaussian dispatch did not preserve partitions");
+    world.Remove(secondary_gaussian);
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
 
     auto edited = world.Get(gaussian_handle);
     edited.spherical_harmonics_coefficients[1] = {0.0F, 1.0F, 0.0F};
@@ -222,6 +279,9 @@ int main(int argc, char** argv) {
     const auto hidden = renderer->Resolve(renderer->Submit(request));
     Require(hidden.counters.gaussian_visible_count == 0,
             "hidden Gaussian resource still reached the prepared stream");
+    Require(hidden.counters.gaussian_gpu_preparation_dispatch_count == 0 &&
+                hidden.counters.gaussian_gpu_preparation_candidate_count == 0,
+            "hidden Gaussian resource still reached GPU preparation");
     Require(hidden.counters.gaussian_attribute_upload_bytes == 0,
             "visibility-only Gaussian edit re-uploaded source attributes");
     Require(hidden.counters.gaussian_attribute_generation_count == 1,

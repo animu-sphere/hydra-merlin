@@ -347,6 +347,16 @@ struct FrameCounters {
   std::uint64_t gaussian_sorting_policy_fallback_count{};
   std::uint64_t gaussian_preparation_cache_hits{};
   std::uint64_t gaussian_preparation_cache_misses{};
+  // The GPU preparation slice currently runs beside the CPU-sorted reference
+  // raster path. These counters prove native compute execution and preserve
+  // its output partition independently from the reference stream above.
+  std::uint64_t gaussian_gpu_preparation_dispatch_count{};
+  std::uint64_t gaussian_gpu_preparation_candidate_count{};
+  std::uint64_t gaussian_gpu_preparation_visible_count{};
+  std::uint64_t gaussian_gpu_preparation_opacity_culled_count{};
+  std::uint64_t gaussian_gpu_preparation_frustum_culled_count{};
+  std::uint64_t gaussian_gpu_preparation_invalid_culled_count{};
+  std::uint64_t gaussian_gpu_preparation_fallback_count{};
   std::uint64_t gaussian_draw_count{};
   std::uint64_t gaussian_attribute_upload_bytes{};
   std::uint64_t gaussian_attribute_copy_range_count{};
@@ -472,11 +482,19 @@ struct ShaderPaths {
   std::filesystem::path gpu_driven_compute;
   std::filesystem::path gpu_driven_vertex;
   std::filesystem::path gpu_driven_fragment;
+  // Empty resolves beside gaussian_vertex using the packaged compute name.
+  std::filesystem::path gaussian_prepare_compute;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
 
 enum class GpuDrivenIndexedMode {
+  Disabled,
+  Prefer,
+  Require,
+};
+
+enum class GpuDrivenGaussianPreparationMode {
   Disabled,
   Prefer,
   Require,
@@ -523,6 +541,12 @@ struct RenderRequest {
   // expands. Prefer falls back to table-backed Forward; Require reports an
   // actionable Unsupported error.
   GpuDrivenIndexedRequest gpu_driven_indexed;
+  // GPU preparation remains independently opt-in while radix sort, tiling,
+  // and indirect raster are incomplete. Prefer retains the CPU-sorted raster
+  // path when compute preparation cannot be selected; Require reports an
+  // actionable Unsupported error.
+  GpuDrivenGaussianPreparationMode gpu_driven_gaussian_preparation{
+      GpuDrivenGaussianPreparationMode::Disabled};
 };
 
 enum class RendererErrorCode {
