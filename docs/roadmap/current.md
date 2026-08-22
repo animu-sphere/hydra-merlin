@@ -253,13 +253,13 @@ arena-batch candidate list, applies the same visibility-mask and conservative
 zero-to-one clip-frustum rules as the CPU oracle, and emits a compact
 `VkDrawIndexedIndirectCommand`-compatible stream, per-candidate results, and
 bounded dispatch counters. Reflected push-constant, storage-binding, counter,
-and command layouts are fixed in shader ABI v5. The initial deterministic
-single-invocation kernel is a correctness/reference implementation; parallel
-compaction and renderer command-buffer execution remain runtime work. Because
-the command stream encodes the persistent physical draw slot in
-`firstInstance`, owned Vulkan devices explicitly enable and report
+and command layouts are fixed in shader ABI v5. The current kernel classifies
+candidates in 64-thread workgroups and atomically compacts visible commands and
+rejection counters; command order within a batch is not an identity boundary
+because the command stream encodes the persistent physical draw slot in
+`firstInstance`. Owned Vulkan devices explicitly enable and report
 `drawIndirectFirstInstance`; borrowed contexts must declare that the host
-enabled it before a future runtime path may be selected.
+enabled it before the runtime path may be selected.
 
 The first opt-in Vulkan renderer execution slice is now in place for one native
 arena/pipeline batch. It uploads persistent draw-slot candidates, dispatches
@@ -293,10 +293,19 @@ per batch before being accumulated for frame telemetry. Validation-backed
 coverage proves both mixed-pipeline output and a 32-batch alternating-state
 scene with buffer and descriptor-pool allocations equal to a one-batch control.
 
-Parallel compaction, public renderer-settings selection, large-scene command
-recording evidence, and the Gaussian compute preparation path remain
-incomplete. This slice is therefore runtime evidence, not the complete v0.16.0
-support claim.
+Candidate classification and visible-command compaction now execute in
+64-thread compute workgroups. Each invocation applies the reference culling
+rules and atomically reserves its compact indirect-command slot while retaining
+the persistent physical draw slot in `firstInstance`; per-batch counters are
+cleared on the GPU before dispatch. Validation-backed coverage exercises 130
+candidates across multiple workgroups with exact visible and visibility-mask
+rejection counters. Batch selection rejects or falls back before dispatch when
+the required group count exceeds the device's
+`maxComputeWorkGroupCount[0]` limit.
+
+Public renderer-settings selection, large-scene command recording evidence,
+and the Gaussian compute preparation path remain incomplete. This slice is
+therefore runtime evidence, not the complete v0.16.0 support claim.
 
 ## Near-term execution order
 

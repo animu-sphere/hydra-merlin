@@ -10,7 +10,7 @@ after its public API and release process are established.
 
 ### Added
 
-- A deterministic Vulkan GPU-driven indexed compute and opt-in renderer
+- A Vulkan GPU-driven indexed compute and opt-in renderer
   execution contract that consumes
   persistent GPU Scene tables and native arena-batch candidate slots, mirrors
   the CPU oracle's visibility-mask and conservative frustum culling, and emits
@@ -35,7 +35,12 @@ after its public API and release process are established.
   reservation, and validates then aggregates per-batch culling telemetry.
   Validation-backed mixed-pipeline and 32-batch alternating-state coverage keep
   `Require` on the GPU-driven path without draw-group-proportional native memory
-  allocations; parallel compaction remains follow-up work.
+  allocations. Candidate classification and visible-command compaction now run
+  in 64-thread compute workgroups with atomic counter and command-slot
+  reservation; validation-backed coverage exercises 130 candidates across
+  multiple workgroups with mixed visible and visibility-mask-culled results.
+  Batch selection rejects or falls back before dispatch when the required
+  group count exceeds the device's `maxComputeWorkGroupCount[0]` limit.
 
 ## [0.15.0] - 2026-08-11
 

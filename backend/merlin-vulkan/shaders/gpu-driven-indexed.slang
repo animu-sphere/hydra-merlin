@@ -1,11 +1,10 @@
 #include "../../../core/merlin-render-backend/shaders/gpu-scene-abi.slang"
 
-// First Vulkan compute contract for GPU-driven indexed Forward. The initial
-// kernel is deliberately deterministic: one invocation walks a native arena
-// batch, applies the same conservative culling rules as the CPU oracle, and
-// writes a compact VkDrawIndexedIndirectCommand-compatible stream. A later
-// parallel prefix-sum implementation can replace the execution strategy
-// without changing this resource or command ABI.
+// Vulkan compute contract for GPU-driven indexed Forward. Each invocation
+// classifies one candidate and atomically reserves a compact indirect-command
+// slot for visible draws. Command order within a native arena batch is not an
+// identity boundary: first_instance retains the persistent physical draw slot.
+// The renderer clears the batch counters before dispatch.
 
 static const uint kGpuDrivenVisibilityMaskCulling = 1u << 0u;
 static const uint kGpuDrivenFrustumCulling = 1u << 1u;
@@ -97,59 +96,55 @@ bool OutsideFrustum(
 }
 
 [shader("compute")]
-[numthreads(1, 1, 1)]
+[numthreads(64, 1, 1)]
 void gpu_driven_indexed_compact(uint3 dispatch_thread_id : SV_DispatchThreadID)
 {
-    if (any(dispatch_thread_id != uint3(0u)))
+    uint candidate_index = dispatch_thread_id.x;
+    if (candidate_index >= gpu_driven_constants.candidate_count)
     {
         return;
     }
 
-    GpuDrivenIndexedDispatchCounters counters;
-    counters.candidate_count = gpu_driven_constants.candidate_count;
-    counters.visible_count = 0u;
-    counters.visibility_mask_culled_count = 0u;
-    counters.frustum_culled_count = 0u;
-
-    for (uint candidate_index = 0u;
-         candidate_index < gpu_driven_constants.candidate_count;
-         ++candidate_index)
+    if (candidate_index == 0u)
     {
-        uint draw_slot = candidate_draw_slots[candidate_index];
-        GpuDraw draw = gpu_draws[draw_slot];
-        GpuGeometry geometry = gpu_geometries[draw.geometry_index];
-        GpuInstance instance = gpu_instances[draw.instance_index];
-
-        if ((gpu_driven_constants.flags &
-             kGpuDrivenVisibilityMaskCulling) != 0u &&
-            (instance.visibility_mask & gpu_driven_constants.visibility_mask) == 0u)
-        {
-            candidate_results[candidate_index] =
-                kGpuDrivenVisibilityMaskCulled;
-            ++counters.visibility_mask_culled_count;
-            continue;
-        }
-        if ((gpu_driven_constants.flags & kGpuDrivenFrustumCulling) != 0u &&
-            OutsideFrustum(
-                geometry, instance, gpu_driven_constants.view_projection))
-        {
-            candidate_results[candidate_index] = kGpuDrivenFrustumCulled;
-            ++counters.frustum_culled_count;
-            continue;
-        }
-
-        candidate_results[candidate_index] = kGpuDrivenVisible;
-        GpuIndexedIndirectCommand command;
-        command.index_count = draw.primitive_count * 3u;
-        command.instance_count = 1u;
-        command.first_index = geometry.index_offset / 4u +
-            draw.primitive_base * 3u;
-        command.vertex_offset = int(
-            geometry.vertex_offset / gpu_driven_constants.vertex_stride);
-        command.first_instance = draw_slot;
-        indirect_commands[counters.visible_count] = command;
-        ++counters.visible_count;
+        dispatch_counters[0].candidate_count =
+            gpu_driven_constants.candidate_count;
     }
 
-    dispatch_counters[0] = counters;
+    uint draw_slot = candidate_draw_slots[candidate_index];
+    GpuDraw draw = gpu_draws[draw_slot];
+    GpuGeometry geometry = gpu_geometries[draw.geometry_index];
+    GpuInstance instance = gpu_instances[draw.instance_index];
+
+    uint ignored;
+    if ((gpu_driven_constants.flags &
+         kGpuDrivenVisibilityMaskCulling) != 0u &&
+        (instance.visibility_mask & gpu_driven_constants.visibility_mask) == 0u)
+    {
+        candidate_results[candidate_index] = kGpuDrivenVisibilityMaskCulled;
+        InterlockedAdd(
+            dispatch_counters[0].visibility_mask_culled_count, 1u, ignored);
+        return;
+    }
+    if ((gpu_driven_constants.flags & kGpuDrivenFrustumCulling) != 0u &&
+        OutsideFrustum(
+            geometry, instance, gpu_driven_constants.view_projection))
+    {
+        candidate_results[candidate_index] = kGpuDrivenFrustumCulled;
+        InterlockedAdd(dispatch_counters[0].frustum_culled_count, 1u, ignored);
+        return;
+    }
+
+    candidate_results[candidate_index] = kGpuDrivenVisible;
+    uint command_index;
+    InterlockedAdd(dispatch_counters[0].visible_count, 1u, command_index);
+    GpuIndexedIndirectCommand command;
+    command.index_count = draw.primitive_count * 3u;
+    command.instance_count = 1u;
+    command.first_index = geometry.index_offset / 4u +
+        draw.primitive_base * 3u;
+    command.vertex_offset = int(
+        geometry.vertex_offset / gpu_driven_constants.vertex_stride);
+    command.first_instance = draw_slot;
+    indirect_commands[command_index] = command;
 }

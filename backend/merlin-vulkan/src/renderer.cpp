@@ -2180,6 +2180,8 @@ class Renderer::Impl {
         properties.properties.limits.maxDrawIndirectCount;
     max_storage_buffer_range_ =
         properties.properties.limits.maxStorageBufferRange;
+    max_compute_work_group_count_x_ =
+        properties.properties.limits.maxComputeWorkGroupCount[0];
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     capabilities_.timeline_semaphore =
@@ -2466,6 +2468,8 @@ class Renderer::Impl {
         properties.properties.limits.maxDrawIndirectCount;
     max_storage_buffer_range_ =
         properties.properties.limits.maxStorageBufferRange;
+    max_compute_work_group_count_x_ =
+        properties.properties.limits.maxComputeWorkGroupCount[0];
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     uniform_buffer_alignment_ = std::max<VkDeviceSize>(
@@ -3121,6 +3125,19 @@ class Renderer::Impl {
                     });
     if (oversized_batch) {
       unavailable("an arena/pipeline batch exceeds maxDrawIndirectCount");
+      return;
+    }
+    const auto excessive_compute_batch =
+        std::any_of(selections.begin(), selections.end(),
+                    [&](const auto& batch) {
+                      return shader_abi::GpuDrivenIndexedWorkgroupCount(
+                                 static_cast<std::uint32_t>(
+                                     batch.draw_slots.size())) >
+                             max_compute_work_group_count_x_;
+                    });
+    if (excessive_compute_batch) {
+      unavailable(
+          "an arena/pipeline batch exceeds maxComputeWorkGroupCount[0]");
       return;
     }
 
@@ -3955,7 +3972,7 @@ class Renderer::Impl {
     resources.dispatch_counters = CreateBuffer(
         resources.counter_capacity_bytes,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     resources.counter_readback = CreateBuffer(
         resources.counter_capacity_bytes,
@@ -7260,6 +7277,19 @@ class Renderer::Impl {
       return;
     }
     for (const auto& batch : frame.gpu_driven.batches) {
+      vkCmdFillBuffer(command, frame.gpu_driven.dispatch_counters.handle,
+                      batch.counter_offset,
+                      sizeof(shader_abi::GpuDrivenIndexedDispatchCounters),
+                      0U);
+    }
+    VkMemoryBarrier counter_clear_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    counter_clear_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    counter_clear_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                                          VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &counter_clear_barrier, 0, nullptr, 0, nullptr);
+    for (const auto& batch : frame.gpu_driven.batches) {
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                         batch.compute_pipeline);
       const std::array descriptor_sets{
@@ -7285,7 +7315,9 @@ class Renderer::Impl {
       vkCmdPushConstants(command, gpu_driven_pipeline_layout_,
                          VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
                          &constants);
-      vkCmdDispatch(command, 1, 1, 1);
+      const auto workgroup_count =
+          shader_abi::GpuDrivenIndexedWorkgroupCount(batch.candidate_count);
+      vkCmdDispatch(command, workgroup_count, 1, 1);
     }
     VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -7919,6 +7951,7 @@ class Renderer::Impl {
   VkDeviceSize storage_buffer_alignment_{4U};
   VkDeviceSize max_storage_buffer_range_{};
   std::uint32_t max_draw_indirect_count_{};
+  std::uint32_t max_compute_work_group_count_x_{};
   bool owns_vulkan_context_{true};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};

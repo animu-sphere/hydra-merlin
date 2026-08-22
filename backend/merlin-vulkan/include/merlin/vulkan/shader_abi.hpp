@@ -53,6 +53,15 @@ struct alignas(16) GpuSceneDrawConstants {
 inline constexpr std::uint32_t kGpuDrivenVisibilityMaskCulling = 1U << 0U;
 inline constexpr std::uint32_t kGpuDrivenFrustumCulling = 1U << 1U;
 inline constexpr std::uint32_t kGpuDrivenIndexedVertexStride = 48U;
+inline constexpr std::uint32_t kGpuDrivenIndexedWorkgroupSize = 64U;
+
+[[nodiscard]] constexpr std::uint32_t GpuDrivenIndexedWorkgroupCount(
+    std::uint32_t candidate_count) noexcept {
+  return candidate_count == 0U
+             ? 0U
+             : 1U + (candidate_count - 1U) /
+                        kGpuDrivenIndexedWorkgroupSize;
+}
 
 enum class GpuDrivenCandidateResult : std::uint32_t {
   Visible,

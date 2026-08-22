@@ -279,6 +279,8 @@ int main(int argc, char** argv) {
     RequireContains(gpu_driven_compute,
                     "\"name\":\"gpu_driven_indexed_compact\",\"stage\":\"compute\"",
                     "GPU-driven indexed compute entry point mismatch");
+    RequireContains(gpu_driven_compute, "\"threadGroupSize\":[64,1,1]",
+                    "GPU-driven compute workgroup size is incorrect");
     RequireContains(gaussian_vertex,
                     "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
                     "Gaussian vertex entry point mismatch");
@@ -350,6 +352,10 @@ int main(int argc, char** argv) {
     static_assert(kGpuDrivenCandidateResults.binding == 1);
     static_assert(kGpuDrivenIndirectCommands.binding == 2);
     static_assert(kGpuDrivenDispatchCounters.binding == 3);
+    static_assert(GpuDrivenIndexedWorkgroupCount(0) == 0);
+    static_assert(GpuDrivenIndexedWorkgroupCount(1) == 1);
+    static_assert(GpuDrivenIndexedWorkgroupCount(64) == 1);
+    static_assert(GpuDrivenIndexedWorkgroupCount(65) == 2);
   } catch (const std::exception& error) {
     std::cerr << "shader ABI contract failure: " << error.what() << '\n';
     return 1;
