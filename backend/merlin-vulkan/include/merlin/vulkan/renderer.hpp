@@ -124,6 +124,9 @@ struct BorrowedVulkanContext {
   // Required with validation_enabled when RendererOptions requests validation
   // so renderer-owned validation telemetry can attach to the host instance.
   bool debug_utils_enabled{};
+  // Required when indirect draws encode a non-zero firstInstance. Hosts must
+  // report device enablement, not only physical-device support.
+  bool draw_indirect_first_instance_enabled{};
 };
 
 struct RendererOptions {
@@ -187,6 +190,7 @@ struct RendererCapabilities {
   DescriptorIndexingFeatures descriptor_indexing_features;
   DescriptorIndexingLimits descriptor_indexing_limits;
   DescriptorIndexingSelection descriptor_indexing_selection;
+  bool draw_indirect_first_instance{};
 };
 
 // Persistent device-local arena state. `resident_bytes` includes ranges that

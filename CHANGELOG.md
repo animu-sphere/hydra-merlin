@@ -17,6 +17,9 @@ after its public API and release process are established.
   results and counters. Shader ABI v5 now reflection-checks and packages the
   compute artifact, resource bindings, push constants, command layout, and
   counter layout ahead of renderer execution and parallel compaction work.
+  Vulkan device creation and borrowed-host negotiation now explicitly enable
+  and report `drawIndirectFirstInstance`, which the stable physical draw-slot
+  encoding requires.
 
 ## [0.15.0] - 2026-08-11
 

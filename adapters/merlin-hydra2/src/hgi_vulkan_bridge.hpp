@@ -156,6 +156,7 @@ struct HdMerlinBorrowedVulkanContext {
   bool timeline_semaphore_enabled{};
   bool validation_enabled{};
   bool debug_utils_enabled{};
+  bool draw_indirect_first_instance_enabled{};
 };
 
 // Kept separately testable so OpenUSD package composition (not merely its

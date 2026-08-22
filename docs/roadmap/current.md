@@ -255,7 +255,11 @@ zero-to-one clip-frustum rules as the CPU oracle, and emits a compact
 bounded dispatch counters. Reflected push-constant, storage-binding, counter,
 and command layouts are fixed in shader ABI v5. The initial deterministic
 single-invocation kernel is a correctness/reference implementation; parallel
-compaction and renderer command-buffer execution remain runtime work.
+compaction and renderer command-buffer execution remain runtime work. Because
+the command stream encodes the persistent physical draw slot in
+`firstInstance`, owned Vulkan devices explicitly enable and report
+`drawIndirectFirstInstance`; borrowed contexts must declare that the host
+enabled it before a future runtime path may be selected.
 
 Vulkan renderer execution, device-local visible/command/count buffers,
 multi-draw indirect raster submission, Forward image parity, and the Gaussian

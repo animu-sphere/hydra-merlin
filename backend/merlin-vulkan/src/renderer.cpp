@@ -2049,6 +2049,13 @@ class Renderer::Impl {
           "application declared timeline semaphores on a device that does "
           "not support them");
     }
+    if (borrowed.draw_indirect_first_instance_enabled &&
+        features.features.drawIndirectFirstInstance != VK_TRUE) {
+      throw RendererError(
+          RendererErrorCode::Unsupported, "borrow Vulkan context",
+          "application declared drawIndirectFirstInstance on a device that "
+          "does not support it");
+    }
 
     VkFormatProperties depth_properties{};
     vkGetPhysicalDeviceFormatProperties(physical_device_, kDepthFormat,
@@ -2079,6 +2086,8 @@ class Renderer::Impl {
         properties.properties.limits.maxStorageBufferRange;
     capabilities_.timeline_semaphore =
         borrowed.timeline_semaphore_enabled;
+    capabilities_.draw_indirect_first_instance =
+        borrowed.draw_indirect_first_instance_enabled;
     capabilities_.validation_enabled = options.enable_validation;
     capabilities_.graphics_queue = true;
     capabilities_.compute_queue =
@@ -2387,6 +2396,8 @@ class Renderer::Impl {
     features.pNext = &timeline;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
     capabilities_.timeline_semaphore = timeline.timelineSemaphore == VK_TRUE;
+    capabilities_.draw_indirect_first_instance =
+        features.features.drawIndirectFirstInstance == VK_TRUE;
     capabilities_.async_transfer_queue =
         options.enable_async_transfer && capabilities_.timeline_semaphore &&
         transfer_queue_family_ != queue_family_;
@@ -2456,6 +2467,9 @@ class Renderer::Impl {
       device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    VkPhysicalDeviceFeatures enabled_core_features{};
+    enabled_core_features.drawIndirectFirstInstance =
+        capabilities_.draw_indirect_first_instance ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceTimelineSemaphoreFeatures enabled_timeline{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
     enabled_timeline.timelineSemaphore = VK_TRUE;
@@ -2480,6 +2494,7 @@ class Renderer::Impl {
       enabled_features = &enabled_descriptor_indexing;
     }
     device_info.pNext = enabled_features;
+    device_info.pEnabledFeatures = &enabled_core_features;
     device_info.queueCreateInfoCount =
         static_cast<std::uint32_t>(queue_infos.size());
     device_info.pQueueCreateInfos = queue_infos.data();

@@ -1,10 +1,11 @@
 #include <merlin/render/gpu_driven.hpp>
 #include <merlin/render/gpu_scene_packing.hpp>
 
-#include <cassert>
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -20,16 +21,23 @@ using merlin::render::GpuGeometry;
 using merlin::render::GpuInstance;
 using merlin::render::GpuMaterial;
 
+void Require(bool condition, std::string_view message) {
+  if (!condition) {
+    throw std::runtime_error(std::string(message));
+  }
+}
+
 template <typename Callback>
 void ExpectError(Callback&& callback, GpuDrivenIndexedErrorCode code,
                  std::string_view fragment) {
   try {
     callback();
-    assert(false && "expected GpuDrivenIndexedError");
+    throw std::runtime_error("expected GpuDrivenIndexedError");
   } catch (const GpuDrivenIndexedError& error) {
-    assert(error.code() == code);
-    assert(std::string_view(error.what()).find(fragment) !=
-           std::string_view::npos);
+    Require(error.code() == code, "GPU-driven error code did not match");
+    Require(std::string_view(error.what()).find(fragment) !=
+                std::string_view::npos,
+            "GPU-driven error message did not contain expected text");
   }
 }
 
@@ -84,23 +92,38 @@ void TestCullingCompactionAndStableIdentity() {
   config.visibility_mask = 0x1U;
   const auto plan = BuildGpuDrivenIndexedPlan(
       candidates, geometries, bindings, instances, materials, draws, config);
-  assert((plan.visible_draw_slots == std::vector<std::uint32_t>{3}));
-  assert(plan.batches.size() == 1);
-  assert(plan.batches[0].binding == bindings[0]);
-  assert((plan.batches[0].visible_draw_slots ==
-          std::vector<std::uint32_t>{3}));
-  assert(plan.batches[0].commands.size() == 1);
-  assert(plan.batches[0].commands[0].index_count == 3);
-  assert(plan.batches[0].commands[0].instance_count == 1);
-  assert(plan.batches[0].commands[0].first_index == 3);
-  assert(plan.batches[0].commands[0].vertex_offset == 0);
-  assert(plan.batches[0].commands[0].first_instance == 3);
-  assert(plan.counters.candidate_draw_count == 3);
-  assert(plan.counters.visible_draw_count == 1);
-  assert(plan.counters.visibility_mask_culled_count == 1);
-  assert(plan.counters.frustum_culled_count == 1);
-  assert(plan.counters.indirect_command_count == 1);
-  assert(plan.counters.indirect_batch_count == 1);
+  Require(plan.visible_draw_slots == std::vector<std::uint32_t>{3},
+          "visible draw compaction is incorrect");
+  Require(plan.batches.size() == 1, "expected one arena batch");
+  Require(plan.batches[0].binding == bindings[0],
+          "arena binding is incorrect");
+  Require(plan.batches[0].visible_draw_slots ==
+              std::vector<std::uint32_t>{3},
+          "batch draw identity is incorrect");
+  Require(plan.batches[0].commands.size() == 1,
+          "expected one indirect command");
+  Require(plan.batches[0].commands[0].index_count == 3,
+          "indirect index count is incorrect");
+  Require(plan.batches[0].commands[0].instance_count == 1,
+          "indirect instance count is incorrect");
+  Require(plan.batches[0].commands[0].first_index == 3,
+          "indirect first index is incorrect");
+  Require(plan.batches[0].commands[0].vertex_offset == 0,
+          "indirect vertex offset is incorrect");
+  Require(plan.batches[0].commands[0].first_instance == 3,
+          "indirect draw identity is incorrect");
+  Require(plan.counters.candidate_draw_count == 3,
+          "candidate counter is incorrect");
+  Require(plan.counters.visible_draw_count == 1,
+          "visible counter is incorrect");
+  Require(plan.counters.visibility_mask_culled_count == 1,
+          "visibility-mask counter is incorrect");
+  Require(plan.counters.frustum_culled_count == 1,
+          "frustum counter is incorrect");
+  Require(plan.counters.indirect_command_count == 1,
+          "indirect-command counter is incorrect");
+  Require(plan.counters.indirect_batch_count == 1,
+          "indirect-batch counter is incorrect");
 }
 
 void TestCullingCanBeDisabledForValidation() {
@@ -128,16 +151,25 @@ void TestCullingCanBeDisabledForValidation() {
   config.enable_frustum_culling = false;
   const auto plan = BuildGpuDrivenIndexedPlan(
       candidates, geometries, bindings, instances, materials, draws, config);
-  assert(plan.visible_draw_slots == candidates);
-  assert(plan.batches.size() == 1);
-  assert(plan.batches[0].commands.size() == 3);
-  assert(plan.batches[0].commands[1].first_index == 12);
-  assert(plan.batches[0].commands[1].vertex_offset == 10);
-  assert(plan.batches[0].commands[1].first_instance == 1);
-  assert(plan.counters.visible_draw_count == 3);
-  assert(plan.counters.visibility_mask_culled_count == 0);
-  assert(plan.counters.frustum_culled_count == 0);
-  assert(plan.counters.indirect_batch_count == 1);
+  Require(plan.visible_draw_slots == candidates,
+          "disabled culling changed candidate visibility");
+  Require(plan.batches.size() == 1, "expected one arena batch");
+  Require(plan.batches[0].commands.size() == 3,
+          "expected one command per candidate");
+  Require(plan.batches[0].commands[1].first_index == 12,
+          "byte index offset was not converted to elements");
+  Require(plan.batches[0].commands[1].vertex_offset == 10,
+          "byte vertex offset was not converted to elements");
+  Require(plan.batches[0].commands[1].first_instance == 1,
+          "physical draw slot was not preserved");
+  Require(plan.counters.visible_draw_count == 3,
+          "disabled-culling visible counter is incorrect");
+  Require(plan.counters.visibility_mask_culled_count == 0,
+          "disabled visibility culling changed its counter");
+  Require(plan.counters.frustum_culled_count == 0,
+          "disabled frustum culling changed its counter");
+  Require(plan.counters.indirect_batch_count == 1,
+          "disabled-culling batch counter is incorrect");
 }
 
 void TestCommandsAreBatchedByArenaBlocks() {
@@ -160,24 +192,39 @@ void TestCommandsAreBatchedByArenaBlocks() {
   const auto plan = BuildGpuDrivenIndexedPlan(
       candidates, geometries, bindings, instances, materials, draws, config);
 
-  assert(plan.visible_draw_slots == candidates);
-  assert(plan.batches.size() == 3);
-  assert(plan.batches[0].binding == bindings[0]);
-  assert((plan.batches[0].visible_draw_slots ==
-          std::vector<std::uint32_t>{3}));
-  assert(plan.batches[0].commands[0].first_instance == 3);
-  assert(plan.batches[1].binding == bindings[1]);
-  assert((plan.batches[1].visible_draw_slots ==
-          std::vector<std::uint32_t>{1}));
-  assert(plan.batches[1].commands[0].first_instance == 1);
-  assert(plan.batches[1].commands[0].first_index == 0);
-  assert(plan.batches[2].binding == bindings[0]);
-  assert((plan.batches[2].visible_draw_slots ==
-          std::vector<std::uint32_t>{4}));
-  assert(plan.batches[2].commands[0].first_instance == 4);
-  assert(plan.batches[2].commands[0].first_index == 3);
-  assert(plan.counters.indirect_command_count == 3);
-  assert(plan.counters.indirect_batch_count == 3);
+  Require(plan.visible_draw_slots == candidates,
+          "batching changed visible draw order");
+  Require(plan.batches.size() == 3,
+          "non-contiguous arena bindings were merged");
+  Require(plan.batches[0].binding == bindings[0],
+          "first arena binding is incorrect");
+  Require(plan.batches[0].visible_draw_slots ==
+              std::vector<std::uint32_t>{3},
+          "first batch identity is incorrect");
+  Require(plan.batches[0].commands[0].first_instance == 3,
+          "first batch draw slot is incorrect");
+  Require(plan.batches[1].binding == bindings[1],
+          "second arena binding is incorrect");
+  Require(plan.batches[1].visible_draw_slots ==
+              std::vector<std::uint32_t>{1},
+          "second batch identity is incorrect");
+  Require(plan.batches[1].commands[0].first_instance == 1,
+          "second batch draw slot is incorrect");
+  Require(plan.batches[1].commands[0].first_index == 0,
+          "second batch first index is incorrect");
+  Require(plan.batches[2].binding == bindings[0],
+          "third arena binding is incorrect");
+  Require(plan.batches[2].visible_draw_slots ==
+              std::vector<std::uint32_t>{4},
+          "third batch identity is incorrect");
+  Require(plan.batches[2].commands[0].first_instance == 4,
+          "third batch draw slot is incorrect");
+  Require(plan.batches[2].commands[0].first_index == 3,
+          "third batch first index is incorrect");
+  Require(plan.counters.indirect_command_count == 3,
+          "batched command counter is incorrect");
+  Require(plan.counters.indirect_batch_count == 3,
+          "arena batch counter is incorrect");
 }
 
 void TestMalformedCandidatesAreRejected() {

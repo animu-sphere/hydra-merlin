@@ -1496,7 +1496,8 @@ class SceneBridge {
                   borrowed->graphics_queue_index,
                   borrowed->timeline_semaphore_enabled,
                   borrowed->validation_enabled,
-                  borrowed->debug_utils_enabled};
+                  borrowed->debug_utils_enabled,
+                  borrowed->draw_indirect_first_instance_enabled};
           factory_options.renderer.descriptor_backend =
               merlin::vulkan::DescriptorBackendRequest::Conventional;
           factory_options.renderer.enable_async_transfer = false;
