@@ -89,6 +89,16 @@ add_test(NAME merlin-gpu-scene-packing
 set_tests_properties(merlin-gpu-scene-packing PROPERTIES
   LABELS "gpu-scene;packing")
 
+add_executable(merlin-gpu-driven-indexed-tests
+  gpu_driven_test.cpp
+)
+target_link_libraries(merlin-gpu-driven-indexed-tests
+  PRIVATE Merlin::RenderBackend)
+add_test(NAME merlin-gpu-driven-indexed
+  COMMAND merlin-gpu-driven-indexed-tests)
+set_tests_properties(merlin-gpu-driven-indexed PROPERTIES
+  LABELS "gpu-scene;gpu-driven;indirect;culling")
+
 if(TARGET Merlin::Vulkan)
   set(_merlin_gpu_scene_abi_source
       "${CMAKE_CURRENT_SOURCE_DIR}/data/gpu-scene-abi-wrapper.slang")

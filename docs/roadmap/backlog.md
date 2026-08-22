@@ -5,7 +5,7 @@ alongside active foundation work in
 [current.md](current.md).
 Shipped scope moves to the [changelog](../../CHANGELOG.md).
 
-Legend: ⬜ not started
+Legend: 🚧 in progress · ⬜ not started
 
 The backlog follows the product phases in the [roadmap strategy](README.md),
 but a version label does not override dependency, capability, integration, or
@@ -65,7 +65,7 @@ full Gaussian sequence is in the
 
 ## Phase D — GPU-driven rendering and shading scalability
 
-### ⬜ v0.16.0 — GPU-driven rendering
+### 🚧 v0.16.0 — GPU-driven rendering
 
 For Mesh, establish GPU-driven indexed Forward with candidate draw records,
 frustum/visibility-mask culling, visible-draw compaction, indexed multi-draw
