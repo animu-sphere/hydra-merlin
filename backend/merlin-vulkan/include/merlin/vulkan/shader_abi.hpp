@@ -8,10 +8,12 @@
 
 #include <merlin/core/shader_contract.hpp>
 #include <merlin/core/types.hpp>
+#include <merlin/extraction/frame_snapshot.hpp>
+#include <merlin/render/gpu_driven.hpp>
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 4;
+inline constexpr std::uint32_t kVersion = 5;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -48,6 +50,32 @@ struct alignas(16) GpuSceneDrawConstants {
   std::uint32_t padding[3]{};
 };
 
+inline constexpr std::uint32_t kGpuDrivenVisibilityMaskCulling = 1U << 0U;
+inline constexpr std::uint32_t kGpuDrivenFrustumCulling = 1U << 1U;
+inline constexpr std::uint32_t kGpuDrivenIndexedVertexStride = 48U;
+
+enum class GpuDrivenCandidateResult : std::uint32_t {
+  Visible,
+  VisibilityMaskCulled,
+  FrustumCulled,
+};
+
+struct alignas(16) GpuDrivenIndexedConstants {
+  Mat4 view_projection;
+  std::uint32_t visibility_mask{~std::uint32_t{}};
+  std::uint32_t candidate_count{};
+  std::uint32_t flags{kGpuDrivenVisibilityMaskCulling |
+                      kGpuDrivenFrustumCulling};
+  std::uint32_t vertex_stride{kGpuDrivenIndexedVertexStride};
+};
+
+struct alignas(16) GpuDrivenIndexedDispatchCounters {
+  std::uint32_t candidate_count{};
+  std::uint32_t visible_count{};
+  std::uint32_t visibility_mask_culled_count{};
+  std::uint32_t frustum_culled_count{};
+};
+
 static_assert(sizeof(DrawConstants) == 128);
 static_assert(alignof(DrawConstants) == 16);
 static_assert(offsetof(DrawConstants, model_view_projection) == 0);
@@ -68,6 +96,23 @@ static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
 static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
+static_assert(sizeof(GpuDrivenIndexedConstants) == 80);
+static_assert(alignof(GpuDrivenIndexedConstants) == 16);
+static_assert(offsetof(GpuDrivenIndexedConstants, view_projection) == 0);
+static_assert(offsetof(GpuDrivenIndexedConstants, visibility_mask) == 64);
+static_assert(offsetof(GpuDrivenIndexedConstants, candidate_count) == 68);
+static_assert(offsetof(GpuDrivenIndexedConstants, flags) == 72);
+static_assert(offsetof(GpuDrivenIndexedConstants, vertex_stride) == 76);
+static_assert(sizeof(extraction::DrawVertex) == kGpuDrivenIndexedVertexStride);
+static_assert(sizeof(GpuDrivenIndexedDispatchCounters) == 16);
+static_assert(alignof(GpuDrivenIndexedDispatchCounters) == 16);
+static_assert(offsetof(GpuDrivenIndexedDispatchCounters, candidate_count) == 0);
+static_assert(offsetof(GpuDrivenIndexedDispatchCounters, visible_count) == 4);
+static_assert(offsetof(GpuDrivenIndexedDispatchCounters,
+                       visibility_mask_culled_count) == 8);
+static_assert(offsetof(GpuDrivenIndexedDispatchCounters,
+                       frustum_culled_count) == 12);
+static_assert(sizeof(render::GpuIndexedIndirectCommand) == 20);
 
 enum class ResourceClass {
   CombinedImageSampler,
@@ -101,6 +146,14 @@ inline constexpr ResourceBinding kGpuSceneMaterials{
     1, 3, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGpuSceneDraws{
     1, 4, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGpuDrivenCandidateDrawSlots{
+    2, 0, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGpuDrivenCandidateResults{
+    2, 1, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGpuDrivenIndirectCommands{
+    2, 2, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGpuDrivenDispatchCounters{
+    2, 3, ResourceClass::StorageBuffer};
 
 inline constexpr ShaderCapability kConventionalCapabilities =
     ShaderCapability::MaterialConstants |

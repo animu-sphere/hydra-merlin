@@ -140,11 +140,11 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 14) {
+    if (argc != 15) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
           "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
-          "gpu-scene.frag.json gaussian.vert.json "
+          "gpu-scene.frag.json gpu-driven.comp.json gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -156,13 +156,14 @@ int main(int argc, char** argv) {
     const auto bindless_fragment = CompactJson(Read(argv[4]));
     const auto gpu_scene_vertex = CompactJson(Read(argv[5]));
     const auto gpu_scene_fragment = CompactJson(Read(argv[6]));
-    const auto gaussian_vertex = CompactJson(Read(argv[7]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[8]));
-    const auto gaussian_fragment = CompactJson(Read(argv[9]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[10]));
-    const auto metal_vertex = CompactJson(Read(argv[11]));
-    const auto metal_fragment = CompactJson(Read(argv[12]));
-    const auto manifest = CompactJson(Read(argv[13]));
+    const auto gpu_driven_compute = CompactJson(Read(argv[7]));
+    const auto gaussian_vertex = CompactJson(Read(argv[8]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[9]));
+    const auto gaussian_fragment = CompactJson(Read(argv[10]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[11]));
+    const auto metal_vertex = CompactJson(Read(argv[12]));
+    const auto metal_fragment = CompactJson(Read(argv[13]));
+    const auto manifest = CompactJson(Read(argv[14]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -200,6 +201,39 @@ int main(int argc, char** argv) {
                    "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
     RequireBinding(gpu_scene_fragment, "bindless_textures",
                    "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+    RequireContains(gpu_driven_compute,
+                    "\"name\":\"GpuDrivenIndexedConstants\"",
+                    "GPU-driven indexed constants are absent from reflection");
+    RequireContains(
+        gpu_driven_compute,
+        "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
+        "GPU-driven indexed constants are not a push constant buffer");
+    RequireField(gpu_driven_compute, "view_projection", 0, 64);
+    RequireField(gpu_driven_compute, "visibility_mask", 64, 4);
+    RequireField(gpu_driven_compute, "candidate_count", 68, 4);
+    RequireField(gpu_driven_compute, "flags", 72, 4);
+    RequireField(gpu_driven_compute, "vertex_stride", 76, 4);
+    RequireBinding(gpu_driven_compute, "gpu_geometries",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
+    RequireBinding(gpu_driven_compute, "gpu_instances",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
+    RequireBinding(gpu_driven_compute, "gpu_draws",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
+    RequireBinding(gpu_driven_compute, "candidate_draw_slots",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":0}");
+    RequireBinding(gpu_driven_compute, "candidate_results",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":1}");
+    RequireBinding(gpu_driven_compute, "indirect_commands",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":2}");
+    RequireBinding(gpu_driven_compute, "dispatch_counters",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":3}");
+    RequireField(gpu_driven_compute, "index_count", 0, 4);
+    RequireField(gpu_driven_compute, "instance_count", 4, 4);
+    RequireField(gpu_driven_compute, "first_index", 8, 4);
+    RequireField(gpu_driven_compute, "vertex_offset", 12, 4);
+    RequireField(gpu_driven_compute, "first_instance", 16, 4);
+    RequireField(gpu_driven_compute, "visibility_mask_culled_count", 8, 4);
+    RequireField(gpu_driven_compute, "frustum_culled_count", 12, 4);
     RequireContains(bindless_fragment, "\"elementCount\":0",
                     "bindless descriptors are not reflected as runtime arrays");
 
@@ -221,6 +255,9 @@ int main(int argc, char** argv) {
     RequireContains(gpu_scene_fragment,
                     "\"name\":\"forward_gpu_scene_fragment\",\"stage\":\"fragment\"",
                     "GPU Scene fragment entry point mismatch");
+    RequireContains(gpu_driven_compute,
+                    "\"name\":\"gpu_driven_indexed_compact\",\"stage\":\"compute\"",
+                    "GPU-driven indexed compute entry point mismatch");
     RequireContains(gaussian_vertex,
                     "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
                     "Gaussian vertex entry point mismatch");
@@ -251,7 +288,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
                     "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":4",
+    RequireContains(manifest, "\"shader_abi_version\":5",
                     "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
                     "Slang toolchain series is not pinned");
@@ -267,14 +304,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 12,
+                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 13,
             "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 4);
+    static_assert(kVersion == 5);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -287,6 +324,11 @@ int main(int argc, char** argv) {
     static_assert(kGpuSceneInstances.binding == 2);
     static_assert(kGpuSceneMaterials.binding == 3);
     static_assert(kGpuSceneDraws.binding == 4);
+    static_assert(kGpuDrivenCandidateDrawSlots.set == 2);
+    static_assert(kGpuDrivenCandidateDrawSlots.binding == 0);
+    static_assert(kGpuDrivenCandidateResults.binding == 1);
+    static_assert(kGpuDrivenIndirectCommands.binding == 2);
+    static_assert(kGpuDrivenDispatchCounters.binding == 3);
   } catch (const std::exception& error) {
     std::cerr << "shader ABI contract failure: " << error.what() << '\n';
     return 1;

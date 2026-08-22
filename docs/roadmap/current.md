@@ -247,7 +247,17 @@ as the CPU correctness oracle for the native compute path. Malformed identities,
 ranges, bounds, transforms, duplicate candidates, missing block residency, and
 unrepresentable arena offsets are rejected before a partial plan is returned.
 
-Vulkan compute execution, device-local visible/command/count buffers,
+The first Vulkan compute contract is also in place. A packaged Slang compute
+artifact consumes persistent geometry, instance, and draw tables plus a native
+arena-batch candidate list, applies the same visibility-mask and conservative
+zero-to-one clip-frustum rules as the CPU oracle, and emits a compact
+`VkDrawIndexedIndirectCommand`-compatible stream, per-candidate results, and
+bounded dispatch counters. Reflected push-constant, storage-binding, counter,
+and command layouts are fixed in shader ABI v5. The initial deterministic
+single-invocation kernel is a correctness/reference implementation; parallel
+compaction and renderer command-buffer execution remain runtime work.
+
+Vulkan renderer execution, device-local visible/command/count buffers,
 multi-draw indirect raster submission, Forward image parity, and the Gaussian
 compute preparation path remain incomplete; this reference contract is not a
 runtime GPU-driven support claim.

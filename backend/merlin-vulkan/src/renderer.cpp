@@ -336,6 +336,8 @@ static_assert(offsetof(GaussianGpuInstance, resource_id) == 44U);
 static_assert(shader_abi::kArtifactSchemaVersion ==
                   MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION,
               "shader artifact schema version drifted from the build system");
+static_assert(shader_abi::kVersion == MERLIN_SHADER_ABI_VERSION,
+              "shader ABI version drifted from the build system");
 
 // The descriptor layouts and writes below are built from these declarations,
 // so the shader ABI and the Vulkan resource setup cannot drift apart.

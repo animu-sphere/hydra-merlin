@@ -8,6 +8,16 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- A deterministic Vulkan GPU-driven indexed compute contract that consumes
+  persistent GPU Scene tables and native arena-batch candidate slots, mirrors
+  the CPU oracle's visibility-mask and conservative frustum culling, and emits
+  compact Vulkan-compatible indexed-indirect commands plus structured culling
+  results and counters. Shader ABI v5 now reflection-checks and packages the
+  compute artifact, resource bindings, push constants, command layout, and
+  counter layout ahead of renderer execution and parallel compaction work.
+
 ## [0.15.0] - 2026-08-11
 
 ### Added
