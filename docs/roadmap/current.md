@@ -306,9 +306,19 @@ rejection counters. Batch selection rejects or falls back before dispatch when
 the required group count exceeds the device's
 `maxComputeWorkGroupCount[0]` limit.
 
-Large-scene command recording evidence and the Gaussian compute preparation
-path remain incomplete. This slice is
-therefore runtime evidence, not the complete v0.16.0 support claim.
+The first opt-in large-scene command-recording fixture now measures the same
+shared indexed geometry through conventional and required GPU-driven
+submission at 1,000, 10,000, and 100,000 instances. It warms every reusable
+frame context before capturing steady-state timing, requires zero static GPU
+Scene/candidate upload and descriptor rewrite, and retains candidate, visible,
+rejection, and native indirect-draw counters alongside `command_recording_ns`.
+Unsupported devices fail the explicit capability request instead of recording
+fallback as GPU-driven evidence. This establishes a reproducible CPU
+submission-slope contract; controlled hardware captures and broader
+geometry/material diversity remain evidence follow-up.
+
+The Gaussian compute preparation path remains incomplete. This slice is
+therefore not the complete v0.16.0 support claim.
 
 ## Near-term execution order
 

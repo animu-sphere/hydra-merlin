@@ -3035,7 +3035,6 @@ class Renderer::Impl {
     resources.selected = false;
     resources.candidate_count = 0;
     for (auto& batch : resources.batches) {
-      batch.candidate_count = 0;
       batch.candidate_upload_pending = false;
     }
     if (request.gpu_driven_indexed.mode == GpuDrivenIndexedMode::Disabled ||
@@ -3183,6 +3182,7 @@ class Renderer::Impl {
         static_cast<std::uint32_t>(selections.size()));
     resources.batches.resize(selections.size());
     VkDeviceSize candidate_upload_bytes{};
+    bool descriptor_update_required{};
     for (std::size_t i = 0; i < selections.size(); ++i) {
       auto& batch = resources.batches[i];
       const auto& selection = selections[i];
@@ -3194,6 +3194,14 @@ class Renderer::Impl {
             sizeof(std::uint32_t);
         batch.candidate_upload_pending = true;
       }
+      descriptor_update_required =
+          descriptor_update_required ||
+          batch.descriptor_set != resources.descriptor_sets[i] ||
+          batch.candidate_offset != selection.candidate_offset ||
+          batch.command_offset != selection.command_offset ||
+          batch.counter_offset != selection.counter_offset ||
+          batch.candidate_count !=
+              static_cast<std::uint32_t>(selection.draw_slots.size());
       batch.candidate_count =
           static_cast<std::uint32_t>(selection.draw_slots.size());
       batch.descriptor_set = resources.descriptor_sets[i];
@@ -3205,7 +3213,9 @@ class Renderer::Impl {
       batch.pipeline_variant = selection.pipeline_variant;
       batch.compute_pipeline = compute_pipeline;
     }
-    UpdateGpuDrivenBatchDescriptors(resources);
+    if (descriptor_update_required) {
+      UpdateGpuDrivenBatchDescriptors(resources);
+    }
     if (candidate_upload_bytes != 0) {
       Buffer retired_staging;
       VkDeviceSize growth_bytes{};

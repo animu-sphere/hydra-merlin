@@ -16,7 +16,9 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <ostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -122,6 +124,7 @@ bool IsFixture(std::string_view value) {
       std::string_view("reference"), std::string_view("million-triangles"),
       std::string_view("ten-thousand-meshes"),
       std::string_view("thousand-instances"),
+      std::string_view("gpu-driven-small-objects"),
       std::string_view("one-million-gaussians"),
       std::string_view("five-million-gaussians"),
       std::string_view("ten-million-gaussians"),
@@ -161,7 +164,8 @@ Arguments ParseArguments(int argc, char** argv) {
           << "Usage: merlin-benchmark [--output FILE] [--fixture NAME] "
              "[--width N] [--height N] [--steady-frames N]\n"
              "Fixtures: reference, million-triangles, ten-thousand-meshes, "
-             "thousand-instances, one-million-gaussians, "
+             "thousand-instances, gpu-driven-small-objects, "
+             "one-million-gaussians, "
              "five-million-gaussians, ten-million-gaussians, "
              "aov-combinations, 4k\n";
       std::exit(0);
@@ -312,6 +316,46 @@ FixtureSummary PopulateScaleFixture(std::string_view name,
     throw std::invalid_argument("fixture is not a scale fixture");
   }
   return summary;
+}
+
+FixtureSummary PopulateGpuDrivenSmallObjects(ScaleFixture& fixture,
+                                              std::uint32_t target_count) {
+  if (fixture.meshes.empty()) {
+    merlin::MaterialDescriptor material;
+    material.label = "gpu-driven-small-object-material";
+    material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+    fixture.material = fixture.world.CreateMaterial(std::move(material));
+
+    merlin::MeshDescriptor mesh;
+    mesh.label = "gpu-driven-small-object-mesh";
+    mesh.positions = {{-0.002F, -0.002F, 0.0F},
+                      {0.002F, -0.002F, 0.0F},
+                      {0.0F, 0.002F, 0.0F}};
+    mesh.indices = {0, 1, 2};
+    fixture.meshes.push_back(fixture.world.CreateMesh(std::move(mesh)));
+  }
+
+  if (target_count < fixture.instances.size()) {
+    throw std::invalid_argument(
+        "GPU-driven scale target cannot shrink the fixture");
+  }
+  fixture.instances.reserve(target_count);
+  for (std::uint32_t index =
+           static_cast<std::uint32_t>(fixture.instances.size());
+       index < target_count; ++index) {
+    merlin::InstanceDescriptor instance;
+    instance.label = "gpu-driven-instance-" + std::to_string(index);
+    instance.mesh = fixture.meshes.front();
+    instance.material = fixture.material;
+    const auto column = index % 320U;
+    const auto row = (index / 320U) % 320U;
+    instance.transform.values[12] = static_cast<float>(column) * 0.0056F - 0.9F;
+    instance.transform.values[13] = static_cast<float>(row) * 0.0056F - 0.9F;
+    fixture.instances.push_back(
+        fixture.world.CreateInstance(std::move(instance)));
+  }
+
+  return {"gpu-driven-small-objects", 1, target_count, target_count};
 }
 
 FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
@@ -886,17 +930,24 @@ merlin::vulkan::RenderResult Render(
     merlin::vulkan::Renderer& renderer,
     const merlin::extraction::SceneExtractor& extractor,
     const merlin::vulkan::ShaderPaths& shaders, const Arguments& arguments,
-    const Products& products) {
+    const Products& products,
+    std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate>
+        gpu_scene_update = {},
+    merlin::vulkan::GpuDrivenIndexedMode gpu_driven_mode =
+        merlin::vulkan::GpuDrivenIndexedMode::Disabled) {
   merlin::vulkan::RenderRequest request;
   request.snapshot = extractor.snapshot();
   request.width = arguments.width;
   request.height = arguments.height;
   request.shaders = shaders;
   request.products = products;
+  request.gpu_scene_update = std::move(gpu_scene_update);
+  request.gpu_driven_indexed.mode = gpu_driven_mode;
   return renderer.Resolve(renderer.Submit(request));
 }
 
-void AssertStatic(const merlin::vulkan::FrameCounters& counters) {
+void AssertStatic(const merlin::vulkan::FrameCounters& counters,
+                  std::string_view baseline = {}) {
   if (counters.upload_bytes != 0 || counters.allocation_count != 0 ||
       counters.pipeline_creation_count != 0 ||
       counters.shader_module_cache_misses != 0 ||
@@ -906,9 +957,26 @@ void AssertStatic(const merlin::vulkan::FrameCounters& counters) {
       counters.descriptor_update_count != 0 ||
       counters.bindless_sampled_image_descriptor_update_count != 0 ||
       counters.bindless_sampler_descriptor_update_count != 0) {
-    throw std::runtime_error(
-        "static frame performed upload/allocation/shader/pipeline/geometry/"
-        "descriptor work");
+    std::ostringstream message;
+    message << "static frame";
+    if (!baseline.empty()) {
+      message << " '" << baseline << '\'';
+    }
+    message << " performed forbidden work: upload=" << counters.upload_bytes
+            << " allocation=" << counters.allocation_count
+            << " pipeline=" << counters.pipeline_creation_count
+            << " shader_miss=" << counters.shader_module_cache_misses
+            << " geometry_miss=" << counters.geometry_cache_misses
+            << " descriptor_pool="
+            << counters.descriptor_pool_creation_count
+            << " descriptor_allocation="
+            << counters.descriptor_allocation_count
+            << " descriptor_update=" << counters.descriptor_update_count
+            << " bindless_image_update="
+            << counters.bindless_sampled_image_descriptor_update_count
+            << " bindless_sampler_update="
+            << counters.bindless_sampler_descriptor_update_count;
+    throw std::runtime_error(message.str());
   }
 }
 
@@ -928,13 +996,51 @@ int main(int argc, char** argv) {
         shader_dir / "environment.hdr",
         shader_dir / "gaussian.vert.spv",
         shader_dir / "gaussian.frag.spv"};
-    merlin::vulkan::Renderer renderer;
+    const bool gpu_driven_fixture =
+        arguments.fixture == "gpu-driven-small-objects";
+    constexpr std::uint32_t kGpuDrivenMaximumDrawCount = 100'000;
+    constexpr merlin::render::GpuScenePackingCapacities
+        kGpuDrivenCapacities{1, kGpuDrivenMaximumDrawCount, 1,
+                             kGpuDrivenMaximumDrawCount};
+    merlin::vulkan::RendererOptions renderer_options;
+    if (gpu_driven_fixture) {
+      renderer_options.gpu_scene_capacities = kGpuDrivenCapacities;
+    }
+    merlin::vulkan::Renderer renderer(renderer_options);
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;
     FixtureSummary fixture_summary;
+    std::unique_ptr<merlin::render::GpuScenePackingState> gpu_scene_packing;
+    std::vector<merlin::render::GpuGeometryPlacement> gpu_geometry_placements;
+    std::vector<merlin::render::GpuInstanceIdentity> gpu_instance_identities;
+    std::vector<merlin::render::GpuMaterialBinding> gpu_material_bindings;
+    std::uint64_t last_completion_value{};
+    auto gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Disabled;
+    if (gpu_driven_fixture) {
+      gpu_scene_packing =
+          std::make_unique<merlin::render::GpuScenePackingState>(
+              kGpuDrivenCapacities);
+      // The fixture owns one immutable mesh. It is the first allocation in
+      // both native geometry arenas, so its block-local placement is stable.
+      gpu_geometry_placements.push_back({0, 0});
+      gpu_material_bindings.push_back({});
+    }
 
     const auto render = [&](const Products& products = AllProducts()) {
-      return Render(renderer, extractor, shaders, arguments, products);
+      std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate> update;
+      if (gpu_scene_packing) {
+        update =
+            std::make_shared<const merlin::render::GpuScenePackedFrameUpdate>(
+                gpu_scene_packing->Apply(
+                    *extractor.snapshot(), last_completion_value,
+                    last_completion_value,
+                    {gpu_geometry_placements, gpu_instance_identities,
+                     gpu_material_bindings}));
+      }
+      auto result = Render(renderer, extractor, shaders, arguments, products,
+                           std::move(update), gpu_driven_mode);
+      last_completion_value = result.completion_value;
+      return result;
     };
     const auto record_render = [&](std::string name, const Products& products) {
       const auto start = CpuClock::now();
@@ -982,7 +1088,7 @@ int main(int argc, char** argv) {
           throw std::runtime_error("steady-state structural counters changed");
         }
       }
-      AssertStatic(counters);
+      AssertStatic(counters, name);
       baselines.push_back(
           {std::move(name), std::move(samples), counters, {}});
     };
@@ -1077,6 +1183,52 @@ int main(int argc, char** argv) {
         fixture.world.Remove(fixture.quad_instance);
         fixture.world.Remove(fixture.quad);
       });
+    } else if (gpu_driven_fixture) {
+      ScaleFixture fixture;
+      const auto warm_path = [&](merlin::vulkan::GpuDrivenIndexedMode mode) {
+        gpu_driven_mode = mode;
+        for (std::uint32_t frame = 0;
+             frame < renderer.statistics().frame_context_count; ++frame) {
+          (void)render();
+        }
+      };
+      constexpr std::array draw_counts{1'000U, 10'000U, 100'000U};
+      for (const auto draw_count : draw_counts) {
+        gpu_instance_identities.reserve(draw_count);
+        while (gpu_instance_identities.size() < draw_count) {
+          const auto index = static_cast<std::uint32_t>(
+              gpu_instance_identities.size());
+          gpu_instance_identities.push_back(
+              {index + 1U, index + 1U, ~std::uint32_t{}, 0U});
+        }
+
+        gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Disabled;
+        measure("update-" + std::to_string(draw_count), fixture.world, [&] {
+          fixture_summary =
+              PopulateGpuDrivenSmallObjects(fixture, draw_count);
+        });
+
+        warm_path(merlin::vulkan::GpuDrivenIndexedMode::Disabled);
+        steady("conventional-" + std::to_string(draw_count));
+        if (baselines.back().counters.gpu_driven_candidate_draw_count != 0 ||
+            baselines.back().counters.gpu_driven_indirect_draw_count != 0) {
+          throw std::runtime_error(
+              "conventional scale baseline selected GPU-driven submission");
+        }
+
+        warm_path(merlin::vulkan::GpuDrivenIndexedMode::Require);
+        steady("gpu-driven-" + std::to_string(draw_count));
+        const auto& counters = baselines.back().counters;
+        if (counters.gpu_driven_candidate_draw_count != draw_count ||
+            counters.gpu_driven_visible_draw_count != draw_count ||
+            counters.gpu_driven_indirect_draw_count != 1 ||
+            counters.gpu_driven_candidate_upload_bytes != 0 ||
+            counters.gpu_driven_fallback_count != 0) {
+          throw std::runtime_error(
+              "GPU-driven scale baseline violated bounded steady-state "
+              "submission");
+        }
+      }
     } else {
       ScaleFixture fixture;
       measure("first-frame", fixture.world, [&] {
