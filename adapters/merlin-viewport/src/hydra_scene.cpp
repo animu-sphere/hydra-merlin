@@ -734,6 +734,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       if (ApplyDeveloperUiRendererSettings(
               *ui_actions.apply_renderer_settings, backend->capabilities(),
               renderer_settings, settings_feedback)) {
+        render_delegate.SetGpuDrivenIndexedSettings(
+            renderer_settings.contract.gpu_driven_indexed);
         readback_requested =
             readback_requested || renderer_settings.continuous_color_readback ||
             renderer_settings.aov_inspection_enabled;

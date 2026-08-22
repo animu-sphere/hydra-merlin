@@ -11,7 +11,7 @@ int main() {
   return extractor.snapshot()->draws.empty() &&
                  backend_info.backend ==
                      merlin::render::BackendRequest::Automatic &&
-                 merlin::render::kBackendContractVersion == 1 &&
+                 merlin::render::kBackendContractVersion == 2 &&
                  renderer_settings.schema_version ==
                      merlin::render::kRendererSettingsSchemaVersion &&
                  !merlin::render::ValidateRendererSettings(renderer_settings)

@@ -32,6 +32,11 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
     return invalid("renderer-settings.invalid-render-path",
                    "Renderer path is invalid.");
   }
+  if (GpuDrivenIndexedModeName(settings.gpu_driven_indexed.mode) ==
+      "unknown") {
+    return invalid("renderer-settings.invalid-gpu-driven-indexed-mode",
+                   "GPU-driven indexed submission mode is invalid.");
+  }
   if (AovName(settings.aov) == "unknown") {
     return invalid("renderer-settings.invalid-aov",
                    "Renderer AOV selection is invalid.");
@@ -90,6 +95,13 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
     return invalid("renderer-settings.render-path-unsupported",
                    "The selected backend does not support the experimental "
                    "Visibility render path.");
+  }
+  if (settings.gpu_driven_indexed.mode ==
+          GpuDrivenIndexedMode::Require &&
+      !capabilities->gpu_driven_indexed) {
+    return invalid("renderer-settings.gpu-driven-indexed-unsupported",
+                   "The selected backend cannot provide required GPU-driven "
+                   "indexed Forward execution.");
   }
   if (settings.aov != Aov::Color) {
     return invalid("renderer-settings.aov-unsupported",

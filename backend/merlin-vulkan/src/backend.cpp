@@ -54,6 +54,12 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     capabilities_.timestamp_queries = source.timestamp_queries;
     capabilities_.external_presentation = source.external_presentation;
     capabilities_.generated_materials = source.generated_materials;
+    const auto statistics = renderer_.statistics();
+    capabilities_.gpu_driven_indexed =
+        capabilities_.bindless_textures && statistics.gpu_scene_buffers &&
+        source.compute_queue &&
+        source.draw_indirect_first_instance && source.draw_indirect_count &&
+        source.shader_draw_parameters;
     capabilities_.cpu_readback = true;
     capabilities_.validation_enabled = source.validation_enabled;
     capabilities_.limits.max_image_dimension_2d =
@@ -180,6 +186,28 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     RenderRequest native;
     native.snapshot = request.snapshot;
     native.gpu_scene_update = request.gpu_scene_update;
+    switch (request.gpu_driven_indexed.mode) {
+      case render::GpuDrivenIndexedMode::Disabled:
+        native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Disabled;
+        break;
+      case render::GpuDrivenIndexedMode::Prefer:
+        native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Prefer;
+        break;
+      case render::GpuDrivenIndexedMode::Require:
+        native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Require;
+        break;
+      default:
+        throw render::RendererError(
+            render::RendererErrorCode::InvalidRequest,
+            "submit Vulkan frame",
+            "GPU-driven indexed submission mode is invalid");
+    }
+    native.gpu_driven_indexed.visibility_mask =
+        request.gpu_driven_indexed.visibility_mask;
+    native.gpu_driven_indexed.enable_visibility_mask_culling =
+        request.gpu_driven_indexed.enable_visibility_mask_culling;
+    native.gpu_driven_indexed.enable_frustum_culling =
+        request.gpu_driven_indexed.enable_frustum_culling;
     native.width = request.width;
     native.height = request.height;
     native.shaders = shaders_;

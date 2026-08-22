@@ -1041,6 +1041,12 @@ class SceneBridge {
     reflect_hgi_projection_y_ = reflect;
   }
 
+  void SetGpuDrivenIndexedSettings(
+      merlin::render::GpuDrivenIndexedSettings settings) {
+    std::scoped_lock lock(mutex_);
+    gpu_driven_indexed_ = settings;
+  }
+
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const {
     std::scoped_lock lock(mutex_);
     auto result = latest_viewport_frame_;
@@ -1541,6 +1547,7 @@ class SceneBridge {
                         : snapshot->build_counters;
     merlin::render::RenderRequest request;
     request.snapshot = snapshot;
+    request.gpu_driven_indexed = gpu_driven_indexed_;
     request.width = width;
     request.height = height;
     request.clear_color = clear_color;
@@ -2143,6 +2150,7 @@ class SceneBridge {
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};
   bool reflect_hgi_projection_y_{};
+  merlin::render::GpuDrivenIndexedSettings gpu_driven_indexed_;
   merlin::extraction::SceneExtractor extractor_;
   std::shared_ptr<merlin::render::Backend> renderer_;
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
@@ -3997,6 +4005,11 @@ void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
 
 void HdMerlinRenderDelegate::SetHgiProjectionYReflection(bool reflect) {
   impl_->bridge->SetHgiProjectionYReflection(reflect);
+}
+
+void HdMerlinRenderDelegate::SetGpuDrivenIndexedSettings(
+    merlin::render::GpuDrivenIndexedSettings settings) {
+  impl_->bridge->SetGpuDrivenIndexedSettings(settings);
 }
 
 HdMerlinViewportFrame

@@ -182,6 +182,25 @@ int main() {
          settings_error->code ==
              "renderer-settings.render-path-unsupported");
   settings = {};
+  settings.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Require;
+  settings_error =
+      ValidateRendererSettings(settings, &backend->capabilities());
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.gpu-driven-indexed-unsupported");
+  settings.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Prefer;
+  assert(!ValidateRendererSettings(settings, &backend->capabilities()));
+  auto gpu_driven_capabilities = backend->capabilities();
+  gpu_driven_capabilities.gpu_driven_indexed = true;
+  settings.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Require;
+  assert(!ValidateRendererSettings(settings, &gpu_driven_capabilities));
+  settings.gpu_driven_indexed.mode =
+      static_cast<GpuDrivenIndexedMode>(999);
+  settings_error = ValidateRendererSettings(settings);
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.invalid-gpu-driven-indexed-mode");
+  settings = {};
   settings.presentation_mode = PresentationMode::Native;
   auto offscreen_capabilities = backend->capabilities();
   offscreen_capabilities.external_presentation = false;

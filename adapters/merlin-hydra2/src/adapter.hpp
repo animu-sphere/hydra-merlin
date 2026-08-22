@@ -158,6 +158,8 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
   // convention. The Metal Hgi target is consumed as a top-left image, so
   // its projection needs the corresponding Y reflection.
   void SetHgiProjectionYReflection(bool reflect);
+  void SetGpuDrivenIndexedSettings(
+      merlin::render::GpuDrivenIndexedSettings settings);
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const;
 
  private:

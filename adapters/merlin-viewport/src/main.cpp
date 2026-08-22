@@ -660,6 +660,8 @@ int main(int argc, char** argv) {
 
       merlin::render::RenderRequest request;
       request.snapshot = scene_snapshot;
+      request.gpu_driven_indexed =
+          renderer_settings.contract.gpu_driven_indexed;
       request.width = width;
       request.height = height;
       request.presentation = *presentation;

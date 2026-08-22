@@ -274,8 +274,12 @@ slots, so command order within a batch is not stable, while `firstInstance`
 preserves persistent draw identity. Frame-shared candidate, result, command,
 counter, and readback buffers plus one descriptor pool avoid per-batch native
 allocation. Each batch executes one `vkCmdDrawIndexedIndirectCount` call.
-Public settings integration and draw-count-independent CPU command-recording
-evidence remain required before the completion criteria above are claimed.
+The host-neutral renderer-settings v2 contract selects disabled,
+preferred-with-fallback, or required execution and forwards the visibility
+mask plus both culling switches through the backend-neutral request. Vulkan
+maps that policy to the native runtime; Metal rejects `require` and records an
+explicit fallback for `prefer`. Draw-count-independent CPU command-recording
+evidence remains required before the completion criteria above are claimed.
 
 ## Opaque Visibility Buffer
 

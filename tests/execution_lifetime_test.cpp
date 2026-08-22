@@ -303,12 +303,26 @@ int main(int argc, char** argv) {
   backend_request.width = first.width;
   backend_request.height = first.height;
   backend_request.products = {{merlin::Aov::Color, false}};
+  backend_request.gpu_driven_indexed.mode =
+      static_cast<merlin::render::GpuDrivenIndexedMode>(999);
+  bool invalid_gpu_driven_mode_rejected{};
+  try {
+    (void)backend->Submit(backend_request);
+  } catch (const merlin::render::RendererError& error) {
+    invalid_gpu_driven_mode_rejected =
+        error.code() == merlin::render::RendererErrorCode::InvalidRequest;
+  }
+  assert(invalid_gpu_driven_mode_rejected);
+  backend_request.gpu_driven_indexed.mode =
+      merlin::render::GpuDrivenIndexedMode::Prefer;
+  assert(!backend->capabilities().gpu_driven_indexed);
   const auto backend_token = backend->Submit(backend_request);
   auto backend_export =
       exporter->AcquireAovImage(backend_token, merlin::Aov::Color);
   assert(backend_export.renderer_completion == backend_token.value());
   const auto backend_result = backend->Resolve(backend_token);
   assert(backend_result.telemetry.aov_image_export_count == 1);
+  assert(backend_result.telemetry.gpu_driven_fallback_count == 1);
   assert(backend->statistics().active_aov_image_leases == 1);
   bool wrong_renderer_rejected{};
   try {

@@ -98,12 +98,31 @@ int main() {
             "unsupported tone mapping mutated settings or lost its code");
     request.contract.tone_mapping = merlin::render::ToneMapping::None;
 
+    request.contract.gpu_driven_indexed.mode =
+        merlin::render::GpuDrivenIndexedMode::Require;
+    Require(!ApplyDeveloperUiRendererSettings(request, capabilities, settings,
+                                              feedback),
+            "required unavailable GPU-driven execution was accepted");
+    Require(settings.revision == 2 &&
+                feedback.message.find(
+                    "renderer-settings.gpu-driven-indexed-unsupported") == 0,
+            "GPU-driven rejection mutated settings or lost its code");
+    request.contract.gpu_driven_indexed.mode =
+        merlin::render::GpuDrivenIndexedMode::Prefer;
+    Require(ApplyDeveloperUiRendererSettings(request, capabilities, settings,
+                                             feedback),
+            "preferred GPU-driven fallback was rejected");
+    Require(settings.revision == 3 &&
+                settings.contract.gpu_driven_indexed.mode ==
+                    merlin::render::GpuDrivenIndexedMode::Prefer,
+            "preferred GPU-driven setting was not retained");
+
     request.contract.schema_version =
         merlin::render::kRendererSettingsSchemaVersion + 1;
     Require(!ApplyDeveloperUiRendererSettings(request, capabilities, settings,
                                               feedback),
             "unsupported renderer settings schema was accepted");
-    Require(settings.revision == 2 &&
+    Require(settings.revision == 3 &&
                 feedback.message.find(
                     "renderer-settings.unsupported-schema") == 0,
             "schema rejection did not preserve settings or report its code");
