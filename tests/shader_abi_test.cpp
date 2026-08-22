@@ -140,12 +140,12 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 17) {
+    if (argc != 18) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
           "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
           "gpu-scene.frag.json gpu-driven.comp.json gpu-driven.vert.json "
-          "gpu-driven.frag.json gaussian.vert.json "
+          "gpu-driven.frag.json gaussian-prepare.comp.json gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -160,13 +160,14 @@ int main(int argc, char** argv) {
     const auto gpu_driven_compute = CompactJson(Read(argv[7]));
     const auto gpu_driven_vertex = CompactJson(Read(argv[8]));
     const auto gpu_driven_fragment = CompactJson(Read(argv[9]));
-    const auto gaussian_vertex = CompactJson(Read(argv[10]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[11]));
-    const auto gaussian_fragment = CompactJson(Read(argv[12]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[13]));
-    const auto metal_vertex = CompactJson(Read(argv[14]));
-    const auto metal_fragment = CompactJson(Read(argv[15]));
-    const auto manifest = CompactJson(Read(argv[16]));
+    const auto gaussian_prepare_compute = CompactJson(Read(argv[10]));
+    const auto gaussian_vertex = CompactJson(Read(argv[11]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[12]));
+    const auto gaussian_fragment = CompactJson(Read(argv[13]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[14]));
+    const auto metal_vertex = CompactJson(Read(argv[15]));
+    const auto metal_fragment = CompactJson(Read(argv[16]));
+    const auto manifest = CompactJson(Read(argv[17]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -281,6 +282,55 @@ int main(int argc, char** argv) {
                     "GPU-driven indexed compute entry point mismatch");
     RequireContains(gpu_driven_compute, "\"threadGroupSize\":[64,1,1]",
                     "GPU-driven compute workgroup size is incorrect");
+    RequireContains(gaussian_prepare_compute,
+                    "\"name\":\"GaussianPrepareConstants\"",
+                    "Gaussian prepare constants are absent from reflection");
+    RequireContains(
+        gaussian_prepare_compute,
+        "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
+        "Gaussian prepare constants are not a push constant buffer");
+    RequireField(gaussian_prepare_compute, "local_to_camera", 0, 64);
+    RequireField(gaussian_prepare_compute, "projection", 64, 64);
+    RequireField(gaussian_prepare_compute, "viewport_size", 128, 8);
+    RequireField(gaussian_prepare_compute, "sigma_extent", 136, 4);
+    RequireField(gaussian_prepare_compute, "resource_id_low", 144, 4);
+    RequireField(gaussian_prepare_compute, "particle_count", 152, 4);
+    RequireField(gaussian_prepare_compute, "spherical_harmonics_degree", 160,
+                 4);
+    RequireField(gaussian_prepare_compute, "sorting_mode", 168, 4);
+    RequireContains(gaussian_prepare_compute,
+                    "\"name\":\"GaussianPreparedRecord\"",
+                    "Gaussian prepared record is absent from reflection");
+    RequireField(gaussian_prepare_compute, "center_pixels", 0, 8);
+    RequireField(gaussian_prepare_compute, "inverse_conic", 16, 12);
+    RequireField(gaussian_prepare_compute, "radiance", 32, 12);
+    RequireField(gaussian_prepare_compute, "resource_id_low", 48, 4);
+    RequireField(gaussian_prepare_compute, "particle_id", 56, 4);
+    RequireContains(gaussian_prepare_compute,
+                    "\"name\":\"GaussianPrepareDispatchCounters\"",
+                    "Gaussian prepare counters are absent from reflection");
+    RequireField(gaussian_prepare_compute, "invalid_culled_count", 16, 4);
+    RequireBinding(gaussian_prepare_compute, "gaussian_positions",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":0}");
+    RequireBinding(gaussian_prepare_compute, "gaussian_covariances",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":1}");
+    RequireBinding(gaussian_prepare_compute, "gaussian_opacities",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":2}");
+    RequireBinding(gaussian_prepare_compute, "gaussian_radiance",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":3}");
+    RequireBinding(gaussian_prepare_compute, "gaussian_candidate_results",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":4}");
+    RequireBinding(gaussian_prepare_compute, "gaussian_prepared_records",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":5}");
+    RequireBinding(gaussian_prepare_compute, "gaussian_prepare_counters",
+                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":6}");
+    RequireContains(
+        gaussian_prepare_compute,
+        "\"name\":\"gaussian_prepare_compact\",\"stage\":\"compute\"",
+        "Gaussian prepare compute entry point mismatch");
+    RequireContains(gaussian_prepare_compute,
+                    "\"threadGroupSize\":[64,1,1]",
+                    "Gaussian prepare workgroup size is incorrect");
     RequireContains(gaussian_vertex,
                     "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
                     "Gaussian vertex entry point mismatch");
@@ -311,7 +361,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
                     "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":5",
+    RequireContains(manifest, "\"shader_abi_version\":6",
                     "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
                     "Slang toolchain series is not pinned");
@@ -327,14 +377,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 15,
+                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 16,
             "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 5);
+    static_assert(kVersion == 6);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -352,6 +402,14 @@ int main(int argc, char** argv) {
     static_assert(kGpuDrivenCandidateResults.binding == 1);
     static_assert(kGpuDrivenIndirectCommands.binding == 2);
     static_assert(kGpuDrivenDispatchCounters.binding == 3);
+    static_assert(kGaussianPositions.set == 3);
+    static_assert(kGaussianPositions.binding == 0);
+    static_assert(kGaussianPreparedRecords.binding == 5);
+    static_assert(kGaussianPrepareCounters.binding == 6);
+    static_assert(GaussianPrepareWorkgroupCount(0) == 0);
+    static_assert(GaussianPrepareWorkgroupCount(1) == 1);
+    static_assert(GaussianPrepareWorkgroupCount(64) == 1);
+    static_assert(GaussianPrepareWorkgroupCount(65) == 2);
     static_assert(GpuDrivenIndexedWorkgroupCount(0) == 0);
     static_assert(GpuDrivenIndexedWorkgroupCount(1) == 1);
     static_assert(GpuDrivenIndexedWorkgroupCount(64) == 1);

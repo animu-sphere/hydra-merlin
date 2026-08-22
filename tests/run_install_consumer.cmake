@@ -47,6 +47,7 @@ if(EXISTS "${_headless}")
       triangle.bindless.vert.spv triangle.bindless.frag.spv
       triangle.gpu-scene.vert.spv triangle.gpu-scene.frag.spv
       gpu-driven-indexed.comp.spv
+      gaussian-prepare.comp.spv
       triangle.vert.metal triangle.frag.metal
       triangle.vert.spv.reflection.json triangle.frag.spv.reflection.json
       triangle.bindless.vert.spv.reflection.json
@@ -54,6 +55,7 @@ if(EXISTS "${_headless}")
       triangle.gpu-scene.vert.spv.reflection.json
       triangle.gpu-scene.frag.spv.reflection.json
       gpu-driven-indexed.comp.spv.reflection.json
+      gaussian-prepare.comp.spv.reflection.json
       gaussian.vert.spv.reflection.json gaussian.frag.spv.reflection.json
       gaussian-id.vert.spv.reflection.json
       gaussian-id.frag.spv.reflection.json

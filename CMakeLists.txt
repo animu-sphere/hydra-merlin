@@ -41,7 +41,7 @@ set(MERLIN_OPENUSD_VALIDATED_VERSIONS "26.05;26.08")
 set(MERLIN_OPENUSD_VALIDATED_VERSION "26.05")
 set(MERLIN_SLANG_REQUIRED_SERIES "2026.8")
 set(MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION 2)
-set(MERLIN_SHADER_ABI_VERSION 5)
+set(MERLIN_SHADER_ABI_VERSION 6)
 # Identity schemas defined by merlin/core/shader_artifact.hpp. The shader
 # manifest is generated against these, so a formula change is a schema change.
 set(MERLIN_SHADER_MODULE_IDENTITY_SCHEMA "merlin.shader-module-identity/v1")
