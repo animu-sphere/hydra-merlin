@@ -92,6 +92,69 @@ std::shared_ptr<FrameSnapshot> MakeMultiDrawSnapshot() {
   return snapshot;
 }
 
+std::shared_ptr<FrameSnapshot> MakeMixedPipelineSnapshot() {
+  auto snapshot = MakeMultiDrawSnapshot();
+  snapshot->source_id = 43;
+  snapshot->revision = 3;
+
+  auto second_material = snapshot->materials[0];
+  second_material.material = 203;
+  second_material.revision = 9;
+  second_material.double_sided = true;
+  second_material.parameters.base_color = {0.9F, 0.3F, 0.2F, 1.0F};
+  snapshot->materials.push_back(second_material);
+
+  auto second_instance = snapshot->instances[1];
+  second_instance.material = second_material.material;
+  second_instance.revision = 10;
+  snapshot->instances.replace(1, second_instance);
+
+  auto second_draw = snapshot->draws[1];
+  second_draw.material_index = 1;
+  second_draw.revision = 11;
+  snapshot->draws.replace(1, second_draw);
+  return snapshot;
+}
+
+std::shared_ptr<FrameSnapshot> MakePipelineBatchSnapshot(
+    std::uint32_t draw_count, bool alternate_pipeline_state) {
+  auto snapshot = MakeSnapshot();
+  snapshot->source_id = 44;
+  snapshot->revision = 4;
+
+  auto double_sided = snapshot->materials[0];
+  double_sided.material = 203;
+  double_sided.revision = 9;
+  double_sided.double_sided = true;
+  snapshot->materials.assign({snapshot->materials[0], double_sided});
+
+  const auto base_instance = snapshot->instances[0];
+  const auto base_draw = snapshot->draws[0];
+  std::vector<InstanceRecord> instances;
+  std::vector<DrawRecord> draws;
+  instances.reserve(draw_count);
+  draws.reserve(draw_count);
+  for (std::uint32_t i = 0; i < draw_count; ++i) {
+    const auto material_index = alternate_pipeline_state ? i % 2U : 0U;
+    auto instance = base_instance;
+    instance.instance = 1000U + i;
+    instance.material = snapshot->materials[material_index].material;
+    instance.revision = 100U + i;
+    instances.push_back(instance);
+
+    auto draw = base_draw;
+    draw.material_index = material_index;
+    draw.instance_index = i;
+    draw.instance = instance.instance;
+    draw.draw = 0x4000000000000000ULL + i;
+    draw.revision = 200U + i;
+    draws.push_back(draw);
+  }
+  snapshot->instances.assign(std::move(instances));
+  snapshot->draws.assign(std::move(draws));
+  return snapshot;
+}
+
 merlin::vulkan::ShaderPaths MakeShaders(const std::filesystem::path& root) {
   return {root / "triangle.vert.spv",
           root / "triangle.frag.spv",
@@ -421,6 +484,91 @@ int main(int argc, char** argv) {
     throw std::runtime_error(
         "GPU-driven Forward did not preserve non-zero firstInstance identity");
   }
+
+  const auto mixed_pipeline_snapshot = MakeMixedPipelineSnapshot();
+  GpuScenePackingState mixed_pipeline_packing(capacities);
+  const std::vector mixed_pipeline_bindings{GpuMaterialBinding{},
+                                             GpuMaterialBinding{}};
+  auto mixed_pipeline_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          mixed_pipeline_packing.Apply(
+              *mixed_pipeline_snapshot, 0, 0,
+              GpuScenePackingInputs{multi_placements, multi_identities,
+                                    mixed_pipeline_bindings}));
+  const auto mixed_pipeline = Submit(
+      *renderer, mixed_pipeline_snapshot, shaders, mixed_pipeline_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(mixed_pipeline.counters.gpu_driven_candidate_draw_count == 2);
+  assert(mixed_pipeline.counters.gpu_driven_visible_draw_count == 2);
+  assert(mixed_pipeline.counters.gpu_driven_indirect_draw_count == 2);
+  assert(mixed_pipeline.counters.gpu_driven_candidate_upload_bytes ==
+         2 * sizeof(std::uint32_t));
+  assert(mixed_pipeline.counters.gpu_driven_fallback_count == 0);
+  found_first_identity = false;
+  found_second_identity = false;
+  for (const auto id : mixed_pipeline.prim_id.pixels) {
+    found_first_identity = found_first_identity || id == 17;
+    found_second_identity = found_second_identity || id == 18;
+  }
+  if (!found_first_identity || !found_second_identity) {
+    throw std::runtime_error(
+        "mixed-pipeline GPU-driven batches did not preserve draw identity");
+  }
+
+  constexpr std::uint32_t alternating_batch_count = 32;
+  constexpr GpuScenePackingCapacities alternating_capacities{
+      2, alternating_batch_count, 2, alternating_batch_count};
+  auto alternating_options = options;
+  alternating_options.gpu_scene_capacities = alternating_capacities;
+  merlin::vulkan::Renderer alternating_renderer(alternating_options);
+  const auto alternating_snapshot =
+      MakePipelineBatchSnapshot(alternating_batch_count, true);
+  GpuScenePackingState alternating_packing(alternating_capacities);
+  const std::vector alternating_placements{GpuGeometryPlacement{0, 0}};
+  std::vector<GpuInstanceIdentity> alternating_identities;
+  alternating_identities.reserve(alternating_batch_count);
+  for (std::uint32_t i = 0; i < alternating_batch_count; ++i) {
+    alternating_identities.push_back({1000U + i, 2000U + i});
+  }
+  const std::vector alternating_bindings{GpuMaterialBinding{},
+                                          GpuMaterialBinding{}};
+  auto alternating_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          alternating_packing.Apply(
+              *alternating_snapshot, 0, 0,
+              GpuScenePackingInputs{alternating_placements,
+                                    alternating_identities,
+                                    alternating_bindings}));
+  const auto alternating = Submit(
+      alternating_renderer, alternating_snapshot, shaders,
+      alternating_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(alternating.counters.gpu_driven_candidate_draw_count ==
+         alternating_batch_count);
+  assert(alternating.counters.gpu_driven_visible_draw_count ==
+         alternating_batch_count);
+  assert(alternating.counters.gpu_driven_indirect_draw_count ==
+         alternating_batch_count);
+  assert(alternating.counters.gpu_driven_fallback_count == 0);
+
+  merlin::vulkan::Renderer single_batch_renderer(alternating_options);
+  const auto single_batch_snapshot =
+      MakePipelineBatchSnapshot(alternating_batch_count, false);
+  GpuScenePackingState single_batch_packing(alternating_capacities);
+  auto single_batch_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          single_batch_packing.Apply(
+              *single_batch_snapshot, 0, 0,
+              GpuScenePackingInputs{alternating_placements,
+                                    alternating_identities,
+                                    alternating_bindings}));
+  const auto single_batch = Submit(
+      single_batch_renderer, single_batch_snapshot, shaders,
+      single_batch_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(single_batch.counters.gpu_driven_indirect_draw_count == 1);
+  assert(alternating.counters.buffer_allocation_count ==
+         single_batch.counters.buffer_allocation_count);
+  assert(alternating.counters.descriptor_pool_creation_count ==
+         single_batch.counters.descriptor_pool_creation_count);
 
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
 }

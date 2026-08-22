@@ -370,7 +370,9 @@ struct FrameCounters {
   // persistent GPU Scene tables rather than per-draw scene constants.
   std::uint64_t gpu_scene_draw_count{};
   // Explicit GPU-driven indexed Forward evidence. Candidate slots are
-  // compacted by compute and consumed by indexed-indirect-count submission.
+  // compacted per arena/pipeline batch by compute and consumed by
+  // indexed-indirect-count submission. indirect_draw_count reports native
+  // batch submissions rather than the commands selected within each batch.
   // Candidate upload bytes are zero when a frame context can reuse its
   // unchanged device-local physical-slot sequence.
   std::uint64_t gpu_driven_candidate_draw_count{};
@@ -517,9 +519,9 @@ struct RenderRequest {
   // tables; generated materials and non-bindless devices retain conventional
   // Forward as an explicit fallback.
   std::shared_ptr<const render::GpuScenePackedFrameUpdate> gpu_scene_update;
-  // GPU-driven indexed Forward remains opt-in while its supported batch
-  // boundary expands. Prefer falls back to table-backed Forward; Require
-  // reports an actionable Unsupported error.
+  // GPU-driven indexed Forward remains opt-in while its selection boundary
+  // expands. Prefer falls back to table-backed Forward; Require reports an
+  // actionable Unsupported error.
   GpuDrivenIndexedRequest gpu_driven_indexed;
 };
 

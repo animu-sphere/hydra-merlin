@@ -280,12 +280,23 @@ camera or culling inputs change, while a changed or capacity-growing sequence is
 uploaded before compute dispatch. Candidate-count telemetry remains populated
 on both paths and candidate-upload bytes distinguish reuse from replacement.
 
-Multi-arena and mixed-pipeline batching, parallel compaction, public
-renderer-settings selection, large-scene command recording evidence, and the
-Gaussian compute preparation path remain incomplete. `Prefer` falls back to
-table-backed/conventional Forward at the initial batch boundary, while
-`Require` returns an actionable unsupported reason; this slice is therefore
-runtime evidence, not the complete v0.16.0 support claim.
+Vulkan GPU-driven execution now partitions the stable draw sequence into
+consecutive arena/pipeline batches. Each frame context owns one aligned shared
+candidate, result, indirect-command, counter, and counter-readback buffer plus
+one descriptor pool; batches address bounded ranges rather than creating native
+memory allocations per draw group. Each batch receives one compute dispatch,
+binds its vertex/index arena blocks and raster pipeline, and submits one
+indexed-indirect-count draw. Candidate uploads from all changed or relocated
+batches share a single staging-ring reservation, unchanged per-frame-context
+batch sequences remain zero-upload, and resolved culling counters are validated
+per batch before being accumulated for frame telemetry. Validation-backed
+coverage proves both mixed-pipeline output and a 32-batch alternating-state
+scene with buffer and descriptor-pool allocations equal to a one-batch control.
+
+Parallel compaction, public renderer-settings selection, large-scene command
+recording evidence, and the Gaussian compute preparation path remain
+incomplete. This slice is therefore runtime evidence, not the complete v0.16.0
+support claim.
 
 ## Near-term execution order
 
