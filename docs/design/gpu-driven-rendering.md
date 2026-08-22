@@ -264,17 +264,18 @@ Completion requires CPU command-recording cost to stop scaling linearly with
 draw count, Forward output to match the conventional path, and culling on/off
 to be selectable for validation.
 
-The initial Vulkan runtime slice deliberately selects only one physical
-vertex/index arena and graphics-pipeline batch. An explicit native request
-chooses disabled, preferred-with-fallback, or required execution. The selected
-path retains physical draw-slot candidates in the reusable frame context,
-uploads them only when the ordered slot sequence changes, runs the deterministic
-reference compute kernel, executes its device-local command/count output with
-`vkCmdDrawIndexedIndirectCount`, and resolves the draw through `firstInstance`
-in the Forward stages. This proves the execution and synchronization ABI while
-leaving multi-batch grouping, parallel compaction, and public settings
-integration as required follow-up before the completion criteria above are
-claimed.
+The Vulkan runtime partitions consecutive draws by physical vertex/index arena
+and graphics-pipeline state. An explicit native request chooses disabled,
+preferred-with-fallback, or required execution. Reusable frame contexts retain
+each batch's physical draw-slot candidates and upload them only when the ordered
+slot sequence or batch placement changes. Candidate classification runs in
+64-thread compute workgroups; visible draws atomically reserve compact command
+slots, so command order within a batch is not stable, while `firstInstance`
+preserves persistent draw identity. Frame-shared candidate, result, command,
+counter, and readback buffers plus one descriptor pool avoid per-batch native
+allocation. Each batch executes one `vkCmdDrawIndexedIndirectCount` call.
+Public settings integration and draw-count-independent CPU command-recording
+evidence remain required before the completion criteria above are claimed.
 
 ## Opaque Visibility Buffer
 

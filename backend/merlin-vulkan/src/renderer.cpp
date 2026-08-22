@@ -3955,7 +3955,7 @@ class Renderer::Impl {
     resources.dispatch_counters = CreateBuffer(
         resources.counter_capacity_bytes,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     resources.counter_readback = CreateBuffer(
         resources.counter_capacity_bytes,
@@ -7260,6 +7260,19 @@ class Renderer::Impl {
       return;
     }
     for (const auto& batch : frame.gpu_driven.batches) {
+      vkCmdFillBuffer(command, frame.gpu_driven.dispatch_counters.handle,
+                      batch.counter_offset,
+                      sizeof(shader_abi::GpuDrivenIndexedDispatchCounters),
+                      0U);
+    }
+    VkMemoryBarrier counter_clear_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    counter_clear_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    counter_clear_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                                          VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &counter_clear_barrier, 0, nullptr, 0, nullptr);
+    for (const auto& batch : frame.gpu_driven.batches) {
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
                         batch.compute_pipeline);
       const std::array descriptor_sets{
@@ -7285,7 +7298,10 @@ class Renderer::Impl {
       vkCmdPushConstants(command, gpu_driven_pipeline_layout_,
                          VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
                          &constants);
-      vkCmdDispatch(command, 1, 1, 1);
+      const auto workgroup_count =
+          1U + (batch.candidate_count - 1U) /
+                   shader_abi::kGpuDrivenIndexedWorkgroupSize;
+      vkCmdDispatch(command, workgroup_count, 1, 1);
     }
     VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;

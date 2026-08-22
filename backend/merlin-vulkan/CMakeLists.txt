@@ -221,8 +221,8 @@ _merlin_compile_shader("${MERLIN_GPU_SCENE_FRAGMENT_SPV}" forward-gpu-scene.slan
   "${_merlin_bindless_features}+gpu_scene_abi_v1")
 _merlin_compile_shader("${MERLIN_GPU_DRIVEN_INDEXED_COMPUTE_SPV}"
   gpu-driven-indexed.slang gpu_driven_indexed_compact compute spirv
-  "${_merlin_slang_spirv_profile}" spirv_1_5 gpu-driven-indexed-reference
-  "gpu_scene_abi_v1+visibility_mask_culling+frustum_culling+indirect_compaction")
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gpu-driven-indexed-parallel
+  "gpu_scene_abi_v1+visibility_mask_culling+frustum_culling+parallel_atomic_compaction")
 _merlin_compile_shader("${MERLIN_GPU_DRIVEN_VERTEX_SPV}"
   forward-gpu-driven.slang forward_gpu_driven_vertex vertex spirv
   "${_merlin_slang_spirv_profile}" spirv_1_5+spvShaderNonUniformEXT

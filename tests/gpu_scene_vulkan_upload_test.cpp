@@ -570,5 +570,50 @@ int main(int argc, char** argv) {
   assert(alternating.counters.descriptor_pool_creation_count ==
          single_batch.counters.descriptor_pool_creation_count);
 
+  // Exercise parallel compaction across multiple compute workgroups in one
+  // native batch. Every third candidate is rejected by the visibility mask;
+  // the remaining commands reserve distinct compacted output slots atomically.
+  constexpr std::uint32_t parallel_candidate_count = 130;
+  constexpr auto parallel_culled_count =
+      (parallel_candidate_count + 2U) / 3U;
+  constexpr GpuScenePackingCapacities parallel_capacities{
+      2, parallel_candidate_count, 2, parallel_candidate_count};
+  auto parallel_options = options;
+  parallel_options.gpu_scene_capacities = parallel_capacities;
+  merlin::vulkan::Renderer parallel_renderer(parallel_options);
+  auto parallel_snapshot =
+      MakePipelineBatchSnapshot(parallel_candidate_count, false);
+  parallel_snapshot->source_id = 45;
+  parallel_snapshot->revision = 5;
+  GpuScenePackingState parallel_packing(parallel_capacities);
+  std::vector<GpuInstanceIdentity> parallel_identities;
+  parallel_identities.reserve(parallel_candidate_count);
+  for (std::uint32_t i = 0; i < parallel_candidate_count; ++i) {
+    parallel_identities.push_back(
+        {3000U + i, 4000U + i,
+         i % 3U == 0U ? 0U : ~std::uint32_t{}});
+  }
+  const std::vector parallel_bindings{GpuMaterialBinding{},
+                                      GpuMaterialBinding{}};
+  auto parallel_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          parallel_packing.Apply(
+              *parallel_snapshot, 0, 0,
+              GpuScenePackingInputs{
+                  alternating_placements, parallel_identities,
+                  parallel_bindings}));
+  const auto parallel = Submit(
+      parallel_renderer, parallel_snapshot, shaders, parallel_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(parallel.counters.gpu_driven_candidate_draw_count ==
+         parallel_candidate_count);
+  assert(parallel.counters.gpu_driven_visible_draw_count ==
+         parallel_candidate_count - parallel_culled_count);
+  assert(parallel.counters.gpu_driven_visibility_mask_culled_count ==
+         parallel_culled_count);
+  assert(parallel.counters.gpu_driven_frustum_culled_count == 0);
+  assert(parallel.counters.gpu_driven_indirect_draw_count == 1);
+  assert(parallel.counters.gpu_driven_fallback_count == 0);
+
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
 }
