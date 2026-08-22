@@ -376,6 +376,9 @@ HdMerlinHgiVulkanBridge::BorrowedContext() const {
   result.timeline_semaphore_enabled =
       capabilities != nullptr &&
       capabilities->vkVulkan12Features.timelineSemaphore == VK_TRUE;
+  // The validated HgiVulkan packages expose physical-device support here,
+  // but do not enable drawIndirectFirstInstance when creating VkDevice.
+  result.draw_indirect_first_instance_enabled = false;
   result.validation_enabled = HgiVulkanIsValidationEnabled();
   result.debug_utils_enabled =
       instance->vkCreateDebugUtilsMessengerEXT != nullptr;

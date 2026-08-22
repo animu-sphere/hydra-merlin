@@ -26,6 +26,7 @@ struct VulkanContext {
   VkDevice device{};
   VkQueue queue{};
   std::uint32_t queue_family{};
+  bool draw_indirect_first_instance_enabled{};
 
   ~VulkanContext() {
     if (device != VK_NULL_HANDLE) {
@@ -121,7 +122,11 @@ bool CreateContext(VulkanContext& result) {
       enabled_timeline.timelineSemaphore = VK_TRUE;
       VkDeviceCreateInfo device_info{
           VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+      VkPhysicalDeviceFeatures enabled_core_features{};
+      enabled_core_features.drawIndirectFirstInstance =
+          features.features.drawIndirectFirstInstance;
       device_info.pNext = &enabled_timeline;
+      device_info.pEnabledFeatures = &enabled_core_features;
       device_info.queueCreateInfoCount = 1;
       device_info.pQueueCreateInfos = &queue_info;
       if (vkCreateDevice(candidate, &device_info, nullptr, &result.device) !=
@@ -130,6 +135,8 @@ bool CreateContext(VulkanContext& result) {
       }
       result.physical_device = candidate;
       result.queue_family = index;
+      result.draw_indirect_first_instance_enabled =
+          enabled_core_features.drawIndirectFirstInstance == VK_TRUE;
       vkGetDeviceQueue(result.device, index, 0, &result.queue);
       return result.queue != VK_NULL_HANDLE;
     }
@@ -147,6 +154,8 @@ merlin::vulkan::BorrowedVulkanContext Describe(
   result.graphics_queue_family = context.queue_family;
   result.graphics_queue_index = 0;
   result.timeline_semaphore_enabled = true;
+  result.draw_indirect_first_instance_enabled =
+      context.draw_indirect_first_instance_enabled;
   result.debug_utils_enabled = true;
   return result;
 }
@@ -217,6 +226,8 @@ int main() {
     const auto& capabilities = renderer.capabilities();
     if (!capabilities.borrowed_vulkan_context ||
         !capabilities.timeline_semaphore ||
+        capabilities.draw_indirect_first_instance !=
+            context.draw_indirect_first_instance_enabled ||
         capabilities.async_transfer_queue ||
         capabilities.queue_ownership_transfers ||
         capabilities.graphics_queue_family != context.queue_family ||

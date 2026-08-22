@@ -487,6 +487,7 @@ if(TARGET Merlin::Vulkan)
       "${MERLIN_BINDLESS_FRAGMENT_SPV}.reflection.json"
       "${MERLIN_GPU_SCENE_VERTEX_SPV}.reflection.json"
       "${MERLIN_GPU_SCENE_FRAGMENT_SPV}.reflection.json"
+      "${MERLIN_GPU_DRIVEN_INDEXED_COMPUTE_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"

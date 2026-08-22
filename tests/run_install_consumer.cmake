@@ -45,10 +45,15 @@ if(EXISTS "${_headless}")
       gaussian.vert.spv gaussian.frag.spv
       gaussian-id.vert.spv gaussian-id.frag.spv
       triangle.bindless.vert.spv triangle.bindless.frag.spv
+      triangle.gpu-scene.vert.spv triangle.gpu-scene.frag.spv
+      gpu-driven-indexed.comp.spv
       triangle.vert.metal triangle.frag.metal
       triangle.vert.spv.reflection.json triangle.frag.spv.reflection.json
       triangle.bindless.vert.spv.reflection.json
       triangle.bindless.frag.spv.reflection.json
+      triangle.gpu-scene.vert.spv.reflection.json
+      triangle.gpu-scene.frag.spv.reflection.json
+      gpu-driven-indexed.comp.spv.reflection.json
       gaussian.vert.spv.reflection.json gaussian.frag.spv.reflection.json
       gaussian-id.vert.spv.reflection.json
       gaussian-id.frag.spv.reflection.json

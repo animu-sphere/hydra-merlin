@@ -249,6 +249,8 @@ void WriteMetadata(const std::filesystem::path& path,
   WriteJsonString(stream, capabilities.driver_info);
   stream << ",\n    \"timeline_semaphore\": "
          << (capabilities.timeline_semaphore ? "true" : "false")
+         << ",\n    \"draw_indirect_first_instance\": "
+         << (capabilities.draw_indirect_first_instance ? "true" : "false")
          << ",\n    \"queues\": {\n"
          << "      \"graphics_family\": "
          << capabilities.graphics_queue_family
@@ -613,6 +615,9 @@ int main(int argc, char** argv) {
               << VK_VERSION_PATCH(capabilities.api_version) << '\n'
               << "Timeline semaphore: "
               << (capabilities.timeline_semaphore ? "yes" : "no") << '\n'
+              << "Indirect first instance: "
+              << (capabilities.draw_indirect_first_instance ? "yes" : "no")
+              << '\n'
               << "Async transfer queue: "
               << (capabilities.async_transfer_queue ? "yes" : "no") << '\n'
               << "Device-local budget: "

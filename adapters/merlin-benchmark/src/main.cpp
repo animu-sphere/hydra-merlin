@@ -708,6 +708,8 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   JsonString(stream, VersionString(capabilities.api_version));
   stream << ",\n    \"timestamp_queries\": "
          << (capabilities.timestamp_queries ? "true" : "false")
+         << ",\n    \"draw_indirect_first_instance\": "
+         << (capabilities.draw_indirect_first_instance ? "true" : "false")
          << ",\n    \"generated_materials\": "
          << (capabilities.generated_materials ? "true" : "false")
          << ",\n    \"async_transfer_queue\": "

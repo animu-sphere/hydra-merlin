@@ -98,7 +98,7 @@ meeting the Vulkan 1.4 baseline alone does not select every fast path.
 | Path | Additional selection contract | Required fallback |
 | --- | --- | --- |
 | Bindless Forward / GPU Scene | Required descriptor-indexing, non-uniform access, table-size, and update/lifetime behavior pass validation | Conventional Forward descriptors |
-| GPU-driven indexed | Indirect count/draw identity and compute culling pass correctness and performance gates | Conventional indexed submission |
+| GPU-driven indexed | `drawIndirectFirstInstance` is enabled by an owned device or declared enabled by a borrowed host; indirect count/draw identity and compute culling pass correctness and performance gates | Conventional indexed submission |
 | Visibility | Storage/compute resolve and ID attachment support; fragment-shader barycentrics are optional because reconstruction is available | Forward opaque/material fallback |
 | Meshlet indexed indirect | Compute compaction and meshlet data limits pass builder, culling, identity, and performance gates | GPU-driven or conventional indexed geometry |
 | Meshlet Mesh Shader | `VK_EXT_mesh_shader`, device limits, subgroup behavior, driver stability, and a named-profile benchmark win | Meshlet indexed indirect |
