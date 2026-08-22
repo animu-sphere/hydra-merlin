@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -45,6 +46,7 @@ merlin::extraction::GaussianRecord MakeRecord(
 int main() {
   using merlin::vulkan::detail::EvaluateGaussianRadiance;
   using merlin::vulkan::detail::PrepareGaussianFrame;
+  using merlin::vulkan::detail::SelectGaussianSortingPolicy;
 
   // Degree-zero authored radiance follows the real SH normalization and the
   // 3DGS +0.5 display bias without prematurely clamping HDR values.
@@ -155,6 +157,40 @@ int main() {
   assert(mixed_sorting.counters.sorting_policy_fallback_count == 2);
   assert(mixed_sorting.gaussians[0].resource == 21);
   assert(mixed_sorting.gaussians[1].resource == 22);
+
+  // Every consumer of a frame selects its key domain through this one policy,
+  // so the GPU dispatch cannot key its records against a different mode.
+  const auto mixed_policy = SelectGaussianSortingPolicy(mixed_sorting_snapshot);
+  assert(mixed_policy.mode == merlin::GaussianSortingMode::ZDepth);
+  assert(mixed_policy.fallback_resource_count == 2);
+
+  // A uniformly authored frame keeps its authored domain and diagnoses nothing.
+  merlin::extraction::FrameSnapshot uniform_sorting_snapshot;
+  uniform_sorting_snapshot.gaussians.push_back(MakeRecord(
+      23, {{0.0F, 0.0F, 0.9F}}, {1.0F},
+      merlin::GaussianProjectionMode::Perspective,
+      merlin::GaussianSortingMode::CameraDistance));
+  uniform_sorting_snapshot.gaussians.push_back(MakeRecord(
+      24, {{2.0F, 0.0F, 0.2F}}, {1.0F},
+      merlin::GaussianProjectionMode::Perspective,
+      merlin::GaussianSortingMode::CameraDistance));
+  const auto uniform_policy =
+      SelectGaussianSortingPolicy(uniform_sorting_snapshot);
+  assert(uniform_policy.mode == merlin::GaussianSortingMode::CameraDistance);
+  assert(uniform_policy.fallback_resource_count == 0);
+
+  // A hidden resource authors no policy: it never reaches a sorted stream.
+  auto hidden_record = MakeRecord(
+      25, {{0.0F, 0.0F, 0.5F}}, {1.0F},
+      merlin::GaussianProjectionMode::Perspective,
+      merlin::GaussianSortingMode::ZDepth);
+  hidden_record.visible = false;
+  auto hidden_sorting_snapshot = uniform_sorting_snapshot;
+  hidden_sorting_snapshot.gaussians.push_back(std::move(hidden_record));
+  const auto hidden_policy =
+      SelectGaussianSortingPolicy(hidden_sorting_snapshot);
+  assert(hidden_policy.mode == merlin::GaussianSortingMode::CameraDistance);
+  assert(hidden_policy.fallback_resource_count == 0);
 
   return 0;
 }

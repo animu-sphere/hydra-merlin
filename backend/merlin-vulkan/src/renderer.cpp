@@ -632,13 +632,15 @@ class DeviceArena {
                   VkBufferUsageFlags usage,
                   DeviceMemoryBudget* memory_budget,
                   std::uint32_t graphics_queue_family,
-                  std::uint32_t transfer_queue_family) {
+                  std::uint32_t transfer_queue_family,
+                  VkDeviceSize alignment = kArenaAlignment) {
     device_ = device;
     physical_device_ = physical_device;
     usage_ = usage;
     memory_budget_ = memory_budget;
     graphics_queue_family_ = graphics_queue_family;
     transfer_queue_family_ = transfer_queue_family;
+    alignment_ = std::max<VkDeviceSize>(alignment, kArenaAlignment);
   }
 
   void Destroy() noexcept {
@@ -649,7 +651,7 @@ class DeviceArena {
   }
 
   Allocation Allocate(VkDeviceSize bytes) {
-    const auto aligned = AlignUp(bytes, kArenaAlignment);
+    const auto aligned = AlignUp(bytes, alignment_);
     for (std::uint32_t index = 0; index < blocks_.size(); ++index) {
       auto& spans = blocks_[index].free_spans;
       for (auto span = spans.begin(); span != spans.end(); ++span) {
@@ -715,6 +717,10 @@ class DeviceArena {
     return blocks_[block].buffer.handle;
   }
 
+  [[nodiscard]] VkDeviceSize aligned_size(VkDeviceSize bytes) const noexcept {
+    return AlignUp(bytes, alignment_);
+  }
+
   [[nodiscard]] std::uint32_t block_count() const noexcept {
     return static_cast<std::uint32_t>(blocks_.size());
   }
@@ -766,6 +772,7 @@ class DeviceArena {
   DeviceMemoryBudget* memory_budget_{};
   std::uint32_t graphics_queue_family_{VK_QUEUE_FAMILY_IGNORED};
   std::uint32_t transfer_queue_family_{VK_QUEUE_FAMILY_IGNORED};
+  VkDeviceSize alignment_{kArenaAlignment};
   std::vector<Block> blocks_;
   ArenaTelemetry telemetry_;
 };
@@ -1088,13 +1095,17 @@ class Renderer::Impl {
           &memory_budget_, queue_family_, transfer_queue_family_);
       constexpr auto gaussian_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
       gaussian_position_arena_.Initialize(device_, physical_device_,
-          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_,
+          storage_buffer_alignment_);
       gaussian_covariance_arena_.Initialize(device_, physical_device_,
-          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_,
+          storage_buffer_alignment_);
       gaussian_opacity_arena_.Initialize(device_, physical_device_,
-          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_,
+          storage_buffer_alignment_);
       gaussian_radiance_arena_.Initialize(device_, physical_device_,
-          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_);
+          gaussian_usage, &memory_budget_, queue_family_, transfer_queue_family_,
+          storage_buffer_alignment_);
       staging_.Initialize(device_, physical_device_, &memory_budget_);
       gaussian_staging_.Initialize(device_, physical_device_, &memory_budget_);
       gpu_scene_staging_.Initialize(device_, physical_device_,
@@ -1201,6 +1212,8 @@ class Renderer::Impl {
         DestroyBuffer(frame.generated_parameter_uniforms);
         DestroyBuffer(frame.gaussian_instances);
         DestroyGpuDrivenFrameResources(frame.gpu_driven);
+        DestroyGaussianGpuPreparationFrameResources(
+            frame.gaussian_gpu_preparation);
         if (frame.image_available != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, frame.image_available, nullptr);
         }
@@ -1256,6 +1269,24 @@ class Renderer::Impl {
         vkDestroyDescriptorSetLayout(device_,
                                      gpu_driven_descriptor_set_layout_,
                                      nullptr);
+      }
+      for (const auto& [path, pipeline] :
+           gaussian_prepare_compute_pipelines_) {
+        (void)path;
+        vkDestroyPipeline(device_, pipeline, nullptr);
+      }
+      gaussian_prepare_compute_pipelines_.clear();
+      if (gaussian_prepare_pipeline_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device_, gaussian_prepare_pipeline_layout_,
+                                nullptr);
+      }
+      if (gaussian_prepare_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(
+            device_, gaussian_prepare_descriptor_set_layout_, nullptr);
+      }
+      if (gaussian_prepare_empty_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(
+            device_, gaussian_prepare_empty_descriptor_set_layout_, nullptr);
       }
       if (timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
@@ -1426,6 +1457,7 @@ class Renderer::Impl {
     SyncGaussianAttributes(*request.snapshot, resource_sync_mode);
     gaussian_attribute_upload_ns =
         ElapsedNanoseconds(gaussian_attribute_upload_start);
+    PrepareGaussianGpuPreparation(frame, *request.snapshot, request);
     const auto gaussian_prepared_upload_start = CpuClock::now();
     PrepareGaussianInstances(frame);
     gaussian_prepared_upload_ns =
@@ -1471,6 +1503,7 @@ class Renderer::Impl {
     } else {
       RecordUploads(frame.command_buffer, false);
     }
+    RecordGaussianGpuPreparation(frame.command_buffer, frame);
     RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
                             request.gpu_driven_indexed);
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
@@ -1709,6 +1742,7 @@ class Renderer::Impl {
     WaitForFrame(frame, timeout);
     const auto wait_ns = ElapsedNanoseconds(wait_start);
     frame_counters_ = frame.counters;
+    ResolveGaussianGpuPreparationCounters(frame);
     ResolveGpuDrivenCounters(frame);
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
@@ -1935,6 +1969,34 @@ class Renderer::Impl {
     bool selected{};
   };
 
+  struct GaussianGpuPreparationBatch {
+    VkDescriptorSet descriptor_set{};
+    VkDeviceSize candidate_offset{};
+    VkDeviceSize prepared_offset{};
+    VkDeviceSize counter_offset{};
+    VkDeviceSize constants_offset{};
+    std::uint64_t resource{};
+    std::uint32_t particle_count{};
+  };
+
+  struct GaussianGpuPreparationFrameResources {
+    Buffer candidate_results;
+    Buffer prepared_records;
+    Buffer dispatch_counters;
+    Buffer counter_readback;
+    Buffer constants;
+    VkDescriptorPool descriptor_pool{};
+    std::vector<VkDescriptorSet> descriptor_sets;
+    std::vector<GaussianGpuPreparationBatch> batches;
+    VkDeviceSize candidate_capacity_bytes{};
+    VkDeviceSize prepared_capacity_bytes{};
+    VkDeviceSize counter_capacity_bytes{};
+    VkDeviceSize constants_capacity_bytes{};
+    std::uint32_t batch_capacity{};
+    VkPipeline compute_pipeline{};
+    bool selected{};
+  };
+
   struct FrameContext {
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
@@ -1972,6 +2034,7 @@ class Renderer::Impl {
     std::uint32_t gaussian_instance_count{};
     std::vector<MaterialDiagnostic> material_diagnostics;
     GpuDrivenFrameResources gpu_driven;
+    GaussianGpuPreparationFrameResources gaussian_gpu_preparation;
   };
 
   struct SwapchainState {
@@ -2182,6 +2245,10 @@ class Renderer::Impl {
         properties.properties.limits.maxStorageBufferRange;
     max_compute_work_group_count_x_ =
         properties.properties.limits.maxComputeWorkGroupCount[0];
+    max_per_stage_descriptor_storage_buffers_ =
+        properties.properties.limits.maxPerStageDescriptorStorageBuffers;
+    max_descriptor_set_storage_buffers_ =
+        properties.properties.limits.maxDescriptorSetStorageBuffers;
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     capabilities_.timeline_semaphore =
@@ -2470,6 +2537,10 @@ class Renderer::Impl {
         properties.properties.limits.maxStorageBufferRange;
     max_compute_work_group_count_x_ =
         properties.properties.limits.maxComputeWorkGroupCount[0];
+    max_per_stage_descriptor_storage_buffers_ =
+        properties.properties.limits.maxPerStageDescriptorStorageBuffers;
+    max_descriptor_set_storage_buffers_ =
+        properties.properties.limits.maxDescriptorSetStorageBuffers;
     storage_buffer_alignment_ = std::max<VkDeviceSize>(
         4U, properties.properties.limits.minStorageBufferOffsetAlignment);
     uniform_buffer_alignment_ = std::max<VkDeviceSize>(
@@ -2768,6 +2839,19 @@ class Renderer::Impl {
     DestroyBuffer(resources.indirect_commands);
     DestroyBuffer(resources.dispatch_counters);
     DestroyBuffer(resources.counter_readback);
+    if (resources.descriptor_pool != VK_NULL_HANDLE) {
+      vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
+    }
+    resources = {};
+  }
+
+  void DestroyGaussianGpuPreparationFrameResources(
+      GaussianGpuPreparationFrameResources& resources) noexcept {
+    DestroyBuffer(resources.candidate_results);
+    DestroyBuffer(resources.prepared_records);
+    DestroyBuffer(resources.dispatch_counters);
+    DestroyBuffer(resources.counter_readback);
+    DestroyBuffer(resources.constants);
     if (resources.descriptor_pool != VK_NULL_HANDLE) {
       vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
     }
@@ -3256,6 +3340,190 @@ class Renderer::Impl {
     frame_counters_.gpu_driven_candidate_draw_count = draw_slots->size();
     resources.candidate_count =
         static_cast<std::uint32_t>(draw_slots->size());
+    resources.selected = true;
+  }
+
+  void PrepareGaussianGpuPreparation(
+      FrameContext& frame, const extraction::FrameSnapshot& snapshot,
+      const RenderRequest& request) {
+    auto& resources = frame.gaussian_gpu_preparation;
+    resources.selected = false;
+    resources.batches.clear();
+    if (request.gpu_driven_gaussian_preparation ==
+            GpuDrivenGaussianPreparationMode::Disabled ||
+        snapshot.gaussians.empty()) {
+      return;
+    }
+    const auto unavailable = [&](std::string detail) {
+      if (request.gpu_driven_gaussian_preparation ==
+          GpuDrivenGaussianPreparationMode::Require) {
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "select GPU-driven Gaussian preparation",
+                            std::move(detail));
+      }
+      ++frame_counters_.gaussian_gpu_preparation_fallback_count;
+    };
+    if (!capabilities_.compute_queue) {
+      unavailable("the selected graphics queue does not support compute");
+      return;
+    }
+    // Creating the pipeline layout below is a valid-usage violation, not a
+    // recoverable error, on a device that guarantees only the Vulkan minimum
+    // of four storage buffers. Preflight both limits so Prefer can still fall
+    // back to the CPU reference.
+    if (kGaussianPrepareStorageBufferCount >
+            max_per_stage_descriptor_storage_buffers_ ||
+        kGaussianPrepareStorageBufferCount >
+            max_descriptor_set_storage_buffers_) {
+      unavailable("the Gaussian preparation layout exceeds "
+                  "maxPerStageDescriptorStorageBuffers or "
+                  "maxDescriptorSetStorageBuffers");
+      return;
+    }
+
+    struct Selection {
+      const extraction::GaussianRecord* record{};
+      VkDeviceSize candidate_offset{};
+      VkDeviceSize prepared_offset{};
+      VkDeviceSize counter_offset{};
+      VkDeviceSize constants_offset{};
+      std::uint32_t particle_count{};
+    };
+    std::vector<Selection> selections;
+    VkDeviceSize candidate_bytes{};
+    VkDeviceSize prepared_bytes{};
+    VkDeviceSize counter_bytes{};
+    VkDeviceSize constants_bytes{};
+    for (const auto& record : snapshot.gaussians) {
+      if (!record.visible || !record.positions || record.positions->empty()) {
+        continue;
+      }
+      if (record.positions->size() >
+          std::numeric_limits<std::uint32_t>::max()) {
+        unavailable("a Gaussian resource exceeds the uint32 particle limit");
+        return;
+      }
+      const auto particle_count =
+          static_cast<std::uint32_t>(record.positions->size());
+      if (shader_abi::GaussianPrepareWorkgroupCount(particle_count) >
+          max_compute_work_group_count_x_) {
+        unavailable(
+            "a Gaussian resource exceeds maxComputeWorkGroupCount[0]");
+        return;
+      }
+      const auto slot = gaussian_attribute_slots_.find(record.gaussian);
+      if (slot == gaussian_attribute_slots_.end() ||
+          !slot->second.positions.valid() ||
+          !slot->second.covariances.valid() ||
+          !slot->second.opacities.valid() ||
+          !slot->second.radiance.valid()) {
+        unavailable("persistent Gaussian attributes are unavailable");
+        return;
+      }
+      const auto resource_candidate_bytes =
+          static_cast<VkDeviceSize>(particle_count) * sizeof(std::uint32_t);
+      const auto resource_prepared_bytes =
+          static_cast<VkDeviceSize>(particle_count) *
+          sizeof(shader_abi::GaussianPreparedRecord);
+      if (slot->second.positions.size > max_storage_buffer_range_ ||
+          slot->second.covariances.size > max_storage_buffer_range_ ||
+          slot->second.opacities.size > max_storage_buffer_range_ ||
+          slot->second.radiance.size > max_storage_buffer_range_ ||
+          resource_candidate_bytes > max_storage_buffer_range_ ||
+          resource_prepared_bytes > max_storage_buffer_range_) {
+        unavailable("a Gaussian preparation binding exceeds "
+                    "maxStorageBufferRange");
+        return;
+      }
+      candidate_bytes =
+          AlignUp(candidate_bytes, storage_buffer_alignment_);
+      prepared_bytes = AlignUp(prepared_bytes, storage_buffer_alignment_);
+      counter_bytes = AlignUp(counter_bytes, storage_buffer_alignment_);
+      constants_bytes = AlignUp(constants_bytes, uniform_buffer_alignment_);
+      selections.push_back({&record, candidate_bytes, prepared_bytes,
+                            counter_bytes, constants_bytes, particle_count});
+      candidate_bytes += resource_candidate_bytes;
+      prepared_bytes += resource_prepared_bytes;
+      counter_bytes += sizeof(shader_abi::GaussianPrepareDispatchCounters);
+      constants_bytes += sizeof(shader_abi::GaussianPrepareConstants);
+    }
+    if (selections.empty()) {
+      return;
+    }
+
+    VkPipeline compute_pipeline{};
+    try {
+      compute_pipeline = EnsureGaussianPrepareComputePipeline(request.shaders);
+    } catch (const RendererError& error) {
+      if (request.gpu_driven_gaussian_preparation ==
+              GpuDrivenGaussianPreparationMode::Require ||
+          error.code() == RendererErrorCode::DeviceLost ||
+          error.code() == RendererErrorCode::ResourceExhausted ||
+          error.code() == RendererErrorCode::Timeout) {
+        throw;
+      }
+      unavailable("the packaged Gaussian preparation artifact is unavailable");
+      return;
+    }
+    EnsureGaussianGpuPreparationFrameResources(
+        resources, candidate_bytes, prepared_bytes, counter_bytes,
+        constants_bytes, static_cast<std::uint32_t>(selections.size()));
+    resources.compute_pipeline = compute_pipeline;
+    resources.batches.resize(selections.size());
+    // The dispatches feed one global sort, so every batch must key its records
+    // in the same domain the CPU reference chose for this frame.
+    const auto sorting_mode =
+        detail::SelectGaussianSortingPolicy(snapshot).mode ==
+                GaussianSortingMode::CameraDistance
+            ? 1U
+            : 0U;
+    std::vector<shader_abi::GaussianPrepareConstants> constants(
+        selections.size());
+    for (std::size_t i = 0; i < selections.size(); ++i) {
+      const auto& selection = selections[i];
+      auto& batch = resources.batches[i];
+      batch.descriptor_set = resources.descriptor_sets[i];
+      batch.candidate_offset = selection.candidate_offset;
+      batch.prepared_offset = selection.prepared_offset;
+      batch.counter_offset = selection.counter_offset;
+      batch.constants_offset = selection.constants_offset;
+      batch.resource = selection.record->gaussian;
+      batch.particle_count = selection.particle_count;
+
+      auto& value = constants[i];
+      value.local_to_camera = Multiply(snapshot.view,
+                                       selection.record->transform);
+      value.projection = snapshot.projection;
+      value.viewport_size = {static_cast<float>(request.width),
+                             static_cast<float>(request.height)};
+      value.resource_id_low =
+          static_cast<std::uint32_t>(selection.record->gaussian);
+      value.resource_id_high = static_cast<std::uint32_t>(
+          selection.record->gaussian >> 32U);
+      value.particle_count = selection.particle_count;
+      value.coefficients_per_particle =
+          (selection.record->spherical_harmonics_degree + 1U) *
+          (selection.record->spherical_harmonics_degree + 1U);
+      value.spherical_harmonics_degree =
+          selection.record->spherical_harmonics_degree;
+      value.projection_mode =
+          selection.record->projection_mode ==
+                  GaussianProjectionMode::Tangential
+              ? 1U
+              : 0U;
+      value.sorting_mode = sorting_mode;
+    }
+    void* mapped{};
+    Check(vkMapMemory(device_, resources.constants.memory, 0,
+                      resources.constants.size, 0, &mapped),
+          "map Gaussian preparation constants");
+    for (std::size_t i = 0; i < selections.size(); ++i) {
+      std::memcpy(static_cast<std::byte*>(mapped) +
+                      selections[i].constants_offset,
+                  &constants[i], sizeof(constants[i]));
+    }
+    vkUnmapMemory(device_, resources.constants.memory);
+    UpdateGaussianGpuPreparationDescriptors(resources);
     resources.selected = true;
   }
 
@@ -4054,6 +4322,255 @@ class Renderer::Impl {
         writes[index].dstBinding = descriptor_bindings[binding_index];
         writes[index].descriptorCount = 1;
         writes[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[index].pBufferInfo = &buffer_infos[index];
+      }
+    }
+    vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
+    frame_counters_.descriptor_update_count += writes.size();
+  }
+
+  // The compute set below binds every Gaussian attribute range plus the
+  // compacted outputs. Vulkan only guarantees four storage buffers per stage
+  // and per set, so the counts are named here and preflighted against the
+  // device limits before selection.
+  static constexpr std::uint32_t kGaussianPrepareStorageBufferCount{7U};
+  static constexpr std::uint32_t kGaussianPrepareUniformBufferCount{1U};
+
+  void EnsureGaussianPrepareDescriptorAndPipelineLayouts() {
+    if (gaussian_prepare_descriptor_set_layout_ != VK_NULL_HANDLE) {
+      return;
+    }
+    VkDescriptorSetLayoutCreateInfo empty_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    Check(vkCreateDescriptorSetLayout(
+              device_, &empty_info, nullptr,
+              &gaussian_prepare_empty_descriptor_set_layout_),
+          "create Gaussian preparation empty descriptor layout");
+
+    std::array<VkDescriptorSetLayoutBinding,
+               kGaussianPrepareStorageBufferCount +
+                   kGaussianPrepareUniformBufferCount>
+        bindings{};
+    static constexpr std::array storage_bindings{
+        shader_abi::kGaussianPositions.binding,
+        shader_abi::kGaussianCovariances.binding,
+        shader_abi::kGaussianOpacities.binding,
+        shader_abi::kGaussianRadiance.binding,
+        shader_abi::kGaussianCandidateResults.binding,
+        shader_abi::kGaussianPreparedRecords.binding,
+        shader_abi::kGaussianPrepareCounters.binding,
+    };
+    static_assert(storage_bindings.size() ==
+                  kGaussianPrepareStorageBufferCount);
+    for (std::size_t i = 0; i < storage_bindings.size(); ++i) {
+      bindings[i].binding = storage_bindings[i];
+      bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      bindings[i].descriptorCount = 1;
+      bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    bindings.back().binding = shader_abi::kGaussianPrepareConstants.binding;
+    bindings.back().descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings.back().descriptorCount = 1;
+    bindings.back().stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    layout_info.pBindings = bindings.data();
+    Check(vkCreateDescriptorSetLayout(
+              device_, &layout_info, nullptr,
+              &gaussian_prepare_descriptor_set_layout_),
+          "create Gaussian preparation descriptor layout");
+    frame_counters_.descriptor_layout_cache_misses += 2;
+
+    const std::array set_layouts{
+        gaussian_prepare_empty_descriptor_set_layout_,
+        gaussian_prepare_empty_descriptor_set_layout_,
+        gaussian_prepare_empty_descriptor_set_layout_,
+        gaussian_prepare_descriptor_set_layout_,
+    };
+    VkPipelineLayoutCreateInfo pipeline_layout_info{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pipeline_layout_info.setLayoutCount =
+        static_cast<std::uint32_t>(set_layouts.size());
+    pipeline_layout_info.pSetLayouts = set_layouts.data();
+    Check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr,
+                                 &gaussian_prepare_pipeline_layout_),
+          "create Gaussian preparation pipeline layout");
+  }
+
+  VkPipeline EnsureGaussianPrepareComputePipeline(const ShaderPaths& shaders) {
+    EnsureGaussianPrepareDescriptorAndPipelineLayouts();
+    // gaussian_vertex is itself optional and then resolves beside the base
+    // vertex artifact; an empty parent_path() would look in the working
+    // directory instead of the packaged shader directory.
+    const auto gaussian_vertex_directory =
+        shaders.gaussian_vertex.empty()
+            ? shaders.vertex.parent_path()
+            : shaders.gaussian_vertex.parent_path();
+    const auto path =
+        shaders.gaussian_prepare_compute.empty()
+            ? gaussian_vertex_directory / "gaussian-prepare.comp.spv"
+            : shaders.gaussian_prepare_compute;
+    const auto found = gaussian_prepare_compute_pipelines_.find(path);
+    if (found != gaussian_prepare_compute_pipelines_.end()) {
+      ++frame_counters_.pipeline_cache_hits;
+      return found->second;
+    }
+    VkPipelineShaderStageCreateInfo stage{
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = GetShaderModule(path);
+    stage.pName = "main";
+    VkComputePipelineCreateInfo info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    info.stage = stage;
+    info.layout = gaussian_prepare_pipeline_layout_;
+    VkPipeline pipeline{};
+    Check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &info, nullptr,
+                                   &pipeline),
+          "create Gaussian preparation compute pipeline");
+    gaussian_prepare_compute_pipelines_.emplace(path, pipeline);
+    ++frame_counters_.pipeline_creation_count;
+    ++frame_counters_.pipeline_cache_misses;
+    return pipeline;
+  }
+
+  void EnsureGaussianGpuPreparationFrameResources(
+      GaussianGpuPreparationFrameResources& resources,
+      VkDeviceSize candidate_bytes, VkDeviceSize prepared_bytes,
+      VkDeviceSize counter_bytes, VkDeviceSize constants_bytes,
+      std::uint32_t batch_count) {
+    if (resources.candidate_capacity_bytes >= candidate_bytes &&
+        resources.prepared_capacity_bytes >= prepared_bytes &&
+        resources.counter_capacity_bytes >= counter_bytes &&
+        resources.constants_capacity_bytes >= constants_bytes &&
+        resources.batch_capacity >= batch_count &&
+        resources.descriptor_pool != VK_NULL_HANDLE) {
+      return;
+    }
+    DestroyGaussianGpuPreparationFrameResources(resources);
+    resources.candidate_capacity_bytes = candidate_bytes;
+    resources.prepared_capacity_bytes = prepared_bytes;
+    resources.counter_capacity_bytes = counter_bytes;
+    resources.constants_capacity_bytes = constants_bytes;
+    resources.batch_capacity = batch_count;
+    resources.candidate_results = CreateBuffer(
+        candidate_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.prepared_records = CreateBuffer(
+        prepared_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.dispatch_counters = CreateBuffer(
+        counter_bytes,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.counter_readback = CreateBuffer(
+        counter_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    resources.constants = CreateBuffer(
+        constants_bytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    const std::array<VkDescriptorPoolSize, 2> pool_sizes{{
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, batch_count * 7U},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, batch_count},
+    }};
+    VkDescriptorPoolCreateInfo pool_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.maxSets = batch_count;
+    pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
+    pool_info.pPoolSizes = pool_sizes.data();
+    Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
+                                 &resources.descriptor_pool),
+          "create Gaussian preparation descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+    VkDescriptorSetAllocateInfo allocate{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocate.descriptorPool = resources.descriptor_pool;
+    allocate.descriptorSetCount = batch_count;
+    const std::vector layouts(batch_count,
+                              gaussian_prepare_descriptor_set_layout_);
+    allocate.pSetLayouts = layouts.data();
+    resources.descriptor_sets.resize(batch_count);
+    Check(vkAllocateDescriptorSets(device_, &allocate,
+                                   resources.descriptor_sets.data()),
+          "allocate Gaussian preparation descriptor sets");
+    frame_counters_.descriptor_allocation_count += batch_count;
+  }
+
+  void UpdateGaussianGpuPreparationDescriptors(
+      const GaussianGpuPreparationFrameResources& resources) {
+    constexpr std::size_t kBindingCount = 8;
+    std::vector<VkDescriptorBufferInfo> buffer_infos(
+        resources.batches.size() * kBindingCount);
+    std::vector<VkWriteDescriptorSet> writes(buffer_infos.size());
+    for (std::size_t batch_index = 0;
+         batch_index < resources.batches.size(); ++batch_index) {
+      const auto& batch = resources.batches[batch_index];
+      const auto& attributes = gaussian_attribute_slots_.at(batch.resource);
+      const auto candidate_bytes =
+          static_cast<VkDeviceSize>(batch.particle_count) *
+          sizeof(std::uint32_t);
+      const auto prepared_bytes =
+          static_cast<VkDeviceSize>(batch.particle_count) *
+          sizeof(shader_abi::GaussianPreparedRecord);
+      const std::array<VkBuffer, kBindingCount> buffers{
+          gaussian_position_arena_.buffer(attributes.positions.block),
+          gaussian_covariance_arena_.buffer(attributes.covariances.block),
+          gaussian_opacity_arena_.buffer(attributes.opacities.block),
+          gaussian_radiance_arena_.buffer(attributes.radiance.block),
+          resources.candidate_results.handle,
+          resources.prepared_records.handle,
+          resources.dispatch_counters.handle,
+          resources.constants.handle,
+      };
+      const std::array<VkDeviceSize, kBindingCount> offsets{
+          attributes.positions.offset,
+          attributes.covariances.offset,
+          attributes.opacities.offset,
+          attributes.radiance.offset,
+          batch.candidate_offset,
+          batch.prepared_offset,
+          batch.counter_offset,
+          batch.constants_offset,
+      };
+      const std::array<VkDeviceSize, kBindingCount> ranges{
+          attributes.positions.size,
+          attributes.covariances.size,
+          attributes.opacities.size,
+          attributes.radiance.size,
+          candidate_bytes,
+          prepared_bytes,
+          VkDeviceSize{sizeof(shader_abi::GaussianPrepareDispatchCounters)},
+          VkDeviceSize{sizeof(shader_abi::GaussianPrepareConstants)},
+      };
+      const std::array<std::uint32_t, kBindingCount> bindings{
+          shader_abi::kGaussianPositions.binding,
+          shader_abi::kGaussianCovariances.binding,
+          shader_abi::kGaussianOpacities.binding,
+          shader_abi::kGaussianRadiance.binding,
+          shader_abi::kGaussianCandidateResults.binding,
+          shader_abi::kGaussianPreparedRecords.binding,
+          shader_abi::kGaussianPrepareCounters.binding,
+          shader_abi::kGaussianPrepareConstants.binding,
+      };
+      for (std::size_t binding_index = 0; binding_index < kBindingCount;
+           ++binding_index) {
+        const auto index = batch_index * kBindingCount + binding_index;
+        buffer_infos[index] = {buffers[binding_index], offsets[binding_index],
+                               ranges[binding_index]};
+        writes[index] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[index].dstSet = batch.descriptor_set;
+        writes[index].dstBinding = bindings[binding_index];
+        writes[index].descriptorCount = 1;
+        writes[index].descriptorType =
+            binding_index + 1U == kBindingCount
+                ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[index].pBufferInfo = &buffer_infos[index];
       }
     }
@@ -5241,14 +5758,17 @@ class Renderer::Impl {
           slot.particle_count == record->positions->size() &&
           slot.coefficients_per_particle == coefficient_count &&
           (!upload.positions ||
-           slot.positions.size == AlignUp(position_bytes, kArenaAlignment)) &&
+           slot.positions.size ==
+               gaussian_position_arena_.aligned_size(position_bytes)) &&
           (!upload.covariances ||
            slot.covariances.size ==
-               AlignUp(covariance_bytes, kArenaAlignment)) &&
+               gaussian_covariance_arena_.aligned_size(covariance_bytes)) &&
           (!upload.opacities ||
-           slot.opacities.size == AlignUp(opacity_bytes, kArenaAlignment)) &&
+           slot.opacities.size ==
+               gaussian_opacity_arena_.aligned_size(opacity_bytes)) &&
           (!upload.radiance ||
-           slot.radiance.size == AlignUp(radiance_bytes, kArenaAlignment));
+           slot.radiance.size ==
+               gaussian_radiance_arena_.aligned_size(radiance_bytes));
 
       const auto add_bytes = [&](std::size_t element_size,
                                  std::uint32_t multiplier = 1U) {
@@ -5612,7 +6132,7 @@ class Renderer::Impl {
       ReleaseRange(arena, range);
       return;
     }
-    const auto aligned = AlignUp(bytes, kArenaAlignment);
+    const auto aligned = arena.aligned_size(bytes);
     if (range.valid() && range.size == aligned &&
         latest_completed_value_ >= timeline_value_) {
       // Reuse in place only when every prior submission has completed. If an
@@ -7279,6 +7799,55 @@ class Renderer::Impl {
     }
   }
 
+  void RecordGaussianGpuPreparation(VkCommandBuffer command,
+                                    const FrameContext& frame) {
+    const auto& resources = frame.gaussian_gpu_preparation;
+    if (!resources.selected) {
+      return;
+    }
+    for (const auto& batch : resources.batches) {
+      vkCmdFillBuffer(command, resources.dispatch_counters.handle,
+                      batch.counter_offset,
+                      sizeof(shader_abi::GaussianPrepareDispatchCounters),
+                      0U);
+    }
+    VkMemoryBarrier counter_clear_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    counter_clear_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    counter_clear_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                                          VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &counter_clear_barrier, 0, nullptr, 0, nullptr);
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+                      resources.compute_pipeline);
+    for (const auto& batch : resources.batches) {
+      vkCmdBindDescriptorSets(
+          command, VK_PIPELINE_BIND_POINT_COMPUTE,
+          gaussian_prepare_pipeline_layout_, 3, 1, &batch.descriptor_set, 0,
+          nullptr);
+      vkCmdDispatch(command,
+                    shader_abi::GaussianPrepareWorkgroupCount(
+                        batch.particle_count),
+                    1, 1);
+      ++frame_counters_.gaussian_gpu_preparation_dispatch_count;
+      frame_counters_.gaussian_gpu_preparation_candidate_count +=
+          batch.particle_count;
+    }
+    VkMemoryBarrier output_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    output_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
+                         &output_barrier, 0, nullptr, 0, nullptr);
+    for (const auto& batch : resources.batches) {
+      const VkBufferCopy copy{
+          batch.counter_offset, batch.counter_offset,
+          sizeof(shader_abi::GaussianPrepareDispatchCounters)};
+      vkCmdCopyBuffer(command, resources.dispatch_counters.handle,
+                      resources.counter_readback.handle, 1, &copy);
+    }
+  }
+
   void RecordGpuDrivenDispatch(VkCommandBuffer command,
                                const FrameContext& frame,
                                const extraction::FrameSnapshot& snapshot,
@@ -7830,6 +8399,60 @@ class Renderer::Impl {
     return result;
   }
 
+  void ResolveGaussianGpuPreparationCounters(FrameContext& frame) {
+    const auto& resources = frame.gaussian_gpu_preparation;
+    if (!resources.selected) {
+      return;
+    }
+    std::uint64_t candidate_count{};
+    std::uint64_t visible_count{};
+    std::uint64_t opacity_culled_count{};
+    std::uint64_t frustum_culled_count{};
+    std::uint64_t invalid_culled_count{};
+    void* mapped{};
+    Check(vkMapMemory(device_, resources.counter_readback.memory, 0,
+                      resources.counter_readback.size, 0, &mapped),
+          "map Gaussian preparation counters");
+    for (const auto& batch : resources.batches) {
+      shader_abi::GaussianPrepareDispatchCounters counters;
+      std::memcpy(&counters,
+                  static_cast<const std::byte*>(mapped) +
+                      batch.counter_offset,
+                  sizeof(counters));
+      if (counters.candidate_count != batch.particle_count ||
+          static_cast<std::uint64_t>(counters.visible_count) +
+                  counters.opacity_culled_count +
+                  counters.frustum_culled_count +
+                  counters.invalid_culled_count !=
+              counters.candidate_count) {
+        vkUnmapMemory(device_, resources.counter_readback.memory);
+        throw RendererError(
+            RendererErrorCode::BackendFailure,
+            "resolve Gaussian preparation counters",
+            "compute counters violate a resource particle partition");
+      }
+      candidate_count += counters.candidate_count;
+      visible_count += counters.visible_count;
+      opacity_culled_count += counters.opacity_culled_count;
+      frustum_culled_count += counters.frustum_culled_count;
+      invalid_culled_count += counters.invalid_culled_count;
+    }
+    vkUnmapMemory(device_, resources.counter_readback.memory);
+    if (candidate_count !=
+        frame_counters_.gaussian_gpu_preparation_candidate_count) {
+      throw RendererError(RendererErrorCode::BackendFailure,
+                          "resolve Gaussian preparation counters",
+                          "resource candidate counts do not match the frame");
+    }
+    frame_counters_.gaussian_gpu_preparation_visible_count = visible_count;
+    frame_counters_.gaussian_gpu_preparation_opacity_culled_count =
+        opacity_culled_count;
+    frame_counters_.gaussian_gpu_preparation_frustum_culled_count =
+        frustum_culled_count;
+    frame_counters_.gaussian_gpu_preparation_invalid_culled_count =
+        invalid_culled_count;
+  }
+
   void ResolveGpuDrivenCounters(FrameContext& frame) {
     if (!frame.gpu_driven.selected) {
       return;
@@ -7962,6 +8585,8 @@ class Renderer::Impl {
   VkDeviceSize max_storage_buffer_range_{};
   std::uint32_t max_draw_indirect_count_{};
   std::uint32_t max_compute_work_group_count_x_{};
+  std::uint32_t max_per_stage_descriptor_storage_buffers_{};
+  std::uint32_t max_descriptor_set_storage_buffers_{};
   bool owns_vulkan_context_{true};
   const std::uint64_t owner_id_{
       g_renderer_owner.fetch_add(1, std::memory_order_relaxed)};
@@ -8023,6 +8648,11 @@ class Renderer::Impl {
   VkDescriptorSetLayout gpu_driven_descriptor_set_layout_{};
   VkPipelineLayout gpu_driven_pipeline_layout_{};
   std::map<std::filesystem::path, VkPipeline> gpu_driven_pipelines_;
+  VkDescriptorSetLayout gaussian_prepare_empty_descriptor_set_layout_{};
+  VkDescriptorSetLayout gaussian_prepare_descriptor_set_layout_{};
+  VkPipelineLayout gaussian_prepare_pipeline_layout_{};
+  std::map<std::filesystem::path, VkPipeline>
+      gaussian_prepare_compute_pipelines_;
   VkDescriptorPool bindless_descriptor_pool_{};
   VkDescriptorSet bindless_descriptor_set_{};
   TextureSlot fallback_texture_;

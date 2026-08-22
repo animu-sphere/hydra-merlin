@@ -321,17 +321,21 @@ remains visible in `gpu_scene_update` and `total_frame`. Controlled hardware
 captures, draw-count-independent preparation, and broader geometry/material
 diversity remain evidence follow-up.
 
-The first Gaussian compute preparation contract is now packaged. A 64-thread
+The first Gaussian compute preparation runtime is now in place. A 64-thread
 Slang kernel reads the persistent position, covariance, opacity, and
 spherical-harmonic arena payloads without a CPU-prepared candidate stream,
 performs projection, conservative culling, radiance evaluation, and atomic
 visible-record compaction, and retains resource/particle identity plus the
 authored sorting key for later stages. Shader ABI v6 reflection-checks its
 uniform-backed constants, descriptors, 64-byte prepared record, and rejection
-counters without exceeding the Vulkan push-constant baseline. This is an
-artifact and ABI boundary only: runtime dispatch, deterministic radix
-sorting, Gaussian-tile pairing/ranges, indirect raster, and reference-image
-evidence still retain the CPU-sorted fallback.
+counters without exceeding the Vulkan push-constant baseline. Vulkan can opt
+into one dispatch per visible resident resource; each reusable frame context
+owns aligned output, uniform, descriptor, and counter-readback resources, and
+completion validates every resource partition before publishing structured
+telemetry. Preferred selection falls back when the artifact or capability is
+unavailable, while required selection rejects it explicitly. Deterministic
+radix sorting, Gaussian-tile pairing/ranges, indirect raster, and
+reference-image evidence still retain the CPU-sorted raster path.
 
 The Gaussian compute preparation path remains incomplete. This slice is
 therefore not the complete v0.16.0 support claim.

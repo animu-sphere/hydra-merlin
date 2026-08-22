@@ -363,6 +363,28 @@ Vec3 EvaluateGaussianRadiance(std::span<const Vec3> coefficients,
           std::max(result.z, 0.0F)};
 }
 
+GaussianSortingPolicy SelectGaussianSortingPolicy(
+    const extraction::FrameSnapshot& snapshot) {
+  std::optional<GaussianSortingMode> authored_sorting_mode;
+  std::uint64_t sorting_resource_count{};
+  bool mixed_sorting_policy{};
+  for (const auto& record : snapshot.gaussians) {
+    if (!record.visible || !record.positions || record.positions->empty()) {
+      continue;
+    }
+    ++sorting_resource_count;
+    if (!authored_sorting_mode) {
+      authored_sorting_mode = record.sorting_mode;
+    } else if (*authored_sorting_mode != record.sorting_mode) {
+      mixed_sorting_policy = true;
+    }
+  }
+  if (mixed_sorting_policy) {
+    return {GaussianSortingMode::ZDepth, sorting_resource_count};
+  }
+  return {authored_sorting_mode.value_or(GaussianSortingMode::ZDepth), 0U};
+}
+
 GaussianPreparationResult PrepareGaussianFrame(
     const extraction::FrameSnapshot& snapshot,
     const GaussianPreparationOptions& options) {
@@ -380,27 +402,10 @@ GaussianPreparationResult PrepareGaussianFrame(
   }
   result.gaussians.reserve(total_particles);
 
-  std::optional<GaussianSortingMode> authored_sorting_mode;
-  std::uint64_t sorting_resource_count{};
-  bool mixed_sorting_policy{};
-  for (const auto& record : snapshot.gaussians) {
-    if (!record.visible || !record.positions || record.positions->empty()) {
-      continue;
-    }
-    ++sorting_resource_count;
-    if (!authored_sorting_mode) {
-      authored_sorting_mode = record.sorting_mode;
-    } else if (*authored_sorting_mode != record.sorting_mode) {
-      mixed_sorting_policy = true;
-    }
-  }
-  const auto effective_sorting_mode =
-      mixed_sorting_policy
-          ? GaussianSortingMode::ZDepth
-          : authored_sorting_mode.value_or(GaussianSortingMode::ZDepth);
-  if (mixed_sorting_policy) {
-    result.counters.sorting_policy_fallback_count = sorting_resource_count;
-  }
+  const auto sorting_policy = SelectGaussianSortingPolicy(snapshot);
+  const auto effective_sorting_mode = sorting_policy.mode;
+  result.counters.sorting_policy_fallback_count =
+      sorting_policy.fallback_resource_count;
 
   for (const auto& record : snapshot.gaussians) {
     const auto count = record.positions ? record.positions->size() : 0U;
