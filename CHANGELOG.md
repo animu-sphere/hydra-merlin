@@ -28,8 +28,13 @@ after its public API and release process are established.
   structured counters, and explicit preferred/required fallback boundaries.
   Reusable frame contexts now retain unchanged candidate draw-slot sequences,
   making camera/culling-only frames zero-upload while preserving exact
-  candidate-count and replacement-upload telemetry; multi-batch and parallel
-  compaction remain follow-up work.
+  candidate-count and replacement-upload telemetry. The runtime now partitions
+  consecutive draws across multiple vertex/index arena and raster-pipeline
+  batches, gives each batch independent compute/indirect/count resources,
+  combines changed candidate lists into one staging reservation, and validates
+  then aggregates per-batch culling telemetry. Validation-backed mixed-pipeline
+  coverage keeps `Require` on the GPU-driven path across two raster-state
+  batches; parallel compaction remains follow-up work.
 
 ## [0.15.0] - 2026-08-11
 

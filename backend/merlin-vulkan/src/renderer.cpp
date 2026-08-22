@@ -1514,7 +1514,7 @@ class Renderer::Impl {
           // graphics submission which would have committed it fails.
           InvalidateGpuSceneUpdate();
         }
-        if (frame.gpu_driven.candidate_upload_pending) {
+        if (HasPendingGpuDrivenCandidateUpload(frame)) {
           // The transfer has already replaced the device-local candidate
           // list, but the failed graphics submission did not publish its
           // shadow. Force the next request to upload whichever sequence it
@@ -1896,7 +1896,7 @@ class Renderer::Impl {
     std::vector<Aov> cpu_readback_aovs;
   };
 
-  struct GpuDrivenFrameResources {
+  struct GpuDrivenBatchResources {
     Buffer candidate_draw_slots;
     Buffer candidate_results;
     Buffer indirect_commands;
@@ -1918,6 +1918,11 @@ class Renderer::Impl {
     std::vector<std::uint32_t> candidate_draw_slot_shadow;
     std::vector<std::uint32_t> pending_candidate_draw_slot_shadow;
     bool candidate_upload_pending{};
+  };
+
+  struct GpuDrivenFrameResources {
+    std::vector<GpuDrivenBatchResources> batches;
+    std::uint32_t candidate_count{};
     bool selected{};
   };
 
@@ -2739,8 +2744,8 @@ class Renderer::Impl {
     gpu_scene_buffers_.pending_update = false;
   }
 
-  void DestroyGpuDrivenFrameResources(
-      GpuDrivenFrameResources& resources) noexcept {
+  void DestroyGpuDrivenBatchResources(
+      GpuDrivenBatchResources& resources) noexcept {
     DestroyBuffer(resources.candidate_draw_slots);
     DestroyBuffer(resources.candidate_results);
     DestroyBuffer(resources.indirect_commands);
@@ -2748,6 +2753,14 @@ class Renderer::Impl {
     DestroyBuffer(resources.counter_readback);
     if (resources.descriptor_pool != VK_NULL_HANDLE) {
       vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
+    }
+    resources = {};
+  }
+
+  void DestroyGpuDrivenFrameResources(
+      GpuDrivenFrameResources& resources) noexcept {
+    for (auto& batch : resources.batches) {
+      DestroyGpuDrivenBatchResources(batch);
     }
     resources = {};
   }
@@ -3012,7 +3025,10 @@ class Renderer::Impl {
     auto& resources = frame.gpu_driven;
     resources.selected = false;
     resources.candidate_count = 0;
-    resources.candidate_upload_pending = false;
+    for (auto& batch : resources.batches) {
+      batch.candidate_count = 0;
+      batch.candidate_upload_pending = false;
+    }
     if (request.gpu_driven_indexed.mode == GpuDrivenIndexedMode::Disabled ||
         draw_records_.size() == 0) {
       return;
@@ -3054,10 +3070,6 @@ class Renderer::Impl {
       unavailable("persistent bindless GPU Scene state is unavailable");
       return;
     }
-    if (draw_slots->size() > max_draw_indirect_count_) {
-      unavailable("candidate count exceeds maxDrawIndirectCount");
-      return;
-    }
     if (std::any_of(selected_material_artifacts_.begin(),
                     selected_material_artifacts_.end(),
                     [](const auto* artifact) { return artifact != nullptr; })) {
@@ -3065,80 +3077,137 @@ class Renderer::Impl {
       return;
     }
 
-    const auto& first_draw = draw_records_[0];
-    const auto& first_geometry = geometry_records_[first_draw.geometry_index];
-    const auto& first_slot = geometry_slots_.at(first_geometry.mesh);
-    const auto first_variant = MakeDrawPipelineVariant(first_draw, snapshot);
     constexpr auto pipeline_state_mask =
         kMaskedAlphaFlag | kDoubleSidedFlag |
         kCounterClockwiseFrontFaceFlag;
-    for (std::size_t i = 1; i < draw_records_.size(); ++i) {
+
+    struct BatchSelection {
+      std::uint32_t vertex_block{};
+      std::uint32_t index_block{};
+      std::uint32_t pipeline_variant{};
+      std::vector<std::uint32_t> draw_slots;
+    };
+    std::vector<BatchSelection> selections;
+    selections.reserve(draw_records_.size());
+    for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
       const auto& geometry = geometry_records_[draw.geometry_index];
       const auto& slot = geometry_slots_.at(geometry.mesh);
       const auto variant = MakeDrawPipelineVariant(draw, snapshot);
-      if (slot.vertices.block != first_slot.vertices.block ||
-          slot.indices.block != first_slot.indices.block ||
-          ((variant.variant_key ^ first_variant.variant_key) &
-           pipeline_state_mask) != 0U) {
-        unavailable(
-            "the initial runtime supports one arena/pipeline batch per frame");
-        return;
+      const auto masked_variant = variant.variant_key & pipeline_state_mask;
+      if (selections.empty() ||
+          selections.back().vertex_block != slot.vertices.block ||
+          selections.back().index_block != slot.indices.block ||
+          (selections.back().pipeline_variant & pipeline_state_mask) !=
+              masked_variant) {
+        selections.push_back({slot.vertices.block, slot.indices.block,
+                              variant.variant_key, {}});
       }
+      selections.back().draw_slots.push_back((*draw_slots)[i]);
+    }
+    const auto oversized_batch =
+        std::any_of(selections.begin(), selections.end(),
+                    [&](const auto& batch) {
+                      return batch.draw_slots.size() >
+                             max_draw_indirect_count_;
+                    });
+    if (oversized_batch) {
+      unavailable("an arena/pipeline batch exceeds maxDrawIndirectCount");
+      return;
     }
 
     const auto compute_pipeline =
         EnsureGpuDrivenComputePipeline(request.shaders);
-    EnsureGpuDrivenFrameResources(
-        frame, static_cast<std::uint32_t>(draw_slots->size()));
-    if (resources.candidate_draw_slot_shadow != *draw_slots) {
-      const auto bytes = static_cast<VkDeviceSize>(draw_slots->size()) *
-                         sizeof(std::uint32_t);
+    while (resources.batches.size() > selections.size()) {
+      DestroyGpuDrivenBatchResources(resources.batches.back());
+      resources.batches.pop_back();
+    }
+    resources.batches.resize(selections.size());
+    VkDeviceSize candidate_upload_bytes{};
+    for (std::size_t i = 0; i < selections.size(); ++i) {
+      auto& batch = resources.batches[i];
+      const auto& selection = selections[i];
+      EnsureGpuDrivenBatchResources(
+          batch, static_cast<std::uint32_t>(selection.draw_slots.size()));
+      if (batch.candidate_draw_slot_shadow != selection.draw_slots) {
+        candidate_upload_bytes +=
+            static_cast<VkDeviceSize>(selection.draw_slots.size()) *
+            sizeof(std::uint32_t);
+      }
+      batch.candidate_count =
+          static_cast<std::uint32_t>(selection.draw_slots.size());
+      batch.vertex_block = selection.vertex_block;
+      batch.index_block = selection.index_block;
+      batch.pipeline_variant = selection.pipeline_variant;
+      batch.compute_pipeline = compute_pipeline;
+    }
+    if (candidate_upload_bytes != 0) {
       Buffer retired_staging;
       VkDeviceSize growth_bytes{};
       const auto reservation = gpu_driven_staging_.Reserve(
-          bytes, retired_staging, growth_bytes);
+          candidate_upload_bytes, retired_staging, growth_bytes);
       if (growth_bytes != 0) {
         ++frame_counters_.allocation_count;
         ++frame_counters_.buffer_allocation_count;
         frame_counters_.buffer_allocation_bytes += growth_bytes;
         Retire(retired_staging);
       }
-      std::memcpy(reservation.mapped, draw_slots->data(),
-                  static_cast<std::size_t>(bytes));
-      pending_copies_.push_back(
-          {reservation.buffer, reservation.offset,
-           resources.candidate_draw_slots.handle, 0, bytes});
-      resources.pending_candidate_draw_slot_shadow = *draw_slots;
-      resources.candidate_upload_pending = true;
-      frame_counters_.gpu_driven_candidate_upload_bytes = bytes;
-      frame_counters_.upload_bytes += bytes;
+      VkDeviceSize source_offset{};
+      for (std::size_t i = 0; i < selections.size(); ++i) {
+        auto& batch = resources.batches[i];
+        const auto& draw_slot_selection = selections[i].draw_slots;
+        if (batch.candidate_draw_slot_shadow == draw_slot_selection) {
+          continue;
+        }
+        const auto bytes =
+            static_cast<VkDeviceSize>(draw_slot_selection.size()) *
+            sizeof(std::uint32_t);
+        std::memcpy(reservation.mapped + source_offset,
+                    draw_slot_selection.data(),
+                    static_cast<std::size_t>(bytes));
+        pending_copies_.push_back(
+            {reservation.buffer, reservation.offset + source_offset,
+             batch.candidate_draw_slots.handle, 0, bytes});
+        batch.pending_candidate_draw_slot_shadow = draw_slot_selection;
+        batch.candidate_upload_pending = true;
+        source_offset += bytes;
+      }
+      frame_counters_.gpu_driven_candidate_upload_bytes =
+          candidate_upload_bytes;
+      frame_counters_.upload_bytes += candidate_upload_bytes;
     }
     frame_counters_.gpu_driven_candidate_draw_count = draw_slots->size();
     resources.candidate_count =
         static_cast<std::uint32_t>(draw_slots->size());
-    resources.vertex_block = first_slot.vertices.block;
-    resources.index_block = first_slot.indices.block;
-    resources.pipeline_variant = first_variant.variant_key;
-    resources.compute_pipeline = compute_pipeline;
     resources.selected = true;
   }
 
   static void CommitGpuDrivenCandidates(FrameContext& frame) noexcept {
     auto& resources = frame.gpu_driven;
-    if (!resources.candidate_upload_pending) {
-      return;
+    for (auto& batch : resources.batches) {
+      if (!batch.candidate_upload_pending) {
+        continue;
+      }
+      batch.candidate_draw_slot_shadow =
+          std::move(batch.pending_candidate_draw_slot_shadow);
+      batch.candidate_upload_pending = false;
     }
-    resources.candidate_draw_slot_shadow =
-        std::move(resources.pending_candidate_draw_slot_shadow);
-    resources.candidate_upload_pending = false;
   }
 
   static void InvalidateGpuDrivenCandidates(FrameContext& frame) noexcept {
     auto& resources = frame.gpu_driven;
-    resources.candidate_draw_slot_shadow.clear();
-    resources.pending_candidate_draw_slot_shadow.clear();
-    resources.candidate_upload_pending = false;
+    for (auto& batch : resources.batches) {
+      batch.candidate_draw_slot_shadow.clear();
+      batch.pending_candidate_draw_slot_shadow.clear();
+      batch.candidate_upload_pending = false;
+    }
+  }
+
+  static bool HasPendingGpuDrivenCandidateUpload(
+      const FrameContext& frame) noexcept {
+    return std::any_of(
+        frame.gpu_driven.batches.begin(), frame.gpu_driven.batches.end(),
+        [](const auto& batch) { return batch.candidate_upload_pending; });
   }
 
   void InvalidateGpuSceneUpdate() noexcept {
@@ -3797,14 +3866,13 @@ class Renderer::Impl {
     return pipeline;
   }
 
-  void EnsureGpuDrivenFrameResources(FrameContext& frame,
+  void EnsureGpuDrivenBatchResources(GpuDrivenBatchResources& resources,
                                      std::uint32_t candidate_count) {
-    auto& resources = frame.gpu_driven;
     if (resources.capacity >= candidate_count &&
         resources.descriptor_set != VK_NULL_HANDLE) {
       return;
     }
-    DestroyGpuDrivenFrameResources(resources);
+    DestroyGpuDrivenBatchResources(resources);
     resources.capacity = std::max(candidate_count, 1U);
     const auto slot_bytes = static_cast<VkDeviceSize>(resources.capacity) *
                             sizeof(std::uint32_t);
@@ -7111,32 +7179,34 @@ class Renderer::Impl {
     if (!frame.gpu_driven.selected) {
       return;
     }
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                      frame.gpu_driven.compute_pipeline);
-    const std::array descriptor_sets{
-        bindless_descriptor_set_, frame.bindless_material_descriptor_set,
-        frame.gpu_driven.descriptor_set};
-    const std::uint32_t dynamic_offset{};
-    vkCmdBindDescriptorSets(
-        command, VK_PIPELINE_BIND_POINT_COMPUTE,
-        gpu_driven_pipeline_layout_, 0,
-        static_cast<std::uint32_t>(descriptor_sets.size()),
-        descriptor_sets.data(), 1, &dynamic_offset);
-    shader_abi::GpuDrivenIndexedConstants constants;
-    constants.view_projection = Multiply(snapshot.projection, snapshot.view);
-    constants.visibility_mask = request.visibility_mask;
-    constants.candidate_count = frame.gpu_driven.candidate_count;
-    constants.flags = 0;
-    if (request.enable_visibility_mask_culling) {
-      constants.flags |= shader_abi::kGpuDrivenVisibilityMaskCulling;
+    for (const auto& batch : frame.gpu_driven.batches) {
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        batch.compute_pipeline);
+      const std::array descriptor_sets{
+          bindless_descriptor_set_, frame.bindless_material_descriptor_set,
+          batch.descriptor_set};
+      const std::uint32_t dynamic_offset{};
+      vkCmdBindDescriptorSets(
+          command, VK_PIPELINE_BIND_POINT_COMPUTE,
+          gpu_driven_pipeline_layout_, 0,
+          static_cast<std::uint32_t>(descriptor_sets.size()),
+          descriptor_sets.data(), 1, &dynamic_offset);
+      shader_abi::GpuDrivenIndexedConstants constants;
+      constants.view_projection = Multiply(snapshot.projection, snapshot.view);
+      constants.visibility_mask = request.visibility_mask;
+      constants.candidate_count = batch.candidate_count;
+      constants.flags = 0;
+      if (request.enable_visibility_mask_culling) {
+        constants.flags |= shader_abi::kGpuDrivenVisibilityMaskCulling;
+      }
+      if (request.enable_frustum_culling) {
+        constants.flags |= shader_abi::kGpuDrivenFrustumCulling;
+      }
+      vkCmdPushConstants(command, gpu_driven_pipeline_layout_,
+                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
+                         &constants);
+      vkCmdDispatch(command, 1, 1, 1);
     }
-    if (request.enable_frustum_culling) {
-      constants.flags |= shader_abi::kGpuDrivenFrustumCulling;
-    }
-    vkCmdPushConstants(command, gpu_driven_pipeline_layout_,
-                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
-                       &constants);
-    vkCmdDispatch(command, 1, 1, 1);
     VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
@@ -7187,15 +7257,6 @@ class Renderer::Impl {
         bindless_texture_table_ && gpu_scene_draw_slots &&
         gpu_scene_draw_slots->size() == draw_records_.size();
     if (frame.gpu_driven.selected) {
-      const auto& driven = frame.gpu_driven;
-      const auto vertex_buffer = vertex_arena_.buffer(driven.vertex_block);
-      constexpr VkDeviceSize zero_offset{};
-      vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer, &zero_offset);
-      vkCmdBindIndexBuffer(command, index_arena_.buffer(driven.index_block), 0,
-                           VK_INDEX_TYPE_UINT32);
-      const auto pipeline = EnsureGpuDrivenGraphicsPipeline(
-          active_target_->shaders, driven.pipeline_variant);
-      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
       const std::array descriptor_sets{
           bindless_descriptor_set_, frame.bindless_material_descriptor_set};
       const std::uint32_t dynamic_offset{};
@@ -7209,13 +7270,24 @@ class Renderer::Impl {
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(push), &push);
-      vkCmdDrawIndexedIndirectCount(
-          command, driven.indirect_commands.handle, 0,
-          driven.dispatch_counters.handle,
-          offsetof(shader_abi::GpuDrivenIndexedDispatchCounters,
-                   visible_count),
-          driven.candidate_count, sizeof(render::GpuIndexedIndirectCommand));
-      frame_counters_.gpu_driven_indirect_draw_count = 1;
+      for (const auto& batch : frame.gpu_driven.batches) {
+        const auto vertex_buffer = vertex_arena_.buffer(batch.vertex_block);
+        constexpr VkDeviceSize zero_offset{};
+        vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer, &zero_offset);
+        vkCmdBindIndexBuffer(command, index_arena_.buffer(batch.index_block), 0,
+                             VK_INDEX_TYPE_UINT32);
+        const auto pipeline = EnsureGpuDrivenGraphicsPipeline(
+            active_target_->shaders, batch.pipeline_variant);
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdDrawIndexedIndirectCount(
+            command, batch.indirect_commands.handle, 0,
+            batch.dispatch_counters.handle,
+            offsetof(shader_abi::GpuDrivenIndexedDispatchCounters,
+                     visible_count),
+            batch.candidate_count,
+            sizeof(render::GpuIndexedIndirectCommand));
+        ++frame_counters_.gpu_driven_indirect_draw_count;
+      }
     } else {
       for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
@@ -7390,8 +7462,10 @@ class Renderer::Impl {
     if (frame.gpu_driven.selected) {
       const VkBufferCopy copy{
           0, 0, sizeof(shader_abi::GpuDrivenIndexedDispatchCounters)};
-      vkCmdCopyBuffer(command, frame.gpu_driven.dispatch_counters.handle,
-                      frame.gpu_driven.counter_readback.handle, 1, &copy);
+      for (const auto& batch : frame.gpu_driven.batches) {
+        vkCmdCopyBuffer(command, batch.dispatch_counters.handle,
+                        batch.counter_readback.handle, 1, &copy);
+      }
     }
 
     if (HasAov(cpu_readback_aovs, Aov::Color)) {
@@ -7633,29 +7707,46 @@ class Renderer::Impl {
     if (!frame.gpu_driven.selected) {
       return;
     }
-    void* mapped{};
-    Check(vkMapMemory(device_, frame.gpu_driven.counter_readback.memory, 0,
-                      sizeof(shader_abi::GpuDrivenIndexedDispatchCounters), 0,
-                      &mapped),
-          "map GPU-driven dispatch counters");
-    shader_abi::GpuDrivenIndexedDispatchCounters counters;
-    std::memcpy(&counters, mapped, sizeof(counters));
-    vkUnmapMemory(device_, frame.gpu_driven.counter_readback.memory);
-    if (counters.candidate_count != frame.gpu_driven.candidate_count ||
-        static_cast<std::uint64_t>(counters.visible_count) +
-                counters.visibility_mask_culled_count +
-                counters.frustum_culled_count !=
-            counters.candidate_count) {
+    std::uint64_t candidate_count{};
+    std::uint64_t visible_count{};
+    std::uint64_t visibility_mask_culled_count{};
+    std::uint64_t frustum_culled_count{};
+    for (const auto& batch : frame.gpu_driven.batches) {
+      void* mapped{};
+      Check(vkMapMemory(device_, batch.counter_readback.memory, 0,
+                        sizeof(shader_abi::GpuDrivenIndexedDispatchCounters), 0,
+                        &mapped),
+            "map GPU-driven dispatch counters");
+      shader_abi::GpuDrivenIndexedDispatchCounters counters;
+      std::memcpy(&counters, mapped, sizeof(counters));
+      vkUnmapMemory(device_, batch.counter_readback.memory);
+      if (counters.candidate_count != batch.candidate_count ||
+          static_cast<std::uint64_t>(counters.visible_count) +
+                  counters.visibility_mask_culled_count +
+                  counters.frustum_culled_count !=
+              counters.candidate_count) {
+        throw RendererError(
+            RendererErrorCode::BackendFailure,
+            "resolve GPU-driven dispatch counters",
+            "compute counters violate an arena/pipeline batch partition");
+      }
+      candidate_count += counters.candidate_count;
+      visible_count += counters.visible_count;
+      visibility_mask_culled_count +=
+          counters.visibility_mask_culled_count;
+      frustum_culled_count += counters.frustum_culled_count;
+    }
+    if (candidate_count != frame.gpu_driven.candidate_count) {
       throw RendererError(RendererErrorCode::BackendFailure,
                           "resolve GPU-driven dispatch counters",
-                          "compute counters violate the candidate partition");
+                          "batch candidate counts do not match the frame");
     }
-    frame_counters_.gpu_driven_visible_draw_count = counters.visible_count;
+    frame_counters_.gpu_driven_visible_draw_count = visible_count;
     frame_counters_.gpu_driven_visibility_mask_culled_count =
-        counters.visibility_mask_culled_count;
+        visibility_mask_culled_count;
     frame_counters_.gpu_driven_frustum_culled_count =
-        counters.frustum_culled_count;
-    frame_counters_.gpu_scene_draw_count = counters.visible_count;
+        frustum_culled_count;
+    frame_counters_.gpu_scene_draw_count = visible_count;
   }
 
   static VKAPI_ATTR VkBool32 VKAPI_CALL ValidationCallback(

@@ -92,6 +92,30 @@ std::shared_ptr<FrameSnapshot> MakeMultiDrawSnapshot() {
   return snapshot;
 }
 
+std::shared_ptr<FrameSnapshot> MakeMixedPipelineSnapshot() {
+  auto snapshot = MakeMultiDrawSnapshot();
+  snapshot->source_id = 43;
+  snapshot->revision = 3;
+
+  auto second_material = snapshot->materials[0];
+  second_material.material = 203;
+  second_material.revision = 9;
+  second_material.double_sided = true;
+  second_material.parameters.base_color = {0.9F, 0.3F, 0.2F, 1.0F};
+  snapshot->materials.push_back(second_material);
+
+  auto second_instance = snapshot->instances[1];
+  second_instance.material = second_material.material;
+  second_instance.revision = 10;
+  snapshot->instances.replace(1, second_instance);
+
+  auto second_draw = snapshot->draws[1];
+  second_draw.material_index = 1;
+  second_draw.revision = 11;
+  snapshot->draws.replace(1, second_draw);
+  return snapshot;
+}
+
 merlin::vulkan::ShaderPaths MakeShaders(const std::filesystem::path& root) {
   return {root / "triangle.vert.spv",
           root / "triangle.frag.spv",
@@ -420,6 +444,36 @@ int main(int argc, char** argv) {
   if (!found_first_identity || !found_second_identity) {
     throw std::runtime_error(
         "GPU-driven Forward did not preserve non-zero firstInstance identity");
+  }
+
+  const auto mixed_pipeline_snapshot = MakeMixedPipelineSnapshot();
+  GpuScenePackingState mixed_pipeline_packing(capacities);
+  const std::vector mixed_pipeline_bindings{GpuMaterialBinding{},
+                                             GpuMaterialBinding{}};
+  auto mixed_pipeline_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          mixed_pipeline_packing.Apply(
+              *mixed_pipeline_snapshot, 0, 0,
+              GpuScenePackingInputs{multi_placements, multi_identities,
+                                    mixed_pipeline_bindings}));
+  const auto mixed_pipeline = Submit(
+      *renderer, mixed_pipeline_snapshot, shaders, mixed_pipeline_update,
+      merlin::vulkan::GpuDrivenIndexedMode::Require);
+  assert(mixed_pipeline.counters.gpu_driven_candidate_draw_count == 2);
+  assert(mixed_pipeline.counters.gpu_driven_visible_draw_count == 2);
+  assert(mixed_pipeline.counters.gpu_driven_indirect_draw_count == 2);
+  assert(mixed_pipeline.counters.gpu_driven_candidate_upload_bytes ==
+         2 * sizeof(std::uint32_t));
+  assert(mixed_pipeline.counters.gpu_driven_fallback_count == 0);
+  found_first_identity = false;
+  found_second_identity = false;
+  for (const auto id : mixed_pipeline.prim_id.pixels) {
+    found_first_identity = found_first_identity || id == 17;
+    found_second_identity = found_second_identity || id == 18;
+  }
+  if (!found_first_identity || !found_second_identity) {
+    throw std::runtime_error(
+        "mixed-pipeline GPU-driven batches did not preserve draw identity");
   }
 
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
