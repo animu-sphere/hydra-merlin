@@ -15,12 +15,13 @@ forward note to the superseded report. Open work belongs in the
 
 ## Reading order
 
-The newest report carries the live ask list. Report 12 records the v0.21.0
-runtime artifact transport failure and the resulting reliability asks for
-v0.22.0. Report 11 retains the renderer-workflow verification asks.
+The newest report carries the live ask list. Report 13 rechecks the report 11
+and 12 asks with v0.23.8, closes the managed renderer-session evidence gate, and
+carries the runtime-retention and producer-verification asks for v0.24.0.
 
 | # | Date | Report | `ost` | Focus |
 | --- | --- | --- | --- | --- |
+| 13 | 2026-09-26 | [v0.23.8 recheck and v0.24.0 asks](13-2026-09-26-v0.23.8-recheck-v0.24.0-asks.md) | 0.23.8 | Native resilient runtime pull, managed viewport/test binding, negative evidence checks, and runtime digest retention |
 | 12 | 2026-07-31 | [Runtime artifact pull and v0.22.0 asks](12-2026-07-31-v0.21.0-runtime-artifact-pull-v0.22.0-asks.md) | 0.21.0 | Large OCI layer timeout, resumable transfer, and package-backed GPU CI |
 | 11 | 2026-07-29 | [v0.21.0 recheck and v0.22.0 asks](11-2026-07-29-v0.21.0-recheck-v0.22.0-asks.md) | 0.21.0 | Managed timeout recovery, profile-local presets, and blocked launch-evidence recheck |
 | 10 | 2026-07-24 | [v0.20.0 recheck and v0.21.0 asks](10-2026-07-24-v0.20.0-recheck-v0.21.0-asks.md) | 0.20.0 | Managed renderer recovery, scene preflight, and `view` / `viewport` launch evidence |

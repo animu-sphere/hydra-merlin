@@ -85,20 +85,20 @@ GPU timing does not become a universal pull-request gate until runner variance
 is controlled; missing hardware evidence remains distinguishable from a product
 failure.
 
-### ⬜ Producer-session renderer evidence
+### ✅ Producer-session renderer evidence
 
-`ost 0.21.0` retains the producer-session validation boundary and improves
-managed configure recovery, but this repository has not yet produced a
-successful managed renderer session on the current Windows host. CMake still
-stops during the MSVC compiler ABI try-compile, so the complete renderer JSON
-envelope and the binding between managed completion evidence and generated
-renderer assertions remain unverified here.
-
-Exit requires one successful managed `renderer view` or `renderer viewport`
-session followed by `ost validate`, plus a negative check showing that stale
-external renderer evidence cannot be promoted by a newer managed completion.
-The current recheck and exact remaining evidence are recorded in
-[OST report 11](../reports/ost/11-2026-07-29-v0.21.0-recheck-v0.22.0-asks.md).
+With `ost 0.23.8`, the Windows host completes the managed core build, managed
+test, and managed `renderer viewport` session, and `ost validate` passes after
+each. Renderer assertions are bound to `ost-test` or `ost-build` completion
+records by build-relative path and SHA-256, and the viewport launch record is
+scoped to its build directory. Negative checks confirm that an altered or
+forged report labeled with an OST producer fails validation. They also confirm
+that an unchanged managed build does not rebind a report written by a direct
+harness run. `merlin-headless` now labels direct runs as `renderer-harness`
+evidence instead of `managed`. Capability CI runs `ost test` before validation
+so `renderer.install_tree` carries the managed test binding. Evidence and the
+remaining v0.24.0 asks are recorded in
+[OST report 13](../reports/ost/13-2026-09-26-v0.23.8-recheck-v0.24.0-asks.md).
 
 ### ⬜ Linux Vulkan validation
 
