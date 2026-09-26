@@ -13,23 +13,35 @@ namespace {
 
 Key TranslateKey(int key) noexcept {
   switch (key) {
-    case GLFW_KEY_ESCAPE: return Key::Escape;
-    case GLFW_KEY_LEFT: return Key::Left;
-    case GLFW_KEY_RIGHT: return Key::Right;
-    case GLFW_KEY_UP: return Key::Up;
-    case GLFW_KEY_DOWN: return Key::Down;
-    case GLFW_KEY_F: return Key::Frame;
-    case GLFW_KEY_S: return Key::Screenshot;
-    default: return Key::Unknown;
+  case GLFW_KEY_ESCAPE:
+    return Key::Escape;
+  case GLFW_KEY_LEFT:
+    return Key::Left;
+  case GLFW_KEY_RIGHT:
+    return Key::Right;
+  case GLFW_KEY_UP:
+    return Key::Up;
+  case GLFW_KEY_DOWN:
+    return Key::Down;
+  case GLFW_KEY_F:
+    return Key::Frame;
+  case GLFW_KEY_S:
+    return Key::Screenshot;
+  default:
+    return Key::Unknown;
   }
 }
 
 MouseButton TranslateMouseButton(int button) noexcept {
   switch (button) {
-    case GLFW_MOUSE_BUTTON_LEFT: return MouseButton::Left;
-    case GLFW_MOUSE_BUTTON_MIDDLE: return MouseButton::Middle;
-    case GLFW_MOUSE_BUTTON_RIGHT: return MouseButton::Right;
-    default: return MouseButton::None;
+  case GLFW_MOUSE_BUTTON_LEFT:
+    return MouseButton::Left;
+  case GLFW_MOUSE_BUTTON_MIDDLE:
+    return MouseButton::Middle;
+  case GLFW_MOUSE_BUTTON_RIGHT:
+    return MouseButton::Right;
+  default:
+    return MouseButton::None;
   }
 }
 
@@ -57,7 +69,7 @@ Modifiers ReadModifiers(GLFWwindow* window) noexcept {
 }
 
 void SetFramebufferPointerPosition(GLFWwindow* window, double x, double y,
-                                   Event& event) noexcept {
+    Event& event) noexcept {
   int window_width{};
   int window_height{};
   int framebuffer_width{};
@@ -81,15 +93,14 @@ std::runtime_error GlfwError(std::string_view operation) {
   const auto code = glfwGetError(&detail);
   return std::runtime_error(std::string(operation) + " failed (GLFW " +
                             std::to_string(code) + ")" +
-                            (detail == nullptr ? "" : ": " +
-                                                     std::string(detail)));
+                            (detail == nullptr ? "" : ": " + std::string(detail)));
 }
 
 // Owns process-wide GLFW initialization; create at most one instance.
 class GlfwWindow final : public Window {
- public:
+public:
   GlfwWindow(std::string_view title, std::uint32_t width,
-             std::uint32_t height, bool visible) {
+      std::uint32_t height, bool visible) {
     if (glfwInit() != GLFW_TRUE) {
       throw GlfwError("initialize GLFW");
     }
@@ -106,16 +117,16 @@ class GlfwWindow final : public Window {
     }
   }
 
- private:
+private:
   void Initialize(std::string_view title, std::uint32_t width,
-                  std::uint32_t height, bool visible) {
+      std::uint32_t height, bool visible) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_VISIBLE, visible ? GLFW_TRUE : GLFW_FALSE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     const std::string owned_title(title);
     window_ = glfwCreateWindow(static_cast<int>(width),
-                               static_cast<int>(height), owned_title.c_str(),
-                               nullptr, nullptr);
+        static_cast<int>(height), owned_title.c_str(),
+        nullptr, nullptr);
     if (window_ == nullptr) {
       throw GlfwError("create GLFW viewport window");
     }
@@ -126,7 +137,7 @@ class GlfwWindow final : public Window {
       glfwSetWindowShouldClose(window, GLFW_FALSE);
     });
     glfwSetFramebufferSizeCallback(window_, [](GLFWwindow* window, int width,
-                                               int height) {
+                                                int height) {
       auto& self = Self(window);
       self.width_ = width < 0 ? 0U : static_cast<std::uint32_t>(width);
       self.height_ = height < 0 ? 0U : static_cast<std::uint32_t>(height);
@@ -136,7 +147,7 @@ class GlfwWindow final : public Window {
       self.events_.push_back(event);
     });
     glfwSetKeyCallback(window_, [](GLFWwindow* window, int key, int,
-                                   int action, int) {
+                                    int action, int) {
       if (action == GLFW_PRESS || action == GLFW_REPEAT) {
         Event event{EventType::KeyDown};
         event.key = TranslateKey(key);
@@ -144,7 +155,7 @@ class GlfwWindow final : public Window {
       }
     });
     glfwSetMouseButtonCallback(window_, [](GLFWwindow* window, int button,
-                                           int action, int modifiers) {
+                                            int action, int modifiers) {
       const auto translated = TranslateMouseButton(button);
       if (translated == MouseButton::None ||
           (action != GLFW_PRESS && action != GLFW_RELEASE)) {
@@ -154,14 +165,14 @@ class GlfwWindow final : public Window {
       double y{};
       glfwGetCursorPos(window, &x, &y);
       Event event{action == GLFW_PRESS ? EventType::PointerDown
-                                      : EventType::PointerUp};
+                                       : EventType::PointerUp};
       event.button = translated;
       event.modifiers = TranslateModifiers(modifiers);
       SetFramebufferPointerPosition(window, x, y, event);
       Self(window).events_.push_back(event);
     });
     glfwSetCursorPosCallback(window_, [](GLFWwindow* window, double x,
-                                        double y) {
+                                          double y) {
       Event event{EventType::PointerMove};
       event.modifiers = ReadModifiers(window);
       SetFramebufferPointerPosition(window, x, y, event);
@@ -180,7 +191,7 @@ class GlfwWindow final : public Window {
     height_ = static_cast<std::uint32_t>(std::max(0, framebuffer_height));
   }
 
- public:
+public:
   ~GlfwWindow() override {
     if (window_ != nullptr) {
       glfwDestroyWindow(window_);
@@ -200,7 +211,9 @@ class GlfwWindow final : public Window {
     return true;
   }
 
-  void WaitForEvent() override { glfwWaitEvents(); }
+  void WaitForEvent() override {
+    glfwWaitEvents();
+  }
 
   void SetTitle(std::string_view title) override {
     const std::string owned(title);
@@ -209,14 +222,20 @@ class GlfwWindow final : public Window {
 
   void SetSize(std::uint32_t width, std::uint32_t height) override {
     glfwSetWindowSize(window_, static_cast<int>(width),
-                      static_cast<int>(height));
+        static_cast<int>(height));
   }
 
-  void* native_window() const noexcept override { return window_; }
-  std::uint32_t width() const noexcept override { return width_; }
-  std::uint32_t height() const noexcept override { return height_; }
+  void* native_window() const noexcept override {
+    return window_;
+  }
+  std::uint32_t width() const noexcept override {
+    return width_;
+  }
+  std::uint32_t height() const noexcept override {
+    return height_;
+  }
 
- private:
+private:
   static GlfwWindow& Self(GLFWwindow* window) {
     return *static_cast<GlfwWindow*>(glfwGetWindowUserPointer(window));
   }
@@ -228,12 +247,12 @@ class GlfwWindow final : public Window {
   std::deque<Event> events_;
 };
 
-}  // namespace
+} // namespace
 
 std::unique_ptr<Window> Window::Create(std::string_view title,
-                                       std::uint32_t width,
-                                       std::uint32_t height, bool visible) {
+    std::uint32_t width,
+    std::uint32_t height, bool visible) {
   return std::make_unique<GlfwWindow>(title, width, height, visible);
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

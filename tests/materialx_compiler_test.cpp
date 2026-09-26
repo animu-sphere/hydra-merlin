@@ -23,11 +23,11 @@ std::string ReadFile(const char* path) {
   std::ifstream stream(path, std::ios::binary);
   assert(stream);
   return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+      std::istreambuf_iterator<char>()};
 }
 
 bool HasDiagnostic(const merlin::materialx::CompileResult& result,
-                   merlin::materialx::DiagnosticCode code) {
+    merlin::materialx::DiagnosticCode code) {
   for (const auto& diagnostic : result.diagnostics) {
     if (diagnostic.code == code) {
       return true;
@@ -37,7 +37,7 @@ bool HasDiagnostic(const merlin::materialx::CompileResult& result,
 }
 
 class CollectingDiagnosticSink final : public merlin::DiagnosticSink {
- public:
+public:
   void Report(const merlin::Diagnostic& diagnostic) override {
     reported.push_back(diagnostic);
   }
@@ -70,7 +70,7 @@ bool HasDependency(
   return false;
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   assert(argc == 6);
@@ -113,9 +113,9 @@ int main(int argc, char** argv) {
   assert(first.module->source_dependency_fingerprint ==
          second.module->source_dependency_fingerprint);
   assert(HasDependency(first.module->standard_library_dependencies,
-                       "libraries/stdlib/stdlib_defs.mtlx"));
+      "libraries/stdlib/stdlib_defs.mtlx"));
   assert(HasDependency(first.module->source_dependencies,
-                       "libraries/stdlib/genslang/lib/mx_math.slang"));
+      "libraries/stdlib/genslang/lib/mx_math.slang"));
   assert(first.module->logical_module.key == first.module->module_key);
   assert(first.module->logical_module.entry_point == "evaluateMaterial");
   assert(first.module->logical_module.abi_version ==
@@ -185,7 +185,8 @@ int main(int argc, char** argv) {
   assert(roundtrip_changes.changes.size() == 1U);
   const auto& roundtrip_tint = std::get<merlin::Vec3>(
       roundtrip_world.Get(roundtrip_handle)
-          .generated_parameters.entries[0].values[0]);
+          .generated_parameters.entries[0]
+          .values[0]);
   assert(roundtrip_tint.y == 0.35F);
 
   constexpr auto texcoord1_document = R"mtlx(<?xml version="1.0"?>
@@ -202,7 +203,7 @@ int main(int argc, char** argv) {
       texcoord1_document, options);
   assert(!texcoord1);
   assert(HasDiagnostic(texcoord1,
-                       merlin::materialx::DiagnosticCode::UnsupportedInput));
+      merlin::materialx::DiagnosticCode::UnsupportedInput));
 
   constexpr auto image_document = R"mtlx(<?xml version="1.0"?>
 <materialx version="1.39">
@@ -295,12 +296,12 @@ int main(int argc, char** argv) {
          std::string::npos);
   assert(standard_surface.module->logical_module.requirements.inputs ==
          (merlin::MaterialInputRequirement::Texcoord0 |
-          merlin::MaterialInputRequirement::NormalWorld));
+             merlin::MaterialInputRequirement::NormalWorld));
   assert(standard_surface.module->logical_module.requirements.results ==
          (merlin::MaterialResultField::BaseColor |
-          merlin::MaterialResultField::Metalness |
-          merlin::MaterialResultField::SpecularRoughness |
-          merlin::MaterialResultField::ShadingNormal));
+             merlin::MaterialResultField::Metalness |
+             merlin::MaterialResultField::SpecularRoughness |
+             merlin::MaterialResultField::ShadingNormal));
   assert(standard_surface.module->logical_module.resources.entries.size() ==
          1U);
   assert(standard_surface.module->resource_defaults.entries.size() == 1U);
@@ -375,7 +376,7 @@ int main(int argc, char** argv) {
           unsupported_standard_surface_document, options);
   assert(!unsupported_standard_surface);
   assert(HasDiagnostic(unsupported_standard_surface,
-                       merlin::materialx::DiagnosticCode::UnsupportedInput));
+      merlin::materialx::DiagnosticCode::UnsupportedInput));
 
   constexpr auto unsupported_document = R"mtlx(<?xml version="1.0"?>
 <materialx version="1.39">
@@ -389,7 +390,7 @@ int main(int argc, char** argv) {
       unsupported_document, options);
   assert(!unsupported);
   assert(HasDiagnostic(unsupported,
-                       merlin::materialx::DiagnosticCode::UnsupportedNode));
+      merlin::materialx::DiagnosticCode::UnsupportedNode));
 
   options.renderable_path = "does/not/exist";
   const auto missing =
@@ -402,7 +403,7 @@ int main(int argc, char** argv) {
       "<materialx>", options);
   assert(!malformed);
   assert(HasDiagnostic(malformed,
-                       merlin::materialx::DiagnosticCode::InvalidDocument));
+      merlin::materialx::DiagnosticCode::InvalidDocument));
   assert(!HasDiagnostic(
       malformed, merlin::materialx::DiagnosticCode::GenerationFailure));
 
@@ -421,7 +422,7 @@ int main(int argc, char** argv) {
       missing_texture_document, options);
   assert(!missing_texture);
   assert(HasDiagnostic(missing_texture,
-                       merlin::materialx::DiagnosticCode::MissingTexture));
+      merlin::materialx::DiagnosticCode::MissingTexture));
   const auto& texture_diagnostic = FindDiagnostic(
       missing_texture, merlin::materialx::DiagnosticCode::MissingTexture);
   // Detected against reflected interface, so the input can be named but the
@@ -525,9 +526,9 @@ int main(int argc, char** argv) {
   merlin::MaterialDiagnosticContext contamination_context;
   contamination_context.source_document = "standard-surface.mtlx";
   assert(merlin::materialx::internal::DiagnosePassDeclarations(
-             standard_surface.module->source, "NG_standard_surface/surface",
-             contamination_context)
-             .empty());
+      standard_surface.module->source, "NG_standard_surface/surface",
+      contamination_context)
+          .empty());
   const auto contamination_diagnostics =
       merlin::materialx::internal::DiagnosePassDeclarations(
           standard_surface.module->source +
@@ -561,7 +562,7 @@ int main(int argc, char** argv) {
          merlin::MaterialDiagnosticCategory::GenerationFailure);
   const auto bridged_contamination =
       merlin::materialx::ToMaterialDiagnostic(contaminated,
-                                              unsupported_with_source);
+          unsupported_with_source);
   assert(merlin::ToDiagnostic(bridged_contamination).code ==
          "material.generation.failed");
   assert(bridged_contamination.fallback ==

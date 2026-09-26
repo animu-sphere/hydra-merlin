@@ -16,7 +16,9 @@ enum class ObjectKind {
   Light,
   RenderSettings
 };
-enum class ChangeKind { Created, Updated, Removed };
+enum class ChangeKind { Created,
+  Updated,
+  Removed };
 
 enum class ChangeAspect : std::uint32_t {
   None = 0,
@@ -48,58 +50,58 @@ enum class ChangeAspect : std::uint32_t {
 };
 
 [[nodiscard]] constexpr ChangeAspect operator|(ChangeAspect lhs,
-                                               ChangeAspect rhs) noexcept {
+    ChangeAspect rhs) noexcept {
   return static_cast<ChangeAspect>(static_cast<std::uint32_t>(lhs) |
                                    static_cast<std::uint32_t>(rhs));
 }
 
 [[nodiscard]] constexpr ChangeAspect operator&(ChangeAspect lhs,
-                                               ChangeAspect rhs) noexcept {
+    ChangeAspect rhs) noexcept {
   return static_cast<ChangeAspect>(static_cast<std::uint32_t>(lhs) &
                                    static_cast<std::uint32_t>(rhs));
 }
 
 constexpr ChangeAspect& operator|=(ChangeAspect& lhs,
-                                   ChangeAspect rhs) noexcept {
+    ChangeAspect rhs) noexcept {
   lhs = lhs | rhs;
   return lhs;
 }
 
 [[nodiscard]] constexpr bool HasAnyAspect(ChangeAspect value,
-                                          ChangeAspect mask) noexcept {
+    ChangeAspect mask) noexcept {
   return (value & mask) != ChangeAspect::None;
 }
 
 [[nodiscard]] constexpr ChangeAspect DefaultChangeAspects(
     ObjectKind kind) noexcept {
   switch (kind) {
-    case ObjectKind::Mesh:
-      return ChangeAspect::Topology | ChangeAspect::Points |
-             ChangeAspect::Primvars | ChangeAspect::MaterialPartition |
-             ChangeAspect::VertexLayout;
-    case ObjectKind::Gaussian:
-      return ChangeAspect::GaussianPositions |
-             ChangeAspect::GaussianCovariance |
-             ChangeAspect::GaussianOpacity |
-             ChangeAspect::GaussianRadiance |
-             ChangeAspect::GaussianPolicy | ChangeAspect::Transform |
-             ChangeAspect::Visibility;
-    case ObjectKind::Material:
-      return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures |
-             ChangeAspect::MaterialModule | ChangeAspect::MaterialResources;
-    case ObjectKind::Texture:
-      return ChangeAspect::TextureData;
-    case ObjectKind::Sampler:
-      return ChangeAspect::SamplerParameters;
-    case ObjectKind::Instance:
-      return ChangeAspect::Transform | ChangeAspect::Visibility |
-             ChangeAspect::MaterialBinding;
-    case ObjectKind::Camera:
-      return ChangeAspect::Camera;
-    case ObjectKind::Light:
-      return ChangeAspect::Transform | ChangeAspect::LightParameters;
-    case ObjectKind::RenderSettings:
-      return ChangeAspect::RenderSettings;
+  case ObjectKind::Mesh:
+    return ChangeAspect::Topology | ChangeAspect::Points |
+           ChangeAspect::Primvars | ChangeAspect::MaterialPartition |
+           ChangeAspect::VertexLayout;
+  case ObjectKind::Gaussian:
+    return ChangeAspect::GaussianPositions |
+           ChangeAspect::GaussianCovariance |
+           ChangeAspect::GaussianOpacity |
+           ChangeAspect::GaussianRadiance |
+           ChangeAspect::GaussianPolicy | ChangeAspect::Transform |
+           ChangeAspect::Visibility;
+  case ObjectKind::Material:
+    return ChangeAspect::MaterialParameters | ChangeAspect::MaterialFeatures |
+           ChangeAspect::MaterialModule | ChangeAspect::MaterialResources;
+  case ObjectKind::Texture:
+    return ChangeAspect::TextureData;
+  case ObjectKind::Sampler:
+    return ChangeAspect::SamplerParameters;
+  case ObjectKind::Instance:
+    return ChangeAspect::Transform | ChangeAspect::Visibility |
+           ChangeAspect::MaterialBinding;
+  case ObjectKind::Camera:
+    return ChangeAspect::Camera;
+  case ObjectKind::Light:
+    return ChangeAspect::Transform | ChangeAspect::LightParameters;
+  case ObjectKind::RenderSettings:
+    return ChangeAspect::RenderSettings;
   }
   return ChangeAspect::None;
 }
@@ -138,7 +140,9 @@ struct ChangeSet {
   std::uint64_t revision{};
   std::vector<Change> changes;
 
-  [[nodiscard]] bool empty() const noexcept { return changes.empty(); }
+  [[nodiscard]] bool empty() const noexcept {
+    return changes.empty();
+  }
 };
 
-}  // namespace merlin
+} // namespace merlin

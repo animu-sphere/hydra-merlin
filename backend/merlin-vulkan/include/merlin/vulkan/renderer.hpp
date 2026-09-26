@@ -82,10 +82,10 @@ struct PresentationOverlayContext {
 
 struct PresentationOptions {
   using CreateSurface = std::int32_t (*)(void* user_data,
-                                         std::uintptr_t instance,
-                                         std::uintptr_t* surface);
+      std::uintptr_t instance,
+      std::uintptr_t* surface);
   using RenderOverlay = void (*)(void* user_data,
-                                 const PresentationOverlayContext& context);
+      const PresentationOverlayContext& context);
 
   // Supplied by a backend presentation adapter (GLFW in merlin-viewport).
   // Core and the viewport host never own or inspect the resulting surface.
@@ -534,7 +534,7 @@ struct RenderProductRequest {
   bool cpu_readback{true};
 
   friend constexpr bool operator==(const RenderProductRequest&,
-                                   const RenderProductRequest&) = default;
+      const RenderProductRequest&) = default;
 };
 
 struct RenderRequest {
@@ -593,20 +593,24 @@ enum class RendererErrorCode {
     RendererErrorCode code) noexcept;
 
 class RendererError : public std::runtime_error {
- public:
+public:
   RendererError(RendererErrorCode code, std::string operation,
-                std::string detail, std::int32_t native_code = 0);
+      std::string detail, std::int32_t native_code = 0);
 
-  [[nodiscard]] RendererErrorCode code() const noexcept { return code_; }
+  [[nodiscard]] RendererErrorCode code() const noexcept {
+    return code_;
+  }
   [[nodiscard]] const std::string& operation() const noexcept {
     return operation_;
   }
-  [[nodiscard]] const std::string& detail() const noexcept { return detail_; }
+  [[nodiscard]] const std::string& detail() const noexcept {
+    return detail_;
+  }
   [[nodiscard]] std::int32_t native_code() const noexcept {
     return native_code_;
   }
 
- private:
+private:
   RendererErrorCode code_;
   std::string operation_;
   std::string detail_;
@@ -614,19 +618,24 @@ class RendererError : public std::runtime_error {
 };
 
 class CompletionToken {
- public:
+public:
   CompletionToken() = default;
 
-  [[nodiscard]] explicit operator bool() const noexcept { return value_ != 0; }
-  [[nodiscard]] std::uint64_t value() const noexcept { return value_; }
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return value_ != 0;
+  }
+  [[nodiscard]] std::uint64_t value() const noexcept {
+    return value_;
+  }
 
   friend constexpr bool operator==(const CompletionToken&,
-                                   const CompletionToken&) = default;
+      const CompletionToken&) = default;
 
- private:
+private:
   friend class Renderer;
   CompletionToken(std::uint64_t owner, std::uint64_t value) noexcept
-      : owner_(owner), value_(value) {}
+      : owner_(owner), value_(value) {
+  }
 
   std::uint64_t owner_{};
   std::uint64_t value_{};
@@ -636,7 +645,7 @@ class CompletionToken {
 // complete a backend-local transfer before the frame target is reused.
 // Leases are move-only and must be returned to the Renderer that created them.
 class AovImageLease {
- public:
+public:
   AovImageLease() = default;
   AovImageLease(AovImageLease&& other) noexcept
       : owner_(other.owner_),
@@ -655,12 +664,15 @@ class AovImageLease {
   [[nodiscard]] std::uint64_t completion_value() const noexcept {
     return completion_;
   }
-  [[nodiscard]] Aov aov() const noexcept { return aov_; }
+  [[nodiscard]] Aov aov() const noexcept {
+    return aov_;
+  }
 
- private:
+private:
   friend class Renderer;
   AovImageLease(std::uint64_t owner, std::uint64_t completion, Aov aov) noexcept
-      : owner_(owner), completion_(completion), aov_(aov) {}
+      : owner_(owner), completion_(completion), aov_(aov) {
+  }
 
   std::uint64_t owner_{};
   std::uint64_t completion_{};
@@ -735,7 +747,7 @@ struct RenderResult {
 void ValidateRenderResult(const RenderResult& result);
 
 class Renderer {
- public:
+public:
   explicit Renderer(RendererOptions options = {});
   ~Renderer();
 
@@ -762,13 +774,13 @@ class Renderer {
   // construct a RenderRequest explicitly so AOV production and CPU readback
   // are visible at the call site.
   [[nodiscard]] RenderResult Render(const extraction::FrameSnapshot& snapshot,
-                                    std::uint32_t width,
-                                    std::uint32_t height,
-                                    const ShaderPaths& shaders);
+      std::uint32_t width,
+      std::uint32_t height,
+      const ShaderPaths& shaders);
 
- private:
+private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

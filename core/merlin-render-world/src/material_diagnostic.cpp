@@ -8,7 +8,7 @@ namespace {
 // Appends `key=value` only when the value is present, so an absent context
 // field is silently omitted instead of reported as an empty one.
 void AppendContextField(std::string& text, std::string_view key,
-                        const std::string& value) {
+    const std::string& value) {
   if (value.empty()) {
     return;
   }
@@ -44,57 +44,57 @@ const std::string& DiagnosticSource(const MaterialDiagnosticContext& context) {
   return context.material_identity;
 }
 
-}  // namespace
+} // namespace
 
 std::string_view MaterialDiagnosticCode(
     MaterialDiagnosticCategory category) noexcept {
   switch (category) {
-    case MaterialDiagnosticCategory::InvalidDocument:
-      return "material.document.invalid";
-    case MaterialDiagnosticCategory::RenderableNotFound:
-      return "material.document.renderable-not-found";
-    case MaterialDiagnosticCategory::AmbiguousRenderable:
-      return "material.document.renderable-ambiguous";
-    case MaterialDiagnosticCategory::UnsupportedNode:
-      return "material.node.unsupported";
-    case MaterialDiagnosticCategory::UnsupportedInput:
-      return "material.input.unsupported";
-    case MaterialDiagnosticCategory::UnsupportedConversion:
-      return "material.conversion.unsupported";
-    case MaterialDiagnosticCategory::MissingLibrary:
-      return "material.dependency.library-missing";
-    case MaterialDiagnosticCategory::MissingInclude:
-      return "material.dependency.include-missing";
-    case MaterialDiagnosticCategory::MissingTexture:
-      return "material.dependency.texture-missing";
-    case MaterialDiagnosticCategory::GenerationFailure:
-      return "material.generation.failed";
-    case MaterialDiagnosticCategory::CompileFailure:
-      return "material.compile.failed";
-    case MaterialDiagnosticCategory::TargetFailure:
-      return "material.target.failed";
-    case MaterialDiagnosticCategory::ReflectionMismatch:
-      return "material.reflection.mismatch";
-    case MaterialDiagnosticCategory::AbiMismatch:
-      return "material.abi.mismatch";
-    case MaterialDiagnosticCategory::CacheCorrupt:
-      return "material.cache.corrupt";
-    case MaterialDiagnosticCategory::CacheIncompatible:
-      return "material.cache.incompatible";
+  case MaterialDiagnosticCategory::InvalidDocument:
+    return "material.document.invalid";
+  case MaterialDiagnosticCategory::RenderableNotFound:
+    return "material.document.renderable-not-found";
+  case MaterialDiagnosticCategory::AmbiguousRenderable:
+    return "material.document.renderable-ambiguous";
+  case MaterialDiagnosticCategory::UnsupportedNode:
+    return "material.node.unsupported";
+  case MaterialDiagnosticCategory::UnsupportedInput:
+    return "material.input.unsupported";
+  case MaterialDiagnosticCategory::UnsupportedConversion:
+    return "material.conversion.unsupported";
+  case MaterialDiagnosticCategory::MissingLibrary:
+    return "material.dependency.library-missing";
+  case MaterialDiagnosticCategory::MissingInclude:
+    return "material.dependency.include-missing";
+  case MaterialDiagnosticCategory::MissingTexture:
+    return "material.dependency.texture-missing";
+  case MaterialDiagnosticCategory::GenerationFailure:
+    return "material.generation.failed";
+  case MaterialDiagnosticCategory::CompileFailure:
+    return "material.compile.failed";
+  case MaterialDiagnosticCategory::TargetFailure:
+    return "material.target.failed";
+  case MaterialDiagnosticCategory::ReflectionMismatch:
+    return "material.reflection.mismatch";
+  case MaterialDiagnosticCategory::AbiMismatch:
+    return "material.abi.mismatch";
+  case MaterialDiagnosticCategory::CacheCorrupt:
+    return "material.cache.corrupt";
+  case MaterialDiagnosticCategory::CacheIncompatible:
+    return "material.cache.incompatible";
   }
   return "material.generation.failed";
 }
 
 std::string_view MaterialFallbackName(MaterialFallback fallback) noexcept {
   switch (fallback) {
-    case MaterialFallback::None:
-      return "none";
-    case MaterialFallback::Simplification:
-      return "simplification";
-    case MaterialFallback::BasicMaterial:
-      return "basic-material";
-    case MaterialFallback::ErrorMaterial:
-      return "error-material";
+  case MaterialFallback::None:
+    return "none";
+  case MaterialFallback::Simplification:
+    return "simplification";
+  case MaterialFallback::BasicMaterial:
+    return "basic-material";
+  case MaterialFallback::ErrorMaterial:
+    return "error-material";
   }
   return "error-material";
 }
@@ -103,33 +103,33 @@ MaterialFallback SelectMaterialFallback(
     MaterialDiagnosticCategory category,
     const MaterialFallbackPolicy& policy) noexcept {
   switch (category) {
-    // A rejected node, input, or conversion leaves the rest of the graph
-    // intact, so a diagnosed simplification can still evaluate.
-    case MaterialDiagnosticCategory::UnsupportedNode:
-    case MaterialDiagnosticCategory::UnsupportedInput:
-    case MaterialDiagnosticCategory::UnsupportedConversion:
-    case MaterialDiagnosticCategory::MissingTexture:
-      if (policy.allow_simplification) {
-        return MaterialFallback::Simplification;
-      }
-      [[fallthrough]];
-    // Nothing generated, nothing compiled, or nothing trustworthy was loaded.
-    // There is no partial graph to simplify toward, so the basic material is
-    // the best remaining rung.
-    case MaterialDiagnosticCategory::InvalidDocument:
-    case MaterialDiagnosticCategory::RenderableNotFound:
-    case MaterialDiagnosticCategory::AmbiguousRenderable:
-    case MaterialDiagnosticCategory::MissingLibrary:
-    case MaterialDiagnosticCategory::MissingInclude:
-    case MaterialDiagnosticCategory::GenerationFailure:
-    case MaterialDiagnosticCategory::CompileFailure:
-    case MaterialDiagnosticCategory::TargetFailure:
-    case MaterialDiagnosticCategory::ReflectionMismatch:
-    case MaterialDiagnosticCategory::AbiMismatch:
-    case MaterialDiagnosticCategory::CacheCorrupt:
-    case MaterialDiagnosticCategory::CacheIncompatible:
-      return policy.allow_basic_material ? MaterialFallback::BasicMaterial
-                                         : MaterialFallback::ErrorMaterial;
+  // A rejected node, input, or conversion leaves the rest of the graph
+  // intact, so a diagnosed simplification can still evaluate.
+  case MaterialDiagnosticCategory::UnsupportedNode:
+  case MaterialDiagnosticCategory::UnsupportedInput:
+  case MaterialDiagnosticCategory::UnsupportedConversion:
+  case MaterialDiagnosticCategory::MissingTexture:
+    if (policy.allow_simplification) {
+      return MaterialFallback::Simplification;
+    }
+    [[fallthrough]];
+  // Nothing generated, nothing compiled, or nothing trustworthy was loaded.
+  // There is no partial graph to simplify toward, so the basic material is
+  // the best remaining rung.
+  case MaterialDiagnosticCategory::InvalidDocument:
+  case MaterialDiagnosticCategory::RenderableNotFound:
+  case MaterialDiagnosticCategory::AmbiguousRenderable:
+  case MaterialDiagnosticCategory::MissingLibrary:
+  case MaterialDiagnosticCategory::MissingInclude:
+  case MaterialDiagnosticCategory::GenerationFailure:
+  case MaterialDiagnosticCategory::CompileFailure:
+  case MaterialDiagnosticCategory::TargetFailure:
+  case MaterialDiagnosticCategory::ReflectionMismatch:
+  case MaterialDiagnosticCategory::AbiMismatch:
+  case MaterialDiagnosticCategory::CacheCorrupt:
+  case MaterialDiagnosticCategory::CacheIncompatible:
+    return policy.allow_basic_material ? MaterialFallback::BasicMaterial
+                                       : MaterialFallback::ErrorMaterial;
   }
   return MaterialFallback::ErrorMaterial;
 }
@@ -180,17 +180,17 @@ Diagnostic ToDiagnostic(const MaterialDiagnostic& diagnostic) {
 void MaterialFallbackEvidence::Record(MaterialFallback fallback) noexcept {
   ++recorded_count;
   switch (fallback) {
-    case MaterialFallback::None:
-      break;
-    case MaterialFallback::Simplification:
-      ++simplification_count;
-      break;
-    case MaterialFallback::BasicMaterial:
-      ++basic_material_count;
-      break;
-    case MaterialFallback::ErrorMaterial:
-      ++error_material_count;
-      break;
+  case MaterialFallback::None:
+    break;
+  case MaterialFallback::Simplification:
+    ++simplification_count;
+    break;
+  case MaterialFallback::BasicMaterial:
+    ++basic_material_count;
+    break;
+  case MaterialFallback::ErrorMaterial:
+    ++error_material_count;
+    break;
   }
   // The ladder is declared worst-last, so the higher enumerator is the more
   // degraded result and wins the summary.
@@ -222,4 +222,4 @@ std::string MakeMaterialFallbackEvidenceRecord(
   return record;
 }
 
-}  // namespace merlin
+} // namespace merlin

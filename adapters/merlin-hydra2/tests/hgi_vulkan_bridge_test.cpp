@@ -35,7 +35,7 @@ HdMerlinHgiVulkanFallbackReason RejectionFor(const HdDriverVector& drivers) {
   return bridge.status().fallback_reason;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   const auto disabled =
@@ -43,21 +43,21 @@ int main() {
   Expect(!disabled.hgi_owned_targets &&
              disabled.fallback_reason ==
                  HdMerlinHgiVulkanFallbackReason::BridgeDisabled,
-         "disabled bridge did not retain Tier 0");
+      "disabled bridge did not retain Tier 0");
 
   const auto missing =
       HdMerlinEvaluateHgiVulkanBridgeSupport(true, PXR_VERSION, false, false);
   Expect(!missing.hgi_owned_targets &&
              missing.fallback_reason ==
                  HdMerlinHgiVulkanFallbackReason::MissingRenderDriver,
-         "missing Hgi driver was not rejected");
+      "missing Hgi driver was not rejected");
 
   const auto non_vulkan =
       HdMerlinEvaluateHgiVulkanBridgeSupport(true, PXR_VERSION, true, false);
   Expect(!non_vulkan.hgi_owned_targets &&
              non_vulkan.fallback_reason ==
                  HdMerlinHgiVulkanFallbackReason::NonVulkanRenderDriver,
-         "non-Vulkan Hgi driver was not rejected");
+      "non-Vulkan Hgi driver was not rejected");
 
   const auto vulkan =
       HdMerlinEvaluateHgiVulkanBridgeSupport(true, PXR_VERSION, true, true);
@@ -66,29 +66,29 @@ int main() {
                  HdMerlinHgiVulkanTransferMode::CpuReadback &&
              vulkan.fallback_reason ==
                  HdMerlinHgiVulkanFallbackReason::GpuCopyUnavailable,
-         "HgiVulkan Tier 0 selection is incorrect");
+      "HgiVulkan Tier 0 selection is incorrect");
 
   const auto unsupported =
       HdMerlinEvaluateHgiVulkanBridgeSupport(true, 9999, true, true);
   Expect(!unsupported.hgi_owned_targets &&
              unsupported.fallback_reason ==
                  HdMerlinHgiVulkanFallbackReason::UnsupportedOpenUsd,
-         "unsupported OpenUSD version was not rejected");
+      "unsupported OpenUSD version was not rejected");
 
   // Reported names are consumed by evidence tooling, so they are part of the
   // contract rather than debug text.
   Expect(HdMerlinHgiVulkanTransferModeName(
              HdMerlinHgiVulkanTransferMode::CpuReadback) ==
              std::string_view("cpu-readback"),
-         "cpu-readback mode name is unstable");
+      "cpu-readback mode name is unstable");
   Expect(HdMerlinHgiVulkanTransferModeName(
              HdMerlinHgiVulkanTransferMode::GpuCopy) ==
              std::string_view("gpu-copy"),
-         "gpu-copy mode name is unstable");
+      "gpu-copy mode name is unstable");
   Expect(HdMerlinHgiVulkanTransferModeName(
              HdMerlinHgiVulkanTransferMode::DirectSharedResource) ==
              std::string_view("direct-shared-resource"),
-         "direct-share mode name is unstable");
+      "direct-share mode name is unstable");
 
   HdMerlinHgiVulkanDirectShareRequirements direct_requirements{
       .physical_device_identity = true,
@@ -111,75 +111,75 @@ int main() {
   Expect(direct_supported.supported &&
              direct_supported.rejection ==
                  HdMerlinHgiVulkanDirectShareRejection::None,
-         "complete direct-share requirements were rejected");
+      "complete direct-share requirements were rejected");
 
   struct DirectGate {
-    bool HdMerlinHgiVulkanDirectShareRequirements::*requirement;
+    bool HdMerlinHgiVulkanDirectShareRequirements::* requirement;
     HdMerlinHgiVulkanDirectShareRejection rejection;
     std::string_view name;
   };
   const std::array direct_gates{
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      physical_device_identity,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     PhysicalDeviceMismatch,
-                 "physical-device-mismatch"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              PhysicalDeviceMismatch,
+          "physical-device-mismatch"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      logical_device_identity,
-                 HdMerlinHgiVulkanDirectShareRejection::LogicalDeviceMismatch,
-                 "logical-device-mismatch"},
+          HdMerlinHgiVulkanDirectShareRejection::LogicalDeviceMismatch,
+          "logical-device-mismatch"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      queue_ownership_compatible,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     QueueOwnershipUnsupported,
-                 "queue-ownership-unsupported"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              QueueOwnershipUnsupported,
+          "queue-ownership-unsupported"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::api_compatible,
-                 HdMerlinHgiVulkanDirectShareRejection::ApiIncompatible,
-                 "api-incompatible"},
+          HdMerlinHgiVulkanDirectShareRejection::ApiIncompatible,
+          "api-incompatible"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      required_extensions_available,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     RequiredExtensionMissing,
-                 "required-extension-missing"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              RequiredExtensionMissing,
+          "required-extension-missing"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      format_usage_compatible,
-                 HdMerlinHgiVulkanDirectShareRejection::FormatUsageMismatch,
-                 "format-usage-mismatch"},
+          HdMerlinHgiVulkanDirectShareRejection::FormatUsageMismatch,
+          "format-usage-mismatch"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::single_sampled,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     SampleCountUnsupported,
-                 "sample-count-unsupported"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              SampleCountUnsupported,
+          "sample-count-unsupported"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::tiling_compatible,
-                 HdMerlinHgiVulkanDirectShareRejection::TilingUnsupported,
-                 "tiling-unsupported"},
+          HdMerlinHgiVulkanDirectShareRejection::TilingUnsupported,
+          "tiling-unsupported"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      memory_constraints_compatible,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     MemoryConstraintsUnsupported,
-                 "memory-constraints-unsupported"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              MemoryConstraintsUnsupported,
+          "memory-constraints-unsupported"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      public_texture_import_available,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     PublicTextureImportUnavailable,
-                 "public-texture-import-unavailable"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              PublicTextureImportUnavailable,
+          "public-texture-import-unavailable"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      host_consumption_retained,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     HostConsumptionUnretained,
-                 "host-consumption-unretained"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              HostConsumptionUnretained,
+          "host-consumption-unretained"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      completion_retention_available,
-                 HdMerlinHgiVulkanDirectShareRejection::
-                     CompletionRetentionUnavailable,
-                 "completion-retention-unavailable"},
+          HdMerlinHgiVulkanDirectShareRejection::
+              CompletionRetentionUnavailable,
+          "completion-retention-unavailable"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      resize_retirement_safe,
-                 HdMerlinHgiVulkanDirectShareRejection::ResizeRetirementUnsafe,
-                 "resize-retirement-unsafe"},
+          HdMerlinHgiVulkanDirectShareRejection::ResizeRetirementUnsafe,
+          "resize-retirement-unsafe"},
       DirectGate{&HdMerlinHgiVulkanDirectShareRequirements::
                      direct_path_available,
-                 HdMerlinHgiVulkanDirectShareRejection::DirectPathUnavailable,
-                 "direct-path-unavailable"},
+          HdMerlinHgiVulkanDirectShareRejection::DirectPathUnavailable,
+          "direct-path-unavailable"},
   };
   for (const auto& gate : direct_gates) {
     auto rejected_requirements = direct_requirements;
@@ -187,71 +187,71 @@ int main() {
     const auto rejected =
         HdMerlinEvaluateHgiVulkanDirectShare(rejected_requirements);
     Expect(!rejected.supported && rejected.rejection == gate.rejection,
-           "a direct-share gate did not produce its rejection");
+        "a direct-share gate did not produce its rejection");
     Expect(HdMerlinHgiVulkanDirectShareRejectionName(gate.rejection) ==
                gate.name,
-           "a direct-share rejection name is unstable");
+        "a direct-share rejection name is unstable");
   }
   Expect(HdMerlinHgiVulkanFallbackReasonName(
              HdMerlinHgiVulkanFallbackReason::GpuCopyUnavailable) ==
              std::string_view("gpu-copy-unavailable"),
-         "gpu-copy-unavailable reason name is unstable");
+      "gpu-copy-unavailable reason name is unstable");
   Expect(HdMerlinHgiVulkanFallbackReasonName(
              HdMerlinHgiVulkanFallbackReason::DriverSwapRejected) ==
              std::string_view("driver-swap-rejected"),
-         "driver-swap-rejected reason name is unstable");
+      "driver-swap-rejected reason name is unstable");
   Expect(HdMerlinHgiVulkanFallbackReasonName(
              HdMerlinHgiVulkanFallbackReason::NativeContextUnavailable) ==
              std::string_view("native-context-unavailable"),
-         "native-context-unavailable reason name is unstable");
+      "native-context-unavailable reason name is unstable");
   Expect(HdMerlinHgiVulkanFallbackReasonName(
              HdMerlinHgiVulkanFallbackReason::SourceMismatch) ==
              std::string_view("source-mismatch"),
-         "source-mismatch reason name is unstable");
+      "source-mismatch reason name is unstable");
   Expect(HdMerlinHgiVulkanFallbackReasonName(
              HdMerlinHgiVulkanFallbackReason::GpuCopyFailed) ==
              std::string_view("gpu-copy-failed"),
-         "gpu-copy-failed reason name is unstable");
+      "gpu-copy-failed reason name is unstable");
 
   // The format table drives both the RenderBuffer descriptor and the byte size
   // of the CPU buffer feeding it, so an unimplemented format must stay
   // unmapped rather than borrow a same-width texel.
   Expect(HdMerlinHgiFormatForRenderBuffer(HdFormatUNorm8Vec4) ==
              HgiFormatUNorm8Vec4,
-         "color format mapping is incorrect");
+      "color format mapping is incorrect");
   Expect(HdMerlinHgiFormatForRenderBuffer(HdFormatFloat32) == HgiFormatFloat32,
-         "depth format mapping is incorrect");
+      "depth format mapping is incorrect");
   Expect(HdMerlinHgiFormatForRenderBuffer(HdFormatInt32) == HgiFormatInt32,
-         "id format mapping is incorrect");
+      "id format mapping is incorrect");
   Expect(HdMerlinHgiFormatForRenderBuffer(HdFormatUNorm8) == HgiFormatInvalid &&
              HdMerlinHgiFormatForRenderBuffer(HdFormatFloat16Vec4) ==
                  HgiFormatInvalid &&
              HdMerlinHgiFormatForRenderBuffer(HdFormatInvalid) ==
                  HgiFormatInvalid,
-         "an unimplemented RenderBuffer format acquired an Hgi format");
+      "an unimplemented RenderBuffer format acquired an Hgi format");
 
   // Driver discovery must accept only a renderDriver entry that actually holds
   // an Hgi. Everything else is a missing driver, not a usable one.
   Expect(RejectionFor({}) ==
              HdMerlinHgiVulkanFallbackReason::MissingRenderDriver,
-         "empty driver vector was not rejected");
+      "empty driver vector was not rejected");
   Expect(RejectionFor({nullptr}) ==
              HdMerlinHgiVulkanFallbackReason::MissingRenderDriver,
-         "null driver entry was not rejected");
+      "null driver entry was not rejected");
 
   HdDriver mistyped;
   mistyped.name = HgiTokens->renderDriver;
   mistyped.driver = VtValue(42);
   Expect(RejectionFor({&mistyped}) ==
              HdMerlinHgiVulkanFallbackReason::MissingRenderDriver,
-         "renderDriver entry without an Hgi was not rejected");
+      "renderDriver entry without an Hgi was not rejected");
 
   HdDriver misnamed;
   misnamed.name = TfToken("merlinNotARenderDriver");
   misnamed.driver = VtValue(static_cast<Hgi*>(nullptr));
   Expect(RejectionFor({&misnamed}) ==
              HdMerlinHgiVulkanFallbackReason::MissingRenderDriver,
-         "non-renderDriver entry was not rejected");
+      "non-renderDriver entry was not rejected");
 
   // Probing a bridge that never received a driver must not replace the
   // capability-level rejection with an operational one, and must not pretend
@@ -273,20 +273,20 @@ int main() {
   Expect(runtime.openusd_version == PXR_VERSION &&
              runtime.fallback_reason ==
                  HdMerlinHgiVulkanFallbackReason::MissingRenderDriver,
-         "target probe replaced the missing-driver rejection");
+      "target probe replaced the missing-driver rejection");
 
   const auto telemetry = bridge.telemetry();
   Expect(telemetry.target_creations == 0 && telemetry.target_retirements == 0 &&
              telemetry.target_orphans == 0 && telemetry.cpu_upload_count == 0 &&
              telemetry.cpu_upload_bytes == 0,
-         "a driverless bridge reported target or upload activity");
+      "a driverless bridge reported target or upload activity");
   Expect(telemetry.gpu_copy_count == 0 &&
              telemetry.gpu_copy_completion_count == 0 &&
              telemetry.gpu_copy_pending_count == 0 &&
              telemetry.direct_share_evaluation_count == 0 &&
              telemetry.direct_share_rejection_count == 0 &&
              telemetry.coarse_wait_count == 0,
-         "Tier 0 reported GPU-copy or coarse-wait activity");
+      "Tier 0 reported GPU-copy or coarse-wait activity");
 
   return g_failures == 0 ? 0 : 1;
 }

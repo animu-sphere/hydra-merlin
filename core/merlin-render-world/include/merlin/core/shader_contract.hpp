@@ -16,23 +16,24 @@ enum class ShaderCapability : std::uint64_t {
 };
 
 constexpr ShaderCapability operator|(ShaderCapability lhs,
-                                     ShaderCapability rhs) noexcept {
+    ShaderCapability rhs) noexcept {
   return static_cast<ShaderCapability>(static_cast<std::uint64_t>(lhs) |
                                        static_cast<std::uint64_t>(rhs));
 }
 
 constexpr ShaderCapability operator&(ShaderCapability lhs,
-                                     ShaderCapability rhs) noexcept {
+    ShaderCapability rhs) noexcept {
   return static_cast<ShaderCapability>(static_cast<std::uint64_t>(lhs) &
                                        static_cast<std::uint64_t>(rhs));
 }
 
 [[nodiscard]] constexpr bool HasCapability(ShaderCapability capabilities,
-                                           ShaderCapability query) noexcept {
+    ShaderCapability query) noexcept {
   return (capabilities & query) == query;
 }
 
-enum class ShaderStage : std::uint8_t { Vertex = 1, Fragment = 2 };
+enum class ShaderStage : std::uint8_t { Vertex = 1,
+  Fragment = 2 };
 
 struct ShaderPermutation {
   std::string_view family;
@@ -73,4 +74,4 @@ MakeShaderPermutationKey(const ShaderPermutation& permutation) noexcept {
   return hash;
 }
 
-}  // namespace merlin
+} // namespace merlin

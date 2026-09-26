@@ -15,7 +15,7 @@
 namespace merlin::viewport {
 
 metal::PresentationOptions MakeGlfwMetalPresentation(Window& window,
-                                                      bool vsync) {
+    bool vsync) {
   auto* glfw_window = static_cast<GLFWwindow*>(window.native_window());
   NSWindow* cocoa_window = glfwGetCocoaWindow(glfw_window);
   if (cocoa_window == nil || cocoa_window.contentView == nil) {
@@ -48,4 +48,4 @@ metal::PresentationOptions MakeGlfwMetalPresentation(Window& window,
   return result;
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

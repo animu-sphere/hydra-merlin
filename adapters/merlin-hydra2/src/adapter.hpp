@@ -57,7 +57,7 @@ struct HdMerlinViewportFrame {
     std::size_t gpu_copy_candidate_count) noexcept;
 
 class HdMerlinRenderBuffer final : public HdRenderBuffer {
- public:
+public:
   explicit HdMerlinRenderBuffer(
       const SdfPath& id,
       std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {},
@@ -65,7 +65,7 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   ~HdMerlinRenderBuffer() override;
 
   bool Allocate(const GfVec3i& dimensions, HdFormat format,
-                bool multi_sampled) override;
+      bool multi_sampled) override;
   unsigned int GetWidth() const override;
   unsigned int GetHeight() const override;
   unsigned int GetDepth() const override;
@@ -79,11 +79,11 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
   VtValue GetResource(bool multi_sampled) const override;
 
   bool WriteColor(const std::vector<std::uint8_t>& rgba8,
-                  std::uint32_t width, std::uint32_t height);
+      std::uint32_t width, std::uint32_t height);
   bool WriteDepth(const std::vector<float>& depth, std::uint32_t width,
-                  std::uint32_t height);
+      std::uint32_t height);
   bool WriteId(const std::vector<std::uint32_t>& ids, std::uint32_t width,
-               std::uint32_t height);
+      std::uint32_t height);
   [[nodiscard]] bool CanGpuCopyColor() const;
   [[nodiscard]] bool CopyColor(
       merlin::vulkan::AovImageExport&& source,
@@ -93,10 +93,10 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
       std::shared_ptr<merlin::render::Backend> backend);
   void SetConverged(bool converged);
 
- protected:
+protected:
   void _Deallocate() override;
 
- private:
+private:
   void UploadHgiTargetLocked();
   void DestroyHgiTargetLocked();
 
@@ -117,7 +117,7 @@ class HdMerlinRenderBuffer final : public HdRenderBuffer {
 };
 
 class HdMerlinRenderDelegate final : public HdRenderDelegate {
- public:
+public:
   explicit HdMerlinRenderDelegate(const HdRenderSettingsMap& settings = {});
   HdMerlinRenderDelegate(
       std::shared_ptr<merlin::render::Backend> backend,
@@ -132,17 +132,17 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
   HdRenderPassSharedPtr CreateRenderPass(
       HdRenderIndex* index, const HdRprimCollection& collection) override;
   HdInstancer* CreateInstancer(HdSceneDelegate* delegate,
-                               const SdfPath& id) override;
+      const SdfPath& id) override;
   void DestroyInstancer(HdInstancer* instancer) override;
   HdRprim* CreateRprim(const TfToken& type_id,
-                       const SdfPath& rprim_id) override;
+      const SdfPath& rprim_id) override;
   void DestroyRprim(HdRprim* rprim) override;
   HdSprim* CreateSprim(const TfToken& type_id,
-                       const SdfPath& sprim_id) override;
+      const SdfPath& sprim_id) override;
   HdSprim* CreateFallbackSprim(const TfToken& type_id) override;
   void DestroySprim(HdSprim* sprim) override;
   HdBprim* CreateBprim(const TfToken& type_id,
-                       const SdfPath& bprim_id) override;
+      const SdfPath& bprim_id) override;
   HdBprim* CreateFallbackBprim(const TfToken& type_id) override;
   void DestroyBprim(HdBprim* bprim) override;
   void SetTerminalSceneIndex(
@@ -162,7 +162,7 @@ class HdMerlinRenderDelegate final : public HdRenderDelegate {
       merlin::render::GpuDrivenIndexedSettings settings);
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const;
 
- private:
+private:
   class Impl;
   std::unique_ptr<Impl> impl_;
   HdResourceRegistrySharedPtr resources_;

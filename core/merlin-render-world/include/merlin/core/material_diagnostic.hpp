@@ -194,7 +194,7 @@ struct MaterialFallbackEvidence {
   }
 
   friend constexpr bool operator==(const MaterialFallbackEvidence&,
-                                   const MaterialFallbackEvidence&) = default;
+      const MaterialFallbackEvidence&) = default;
 };
 
 // Deterministic single-line summary for capability and telemetry evidence, in
@@ -202,4 +202,4 @@ struct MaterialFallbackEvidence {
 [[nodiscard]] std::string MakeMaterialFallbackEvidenceRecord(
     const MaterialFallbackEvidence& evidence);
 
-}  // namespace merlin
+} // namespace merlin

@@ -24,4 +24,4 @@ struct ComparisonArtifactSet {
     const RenderResult& expected, const RenderResult& actual,
     const std::filesystem::path& directory);
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

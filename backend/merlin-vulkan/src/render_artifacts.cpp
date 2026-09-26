@@ -44,7 +44,7 @@ void WriteFile(const std::filesystem::path& path, const Bytes& bytes) {
                              path.string());
   }
   stream.write(reinterpret_cast<const char*>(bytes.data()),
-               static_cast<std::streamsize>(bytes.size()));
+      static_cast<std::streamsize>(bytes.size()));
   if (!stream) {
     throw std::runtime_error("could not write image artifact: " +
                              path.string());
@@ -82,13 +82,13 @@ void AppendBigEndian(Bytes& bytes, std::uint32_t value) {
 }
 
 void AppendPngChunk(Bytes& png, const std::array<char, 4>& type,
-                    const Bytes& payload) {
+    const Bytes& payload) {
   AppendBigEndian(png, static_cast<std::uint32_t>(payload.size()));
   const auto crc_begin = png.size();
   png.insert(png.end(), type.begin(), type.end());
   png.insert(png.end(), payload.begin(), payload.end());
   AppendBigEndian(png, Crc32(png.data() + crc_begin,
-                            png.size() - crc_begin));
+                           png.size() - crc_begin));
 }
 
 void ValidateColor(const ImageRgba8& image) {
@@ -112,7 +112,7 @@ void ValidateExr(const Image& image, Aov aov) {
 }
 
 void AppendAttribute(Bytes& header, std::string_view name,
-                     std::string_view type, const Bytes& payload) {
+    std::string_view type, const Bytes& payload) {
   AppendString(header, name);
   AppendString(header, type);
   AppendLittleEndian(header, static_cast<std::uint32_t>(payload.size()));
@@ -121,8 +121,8 @@ void AppendAttribute(Bytes& header, std::string_view name,
 
 template <class Value>
 Bytes MakeExr(std::uint32_t width, std::uint32_t height,
-              std::string_view channel, std::uint32_t pixel_type,
-              const std::vector<Value>& pixels) {
+    std::string_view channel, std::uint32_t pixel_type,
+    const std::vector<Value>& pixels) {
   Bytes header;
   Bytes channels;
   AppendString(channels, channel);
@@ -179,9 +179,9 @@ Bytes MakeExr(std::uint32_t width, std::uint32_t height,
 }
 
 void RequireComparisonInputs(const RenderResult& expected,
-                             const RenderResult& actual) {
+    const RenderResult& actual) {
   for (const auto aov :
-       {Aov::Color, Aov::Depth, Aov::PrimId, Aov::InstanceId}) {
+      {Aov::Color, Aov::Depth, Aov::PrimId, Aov::InstanceId}) {
     if (!HasCpuReadback(expected, aov) || !HasCpuReadback(actual, aov)) {
       throw std::invalid_argument(
           "comparison artifacts require color, depth, primId, and instanceId readback");
@@ -195,7 +195,7 @@ void RequireComparisonInputs(const RenderResult& expected,
   }
 }
 
-}  // namespace
+} // namespace
 
 void WritePng(const std::filesystem::path& path, const ImageRgba8& image) {
   ValidateColor(image);
@@ -219,7 +219,7 @@ void WritePng(const std::filesystem::path& path, const ImageRgba8& image) {
     AppendLittleEndian(zlib, count);
     AppendLittleEndian(zlib, static_cast<std::uint16_t>(~count));
     zlib.insert(zlib.end(), raw.begin() + cursor,
-                raw.begin() + cursor + count);
+        raw.begin() + cursor + count);
     cursor += count;
   }
   AppendBigEndian(zlib, Adler32(raw));
@@ -238,7 +238,7 @@ void WritePng(const std::filesystem::path& path, const ImageRgba8& image) {
 void WriteExr(const std::filesystem::path& path, const ImageDepth32& image) {
   ValidateExr(image, Aov::Depth);
   WriteFile(path, MakeExr(image.product.width, image.product.height, "Z", 2,
-                          image.pixels));
+                      image.pixels));
 }
 
 void WriteExr(const std::filesystem::path& path, const ImageUint32& image) {
@@ -248,7 +248,7 @@ void WriteExr(const std::filesystem::path& path, const ImageUint32& image) {
   }
   ValidateExr(image, image.product.aov);
   WriteFile(path, MakeExr(image.product.width, image.product.height, "ID", 0,
-                          image.pixels));
+                      image.pixels));
 }
 
 ComparisonArtifactSet SaveComparisonArtifacts(
@@ -309,4 +309,4 @@ ComparisonArtifactSet SaveComparisonArtifacts(
   return result;
 }
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

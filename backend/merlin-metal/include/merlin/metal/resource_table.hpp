@@ -11,8 +11,8 @@ struct ResourceSlot {
   std::uint32_t index{};
   std::uint32_t generation{};
 
-  friend constexpr bool operator==(const ResourceSlot &,
-                                   const ResourceSlot &) = default;
+  friend constexpr bool operator==(const ResourceSlot&,
+      const ResourceSlot&) = default;
 };
 
 struct ResourceTableTelemetry {
@@ -33,7 +33,7 @@ public:
   explicit StableResourceTable(std::uint32_t capacity);
 
   [[nodiscard]] ResourceSlot Acquire(std::uint64_t resource,
-                                     std::uint64_t completed_value);
+      std::uint64_t completed_value);
   [[nodiscard]] std::optional<ResourceSlot>
   Find(std::uint64_t resource) const noexcept;
   void Release(std::uint64_t resource, std::uint64_t retire_value);
@@ -42,7 +42,9 @@ public:
   [[nodiscard]] ResourceTableTelemetry telemetry() const noexcept;
 
 private:
-  enum class State { Free, Active, Retiring };
+  enum class State { Free,
+    Active,
+    Retiring };
 
   struct Entry {
     std::uint64_t resource{};

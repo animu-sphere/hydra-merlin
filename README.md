@@ -1,6 +1,7 @@
-# hdMerlin
+# Hydra Merlin
 
 [![Core CI](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/github/license/animu-sphere/hydra-merlin)](LICENSE)
 
 hdMerlin is an OST-oriented, host-neutral raster renderer with independent
 Vulkan and Metal backends. It provides a revisioned scene model, immutable

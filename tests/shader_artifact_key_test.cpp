@@ -29,9 +29,9 @@ void Require(bool condition, std::string_view message) {
 std::string Read(const std::filesystem::path& path) {
   std::ifstream stream(path, std::ios::binary);
   Require(static_cast<bool>(stream),
-          "cannot read shader manifest: " + path.string());
+      "cannot read shader manifest: " + path.string());
   return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+      std::istreambuf_iterator<char>()};
 }
 
 std::string CompactJson(std::string_view text) {
@@ -64,11 +64,11 @@ std::string CompactJson(std::string_view text) {
 // caller passes a region no wider than the object it wants, so a missing field
 // is reported rather than answered from the next object.
 std::string Field(std::string_view json, std::string_view name,
-                  std::size_t from = 0) {
+    std::size_t from = 0) {
   const std::string key = "\"" + std::string(name) + "\":\"";
   const auto start = json.find(key, from);
   Require(start != std::string_view::npos,
-          "manifest has no \"" + std::string(name) + "\" field");
+      "manifest has no \"" + std::string(name) + "\" field");
   const auto value = start + key.size();
   const auto end = json.find('"', value);
   Require(end != std::string_view::npos, "manifest JSON is truncated");
@@ -79,23 +79,23 @@ bool Flag(std::string_view json, std::string_view name) {
   const std::string key = "\"" + std::string(name) + "\":";
   const auto start = json.find(key);
   Require(start != std::string_view::npos,
-          "manifest has no \"" + std::string(name) + "\" field");
+      "manifest has no \"" + std::string(name) + "\" field");
   const auto value = json.substr(start + key.size());
   if (value.starts_with("true")) {
     return true;
   }
   Require(value.starts_with("false"),
-          "manifest \"" + std::string(name) + "\" is not a boolean");
+      "manifest \"" + std::string(name) + "\" is not a boolean");
   return false;
 }
 
 // "features": ["a", "b"] as the "+"-joined spelling the compile recorded.
 std::string JoinedArray(std::string_view json, std::string_view name,
-                        std::size_t from = 0) {
+    std::size_t from = 0) {
   const std::string key = "\"" + std::string(name) + "\":[";
   const auto start = json.find(key, from);
   Require(start != std::string_view::npos,
-          "manifest artifact has no \"" + std::string(name) + "\" array");
+      "manifest artifact has no \"" + std::string(name) + "\" array");
   const auto end = json.find(']', start);
   Require(end != std::string_view::npos, "manifest JSON is truncated");
   const auto body = json.substr(start + key.size(), end - start - key.size());
@@ -122,7 +122,7 @@ std::vector<merlin::ShaderSourceFingerprint> SourceArray(
   const std::string key = "\"" + std::string(name) + "\":[";
   const auto start = json.find(key);
   Require(start != std::string_view::npos,
-          "manifest has no \"" + std::string(name) + "\" array");
+      "manifest has no \"" + std::string(name) + "\" array");
   const auto end = json.find(']', start);
   Require(end != std::string_view::npos, "manifest JSON is truncated");
   const auto body = json.substr(start, end - start);
@@ -132,12 +132,12 @@ std::vector<merlin::ShaderSourceFingerprint> SourceArray(
   while ((position = body.find("{\"path\":\"", position)) !=
          std::string_view::npos) {
     sources.push_back({Field(body, "path", position),
-                       Field(body, "sha256", position)});
+        Field(body, "sha256", position)});
     position = body.find('}', position);
     Require(position != std::string_view::npos, "manifest JSON is truncated");
   }
   Require(!sources.empty(),
-          "manifest \"" + std::string(name) + "\" array is empty");
+      "manifest \"" + std::string(name) + "\" array is empty");
   return sources;
 }
 
@@ -160,9 +160,9 @@ void RequireContractSemantics() {
   const auto key = merlin::MakeShaderArtifactKey(inputs);
   Require(merlin::IsIdentity(key), "artifact key is not a canonical identity");
   Require(merlin::IsIdentity(inputs.module_identity),
-          "module identity is not a canonical identity");
+      "module identity is not a canonical identity");
   Require(key == merlin::MakeShaderArtifactKey(inputs),
-          "artifact key is not deterministic");
+      "artifact key is not deterministic");
 
   // One module, two targets: the module identity is reused unchanged and only
   // the artifact key moves. This is the property that lets the same generated
@@ -172,16 +172,16 @@ void RequireContractSemantics() {
   metal.policy.profile = "metallib_2_4";
   metal.policy.capabilities = "none";
   Require(merlin::MakeShaderArtifactKey(metal) != key,
-          "target policy does not reach the artifact key");
+      "target policy does not reach the artifact key");
   Require(metal.module_identity == inputs.module_identity,
-          "changing the target changed the module identity");
+      "changing the target changed the module identity");
 
   // Every remaining policy input must move the key on its own, or a cache hit
   // could hand back an artifact built under different rules.
   const auto require_distinct = [&key](merlin::ShaderArtifactKeyInputs changed,
-                                       std::string_view what) {
+                                    std::string_view what) {
     Require(merlin::MakeShaderArtifactKey(changed) != key,
-            std::string(what) + " does not reach the artifact key");
+        std::string(what) + " does not reach the artifact key");
   };
   auto changed = inputs;
   changed.entry_point = "forward_vertex";
@@ -227,18 +227,18 @@ void RequireContractSemantics() {
 
   // Include order is a traversal detail, not an identity.
   const merlin::ShaderSourceFingerprint common{"forward-common.slang",
-                                               std::string(64U, 'c')};
+      std::string(64U, 'c')};
   const merlin::ShaderSourceFingerprint forward{"forward.slang",
-                                                std::string(64U, 'd')};
+      std::string(64U, 'd')};
   Require(merlin::MakeShaderModuleIdentity({common, forward}) ==
               merlin::MakeShaderModuleIdentity({forward, common}),
-          "module identity depends on include traversal order");
+      "module identity depends on include traversal order");
   Require(merlin::MakeShaderModuleIdentity({common, forward, common}) ==
               merlin::MakeShaderModuleIdentity({forward, common}),
-          "an include reached twice changes the module identity");
+      "an include reached twice changes the module identity");
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   try {
@@ -250,11 +250,11 @@ int main(int argc, char** argv) {
     Require(manifest.find("\"module_identity_schema\":\"" +
                           std::string(merlin::kShaderModuleIdentitySchema) +
                           "\"") != std::string::npos,
-            "manifest does not declare the module identity schema");
+        "manifest does not declare the module identity schema");
     Require(manifest.find("\"artifact_key_schema\":\"" +
                           std::string(merlin::kShaderArtifactKeySchema) +
                           "\"") != std::string::npos,
-            "manifest does not declare the artifact key schema");
+        "manifest does not declare the artifact key schema");
 
     merlin::ShaderTargetPolicy policy;
     policy.compiler = Field(manifest, "compiler");
@@ -275,7 +275,7 @@ int main(int argc, char** argv) {
     const std::string abi_field = "\"shader_abi_version\":";
     const auto abi_position = manifest.find(abi_field);
     Require(abi_position != std::string::npos,
-            "manifest has no shader ABI version");
+        "manifest has no shader ABI version");
     const auto abi = static_cast<std::uint32_t>(
         std::stoul(manifest.substr(abi_position + abi_field.size())));
 
@@ -290,7 +290,7 @@ int main(int argc, char** argv) {
       // keeps one artifact's missing field from being read off the next.
       const auto key_position = manifest.find("\"artifact_key\":\"", position);
       Require(key_position != std::string::npos,
-              "manifest artifact has no artifact key");
+          "manifest artifact has no artifact key");
       const auto object_end = manifest.find('}', key_position);
       Require(object_end != std::string::npos, "manifest JSON is truncated");
       const std::string artifact(manifest, position, object_end - position);
@@ -298,8 +298,8 @@ int main(int argc, char** argv) {
       const auto sources = SourceArray(artifact, "module_sources");
       for (const auto& source : sources) {
         Require(inventory.contains(source.path + '|' + source.content_sha256),
-                "module source is absent from the package inventory: " +
-                    source.path);
+            "module source is absent from the package inventory: " +
+                source.path);
       }
 
       merlin::ShaderArtifactKeyInputs inputs;
@@ -316,13 +316,13 @@ int main(int argc, char** argv) {
 
       const auto recorded_module = Field(artifact, "module_identity");
       Require(recorded_module == inputs.module_identity,
-              "recorded module identity disagrees with the sources it lists: " +
-                  recorded_module);
+          "recorded module identity disagrees with the sources it lists: " +
+              recorded_module);
       const auto recorded_key = Field(artifact, "artifact_key");
       Require(recorded_key == merlin::MakeShaderArtifactKey(inputs),
-              "recorded artifact key disagrees with merlin/core/"
-              "shader_artifact.hpp for " +
-                  Field(artifact, "path"));
+          "recorded artifact key disagrees with merlin/core/"
+          "shader_artifact.hpp for " +
+              Field(artifact, "path"));
 
       artifact_keys.insert(recorded_key);
       module_identities.insert(recorded_module);
@@ -331,15 +331,15 @@ int main(int argc, char** argv) {
     }
 
     Require(verified == 22,
-            "manifest does not describe twenty-two artifacts");
+        "manifest does not describe twenty-two artifacts");
     Require(artifact_keys.size() == verified,
-            "two artifacts share an artifact key");
+        "two artifacts share an artifact key");
     // Conventional SPIR-V and Metal share one Forward module, bindless and
     // table-backed Forward, GPU-driven compute, GPU-driven Forward, and
     // Gaussian preparation, sorting, and raster own one each. Fewer
     // identities than artifacts is the expected, load-bearing result.
     Require(module_identities.size() == 8U,
-            "module identities do not follow the eight shader modules");
+        "module identities do not follow the eight shader modules");
   } catch (const std::exception& error) {
     std::cerr << "shader artifact key test failed: " << error.what() << '\n';
     return 1;

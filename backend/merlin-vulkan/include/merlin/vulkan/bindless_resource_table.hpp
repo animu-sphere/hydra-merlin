@@ -40,12 +40,14 @@ enum class BindlessSlotErrorCode {
 };
 
 class BindlessSlotError : public std::runtime_error {
- public:
+public:
   BindlessSlotError(BindlessSlotErrorCode code, std::string message);
 
-  [[nodiscard]] BindlessSlotErrorCode code() const noexcept { return code_; }
+  [[nodiscard]] BindlessSlotErrorCode code() const noexcept {
+    return code_;
+  }
 
- private:
+private:
   BindlessSlotErrorCode code_;
 };
 
@@ -74,9 +76,9 @@ struct BindlessSlotTelemetry {
 // sampler tables. Slots enter the free list, and advance generation, only once
 // their last GPU completion value has been collected.
 class BindlessSlotAllocator {
- public:
+public:
   BindlessSlotAllocator(std::string_view label, std::uint32_t capacity,
-                        std::uint32_t reserved_slots = 0);
+      std::uint32_t reserved_slots = 0);
   BindlessSlotAllocator(const BindlessSlotAllocator&) = delete;
   BindlessSlotAllocator& operator=(const BindlessSlotAllocator&) = delete;
 
@@ -93,8 +95,11 @@ class BindlessSlotAllocator {
     return telemetry_;
   }
 
- private:
-  enum class State : std::uint8_t { Free, Reserved, Active, Retired };
+private:
+  enum class State : std::uint8_t { Free,
+    Reserved,
+    Active,
+    Retired };
 
   struct Slot {
     std::uint32_t generation{1};
@@ -111,7 +116,7 @@ class BindlessSlotAllocator {
   void ValidateOwnedHandle(BindlessSlotHandle slot);
   void MarkDirty(std::uint32_t index);
   [[noreturn]] void Throw(BindlessSlotErrorCode code,
-                          std::string_view detail) const;
+      std::string_view detail) const;
 
   std::string label_;
   std::uint64_t table_id_{};
@@ -130,10 +135,12 @@ enum class BindlessFallbackTexture : std::uint32_t {
 };
 
 class BindlessTextureTable {
- public:
+public:
   explicit BindlessTextureTable(std::uint32_t capacity);
 
-  [[nodiscard]] BindlessSlotHandle Allocate() { return slots_.Allocate(); }
+  [[nodiscard]] BindlessSlotHandle Allocate() {
+    return slots_.Allocate();
+  }
   void Retire(BindlessSlotHandle slot, std::uint64_t last_completion_value) {
     slots_.Retire(slot, last_completion_value);
   }
@@ -155,7 +162,7 @@ class BindlessTextureTable {
     return slots_.telemetry();
   }
 
- private:
+private:
   BindlessSlotAllocator slots_;
 };
 
@@ -172,7 +179,8 @@ struct BindlessSamplerDescriptor {
       : min_filter(descriptor.min_filter),
         mag_filter(descriptor.mag_filter),
         address_u(descriptor.address_u),
-        address_v(descriptor.address_v) {}
+        address_v(descriptor.address_v) {
+  }
 
   auto operator<=>(const BindlessSamplerDescriptor&) const = default;
 };
@@ -190,13 +198,13 @@ struct BindlessSamplerTelemetry {
 // retires the unique slot at the greatest completion value observed across all
 // references to that sampler.
 class BindlessSamplerTable {
- public:
+public:
   explicit BindlessSamplerTable(std::uint32_t capacity);
 
   [[nodiscard]] BindlessSlotHandle Acquire(
       const BindlessSamplerDescriptor& descriptor);
   void Release(BindlessSlotHandle slot,
-               std::uint64_t last_completion_value);
+      std::uint64_t last_completion_value);
   [[nodiscard]] std::vector<BindlessSlotHandle> Collect(
       std::uint64_t completed_value) {
     return slots_.Collect(completed_value);
@@ -209,7 +217,7 @@ class BindlessSamplerTable {
   }
   [[nodiscard]] BindlessSamplerTelemetry telemetry() const noexcept;
 
- private:
+private:
   struct Entry {
     BindlessSlotHandle slot;
     std::uint64_t reference_count{};
@@ -224,4 +232,4 @@ class BindlessSamplerTable {
   std::uint64_t deduplication_hit_count_{};
 };
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

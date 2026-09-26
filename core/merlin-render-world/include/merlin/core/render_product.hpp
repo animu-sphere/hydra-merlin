@@ -24,32 +24,45 @@ enum class PixelFormat {
   R32Uint
 };
 
-enum class ImageOrigin { TopLeft, BottomLeft };
-enum class ColorSpace { Linear, Srgb, NotApplicable };
+enum class ImageOrigin { TopLeft,
+  BottomLeft };
+enum class ColorSpace { Linear,
+  Srgb,
+  NotApplicable };
 
 [[nodiscard]] constexpr std::uint32_t BytesPerPixel(
     PixelFormat format) noexcept {
   switch (format) {
-    case PixelFormat::Rgba8Unorm:
-    case PixelFormat::Depth32Float:
-    case PixelFormat::R32Uint:
-      return 4;
+  case PixelFormat::Rgba8Unorm:
+  case PixelFormat::Depth32Float:
+  case PixelFormat::R32Uint:
+    return 4;
   }
   return 0;
 }
 
 [[nodiscard]] constexpr std::string_view AovName(Aov aov) noexcept {
   switch (aov) {
-    case Aov::Color: return "color";
-    case Aov::Depth: return "depth";
-    case Aov::Normal: return "normal";
-    case Aov::Albedo: return "albedo";
-    case Aov::Roughness: return "roughness";
-    case Aov::Metallic: return "metallic";
-    case Aov::Emission: return "emission";
-    case Aov::PrimId: return "primId";
-    case Aov::InstanceId: return "instanceId";
-    case Aov::MotionVector: return "motionVector";
+  case Aov::Color:
+    return "color";
+  case Aov::Depth:
+    return "depth";
+  case Aov::Normal:
+    return "normal";
+  case Aov::Albedo:
+    return "albedo";
+  case Aov::Roughness:
+    return "roughness";
+  case Aov::Metallic:
+    return "metallic";
+  case Aov::Emission:
+    return "emission";
+  case Aov::PrimId:
+    return "primId";
+  case Aov::InstanceId:
+    return "instanceId";
+  case Aov::MotionVector:
+    return "motionVector";
   }
   return "unknown";
 }
@@ -66,7 +79,7 @@ struct RenderProduct {
   std::uint32_t row_pitch_alignment{};
 
   friend constexpr bool operator==(const RenderProduct&,
-                                   const RenderProduct&) = default;
+      const RenderProduct&) = default;
 };
 
 [[nodiscard]] constexpr RenderProduct MakeRenderProduct(
@@ -103,4 +116,4 @@ struct RenderProduct {
   return product == expected;
 }
 
-}  // namespace merlin
+} // namespace merlin

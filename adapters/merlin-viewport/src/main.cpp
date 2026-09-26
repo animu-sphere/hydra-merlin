@@ -192,11 +192,11 @@ Scene BuildScene() {
   merlin::MeshDescriptor mesh;
   mesh.label = "viewport-triangle";
   mesh.positions = {{0.0F, -0.72F, 0.0F}, {0.72F, 0.62F, 0.0F},
-                    {-0.72F, 0.62F, 0.0F}};
+      {-0.72F, 0.62F, 0.0F}};
   mesh.normals = {{0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, 1.0F},
-                  {0.0F, 0.0F, 1.0F}};
+      {0.0F, 0.0F, 1.0F}};
   mesh.colors = {{1.0F, 0.18F, 0.08F}, {0.08F, 0.85F, 0.28F},
-                 {0.08F, 0.38F, 1.0F}};
+      {0.08F, 0.38F, 1.0F}};
   mesh.indices = {0, 1, 2};
   const auto mesh_handle = scene.world.CreateMesh(std::move(mesh));
 
@@ -278,7 +278,7 @@ merlin::viewport::HydraViewportOptions MakeHydraViewportOptions(
 #endif
 
 void WritePpm(const std::filesystem::path& path,
-              const merlin::render::ImageRgba8& image) {
+    const merlin::render::ImageRgba8& image) {
   if (image.pixels.empty()) {
     throw std::runtime_error("screenshot request returned no color pixels");
   }
@@ -289,25 +289,26 @@ void WritePpm(const std::filesystem::path& path,
   if (!stream) {
     throw std::runtime_error("could not create screenshot: " + path.string());
   }
-  stream << "P6\n" << image.product.width << ' ' << image.product.height
+  stream << "P6\n"
+         << image.product.width << ' ' << image.product.height
          << "\n255\n";
   for (std::size_t offset = 0; offset < image.pixels.size(); offset += 4) {
     stream.write(reinterpret_cast<const char*>(image.pixels.data() + offset),
-                 3);
+        3);
   }
 }
 
 void WriteBenchmark(const std::filesystem::path& path,
-                    const merlin::render::BackendSelection& selection,
-                    const merlin::render::RendererStatistics& statistics,
-                    std::uint64_t frames, std::uint64_t elapsed_ns,
-                    std::uint64_t gpu_ns,
-                    std::uint64_t presented_readback_bytes,
-                    std::uint64_t presentation_copy_bytes,
-                    std::uint64_t zero_readback_frames,
-                    std::uint64_t generated_material_draws,
-                    std::uint64_t generated_material_fallbacks,
-                    merlin::MaterialFallback effective_material_fallback) {
+    const merlin::render::BackendSelection& selection,
+    const merlin::render::RendererStatistics& statistics,
+    std::uint64_t frames, std::uint64_t elapsed_ns,
+    std::uint64_t gpu_ns,
+    std::uint64_t presented_readback_bytes,
+    std::uint64_t presentation_copy_bytes,
+    std::uint64_t zero_readback_frames,
+    std::uint64_t generated_material_draws,
+    std::uint64_t generated_material_fallbacks,
+    merlin::MaterialFallback effective_material_fallback) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -363,7 +364,7 @@ merlin::viewport::DeveloperUiBenchmark MakeUiBenchmark(
 }
 
 std::string WindowTitle(std::string_view backend, std::uint32_t width,
-                        std::uint32_t height, std::uint64_t frame_ns) {
+    std::uint32_t height, std::uint64_t frame_ns) {
   std::ostringstream title;
   title << "merlin-viewport | " << backend << " | " << width << 'x' << height;
   if (frame_ns != 0) {
@@ -373,7 +374,7 @@ std::string WindowTitle(std::string_view backend, std::uint32_t width,
   return title.str();
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   bool allow_unavailable{};
@@ -406,7 +407,7 @@ int main(int argc, char** argv) {
       merlin::vulkan::BackendFactoryOptions vulkan_options;
       auto presentation_options =
           merlin::viewport::MakeGlfwVulkanPresentation(*window,
-                                                       arguments.vsync);
+              arguments.vsync);
       developer_ui->ConfigurePresentation(presentation_options);
       vulkan_options.renderer.presentation =
           std::move(presentation_options);
@@ -432,7 +433,7 @@ int main(int argc, char** argv) {
           arguments.metal_heap_capacity_bytes;
       auto metal_presentation =
           merlin::viewport::MakeGlfwMetalPresentation(*window,
-                                                      arguments.vsync);
+              arguments.vsync);
       developer_ui->ConfigurePresentation(metal_presentation);
       metal_options.presentation = std::move(metal_presentation);
       metal_factory = std::make_unique<merlin::metal::BackendFactory>(
@@ -513,54 +514,54 @@ int main(int argc, char** argv) {
         const bool wants_keyboard = developer_ui->WantsKeyboard();
         const bool wants_mouse = developer_ui->WantsMouse();
         switch (event.type) {
-          case merlin::viewport::EventType::Close:
+        case merlin::viewport::EventType::Close:
+          running = false;
+          break;
+        case merlin::viewport::EventType::Resize:
+          width = event.width;
+          height = event.height;
+          if (width != 0 && height != 0) {
+            backend->ResizePresentationTarget(*presentation, width, height);
+          }
+          break;
+        case merlin::viewport::EventType::KeyDown:
+          if (event.key == merlin::viewport::Key::Escape) {
             running = false;
-            break;
-          case merlin::viewport::EventType::Resize:
-            width = event.width;
-            height = event.height;
-            if (width != 0 && height != 0) {
-              backend->ResizePresentationTarget(*presentation, width, height);
-            }
-            break;
-          case merlin::viewport::EventType::KeyDown:
-            if (event.key == merlin::viewport::Key::Escape) {
-              running = false;
-            } else if (!wants_keyboard &&
-                       event.key == merlin::viewport::Key::Screenshot) {
-              screenshot_pending = true;
-              screenshot_path = "merlin-viewport.ppm";
-            } else if (!wants_keyboard &&
-                       event.key == merlin::viewport::Key::Left) {
-              scene.camera_descriptor.view.values[12] -= 0.05F;
-              camera_changed = true;
-            } else if (!wants_keyboard &&
-                       event.key == merlin::viewport::Key::Right) {
-              scene.camera_descriptor.view.values[12] += 0.05F;
-              camera_changed = true;
-            } else if (!wants_keyboard &&
-                       event.key == merlin::viewport::Key::Up) {
-              scene.camera_descriptor.view.values[13] += 0.05F;
-              camera_changed = true;
-            } else if (!wants_keyboard &&
-                       event.key == merlin::viewport::Key::Down) {
-              scene.camera_descriptor.view.values[13] -= 0.05F;
-              camera_changed = true;
-            }
-            break;
-          case merlin::viewport::EventType::PointerDown:
-            if (!wants_mouse &&
-                event.button == merlin::viewport::MouseButton::Left &&
-                !event.modifiers.alt && !event.modifiers.super) {
-              pick = std::pair{event.x, event.y};
-            }
-            break;
-          case merlin::viewport::EventType::PointerUp:
-            break;
-          case merlin::viewport::EventType::PointerMove:
-            break;
-          case merlin::viewport::EventType::Scroll:
-            break;
+          } else if (!wants_keyboard &&
+                     event.key == merlin::viewport::Key::Screenshot) {
+            screenshot_pending = true;
+            screenshot_path = "merlin-viewport.ppm";
+          } else if (!wants_keyboard &&
+                     event.key == merlin::viewport::Key::Left) {
+            scene.camera_descriptor.view.values[12] -= 0.05F;
+            camera_changed = true;
+          } else if (!wants_keyboard &&
+                     event.key == merlin::viewport::Key::Right) {
+            scene.camera_descriptor.view.values[12] += 0.05F;
+            camera_changed = true;
+          } else if (!wants_keyboard &&
+                     event.key == merlin::viewport::Key::Up) {
+            scene.camera_descriptor.view.values[13] += 0.05F;
+            camera_changed = true;
+          } else if (!wants_keyboard &&
+                     event.key == merlin::viewport::Key::Down) {
+            scene.camera_descriptor.view.values[13] -= 0.05F;
+            camera_changed = true;
+          }
+          break;
+        case merlin::viewport::EventType::PointerDown:
+          if (!wants_mouse &&
+              event.button == merlin::viewport::MouseButton::Left &&
+              !event.modifiers.alt && !event.modifiers.super) {
+            pick = std::pair{event.x, event.y};
+          }
+          break;
+        case merlin::viewport::EventType::PointerUp:
+          break;
+        case merlin::viewport::EventType::PointerMove:
+          break;
+        case merlin::viewport::EventType::Scroll:
+          break;
         }
       }
       if (!running) {
@@ -572,7 +573,7 @@ int main(int argc, char** argv) {
       }
       if (camera_changed) {
         scene.world.UpdateCamera(scene.camera, scene.camera_descriptor,
-                                 merlin::ChangeAspect::Camera);
+            merlin::ChangeAspect::Camera);
         const auto changes = scene.world.Commit();
         if (!changes.empty()) {
           scene.extractor.Apply(scene.world, changes);
@@ -672,8 +673,8 @@ int main(int argc, char** argv) {
           arguments.reference_check && !reference_checked && frames != 0;
       request.products = {
           {merlin::Aov::Color,
-           renderer_settings.continuous_color_readback ||
-               screenshot_pending || check_reference}};
+              renderer_settings.continuous_color_readback ||
+                  screenshot_pending || check_reference}};
       if (check_reference) {
         request.products.push_back({merlin::Aov::Depth, true});
       }
@@ -694,26 +695,26 @@ int main(int argc, char** argv) {
       latest_material_diagnostics = result.material_diagnostics;
       if (renderer_settings.aov_inspection_enabled) {
         switch (renderer_settings.inspection_aov) {
-          case merlin::Aov::Color:
-            aov_preview = merlin::viewport::BuildDeveloperUiColorPreview(
-                width, height, frames + 1U, result.color.pixels);
-            break;
-          case merlin::Aov::Depth:
-            aov_preview = merlin::viewport::BuildDeveloperUiDepthPreview(
-                width, height, frames + 1U, result.depth.pixels);
-            break;
-          case merlin::Aov::PrimId:
-            aov_preview = merlin::viewport::BuildDeveloperUiIdPreview(
-                merlin::Aov::PrimId, width, height, frames + 1U,
-                result.prim_id.pixels);
-            break;
-          case merlin::Aov::InstanceId:
-            aov_preview = merlin::viewport::BuildDeveloperUiIdPreview(
-                merlin::Aov::InstanceId, width, height, frames + 1U,
-                result.instance_id.pixels);
-            break;
-          default:
-            aov_preview = {};
+        case merlin::Aov::Color:
+          aov_preview = merlin::viewport::BuildDeveloperUiColorPreview(
+              width, height, frames + 1U, result.color.pixels);
+          break;
+        case merlin::Aov::Depth:
+          aov_preview = merlin::viewport::BuildDeveloperUiDepthPreview(
+              width, height, frames + 1U, result.depth.pixels);
+          break;
+        case merlin::Aov::PrimId:
+          aov_preview = merlin::viewport::BuildDeveloperUiIdPreview(
+              merlin::Aov::PrimId, width, height, frames + 1U,
+              result.prim_id.pixels);
+          break;
+        case merlin::Aov::InstanceId:
+          aov_preview = merlin::viewport::BuildDeveloperUiIdPreview(
+              merlin::Aov::InstanceId, width, height, frames + 1U,
+              result.instance_id.pixels);
+          break;
+        default:
+          aov_preview = {};
         }
       } else {
         aov_preview = {};
@@ -727,7 +728,7 @@ int main(int argc, char** argv) {
           result.telemetry.generated_material_fallback_count;
       effective_material_fallback =
           std::max(effective_material_fallback,
-                   result.telemetry.material_fallbacks.effective_fallback);
+              result.telemetry.material_fallbacks.effective_fallback);
       if (result.telemetry.cpu_readback_aov_count == 0 &&
           result.telemetry.readback_bytes == 0) {
         ++zero_readback_frames;
@@ -755,17 +756,17 @@ int main(int argc, char** argv) {
         diagnostic_history.Record(
             merlin::viewport::DeveloperUiDiagnosticOrigin::Host, frames,
             {merlin::kDiagnosticSchemaVersion, "viewport.screenshot.saved",
-             merlin::DiagnosticSeverity::Info,
-             merlin::DiagnosticDisposition::Ignored,
-             screenshot_path.string(), "Viewport screenshot was saved.",
-             "none"});
+                merlin::DiagnosticSeverity::Info,
+                merlin::DiagnosticDisposition::Ignored,
+                screenshot_path.string(), "Viewport screenshot was saved.",
+                "none"});
         screenshot_pending = false;
       }
       if (pick) {
         const auto x = std::clamp(pick->first, 0,
-                                  static_cast<std::int32_t>(width) - 1);
+            static_cast<std::int32_t>(width) - 1);
         const auto y = std::clamp(pick->second, 0,
-                                  static_cast<std::int32_t>(height) - 1);
+            static_cast<std::int32_t>(height) - 1);
         const auto index = static_cast<std::size_t>(y) * width + x;
         std::cout << "Pick " << x << ',' << y << ": primId="
                   << result.prim_id.pixels.at(index) << " instanceId="
@@ -788,11 +789,11 @@ int main(int argc, char** argv) {
                 .count());
         const std::filesystem::path path = "merlin-viewport-benchmark.json";
         WriteBenchmark(path, selection, backend->statistics(), frames,
-                       elapsed_ns, gpu_ns, presented_readback_bytes,
-                       presentation_copy_bytes, zero_readback_frames,
-                       generated_material_draws,
-                       generated_material_fallbacks,
-                       effective_material_fallback);
+            elapsed_ns, gpu_ns, presented_readback_bytes,
+            presentation_copy_bytes, zero_readback_frames,
+            generated_material_draws,
+            generated_material_fallbacks,
+            effective_material_fallback);
         saved_benchmark = MakeUiBenchmark(
             frames - comparison_start_frame, comparison_elapsed_ns,
             gpu_ns - comparison_start_gpu_ns, path);
@@ -800,9 +801,9 @@ int main(int argc, char** argv) {
         diagnostic_history.Record(
             merlin::viewport::DeveloperUiDiagnosticOrigin::Host, frames,
             {merlin::kDiagnosticSchemaVersion, "viewport.benchmark.saved",
-             merlin::DiagnosticSeverity::Info,
-             merlin::DiagnosticDisposition::Ignored, path.string(),
-             "Viewport benchmark snapshot was saved.", "none"});
+                merlin::DiagnosticSeverity::Info,
+                merlin::DiagnosticDisposition::Ignored, path.string(),
+                "Viewport benchmark snapshot was saved.", "none"});
         benchmark_snapshot_pending = false;
         comparison_start = Clock::now();
         comparison_start_frame = frames;
@@ -841,11 +842,11 @@ int main(int argc, char** argv) {
     const auto statistics = backend->statistics();
     if (!arguments.benchmark.empty()) {
       WriteBenchmark(arguments.benchmark, selection, statistics, frames,
-                     elapsed_ns, gpu_ns, presented_readback_bytes,
-                     presentation_copy_bytes, zero_readback_frames,
-                     generated_material_draws,
-                     generated_material_fallbacks,
-                     effective_material_fallback);
+          elapsed_ns, gpu_ns, presented_readback_bytes,
+          presentation_copy_bytes, zero_readback_frames,
+          generated_material_draws,
+          generated_material_fallbacks,
+          effective_material_fallback);
       std::cout << "Benchmark: " << arguments.benchmark.string() << '\n';
     }
     if (arguments.reference_check &&
@@ -854,7 +855,7 @@ int main(int argc, char** argv) {
     }
     if (arguments.reference_check &&
         (statistics.frames_presented != frames ||
-         statistics.presentation_copy_bytes == 0)) {
+            statistics.presentation_copy_bytes == 0)) {
       throw std::runtime_error(
           "viewport did not present every frame through the native GPU path");
     }

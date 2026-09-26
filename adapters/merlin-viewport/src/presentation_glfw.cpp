@@ -32,7 +32,7 @@ Handle DecodeHandle(std::uintptr_t handle) noexcept {
 }
 
 std::int32_t CreateSurface(void* user_data, std::uintptr_t encoded_instance,
-                           std::uintptr_t* encoded_surface) {
+    std::uintptr_t* encoded_surface) {
   if (user_data == nullptr || encoded_instance == 0 ||
       encoded_surface == nullptr) {
     return static_cast<std::int32_t>(VK_ERROR_INITIALIZATION_FAILED);
@@ -47,10 +47,10 @@ std::int32_t CreateSurface(void* user_data, std::uintptr_t encoded_instance,
   return static_cast<std::int32_t>(result);
 }
 
-}  // namespace
+} // namespace
 
 vulkan::PresentationOptions MakeGlfwVulkanPresentation(Window& window,
-                                                        bool vsync) {
+    bool vsync) {
   std::uint32_t count{};
   const auto* extensions = glfwGetRequiredInstanceExtensions(&count);
   if (extensions == nullptr || count == 0) {
@@ -71,4 +71,4 @@ vulkan::PresentationOptions MakeGlfwVulkanPresentation(Window& window,
   return result;
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

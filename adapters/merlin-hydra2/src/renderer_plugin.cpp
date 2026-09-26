@@ -13,9 +13,9 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 class HdMerlinRendererPlugin final : public HdRendererPlugin {
- public:
+public:
   bool IsSupported(const HdRendererCreateArgs& args,
-                   std::string* reason_why_not) const override {
+      std::string* reason_why_not) const override {
 #if HD_API_VERSION >= 98
     const auto gpu_enabled_source = args.GetGpuEnabled();
     const bool gpu_enabled =

@@ -18,7 +18,7 @@ std::uint32_t NextGeneration(std::uint32_t generation) noexcept {
 
 [[noreturn]] void ThrowInvalidSnapshot(std::string_view detail) {
   throw GpuSceneSlotError(GpuSceneSlotErrorCode::InvalidSnapshot,
-                          "GPU Scene draw slots: " + std::string(detail));
+      "GPU Scene draw slots: " + std::string(detail));
 }
 
 struct PendingUpsert {
@@ -35,10 +35,14 @@ struct PendingResourceUpsert {
 
 std::string_view ResourceTableName(GpuSceneResourceTable table) noexcept {
   switch (table) {
-    case GpuSceneResourceTable::Geometry: return "geometry";
-    case GpuSceneResourceTable::Instance: return "instance";
-    case GpuSceneResourceTable::Material: return "material";
-    case GpuSceneResourceTable::Gaussian: return "Gaussian";
+  case GpuSceneResourceTable::Geometry:
+    return "geometry";
+  case GpuSceneResourceTable::Instance:
+    return "instance";
+  case GpuSceneResourceTable::Material:
+    return "material";
+  case GpuSceneResourceTable::Gaussian:
+    return "Gaussian";
   }
   return "unknown";
 }
@@ -54,37 +58,45 @@ std::string_view ResourceTableName(GpuSceneResourceTable table) noexcept {
 const extraction::ResourceDelta& ResourceDeltaFor(
     const extraction::SnapshotDelta& delta, GpuSceneResourceTable table) {
   switch (table) {
-    case GpuSceneResourceTable::Geometry: return delta.geometries;
-    case GpuSceneResourceTable::Instance: return delta.instances;
-    case GpuSceneResourceTable::Material: return delta.materials;
-    case GpuSceneResourceTable::Gaussian: return delta.gaussians;
+  case GpuSceneResourceTable::Geometry:
+    return delta.geometries;
+  case GpuSceneResourceTable::Instance:
+    return delta.instances;
+  case GpuSceneResourceTable::Material:
+    return delta.materials;
+  case GpuSceneResourceTable::Gaussian:
+    return delta.gaussians;
   }
   ThrowInvalidResourceSnapshot(table, "unknown resource table");
 }
 
 std::size_t ResourceCount(const extraction::FrameSnapshot& snapshot,
-                          GpuSceneResourceTable table) noexcept {
+    GpuSceneResourceTable table) noexcept {
   switch (table) {
-    case GpuSceneResourceTable::Geometry: return snapshot.geometries.size();
-    case GpuSceneResourceTable::Instance: return snapshot.instances.size();
-    case GpuSceneResourceTable::Material: return snapshot.materials.size();
-    case GpuSceneResourceTable::Gaussian: return snapshot.gaussians.size();
+  case GpuSceneResourceTable::Geometry:
+    return snapshot.geometries.size();
+  case GpuSceneResourceTable::Instance:
+    return snapshot.instances.size();
+  case GpuSceneResourceTable::Material:
+    return snapshot.materials.size();
+  case GpuSceneResourceTable::Gaussian:
+    return snapshot.gaussians.size();
   }
   return 0;
 }
 
 std::uint64_t ResourceIdentityAt(const extraction::FrameSnapshot& snapshot,
-                                 GpuSceneResourceTable table,
-                                 std::uint32_t index) {
+    GpuSceneResourceTable table,
+    std::uint32_t index) {
   switch (table) {
-    case GpuSceneResourceTable::Geometry:
-      return snapshot.geometries[index].mesh;
-    case GpuSceneResourceTable::Instance:
-      return snapshot.instances[index].instance;
-    case GpuSceneResourceTable::Material:
-      return snapshot.materials[index].material;
-    case GpuSceneResourceTable::Gaussian:
-      return snapshot.gaussians[index].gaussian;
+  case GpuSceneResourceTable::Geometry:
+    return snapshot.geometries[index].mesh;
+  case GpuSceneResourceTable::Instance:
+    return snapshot.instances[index].instance;
+  case GpuSceneResourceTable::Material:
+    return snapshot.materials[index].material;
+  case GpuSceneResourceTable::Gaussian:
+    return snapshot.gaussians[index].gaussian;
   }
   ThrowInvalidResourceSnapshot(table, "unknown resource table");
 }
@@ -93,19 +105,19 @@ GpuSceneResourceVersion ResourceVersionAt(
     const extraction::FrameSnapshot& snapshot, GpuSceneResourceTable table,
     std::uint32_t index) {
   switch (table) {
-    case GpuSceneResourceTable::Geometry: {
-      const auto& geometry = snapshot.geometries[index];
-      return {geometry.vertex_revision, geometry.index_revision};
-    }
-    case GpuSceneResourceTable::Instance:
-      return {snapshot.instances[index].revision, 0};
-    case GpuSceneResourceTable::Material:
-      return {snapshot.materials[index].revision, 0};
-    case GpuSceneResourceTable::Gaussian: {
-      const auto& gaussian = snapshot.gaussians[index];
-      return {gaussian.revision, gaussian.positions ? gaussian.positions->size()
-                                                    : 0};
-    }
+  case GpuSceneResourceTable::Geometry: {
+    const auto& geometry = snapshot.geometries[index];
+    return {geometry.vertex_revision, geometry.index_revision};
+  }
+  case GpuSceneResourceTable::Instance:
+    return {snapshot.instances[index].revision, 0};
+  case GpuSceneResourceTable::Material:
+    return {snapshot.materials[index].revision, 0};
+  case GpuSceneResourceTable::Gaussian: {
+    const auto& gaussian = snapshot.gaussians[index];
+    return {gaussian.revision, gaussian.positions ? gaussian.positions->size()
+                                                  : 0};
+  }
   }
   ThrowInvalidResourceSnapshot(table, "unknown resource table");
 }
@@ -140,7 +152,7 @@ bool ReadUsableResourceDelta(
       return false;
     }
     upserts.push_back({resource, snapshot_index,
-                       ResourceVersionAt(snapshot, table, snapshot_index)});
+        ResourceVersionAt(snapshot, table, snapshot_index)});
   }
   for (const auto resource : delta.removals) {
     if (resource == 0 || !changed.insert(resource).second) {
@@ -178,9 +190,9 @@ std::vector<GpuSceneDirtyRange> BuildDirtyRanges(
 }
 
 bool ReadUsableDelta(const extraction::FrameSnapshot& snapshot,
-                     std::uint64_t source_id, std::uint64_t revision,
-                     std::vector<PendingUpsert>& upserts,
-                     std::vector<std::uint64_t>& removals) {
+    std::uint64_t source_id, std::uint64_t revision,
+    std::vector<PendingUpsert>& upserts,
+    std::vector<std::uint64_t>& removals) {
   if (source_id == 0 || snapshot.source_id != source_id || !snapshot.delta ||
       snapshot.delta->base_revision != revision) {
     return false;
@@ -221,21 +233,22 @@ bool ReadUsableDelta(const extraction::FrameSnapshot& snapshot,
   return true;
 }
 
-}  // namespace
+} // namespace
 
 GpuSceneSlotError::GpuSceneSlotError(GpuSceneSlotErrorCode code,
-                                     std::string message)
-    : std::runtime_error(std::move(message)), code_(code) {}
+    std::string message)
+    : std::runtime_error(std::move(message)), code_(code) {
+}
 
 GpuSceneSlotAllocator::GpuSceneSlotAllocator(std::string_view label,
-                                             std::uint32_t capacity)
+    std::uint32_t capacity)
     : label_(label),
       owner_(g_next_gpu_scene_slot_owner.fetch_add(1,
-                                                   std::memory_order_relaxed)),
+          std::memory_order_relaxed)),
       slots_(capacity) {
   if (owner_ == 0) {
     owner_ = g_next_gpu_scene_slot_owner.fetch_add(1,
-                                                   std::memory_order_relaxed);
+        std::memory_order_relaxed);
   }
   telemetry_.capacity = capacity;
   telemetry_.available_slots = capacity;
@@ -251,7 +264,8 @@ GpuSceneSlotAllocator::GpuSceneSlotAllocator(
       slots_(source.slots_),
       free_slots_(source.free_slots_),
       retirements_(source.retirements_),
-      telemetry_(source.telemetry_) {}
+      telemetry_(source.telemetry_) {
+}
 
 GpuSceneSlotHandle GpuSceneSlotAllocator::HandleFor(
     std::uint32_t index) const noexcept {
@@ -269,16 +283,16 @@ void GpuSceneSlotAllocator::ValidateOwnedHandle(GpuSceneSlotHandle slot) {
   }
   if (slot.owner != owner_) {
     Throw(GpuSceneSlotErrorCode::ForeignHandle,
-          "slot handle belongs to another allocator");
+        "slot handle belongs to another allocator");
   }
   if (slot.index >= slots_.size()) {
     Throw(GpuSceneSlotErrorCode::InvalidHandle,
-          "slot index is outside table capacity");
+        "slot index is outside table capacity");
   }
   if (slot.generation != slots_[slot.index].generation) {
     ++telemetry_.generation_mismatch_count;
     Throw(GpuSceneSlotErrorCode::StaleGeneration,
-          "slot generation is stale");
+        "slot generation is stale");
   }
 }
 
@@ -286,10 +300,10 @@ GpuSceneSlotHandle GpuSceneSlotAllocator::Allocate() {
   if (free_slots_.empty()) {
     ++telemetry_.exhaustion_count;
     Throw(GpuSceneSlotErrorCode::Exhausted,
-          "exhausted (capacity=" + std::to_string(telemetry_.capacity) +
-              ", active=" + std::to_string(telemetry_.active_slots) +
-              ", retiring=" + std::to_string(telemetry_.retiring_slots) +
-              ")");
+        "exhausted (capacity=" + std::to_string(telemetry_.capacity) +
+            ", active=" + std::to_string(telemetry_.active_slots) +
+            ", retiring=" + std::to_string(telemetry_.retiring_slots) +
+            ")");
   }
 
   const auto index = free_slots_.back();
@@ -318,13 +332,14 @@ bool GpuSceneSlotAllocator::IsActive(GpuSceneSlotHandle slot) const noexcept {
 void GpuSceneSlotAllocator::RequireActive(GpuSceneSlotHandle slot) {
   ValidateOwnedHandle(slot);
   switch (slots_[slot.index].state) {
-    case State::Active: return;
-    case State::Free:
-      Throw(GpuSceneSlotErrorCode::SlotNotAllocated,
-            "slot is not allocated");
-    case State::Retired:
-      Throw(GpuSceneSlotErrorCode::SlotRetired,
-            "slot is pending completion retirement");
+  case State::Active:
+    return;
+  case State::Free:
+    Throw(GpuSceneSlotErrorCode::SlotNotAllocated,
+        "slot is not allocated");
+  case State::Retired:
+    Throw(GpuSceneSlotErrorCode::SlotRetired,
+        "slot is pending completion retirement");
   }
 }
 
@@ -338,23 +353,24 @@ void GpuSceneSlotAllocator::RequireAvailable(
   }
   ++telemetry_.exhaustion_count;
   Throw(GpuSceneSlotErrorCode::Exhausted,
-        "replacement requires " + std::to_string(required) +
-            " slots, but only " + std::to_string(completion_safe) +
-            " are completion-safe");
+      "replacement requires " + std::to_string(required) +
+          " slots, but only " + std::to_string(completion_safe) +
+          " are completion-safe");
 }
 
 void GpuSceneSlotAllocator::Retire(GpuSceneSlotHandle slot,
-                                   std::uint64_t last_completion_value) {
+    std::uint64_t last_completion_value) {
   ValidateOwnedHandle(slot);
   auto& state = slots_[slot.index];
   switch (state.state) {
-    case State::Free:
-      Throw(GpuSceneSlotErrorCode::SlotNotAllocated,
-            "slot is not allocated");
-    case State::Retired:
-      Throw(GpuSceneSlotErrorCode::SlotRetired,
-            "slot is already pending completion retirement");
-    case State::Active: break;
+  case State::Free:
+    Throw(GpuSceneSlotErrorCode::SlotNotAllocated,
+        "slot is not allocated");
+  case State::Retired:
+    Throw(GpuSceneSlotErrorCode::SlotRetired,
+        "slot is already pending completion retirement");
+  case State::Active:
+    break;
   }
 
   state.state = State::Retired;
@@ -397,10 +413,11 @@ std::size_t GpuSceneSlotAllocator::CollectableCount(
 }
 
 GpuSceneResourceSlots::GpuSceneResourceSlots(GpuSceneResourceTable table,
-                                             std::uint32_t capacity)
+    std::uint32_t capacity)
     : table_(table),
       slots_("GPU Scene " + std::string(ResourceTableName(table)) + " table",
-             capacity) {}
+          capacity) {
+}
 
 GpuSceneResourceSlots::GpuSceneResourceSlots(
     const GpuSceneResourceSlots& source, CloneTag)
@@ -408,7 +425,8 @@ GpuSceneResourceSlots::GpuSceneResourceSlots(
       slots_(source.slots_, GpuSceneSlotAllocator::CloneTag{}),
       resident_(source.resident_),
       source_id_(source.source_id_),
-      revision_(source.revision_) {}
+      revision_(source.revision_) {
+}
 
 std::unique_ptr<GpuSceneResourceSlots> GpuSceneResourceSlots::Clone() const {
   return std::unique_ptr<GpuSceneResourceSlots>(
@@ -431,7 +449,7 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
   if (record_count >
       static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
     ThrowInvalidResourceSnapshot(table_,
-                                 "table exceeds 32-bit GPU slot indexing");
+        "table exceeds 32-bit GPU slot indexing");
   }
 
   GpuSceneResourceUpdatePlan plan;
@@ -443,7 +461,7 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
   if (snapshot.source_id != 0 && source_id_ == snapshot.source_id &&
       snapshot.revision < revision_) {
     ThrowInvalidResourceSnapshot(table_,
-                                 "snapshot revision precedes resident revision");
+        "snapshot revision precedes resident revision");
   }
 
   if (snapshot.source_id != 0 && source_id_ == snapshot.source_id &&
@@ -496,11 +514,11 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
       const auto resource = ResourceIdentityAt(snapshot, table_, index);
       if (resource == 0) {
         ThrowInvalidResourceSnapshot(table_,
-                                     "resource identity must be non-zero");
+            "resource identity must be non-zero");
       }
       if (!snapshot_indices.emplace(resource, index).second) {
         ThrowInvalidResourceSnapshot(table_,
-                                     "resource identities must be unique");
+            "resource identities must be unique");
       }
     }
     plan.indexed_snapshot_records = record_count;
@@ -529,8 +547,8 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
   const auto immediately_reusable =
       last_completion_value <= completed_value ? retirements.size() : 0U;
   slots_.RequireAvailable(upserts.size(),
-                          slots_.CollectableCount(completed_value) +
-                              immediately_reusable);
+      slots_.CollectableCount(completed_value) +
+          immediately_reusable);
   plan.collected = slots_.Collect(completed_value);
 
   for (const auto& retirement : retirements) {
@@ -541,7 +559,7 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
   if (last_completion_value <= completed_value && !retirements.empty()) {
     auto collected = slots_.Collect(completed_value);
     plan.collected.insert(plan.collected.end(), collected.begin(),
-                          collected.end());
+        collected.end());
   }
 
   std::vector<std::uint32_t> dirty_slots;
@@ -551,7 +569,7 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
     resident_.emplace(
         upsert.resource, ResidentResource{slot, upsert.record_version});
     plan.upserts.push_back({upsert.resource, slot, upsert.snapshot_index,
-                            upsert.record_version});
+        upsert.record_version});
     dirty_slots.push_back(slot.index);
   }
   plan.dirty_ranges = BuildDirtyRanges(std::move(dirty_slots));
@@ -562,14 +580,16 @@ GpuSceneResourceUpdatePlan GpuSceneResourceSlots::Apply(
 }
 
 GpuSceneDrawSlots::GpuSceneDrawSlots(std::uint32_t capacity)
-    : slots_("GPU Scene draw table", capacity) {}
+    : slots_("GPU Scene draw table", capacity) {
+}
 
 GpuSceneDrawSlots::GpuSceneDrawSlots(const GpuSceneDrawSlots& source,
-                                     CloneTag)
+    CloneTag)
     : slots_(source.slots_, GpuSceneSlotAllocator::CloneTag{}),
       resident_(source.resident_),
       source_id_(source.source_id_),
-      revision_(source.revision_) {}
+      revision_(source.revision_) {
+}
 
 std::unique_ptr<GpuSceneDrawSlots> GpuSceneDrawSlots::Clone() const {
   return std::unique_ptr<GpuSceneDrawSlots>(
@@ -613,7 +633,7 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
   std::vector<std::uint64_t> delta_removals;
   const auto incremental =
       ReadUsableDelta(snapshot, source_id_, revision_, delta_upserts,
-                      delta_removals);
+          delta_removals);
   plan.indexed_snapshot_draws = delta_upserts.size();
   plan.full_reconciliation = !incremental;
 
@@ -687,8 +707,8 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
   const auto immediately_reusable =
       last_completion_value <= completed_value ? retirements.size() : 0U;
   slots_.RequireAvailable(upserts.size(),
-                          slots_.CollectableCount(completed_value) +
-                              immediately_reusable);
+      slots_.CollectableCount(completed_value) +
+          immediately_reusable);
   plan.collected = slots_.Collect(completed_value);
 
   for (const auto& retirement : retirements) {
@@ -699,7 +719,7 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
   if (last_completion_value <= completed_value && !retirements.empty()) {
     auto collected = slots_.Collect(completed_value);
     plan.collected.insert(plan.collected.end(), collected.begin(),
-                          collected.end());
+        collected.end());
   }
 
   for (const auto& upsert : upserts) {
@@ -707,7 +727,7 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
     resident_.emplace(
         upsert.draw, ResidentDraw{slot, upsert.record_revision});
     plan.upserts.push_back({upsert.draw, slot, upsert.snapshot_index,
-                            upsert.record_revision});
+        upsert.record_revision});
   }
   std::vector<std::uint32_t> dirty_slots;
   dirty_slots.reserve(plan.upserts.size());
@@ -721,4 +741,4 @@ GpuSceneDrawUpdatePlan GpuSceneDrawSlots::Apply(
   return plan;
 }
 
-}  // namespace merlin::render
+} // namespace merlin::render

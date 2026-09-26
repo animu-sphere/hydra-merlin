@@ -38,7 +38,7 @@ using merlin::MaterialTargetReflection;
 using merlin::MaterialValueType;
 
 bool Mentions(const std::vector<MaterialDiagnostic>& records,
-              std::string_view fragment) {
+    std::string_view fragment) {
   for (const auto& record : records) {
     if (record.message.find(fragment) != std::string::npos) {
       return true;
@@ -71,7 +71,7 @@ MaterialModule MakeModule() {
 // What a renderer-owned artifact that composed this module reports: the
 // renderer's entry point, and the material's own block laid out by the target.
 MaterialTargetReflection MakeReflection(const MaterialModule& module,
-                                        std::string target) {
+    std::string target) {
   MaterialTargetReflection reflection;
   reflection.target = std::move(target);
   reflection.entry_points = {"forward_fragment"};
@@ -82,10 +82,14 @@ MaterialTargetReflection MakeReflection(const MaterialModule& module,
 
 void VerifyNamesAreStableAndDistinct() {
   constexpr std::array kTypes{
-      MaterialValueType::Float,     MaterialValueType::Float2,
-      MaterialValueType::Float3,    MaterialValueType::Float4,
-      MaterialValueType::Integer,   MaterialValueType::Boolean,
-      MaterialValueType::Texture2D, MaterialValueType::Sampler,
+      MaterialValueType::Float,
+      MaterialValueType::Float2,
+      MaterialValueType::Float3,
+      MaterialValueType::Float4,
+      MaterialValueType::Integer,
+      MaterialValueType::Boolean,
+      MaterialValueType::Texture2D,
+      MaterialValueType::Sampler,
       MaterialValueType::CombinedTextureSampler,
   };
   std::set<std::string_view> names;
@@ -106,10 +110,10 @@ void VerifyNamesAreStableAndDistinct() {
     assert(names.insert(merlin::MaterialResultFieldName(field)).second);
   }
   constexpr std::array kInputs{MaterialInputRequirement::PositionObject,
-                               MaterialInputRequirement::PositionWorld,
-                               MaterialInputRequirement::NormalObject,
-                               MaterialInputRequirement::NormalWorld,
-                               MaterialInputRequirement::Texcoord0};
+      MaterialInputRequirement::PositionWorld,
+      MaterialInputRequirement::NormalObject,
+      MaterialInputRequirement::NormalWorld,
+      MaterialInputRequirement::Texcoord0};
   names.clear();
   for (const auto input : kInputs) {
     assert(names.insert(merlin::MaterialInputRequirementName(input)).second);
@@ -206,7 +210,7 @@ void VerifyModuleAgainstConsumer() {
       merlin::VerifyMaterialAbi(ambiguous_resource);
   assert(ambiguous_resource_records.size() == 1U);
   assert(Mentions(ambiguous_resource_records,
-                  "Module declares resource 'albedo_file'"));
+      "Module declares resource 'albedo_file'"));
 
   auto stale = module;
   stale.abi_version = merlin::kMaterialAbiVersion + 1;
@@ -233,8 +237,8 @@ void VerifyModuleAgainstConsumer() {
 void VerifyTargetReflectionAgreement() {
   const auto module = MakeModule();
   assert(merlin::VerifyMaterialTargetReflection(
-             module, MakeReflection(module, "spirv"))
-             .empty());
+      module, MakeReflection(module, "spirv"))
+          .empty());
 
   // Agreement is semantic, not positional: a target is free to lay the block
   // out however its own ABI requires.
@@ -393,7 +397,7 @@ MaterialResult evaluateMaterial(MaterialInputs inputs)
              .size() == 1U);
   assert(Mentions(merlin::VerifyMaterialSourcePassNeutral(
                       "void f() { if (a < b) { discard; } }\n"),
-                  "a fragment discard"));
+      "a fragment discard"));
 
   // The whole `[[vk::...]]` family is a binding decision, not the three
   // attributes that happened to be listed first.
@@ -408,28 +412,28 @@ MaterialResult evaluateMaterial(MaterialInputs inputs)
   // renderer's pass to the module as surely as an entry point does.
   assert(Mentions(merlin::VerifyMaterialSourcePassNeutral(
                       "[earlydepthstencil]\nvoid f() {}\n"),
-                  "a depth-stencil pass mode"));
+      "a depth-stencil pass mode"));
   assert(Mentions(merlin::VerifyMaterialSourcePassNeutral(
                       "cbuffer C { float4 a : packoffset(c0); };\n"),
-                  "packing offset"));
+      "packing offset"));
   assert(Mentions(merlin::VerifyMaterialSourcePassNeutral(
                       "groupshared float tile[64];\n"),
-                  "a group-shared allocation"));
+      "a group-shared allocation"));
 
   // A qualified name is not a semantic binding, and an identifier that merely
   // ends in or begins with one of the forbidden words is not that word.
   assert(merlin::VerifyMaterialSourcePassNeutral(
-             "float v = merlin::scale;\nint discarded = 0;\n"
-             "int my_register(int x) { return x; }\n"
-             "float groupshared_scale = 1.0f;\n")
-             .empty());
+      "float v = merlin::scale;\nint discarded = 0;\n"
+      "int my_register(int x) { return x; }\n"
+      "float groupshared_scale = 1.0f;\n")
+          .empty());
 
   // A `:` that closes a conditional expression binds nothing, however the
   // branch it selects happens to be spelled.
   assert(merlin::VerifyMaterialSourcePassNeutral(
-             "float v = c ? a : sv_scale;\n"
-             "float w = c ? (d ? sv_a : sv_b) : sv_c;\n")
-             .empty());
+      "float v = c ? a : sv_scale;\n"
+      "float w = c ? (d ? sv_a : sv_b) : sv_c;\n")
+          .empty());
   // ... and a declaration in the same file is still found, so carrying that
   // state forward never swallows a real semantic.
   assert(merlin::VerifyMaterialSourcePassNeutral(
@@ -449,8 +453,8 @@ MaterialResult evaluateMaterial(MaterialInputs inputs)
   // A closed literal is still blanked, so a construct named inside one is not
   // one that was declared.
   assert(merlin::VerifyMaterialSourcePassNeutral(
-             "const static string kNote = \"discard and register(t0)\";\n")
-             .empty());
+      "const static string kNote = \"discard and register(t0)\";\n")
+          .empty());
 
   // Findings are reported in source order, whichever pattern found them.
   const auto ordered = merlin::VerifyMaterialSourcePassNeutral(
@@ -461,7 +465,7 @@ MaterialResult evaluateMaterial(MaterialInputs inputs)
   assert(ordered[2].message.find("discard") != std::string::npos);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   VerifyNamesAreStableAndDistinct();

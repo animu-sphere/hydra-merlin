@@ -64,7 +64,7 @@ inline constexpr Vec4 kDefaultClearColor{0.018F, 0.025F, 0.028F, 1.0F};
 
 template <typename Tag>
 class Handle {
- public:
+public:
   constexpr Handle() = default;
 
   // ChangeSet consumers receive serialized handle values. Rehydrating a handle
@@ -73,13 +73,18 @@ class Handle {
     return Handle(value);
   }
 
-  [[nodiscard]] constexpr bool valid() const noexcept { return value_ != 0; }
-  [[nodiscard]] constexpr std::uint64_t value() const noexcept { return value_; }
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return value_ != 0;
+  }
+  [[nodiscard]] constexpr std::uint64_t value() const noexcept {
+    return value_;
+  }
 
   friend constexpr bool operator==(Handle, Handle) = default;
 
- private:
-  explicit constexpr Handle(std::uint64_t value) : value_(value) {}
+private:
+  explicit constexpr Handle(std::uint64_t value) : value_(value) {
+  }
   std::uint64_t value_{};
 
   friend struct detail::HandleFactory;
@@ -116,8 +121,10 @@ struct MeshDescriptor {
   std::vector<std::uint32_t> indices;
 };
 
-enum class GaussianProjectionMode { Perspective, Tangential };
-enum class GaussianSortingMode { ZDepth, CameraDistance };
+enum class GaussianProjectionMode { Perspective,
+  Tangential };
+enum class GaussianSortingMode { ZDepth,
+  CameraDistance };
 
 // Fully normalized Gaussian data accepted by RenderWorld. Source adapters
 // resolve precision preference, fallback arrays, quaternion normalization, and
@@ -136,7 +143,9 @@ struct GaussianDescriptor {
   bool visible{true};
 };
 
-enum class AlphaMode { Opaque, Masked, Blended };
+enum class AlphaMode { Opaque,
+  Masked,
+  Blended };
 
 enum class TextureFormat { Rgba8Unorm };
 
@@ -150,8 +159,11 @@ struct TextureDescriptor {
   std::vector<std::uint8_t> pixels;
 };
 
-enum class FilterMode { Nearest, Linear };
-enum class AddressMode { Repeat, MirroredRepeat, ClampToEdge };
+enum class FilterMode { Nearest,
+  Linear };
+enum class AddressMode { Repeat,
+  MirroredRepeat,
+  ClampToEdge };
 
 struct SamplerDescriptor {
   std::string label;
@@ -169,25 +181,25 @@ enum class MaterialFeature : std::uint32_t {
 };
 
 [[nodiscard]] constexpr MaterialFeature operator|(MaterialFeature lhs,
-                                                   MaterialFeature rhs) noexcept {
+    MaterialFeature rhs) noexcept {
   return static_cast<MaterialFeature>(static_cast<std::uint32_t>(lhs) |
                                       static_cast<std::uint32_t>(rhs));
 }
 
 [[nodiscard]] constexpr MaterialFeature operator&(MaterialFeature lhs,
-                                                   MaterialFeature rhs) noexcept {
+    MaterialFeature rhs) noexcept {
   return static_cast<MaterialFeature>(static_cast<std::uint32_t>(lhs) &
                                       static_cast<std::uint32_t>(rhs));
 }
 
 constexpr MaterialFeature& operator|=(MaterialFeature& lhs,
-                                      MaterialFeature rhs) noexcept {
+    MaterialFeature rhs) noexcept {
   lhs = lhs | rhs;
   return lhs;
 }
 
 [[nodiscard]] constexpr bool HasMaterialFeature(MaterialFeature value,
-                                                MaterialFeature feature) noexcept {
+    MaterialFeature feature) noexcept {
   return (value & feature) != MaterialFeature::None;
 }
 
@@ -292,7 +304,7 @@ enum class MaterialResultField : std::uint32_t {
 }
 
 constexpr MaterialResultField& operator|=(MaterialResultField& lhs,
-                                          MaterialResultField rhs) noexcept {
+    MaterialResultField rhs) noexcept {
   lhs = lhs | rhs;
   return lhs;
 }
@@ -397,7 +409,10 @@ struct CameraDescriptor {
   FrontFaceWinding front_face{FrontFaceWinding::Clockwise};
 };
 
-enum class LightType { Directional, Point, Spot, Dome };
+enum class LightType { Directional,
+  Point,
+  Spot,
+  Dome };
 
 struct LightDescriptor {
   std::string label;
@@ -417,4 +432,4 @@ struct RenderSettingsDescriptor {
   bool depth_aov{true};
 };
 
-}  // namespace merlin
+} // namespace merlin

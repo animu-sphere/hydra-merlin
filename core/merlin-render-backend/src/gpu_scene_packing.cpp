@@ -11,34 +11,34 @@ namespace merlin::render {
 namespace {
 
 [[noreturn]] void Throw(GpuScenePackingErrorCode code,
-                        std::string_view detail) {
+    std::string_view detail) {
   throw GpuScenePackingError(code,
-                             "GPU Scene record packing: " +
-                                 std::string(detail));
+      "GPU Scene record packing: " +
+          std::string(detail));
 }
 
 std::uint32_t CheckedU32(std::uint64_t value, std::string_view name) {
   if (value > std::numeric_limits<std::uint32_t>::max()) {
     Throw(GpuScenePackingErrorCode::UnrepresentableValue,
-          std::string(name) + " exceeds the ABI v1 32-bit range");
+        std::string(name) + " exceeds the ABI v1 32-bit range");
   }
   return static_cast<std::uint32_t>(value);
 }
 
 void RequirePlan(const GpuSceneResourceUpdatePlan& plan,
-                 GpuSceneResourceTable table,
-                 const extraction::FrameSnapshot& snapshot,
-                 const GpuSceneResourceSlots& slots) {
+    GpuSceneResourceTable table,
+    const extraction::FrameSnapshot& snapshot,
+    const GpuSceneResourceSlots& slots) {
   if (plan.table != table || slots.table() != table) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "resource update plan targets the wrong table");
+        "resource update plan targets the wrong table");
   }
   if (plan.source_id != snapshot.source_id ||
       plan.revision != snapshot.revision ||
       slots.source_id() != snapshot.source_id ||
       slots.revision() != snapshot.revision) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "resource update plan is not current for the slot table");
+        "resource update plan is not current for the slot table");
   }
 }
 
@@ -64,14 +64,13 @@ GpuScenePackedUpdate<Record> Finish(
     const std::vector<GpuSceneDirtyRange>& expected_ranges) {
   std::vector<std::size_t> order(pending.slots.size());
   std::iota(order.begin(), order.end(), 0U);
-  std::sort(order.begin(), order.end(), [&](std::size_t left,
-                                             std::size_t right) {
+  std::sort(order.begin(), order.end(), [&](std::size_t left, std::size_t right) {
     return pending.slots[left] < pending.slots[right];
   });
   for (std::size_t index = 1; index < order.size(); ++index) {
     if (pending.slots[order[index - 1U]] == pending.slots[order[index]]) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "update plan writes one physical slot more than once");
+          "update plan writes one physical slot more than once");
     }
   }
 
@@ -91,7 +90,7 @@ GpuScenePackedUpdate<Record> Finish(
 
   if (result.ranges.size() != expected_ranges.size()) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "packed ranges disagree with the update plan dirty ranges");
+        "packed ranges disagree with the update plan dirty ranges");
   }
   for (std::size_t index = 0; index < result.ranges.size(); ++index) {
     if (result.ranges[index].first_slot !=
@@ -99,7 +98,7 @@ GpuScenePackedUpdate<Record> Finish(
         result.ranges[index].records.size() !=
             expected_ranges[index].slot_count) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "packed ranges disagree with the update plan dirty ranges");
+          "packed ranges disagree with the update plan dirty ranges");
     }
   }
   return result;
@@ -117,15 +116,15 @@ bool IsFinite(const Vec4& value) noexcept {
 
 std::array<Vec4, 3> NormalMatrix(const Mat4& transform) noexcept {
   const Vec3 column0{transform.values[0], transform.values[1],
-                     transform.values[2]};
+      transform.values[2]};
   const Vec3 column1{transform.values[4], transform.values[5],
-                     transform.values[6]};
+      transform.values[6]};
   const Vec3 column2{transform.values[8], transform.values[9],
-                     transform.values[10]};
+      transform.values[10]};
   const auto cross = [](const Vec3& left, const Vec3& right) {
     return Vec3{left.y * right.z - left.z * right.y,
-                left.z * right.x - left.x * right.z,
-                left.x * right.y - left.y * right.x};
+        left.z * right.x - left.x * right.z,
+        left.x * right.y - left.y * right.x};
   };
   const auto cofactor0 = cross(column1, column2);
   const auto cofactor1 = cross(column2, column0);
@@ -135,42 +134,42 @@ std::array<Vec4, 3> NormalMatrix(const Mat4& transform) noexcept {
                            column0.z * cofactor0.z;
   if (!std::isfinite(determinant) || std::abs(determinant) <= 1.0e-20F) {
     return {Vec4{1.0F, 0.0F, 0.0F, 0.0F},
-            Vec4{0.0F, 1.0F, 0.0F, 0.0F},
-            Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
+        Vec4{0.0F, 1.0F, 0.0F, 0.0F},
+        Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
   }
   const auto inverse = 1.0F / determinant;
   const auto column = [inverse](const Vec3& value) {
     return Vec4{value.x * inverse, value.y * inverse, value.z * inverse,
-                0.0F};
+        0.0F};
   };
   return {column(cofactor0), column(cofactor1), column(cofactor2)};
 }
 
 GpuGeometry PackGeometry(const extraction::GeometryRecord& source,
-                         const GpuGeometryPlacement& placement) {
+    const GpuGeometryPlacement& placement) {
   if (!source.vertices || !source.indices || source.vertices->empty() ||
       source.indices->empty() || source.indices->size() % 3U != 0U) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-          "geometry payload must contain indexed triangles");
+        "geometry payload must contain indexed triangles");
   }
   if (std::any_of(source.indices->begin(), source.indices->end(),
-                  [&](std::uint32_t index) {
-                    return index >= source.vertices->size();
-                  })) {
+          [&](std::uint32_t index) {
+            return index >= source.vertices->size();
+          })) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-          "geometry index is outside the vertex payload");
+        "geometry index is outside the vertex payload");
   }
 
   auto minimum = source.vertices->front().position;
   auto maximum = minimum;
   if (!IsFinite(minimum)) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-          "geometry position is not finite");
+        "geometry position is not finite");
   }
   for (const auto& vertex : *source.vertices) {
     if (!IsFinite(vertex.position)) {
       Throw(GpuScenePackingErrorCode::InvalidRecord,
-            "geometry position is not finite");
+          "geometry position is not finite");
     }
     minimum.x = std::min(minimum.x, vertex.position.x);
     minimum.y = std::min(minimum.y, vertex.position.y);
@@ -195,7 +194,7 @@ GpuGeometry PackGeometry(const extraction::GeometryRecord& source,
   if (placement.vertex_offset + vertex_bytes > addressable_bytes ||
       placement.index_offset + index_bytes > addressable_bytes) {
     Throw(GpuScenePackingErrorCode::UnrepresentableValue,
-          "geometry arena range exceeds the ABI v1 32-bit address space");
+        "geometry arena range exceeds the ABI v1 32-bit address space");
   }
   result.index_type = kGpuGeometryIndexTypeUint32;
   if (source.has_normals) {
@@ -213,15 +212,15 @@ GpuGeometry PackGeometry(const extraction::GeometryRecord& source,
 }
 
 GpuInstance PackInstance(const extraction::InstanceRecord& source,
-                         const GpuInstanceIdentity& identity) {
+    const GpuInstanceIdentity& identity) {
   if (source.instance == 0 || source.mesh == 0) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-          "instance and mesh identities must be non-zero");
+        "instance and mesh identities must be non-zero");
   }
   if (std::any_of(source.transform.values.begin(), source.transform.values.end(),
-                  [](float value) { return !std::isfinite(value); })) {
+          [](float value) { return !std::isfinite(value); })) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-          "instance transform is not finite");
+        "instance transform is not finite");
   }
   GpuInstance result;
   result.transform = source.transform;
@@ -234,18 +233,18 @@ GpuInstance PackInstance(const extraction::InstanceRecord& source,
 }
 
 GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
-                         const GpuMaterialBinding& binding) {
+    const GpuMaterialBinding& binding) {
   if (!IsFinite(source.parameters.base_color) ||
       !std::isfinite(source.parameters.metallic) ||
       !std::isfinite(source.parameters.roughness) ||
       !std::isfinite(source.parameters.alpha_cutoff)) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-          "material parameters are not finite");
+        "material parameters are not finite");
   }
   const auto feature_flags = static_cast<std::uint32_t>(source.features);
   if ((feature_flags & ~kGpuMaterialFeatureMask) != 0U) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-          "material feature flags exceed the ABI v1 class mask");
+        "material feature flags exceed the ABI v1 class mask");
   }
   const bool has_texture = source.base_color_texture.has_value();
   const bool has_packed_texture =
@@ -255,14 +254,14 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   if (has_texture != has_packed_texture ||
       has_texture != has_packed_sampler) {
     Throw(GpuScenePackingErrorCode::MissingResidency,
-          "material texture and sampler residency is incomplete");
+        "material texture and sampler residency is incomplete");
   }
 
   GpuMaterial result;
   result.base_color = source.parameters.base_color;
   result.surface_factors = {source.parameters.metallic,
-                            source.parameters.roughness,
-                            source.parameters.alpha_cutoff, 0.0F};
+      source.parameters.roughness,
+      source.parameters.alpha_cutoff, 0.0F};
   result.material_class_flags = feature_flags;
   if (source.alpha_mode == AlphaMode::Masked) {
     result.material_class_flags |= kGpuMaterialAlphaMasked;
@@ -281,21 +280,22 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
 }
 
 GpuSceneSlotHandle RequireResident(const GpuSceneResourceSlots& slots,
-                                   std::uint64_t resource,
-                                   std::string_view name) {
+    std::uint64_t resource,
+    std::string_view name) {
   const auto slot = slots.Find(resource);
   if (!slot) {
     Throw(GpuScenePackingErrorCode::MissingResidency,
-          std::string(name) + " resource has no persistent GPU Scene slot");
+        std::string(name) + " resource has no persistent GPU Scene slot");
   }
   return *slot;
 }
 
-}  // namespace
+} // namespace
 
 GpuScenePackingError::GpuScenePackingError(GpuScenePackingErrorCode code,
-                                           std::string message)
-    : std::runtime_error(std::move(message)), code_(code) {}
+    std::string message)
+    : std::runtime_error(std::move(message)), code_(code) {
+}
 
 static GpuScenePackedUpdate<GpuGeometry> PackGeometryUpdate(
     const extraction::FrameSnapshot& snapshot,
@@ -305,26 +305,26 @@ static GpuScenePackedUpdate<GpuGeometry> PackGeometryUpdate(
   RequirePlan(plan, GpuSceneResourceTable::Geometry, snapshot, slots);
   if (placements.size() != snapshot.geometries.size()) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "geometry placement count does not match the snapshot");
+        "geometry placement count does not match the snapshot");
   }
   PendingTable<GpuGeometry> pending;
   pending.Reserve(plan.upserts.size());
   for (const auto& upsert : plan.upserts) {
     if (!upsert.slot || upsert.snapshot_index >= snapshot.geometries.size()) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "geometry upsert has an invalid slot or snapshot index");
+          "geometry upsert has an invalid slot or snapshot index");
     }
     const auto& source = snapshot.geometries[upsert.snapshot_index];
     if (source.mesh != upsert.resource ||
         upsert.record_version !=
             GpuSceneResourceVersion{source.vertex_revision,
-                                    source.index_revision} ||
+                source.index_revision} ||
         slots.Find(upsert.resource) != upsert.slot) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "geometry upsert identity does not match the snapshot");
+          "geometry upsert identity does not match the snapshot");
     }
     pending.Add(upsert.slot.index,
-                PackGeometry(source, placements[upsert.snapshot_index]));
+        PackGeometry(source, placements[upsert.snapshot_index]));
   }
   return Finish(std::move(pending), plan.dirty_ranges);
 }
@@ -337,14 +337,14 @@ static GpuScenePackedUpdate<GpuInstance> PackInstanceUpdate(
   RequirePlan(plan, GpuSceneResourceTable::Instance, snapshot, slots);
   if (identities.size() != snapshot.instances.size()) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "instance identity count does not match the snapshot");
+        "instance identity count does not match the snapshot");
   }
   PendingTable<GpuInstance> pending;
   pending.Reserve(plan.upserts.size());
   for (const auto& upsert : plan.upserts) {
     if (!upsert.slot || upsert.snapshot_index >= snapshot.instances.size()) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "instance upsert has an invalid slot or snapshot index");
+          "instance upsert has an invalid slot or snapshot index");
     }
     const auto& source = snapshot.instances[upsert.snapshot_index];
     if (source.instance != upsert.resource ||
@@ -352,10 +352,10 @@ static GpuScenePackedUpdate<GpuInstance> PackInstanceUpdate(
             GpuSceneResourceVersion{source.revision, 0} ||
         slots.Find(upsert.resource) != upsert.slot) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "instance upsert identity does not match the snapshot");
+          "instance upsert identity does not match the snapshot");
     }
     pending.Add(upsert.slot.index,
-                PackInstance(source, identities[upsert.snapshot_index]));
+        PackInstance(source, identities[upsert.snapshot_index]));
   }
   return Finish(std::move(pending), plan.dirty_ranges);
 }
@@ -368,14 +368,14 @@ static GpuScenePackedUpdate<GpuMaterial> PackMaterialUpdate(
   RequirePlan(plan, GpuSceneResourceTable::Material, snapshot, slots);
   if (bindings.size() != snapshot.materials.size()) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "material binding count does not match the snapshot");
+        "material binding count does not match the snapshot");
   }
   PendingTable<GpuMaterial> pending;
   pending.Reserve(plan.upserts.size());
   for (const auto& upsert : plan.upserts) {
     if (!upsert.slot || upsert.snapshot_index >= snapshot.materials.size()) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "material upsert has an invalid slot or snapshot index");
+          "material upsert has an invalid slot or snapshot index");
     }
     const auto& source = snapshot.materials[upsert.snapshot_index];
     if (source.material != upsert.resource ||
@@ -383,10 +383,10 @@ static GpuScenePackedUpdate<GpuMaterial> PackMaterialUpdate(
             GpuSceneResourceVersion{source.revision, 0} ||
         slots.Find(upsert.resource) != upsert.slot) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "material upsert identity does not match the snapshot");
+          "material upsert identity does not match the snapshot");
     }
     pending.Add(upsert.slot.index,
-                PackMaterial(source, bindings[upsert.snapshot_index]));
+        PackMaterial(source, bindings[upsert.snapshot_index]));
   }
   return Finish(std::move(pending), plan.dirty_ranges);
 }
@@ -403,13 +403,13 @@ static GpuScenePackedUpdate<GpuDraw> PackDrawUpdate(
       draw_slots.source_id() != snapshot.source_id ||
       draw_slots.revision() != snapshot.revision) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "draw update plan is not current for the slot table");
+        "draw update plan is not current for the slot table");
   }
   if (geometries.table() != GpuSceneResourceTable::Geometry ||
       materials.table() != GpuSceneResourceTable::Material ||
       instances.table() != GpuSceneResourceTable::Instance) {
     Throw(GpuScenePackingErrorCode::InvalidPlan,
-          "draw packing received a resource slot table with the wrong kind");
+        "draw packing received a resource slot table with the wrong kind");
   }
   if (geometries.source_id() != snapshot.source_id ||
       geometries.revision() != snapshot.revision ||
@@ -418,7 +418,7 @@ static GpuScenePackedUpdate<GpuDraw> PackDrawUpdate(
       instances.source_id() != snapshot.source_id ||
       instances.revision() != snapshot.revision) {
     Throw(GpuScenePackingErrorCode::MissingResidency,
-          "resource slot tables do not represent the packed snapshot");
+        "resource slot tables do not represent the packed snapshot");
   }
 
   PendingTable<GpuDraw> pending;
@@ -426,7 +426,7 @@ static GpuScenePackedUpdate<GpuDraw> PackDrawUpdate(
   for (const auto& upsert : plan.upserts) {
     if (!upsert.slot || upsert.snapshot_index >= snapshot.draws.size()) {
       Throw(GpuScenePackingErrorCode::InvalidPlan,
-            "draw upsert has an invalid slot or snapshot index");
+          "draw upsert has an invalid slot or snapshot index");
     }
     const auto& source = snapshot.draws[upsert.snapshot_index];
     if (source.draw == 0 || source.draw != upsert.draw ||
@@ -436,12 +436,12 @@ static GpuScenePackedUpdate<GpuDraw> PackDrawUpdate(
         source.material_index >= snapshot.materials.size() ||
         source.instance_index >= snapshot.instances.size()) {
       Throw(GpuScenePackingErrorCode::InvalidRecord,
-            "draw identity or resource index is invalid");
+          "draw identity or resource index is invalid");
     }
     const auto& geometry = snapshot.geometries[source.geometry_index];
     if (!geometry.indices || geometry.indices->size() % 3U != 0U) {
       Throw(GpuScenePackingErrorCode::InvalidRecord,
-            "draw geometry does not contain indexed triangles");
+          "draw geometry does not contain indexed triangles");
     }
 
     GpuDraw record;
@@ -449,13 +449,13 @@ static GpuScenePackedUpdate<GpuDraw> PackDrawUpdate(
         RequireResident(geometries, geometry.mesh, "geometry").index;
     record.material_index =
         RequireResident(materials,
-                        snapshot.materials[source.material_index].material,
-                        "material")
+            snapshot.materials[source.material_index].material,
+            "material")
             .index;
     record.instance_index =
         RequireResident(instances,
-                        snapshot.instances[source.instance_index].instance,
-                        "instance")
+            snapshot.instances[source.instance_index].instance,
+            "instance")
             .index;
     record.primitive_count =
         CheckedU32(geometry.indices->size() / 3U, "primitive count");
@@ -474,7 +474,7 @@ static std::shared_ptr<const std::vector<std::uint32_t>> BuildDrawSlotIndices(
     const auto slot = draw_slots.Find(draw.draw);
     if (draw.draw == 0 || !slot) {
       Throw(GpuScenePackingErrorCode::MissingResidency,
-            "snapshot draw has no persistent GPU Scene slot");
+          "snapshot draw has no persistent GPU Scene slot");
     }
     indices->push_back(slot->index);
   }
@@ -489,7 +489,8 @@ GpuScenePackingState::GpuScenePackingState(
           GpuSceneResourceTable::Instance, capacities.instances)),
       materials_(std::make_unique<GpuSceneResourceSlots>(
           GpuSceneResourceTable::Material, capacities.materials)),
-      draws_(std::make_unique<GpuSceneDrawSlots>(capacities.draws)) {}
+      draws_(std::make_unique<GpuSceneDrawSlots>(capacities.draws)) {
+}
 
 GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
     const extraction::FrameSnapshot& snapshot,
@@ -513,7 +514,7 @@ GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
     update.material_plan = materials_->Apply(
         snapshot, last_completion_value, completed_value);
     update.draw_plan = draws_->Apply(snapshot, last_completion_value,
-                                     completed_value);
+        completed_value);
     update.draw_slot_indices = draw_slot_indices_;
     return update;
   }
@@ -559,4 +560,4 @@ GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
   return update;
 }
 
-}  // namespace merlin::render
+} // namespace merlin::render

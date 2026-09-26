@@ -26,8 +26,8 @@ void Require(bool condition, const char* message) {
 }
 
 std::uint8_t Channel(const merlin::vulkan::RenderResult& result,
-                     std::uint32_t x, std::uint32_t y,
-                     std::uint32_t channel) {
+    std::uint32_t x, std::uint32_t y,
+    std::uint32_t channel) {
   const auto index = static_cast<std::size_t>(y) *
                          result.color.row_pitch_bytes +
                      static_cast<std::size_t>(x) * 4U + channel;
@@ -35,14 +35,14 @@ std::uint8_t Channel(const merlin::vulkan::RenderResult& result,
 }
 
 std::size_t PixelIndex(const merlin::vulkan::RenderResult& result,
-                       std::uint32_t x, std::uint32_t y) {
+    std::uint32_t x, std::uint32_t y) {
   return static_cast<std::size_t>(y) *
              (result.depth.row_pitch_bytes / sizeof(float)) +
          x;
 }
 
 bool ThrowsRendererError(const std::function<void()>& action,
-                         merlin::vulkan::RendererErrorCode code) {
+    merlin::vulkan::RendererErrorCode code) {
   try {
     action();
   } catch (const merlin::vulkan::RendererError& error) {
@@ -54,7 +54,7 @@ bool ThrowsRendererError(const std::function<void()>& action,
 // The GPU sort must produce the CPU reference order, verify its own keys,
 // and retain every visible prepared record exactly once.
 void RequireVerifiedSort(const merlin::vulkan::RenderResult& result,
-                         const char* message) {
+    const char* message) {
   Require(result.counters.gaussian_gpu_sorted_count ==
                   result.counters.gaussian_gpu_preparation_visible_count &&
               result.counters.gaussian_gpu_sorted_count ==
@@ -62,10 +62,10 @@ void RequireVerifiedSort(const merlin::vulkan::RenderResult& result,
               result.counters.gaussian_gpu_sort_reference_divergence_count ==
                   0 &&
               result.counters.gaussian_gpu_sort_fallback_count == 0,
-          message);
+      message);
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 3) {
@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
     merlin::MeshDescriptor mesh;
     mesh.label = "background-quad";
     mesh.positions = {{-0.8F, -0.8F, 0.8F}, {0.8F, -0.8F, 0.8F},
-                      {0.8F, 0.8F, 0.8F}, {-0.8F, 0.8F, 0.8F}};
+        {0.8F, 0.8F, 0.8F}, {-0.8F, 0.8F, 0.8F}};
     mesh.normals.assign(4, {0.0F, 0.0F, 1.0F});
     mesh.indices = {0, 1, 2, 0, 2, 3};
     const auto mesh_handle = world.CreateMesh(std::move(mesh));
@@ -135,9 +135,9 @@ int main(int argc, char** argv) {
     request.height = 64;
     request.shaders = shaders;
     request.products = {{merlin::Aov::Color, true},
-                        {merlin::Aov::Depth, true},
-                        {merlin::Aov::PrimId, true},
-                        {merlin::Aov::InstanceId, true}};
+        {merlin::Aov::Depth, true},
+        {merlin::Aov::PrimId, true},
+        {merlin::Aov::InstanceId, true}};
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
     request.gpu_driven_gaussian_sort =
@@ -145,12 +145,12 @@ int main(int argc, char** argv) {
 
     const auto first = renderer->Resolve(renderer->Submit(request));
     Require(first.counters.gaussian_visible_count == 2,
-            "prepared stream did not retain the visible Gaussians");
+        "prepared stream did not retain the visible Gaussians");
     Require(first.counters.gaussian_gpu_preparation_dispatch_count == 1,
-            "GPU Gaussian preparation did not dispatch per resource");
+        "GPU Gaussian preparation did not dispatch per resource");
     Require(first.counters.gaussian_gpu_preparation_candidate_count == 2 &&
                 first.counters.gaussian_gpu_preparation_visible_count == 2,
-            "GPU Gaussian preparation counters lost visible particles");
+        "GPU Gaussian preparation counters lost visible particles");
     Require(
         first.counters.gaussian_gpu_preparation_opacity_culled_count == 0 &&
             first.counters.gaussian_gpu_preparation_frustum_culled_count == 0 &&
@@ -163,66 +163,66 @@ int main(int argc, char** argv) {
     Require(first.counters.gaussian_gpu_sort_key_count == 256 &&
                 first.counters.gaussian_gpu_sort_pass_count == 5 &&
                 first.counters.gaussian_gpu_sort_dispatch_count == 17,
-            "GPU Gaussian sort did not follow its bounded dispatch plan");
+        "GPU Gaussian sort did not follow its bounded dispatch plan");
     if (renderer->capabilities().timestamp_queries) {
       Require(first.cpu_timings.gaussian_gpu_sort_ns != 0,
-              "GPU Gaussian sort did not publish device timing");
+          "GPU Gaussian sort did not publish device timing");
     }
     Require(first.counters.gaussian_draw_count == 2,
-            "Gaussian color and ID streams were not submitted as two draws");
+        "Gaussian color and ID streams were not submitted as two draws");
     Require(first.counters.gaussian_upload_bytes == 104,
-            "Gaussian GPU instance upload size drifted");
+        "Gaussian GPU instance upload size drifted");
     Require(first.counters.gaussian_attribute_upload_bytes == 104,
-            "persistent Gaussian attribute upload size drifted");
+        "persistent Gaussian attribute upload size drifted");
     Require(first.counters.gaussian_attribute_copy_range_count == 4,
-            "initial Gaussian attributes were not split by source aspect");
+        "initial Gaussian attributes were not split by source aspect");
     Require(first.counters.gaussian_attribute_generation_count == 1,
-            "initial Gaussian residency generation was not published");
+        "initial Gaussian residency generation was not published");
     Require(first.counters.upload_bytes >=
                 first.counters.gaussian_upload_bytes,
-            "Gaussian upload was not included in total upload telemetry");
+        "Gaussian upload was not included in total upload telemetry");
 
     const auto center = PixelIndex(first, 32, 32);
     Require(Channel(first, 32, 32, 0) > 140,
-            "Gaussian radiance did not reach the color AOV");
+        "Gaussian radiance did not reach the color AOV");
     Require(Channel(first, 32, 32, 0) > Channel(first, 32, 32, 2),
-            "Gaussian alpha composition did not dominate the blue mesh");
+        "Gaussian alpha composition did not dominate the blue mesh");
     Require(Channel(first, 48, 32, 2) > Channel(first, 48, 32, 0),
-            "Gaussian conservative quad leaked outside the ellipse");
+        "Gaussian conservative quad leaked outside the ellipse");
     Require(first.depth.pixels.at(center) < 0.81F &&
                 first.depth.pixels.at(center) > 0.79F,
-            "transparent Gaussian unexpectedly replaced Mesh depth");
+        "transparent Gaussian unexpectedly replaced Mesh depth");
     Require(first.prim_id.pixels.at(center) ==
                 static_cast<std::uint32_t>(gaussian_handle.value()),
-            "Gaussian coverage did not write its resource prim ID");
+        "Gaussian coverage did not write its resource prim ID");
     Require(first.instance_id.pixels.at(center) == 0,
-            "Gaussian coverage did not write its particle index");
+        "Gaussian coverage did not write its particle index");
     const auto mesh_only = PixelIndex(first, 48, 32);
     Require(first.prim_id.pixels.at(mesh_only) ==
                 static_cast<std::uint32_t>(mesh_handle.value()),
-            "Gaussian ID writes escaped the contributing ellipse");
+        "Gaussian ID writes escaped the contributing ellipse");
     Require(first.instance_id.pixels.at(mesh_only) ==
                 static_cast<std::uint32_t>(instance_handle.value()),
-            "Gaussian particle IDs replaced uncovered Mesh identity");
+        "Gaussian particle IDs replaced uncovered Mesh identity");
 
     const auto steady = renderer->Resolve(renderer->Submit(request));
     Require(steady.counters.gaussian_preparation_cache_hits == 1,
-            "static Gaussian frame missed the CPU preparation cache");
+        "static Gaussian frame missed the CPU preparation cache");
     Require(steady.counters.gaussian_upload_bytes == 0,
-            "static Gaussian frame re-uploaded its prepared stream");
+        "static Gaussian frame re-uploaded its prepared stream");
     Require(steady.counters.gaussian_attribute_upload_bytes == 0,
-            "static Gaussian frame re-uploaded persistent attributes");
+        "static Gaussian frame re-uploaded persistent attributes");
     Require(steady.counters.gaussian_attribute_copy_range_count == 0,
-            "static Gaussian frame recorded an attribute copy");
+        "static Gaussian frame recorded an attribute copy");
     Require(steady.counters.gaussian_attribute_generation_count == 0,
-            "static Gaussian frame published a new residency generation");
+        "static Gaussian frame published a new residency generation");
     Require(steady.counters.allocation_count == 0,
-            "static Gaussian frame allocated a native resource");
+        "static Gaussian frame allocated a native resource");
     Require(steady.counters.gaussian_draw_count == 2,
-            "static Gaussian frame lost a procedural draw");
+        "static Gaussian frame lost a procedural draw");
     Require(steady.counters.gaussian_gpu_preparation_dispatch_count == 1 &&
                 steady.counters.gaussian_gpu_preparation_visible_count == 2,
-            "static Gaussian frame lost GPU preparation evidence");
+        "static Gaussian frame lost GPU preparation evidence");
     RequireVerifiedSort(steady, "static Gaussian frame lost its GPU sort");
 
     request.gpu_driven_gaussian_preparation =
@@ -234,14 +234,14 @@ int main(int argc, char** argv) {
     const auto fallback = renderer->Resolve(renderer->Submit(request));
     Require(fallback.counters.gaussian_gpu_preparation_fallback_count == 1 &&
                 fallback.counters.gaussian_gpu_preparation_dispatch_count == 0,
-            "preferred GPU Gaussian preparation did not retain CPU fallback");
+        "preferred GPU Gaussian preparation did not retain CPU fallback");
     Require(fallback.counters.gaussian_gpu_sort_fallback_count == 1 &&
                 fallback.counters.gaussian_gpu_sort_dispatch_count == 0 &&
                 fallback.cpu_timings.gaussian_gpu_sort_ns == 0,
-            "preferred GPU Gaussian sort ran without GPU preparation");
+        "preferred GPU Gaussian sort ran without GPU preparation");
     Require(fallback.counters.gaussian_visible_count == 2 &&
                 fallback.counters.gaussian_draw_count == 2,
-            "GPU Gaussian preparation fallback lost the reference raster");
+        "GPU Gaussian preparation fallback lost the reference raster");
     request.shaders.gaussian_prepare_compute.clear();
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
@@ -255,15 +255,15 @@ int main(int argc, char** argv) {
                 sort_fallback.counters.gaussian_gpu_sort_dispatch_count == 0 &&
                 sort_fallback.counters.gaussian_gpu_preparation_dispatch_count ==
                     1,
-            "missing Gaussian sort artifacts did not fall back independently");
+        "missing Gaussian sort artifacts did not fall back independently");
     Require(sort_fallback.cpu_timings.gaussian_gpu_sort_ns == 0,
-            "missing GPU Gaussian sort artifacts retained a device timing");
+        "missing GPU Gaussian sort artifacts retained a device timing");
     request.gpu_driven_gaussian_sort =
         merlin::vulkan::GpuDrivenGaussianSortMode::Require;
     Require(ThrowsRendererError(
                 [&] { (void)renderer->Submit(request); },
                 merlin::vulkan::RendererErrorCode::InvalidRequest),
-            "required Gaussian sort accepted missing artifacts");
+        "required Gaussian sort accepted missing artifacts");
     request.shaders.gaussian_sort_directory.clear();
     // The sort consumes GPU-prepared records, so it cannot be required alone.
     request.gpu_driven_gaussian_preparation =
@@ -271,7 +271,7 @@ int main(int argc, char** argv) {
     Require(ThrowsRendererError(
                 [&] { (void)renderer->Submit(request); },
                 merlin::vulkan::RendererErrorCode::Unsupported),
-            "required Gaussian sort accepted a CPU-prepared frame");
+        "required Gaussian sort accepted a CPU-prepared frame");
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
 
@@ -283,11 +283,11 @@ int main(int argc, char** argv) {
     const auto resolved = renderer->Resolve(renderer->Submit(request));
     Require(resolved.counters.gaussian_gpu_preparation_dispatch_count == 1 &&
                 resolved.counters.gaussian_gpu_preparation_fallback_count == 0,
-            "omitted Gaussian artifacts did not resolve the packaged compute "
-            "artifact");
+        "omitted Gaussian artifacts did not resolve the packaged compute "
+        "artifact");
     RequireVerifiedSort(resolved,
-                        "omitted Gaussian artifacts did not resolve the "
-                        "packaged sort kernels");
+        "omitted Gaussian artifacts did not resolve the "
+        "packaged sort kernels");
     request.shaders.gaussian_vertex = authored_gaussian_vertex;
 
     // Z depth and camera distance are incomparable key domains, so a frame
@@ -304,17 +304,17 @@ int main(int argc, char** argv) {
     request.snapshot = extractor.snapshot();
     const auto mixed_sorting = renderer->Resolve(renderer->Submit(request));
     Require(mixed_sorting.counters.gaussian_sorting_policy_fallback_count == 2,
-            "mixed authored sorting policy was not diagnosed per resource");
+        "mixed authored sorting policy was not diagnosed per resource");
     Require(mixed_sorting.counters.gaussian_gpu_preparation_dispatch_count == 2,
-            "mixed sorting policy suppressed a GPU preparation dispatch");
+        "mixed sorting policy suppressed a GPU preparation dispatch");
     Require(mixed_sorting.counters.gaussian_gpu_preparation_visible_count ==
                 mixed_sorting.counters.gaussian_visible_count,
-            "mixed sorting policy diverged from the CPU reference partition");
+        "mixed sorting policy diverged from the CPU reference partition");
     // Both resources share key domains and tie on depth; ascending resource
     // identity has to break those ties exactly as the CPU reference does.
     RequireVerifiedSort(mixed_sorting,
-                        "mixed sorting policy diverged from the reference "
-                        "order");
+        "mixed sorting policy diverged from the reference "
+        "order");
     world.Remove(distance_gaussian);
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
@@ -342,7 +342,7 @@ int main(int argc, char** argv) {
                     .gaussian_gpu_preparation_opacity_culled_count == 1,
         "per-resource GPU Gaussian dispatch did not preserve partitions");
     RequireVerifiedSort(multiple_resources,
-                        "a fully culled resource disturbed the GPU sort");
+        "a fully culled resource disturbed the GPU sort");
     world.Remove(secondary_gaussian);
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
@@ -357,15 +357,15 @@ int main(int argc, char** argv) {
     request.snapshot = extractor.snapshot();
     const auto partial = renderer->Resolve(renderer->Submit(request));
     Require(partial.counters.gaussian_upload_bytes == 52,
-            "single-particle edit did not use a changed-range GPU upload");
+        "single-particle edit did not use a changed-range GPU upload");
     Require(partial.counters.gaussian_attribute_upload_bytes == 12,
-            "single-particle SH edit did not retain raw range-only upload");
+        "single-particle SH edit did not retain raw range-only upload");
     Require(partial.counters.gaussian_attribute_copy_range_count == 1,
-            "single-particle SH edit recorded more than one raw range");
+        "single-particle SH edit recorded more than one raw range");
     Require(partial.counters.gaussian_attribute_generation_count == 1,
-            "single-particle edit did not advance residency generation");
+        "single-particle edit did not advance residency generation");
     Require(partial.counters.gaussian_draw_count == 2,
-            "partially updated Gaussian stream lost a procedural draw");
+        "partially updated Gaussian stream lost a procedural draw");
 
     edited = world.Get(gaussian_handle);
     edited.opacities[0] = 0.7F;
@@ -377,38 +377,38 @@ int main(int argc, char** argv) {
     request.snapshot = extractor.snapshot();
     const auto opacity = renderer->Resolve(renderer->Submit(request));
     Require(opacity.counters.gaussian_attribute_upload_bytes == sizeof(float),
-            "single-particle opacity edit did not upload one raw scalar");
+        "single-particle opacity edit did not upload one raw scalar");
     Require(opacity.counters.gaussian_attribute_copy_range_count == 1,
-            "single-particle opacity edit recorded extra raw ranges");
+        "single-particle opacity edit recorded extra raw ranges");
 
     edited = world.Get(gaussian_handle);
     edited.transform.values[12] = 0.05F;
     world.UpdateGaussian(gaussian_handle, std::move(edited),
-                         merlin::ChangeAspect::Transform);
+        merlin::ChangeAspect::Transform);
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
     const auto transformed = renderer->Resolve(renderer->Submit(request));
     Require(transformed.counters.gaussian_attribute_upload_bytes == 0,
-            "transform-only Gaussian edit re-uploaded source attributes");
+        "transform-only Gaussian edit re-uploaded source attributes");
     Require(transformed.counters.gaussian_attribute_generation_count == 1,
-            "transform-only Gaussian edit did not advance record generation");
+        "transform-only Gaussian edit did not advance record generation");
 
     edited = world.Get(gaussian_handle);
     edited.visible = false;
     world.UpdateGaussian(gaussian_handle, std::move(edited),
-                         merlin::ChangeAspect::Visibility);
+        merlin::ChangeAspect::Visibility);
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
     const auto hidden = renderer->Resolve(renderer->Submit(request));
     Require(hidden.counters.gaussian_visible_count == 0,
-            "hidden Gaussian resource still reached the prepared stream");
+        "hidden Gaussian resource still reached the prepared stream");
     Require(hidden.counters.gaussian_gpu_preparation_dispatch_count == 0 &&
                 hidden.counters.gaussian_gpu_preparation_candidate_count == 0,
-            "hidden Gaussian resource still reached GPU preparation");
+        "hidden Gaussian resource still reached GPU preparation");
     Require(hidden.counters.gaussian_attribute_upload_bytes == 0,
-            "visibility-only Gaussian edit re-uploaded source attributes");
+        "visibility-only Gaussian edit re-uploaded source attributes");
     Require(hidden.counters.gaussian_attribute_generation_count == 1,
-            "visibility-only Gaussian edit did not advance record generation");
+        "visibility-only Gaussian edit did not advance record generation");
     // Enough candidates for several sort workgroups, a two-level scan, and
     // two low-word passes. Three shared depths per resource make most keys
     // tie, so the order also proves the resource/particle tie break. This
@@ -421,9 +421,9 @@ int main(int argc, char** argv) {
         const auto column = static_cast<float>(particle % 50U);
         const auto row = static_cast<float>((particle / 50U) % 50U);
         scale.positions.push_back({-0.6F + column * 0.024F,
-                                   -0.6F + row * 0.024F,
-                                   0.3F + 0.2F * static_cast<float>(
-                                                     (particle * 7U) % 3U)});
+            -0.6F + row * 0.024F,
+            0.3F + 0.2F * static_cast<float>(
+                              (particle * 7U) % 3U)});
         scale.covariances.push_back(
             {0.0001F, 0.0F, 0.0F, 0.0001F, 0.0F, 0.0001F});
         scale.opacities.push_back(0.5F);
@@ -436,7 +436,7 @@ int main(int argc, char** argv) {
     request.snapshot = extractor.snapshot();
     const auto scaled = renderer->Resolve(renderer->Submit(request));
     Require(scaled.counters.gaussian_gpu_preparation_visible_count == 3200,
-            "sort-scale fixture lost visible Gaussians");
+        "sort-scale fixture lost visible Gaussians");
     RequireVerifiedSort(scaled, "multi-workgroup GPU sort diverged");
     // 3200 candidates pad to 3328 keys: 13 workgroups, a two-level scan, and
     // two low-word passes. Each of six passes records histogram, two scans,
@@ -444,7 +444,7 @@ int main(int argc, char** argv) {
     Require(scaled.counters.gaussian_gpu_sort_key_count == 3328 &&
                 scaled.counters.gaussian_gpu_sort_pass_count == 6 &&
                 scaled.counters.gaussian_gpu_sort_dispatch_count == 33,
-            "multi-workgroup GPU sort did not follow its dispatch plan");
+        "multi-workgroup GPU sort did not follow its dispatch plan");
     for (const auto handle : scale_gaussians) {
       world.Remove(handle);
     }
@@ -452,7 +452,7 @@ int main(int argc, char** argv) {
     request.snapshot = extractor.snapshot();
 
     Require(renderer->statistics().validation_messages == 0,
-            "Gaussian rasterization produced Vulkan validation diagnostics");
+        "Gaussian rasterization produced Vulkan validation diagnostics");
   } catch (const std::exception& error) {
     std::cerr << "failure: " << error.what() << '\n';
     return 1;

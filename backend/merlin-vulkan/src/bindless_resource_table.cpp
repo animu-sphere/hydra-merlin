@@ -15,18 +15,19 @@ std::uint32_t NextGeneration(std::uint32_t generation) noexcept {
   return generation == 0 ? 1 : generation;
 }
 
-}  // namespace
+} // namespace
 
 BindlessSlotError::BindlessSlotError(BindlessSlotErrorCode code,
-                                     std::string message)
-    : std::runtime_error(std::move(message)), code_(code) {}
+    std::string message)
+    : std::runtime_error(std::move(message)), code_(code) {
+}
 
 BindlessSlotAllocator::BindlessSlotAllocator(std::string_view label,
-                                             std::uint32_t capacity,
-                                             std::uint32_t reserved_slots)
+    std::uint32_t capacity,
+    std::uint32_t reserved_slots)
     : label_(label),
       table_id_(g_next_bindless_table_id.fetch_add(1,
-                                                   std::memory_order_relaxed)),
+          std::memory_order_relaxed)),
       slots_(capacity),
       dirty_slots_(capacity) {
   if (capacity < reserved_slots) {
@@ -35,7 +36,7 @@ BindlessSlotAllocator::BindlessSlotAllocator(std::string_view label,
   }
   if (table_id_ == 0) {
     table_id_ = g_next_bindless_table_id.fetch_add(1,
-                                                   std::memory_order_relaxed);
+        std::memory_order_relaxed);
   }
 
   telemetry_.capacity = capacity;
@@ -76,16 +77,16 @@ void BindlessSlotAllocator::ValidateOwnedHandle(BindlessSlotHandle slot) {
   }
   if (slot.table_id != table_id_) {
     Throw(BindlessSlotErrorCode::ForeignHandle,
-          "slot handle belongs to another table");
+        "slot handle belongs to another table");
   }
   if (slot.index >= slots_.size()) {
     Throw(BindlessSlotErrorCode::InvalidHandle,
-          "slot index is outside table capacity");
+        "slot index is outside table capacity");
   }
   if (slot.generation != slots_[slot.index].generation) {
     ++telemetry_.generation_mismatch_count;
     Throw(BindlessSlotErrorCode::StaleGeneration,
-          "slot generation is stale");
+        "slot generation is stale");
   }
 }
 
@@ -93,11 +94,11 @@ BindlessSlotHandle BindlessSlotAllocator::Allocate() {
   if (free_slots_.empty()) {
     ++telemetry_.exhaustion_count;
     Throw(BindlessSlotErrorCode::Exhausted,
-          "exhausted (capacity=" + std::to_string(telemetry_.capacity) +
-              ", current=" + std::to_string(telemetry_.current_use) +
-              ", retiring=" + std::to_string(telemetry_.retiring_slots) +
-              ", reserved=" + std::to_string(telemetry_.reserved_slots) +
-              ")");
+        "exhausted (capacity=" + std::to_string(telemetry_.capacity) +
+            ", current=" + std::to_string(telemetry_.current_use) +
+            ", retiring=" + std::to_string(telemetry_.retiring_slots) +
+            ", reserved=" + std::to_string(telemetry_.reserved_slots) +
+            ")");
   }
   const auto index = free_slots_.back();
   free_slots_.pop_back();
@@ -127,32 +128,34 @@ bool BindlessSlotAllocator::IsActive(BindlessSlotHandle slot) const noexcept {
 void BindlessSlotAllocator::RequireActive(BindlessSlotHandle slot) {
   ValidateOwnedHandle(slot);
   switch (slots_[slot.index].state) {
-    case State::Active:
-    case State::Reserved: return;
-    case State::Free:
-      Throw(BindlessSlotErrorCode::SlotNotAllocated,
-            "slot is not allocated");
-    case State::Retired:
-      Throw(BindlessSlotErrorCode::SlotRetired,
-            "slot is pending completion retirement");
+  case State::Active:
+  case State::Reserved:
+    return;
+  case State::Free:
+    Throw(BindlessSlotErrorCode::SlotNotAllocated,
+        "slot is not allocated");
+  case State::Retired:
+    Throw(BindlessSlotErrorCode::SlotRetired,
+        "slot is pending completion retirement");
   }
 }
 
 void BindlessSlotAllocator::Retire(BindlessSlotHandle slot,
-                                   std::uint64_t last_completion_value) {
+    std::uint64_t last_completion_value) {
   ValidateOwnedHandle(slot);
   auto& state = slots_[slot.index];
   switch (state.state) {
-    case State::Reserved:
-      Throw(BindlessSlotErrorCode::ReservedSlot,
-            "reserved slot cannot be retired");
-    case State::Free:
-      Throw(BindlessSlotErrorCode::SlotNotAllocated,
-            "slot is not allocated");
-    case State::Retired:
-      Throw(BindlessSlotErrorCode::SlotRetired,
-            "slot is already pending completion retirement");
-    case State::Active: break;
+  case State::Reserved:
+    Throw(BindlessSlotErrorCode::ReservedSlot,
+        "reserved slot cannot be retired");
+  case State::Free:
+    Throw(BindlessSlotErrorCode::SlotNotAllocated,
+        "slot is not allocated");
+  case State::Retired:
+    Throw(BindlessSlotErrorCode::SlotRetired,
+        "slot is already pending completion retirement");
+  case State::Active:
+    break;
   }
 
   state.state = State::Retired;
@@ -190,7 +193,7 @@ BindlessSlotHandle BindlessSlotAllocator::ReservedSlot(
     std::uint32_t index) const {
   if (index >= slots_.size() || slots_[index].state != State::Reserved) {
     Throw(BindlessSlotErrorCode::InvalidHandle,
-          "requested slot is not reserved");
+        "requested slot is not reserved");
   }
   return HandleFor(index);
 }
@@ -211,11 +214,13 @@ std::vector<std::uint32_t> BindlessSlotAllocator::ConsumeDirtySlots() {
 
 BindlessTextureTable::BindlessTextureTable(std::uint32_t capacity)
     : slots_("bindless texture", capacity,
-             kReservedBindlessTextureSlots) {}
+          kReservedBindlessTextureSlots) {
+}
 
 BindlessSamplerTable::BindlessSamplerTable(std::uint32_t capacity)
     : slots_("bindless sampler", capacity),
-      descriptors_by_slot_(capacity) {}
+      descriptors_by_slot_(capacity) {
+}
 
 BindlessSlotHandle BindlessSamplerTable::Acquire(
     const BindlessSamplerDescriptor& descriptor) {
@@ -240,7 +245,7 @@ BindlessSlotHandle BindlessSamplerTable::Acquire(
 }
 
 void BindlessSamplerTable::Release(BindlessSlotHandle slot,
-                                   std::uint64_t last_completion_value) {
+    std::uint64_t last_completion_value) {
   slots_.RequireActive(slot);
   const auto& descriptor = descriptors_by_slot_[slot.index];
   if (!descriptor) {
@@ -277,4 +282,4 @@ BindlessSamplerTelemetry BindlessSamplerTable::telemetry() const noexcept {
   return result;
 }
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

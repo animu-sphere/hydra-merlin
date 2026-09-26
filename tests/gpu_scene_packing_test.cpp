@@ -32,7 +32,7 @@ using merlin::render::GpuScenePackingState;
 
 template <typename Callback>
 void ExpectError(Callback&& callback, GpuScenePackingErrorCode code,
-                 std::string_view fragment) {
+    std::string_view fragment) {
   try {
     callback();
     assert(false && "expected GpuScenePackingError");
@@ -61,8 +61,8 @@ FrameSnapshot MakeSnapshot() {
   geometry.has_texcoords = true;
   geometry.vertices = std::make_shared<const std::vector<DrawVertex>>(
       std::vector<DrawVertex>{{Vec3{-2.0F, 1.0F, 4.0F}},
-                              {Vec3{3.0F, -5.0F, 2.0F}},
-                              {Vec3{1.0F, 2.0F, -6.0F}}});
+          {Vec3{3.0F, -5.0F, 2.0F}},
+          {Vec3{1.0F, 2.0F, -6.0F}}});
   geometry.indices = std::make_shared<const std::vector<std::uint32_t>>(
       std::vector<std::uint32_t>{0, 1, 2});
   snapshot.geometries.assign({geometry});
@@ -126,8 +126,8 @@ void TestPackedRecordsAndRanges() {
          merlin::render::kGpuGeometryIndexTypeUint32);
   assert(geometry.attribute_mask ==
          (merlin::render::kGpuGeometryHasNormals |
-          merlin::render::kGpuGeometryHasColors |
-          merlin::render::kGpuGeometryHasTexcoords));
+             merlin::render::kGpuGeometryHasColors |
+             merlin::render::kGpuGeometryHasTexcoords));
   assert(Near(geometry.bounds_min.x, -2.0F));
   assert(Near(geometry.bounds_min.y, -5.0F));
   assert(Near(geometry.bounds_min.z, -6.0F));
@@ -156,9 +156,9 @@ void TestPackedRecordsAndRanges() {
   assert(Near(material.surface_factors.z, 0.6F));
   assert(material.surface_factors.w == 0.0F);
   assert((material.material_class_flags &
-          merlin::render::kGpuMaterialAlphaMasked) != 0U);
+             merlin::render::kGpuMaterialAlphaMasked) != 0U);
   assert((material.material_class_flags &
-          merlin::render::kGpuMaterialDoubleSided) != 0U);
+             merlin::render::kGpuMaterialDoubleSided) != 0U);
   assert(material.base_color_texture_index == 7);
   assert(material.base_color_sampler_index == 11);
   assert(material.base_color_texcoord_set == 1);
@@ -314,7 +314,7 @@ void TestRejectedUpdateIsAtomicAndRetryable() {
   assert(state.revision() == snapshot.revision);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   TestPackedRecordsAndRanges();

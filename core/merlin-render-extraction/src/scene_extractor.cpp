@@ -19,7 +19,7 @@ namespace {
 std::atomic<std::uint64_t> g_snapshot_source{1};
 
 std::uint64_t StableSortKey(std::uint64_t material_handle,
-                            std::uint64_t mesh_handle) {
+    std::uint64_t mesh_handle) {
   // Opaque-only MVP: material first, then mesh. The instance handle is used as
   // the final tie breaker when the draw list is built.
   return (material_handle * 0x9e3779b185ebca87ULL) ^ mesh_handle;
@@ -102,16 +102,23 @@ struct InstanceEntry {
 
 ResourceDelta& DeltaFor(SnapshotDelta& delta, ObjectKind kind) {
   switch (kind) {
-    case ObjectKind::Mesh: return delta.geometries;
-    case ObjectKind::Gaussian: return delta.gaussians;
-    case ObjectKind::Material: return delta.materials;
-    case ObjectKind::Texture: return delta.textures;
-    case ObjectKind::Sampler: return delta.samplers;
-    case ObjectKind::Instance: return delta.instances;
-    case ObjectKind::Light: return delta.lights;
-    case ObjectKind::Camera:
-    case ObjectKind::RenderSettings:
-      break;
+  case ObjectKind::Mesh:
+    return delta.geometries;
+  case ObjectKind::Gaussian:
+    return delta.gaussians;
+  case ObjectKind::Material:
+    return delta.materials;
+  case ObjectKind::Texture:
+    return delta.textures;
+  case ObjectKind::Sampler:
+    return delta.samplers;
+  case ObjectKind::Instance:
+    return delta.instances;
+  case ObjectKind::Light:
+    return delta.lights;
+  case ObjectKind::Camera:
+  case ObjectKind::RenderSettings:
+    break;
   }
   throw std::logic_error("object kind has no resource delta");
 }
@@ -125,10 +132,10 @@ void SortAndUnique(ResourceDelta& delta) {
   normalize(delta.removals);
   delta.upserts.erase(
       std::remove_if(delta.upserts.begin(), delta.upserts.end(),
-                     [&](std::uint64_t handle) {
-                       return std::binary_search(delta.removals.begin(),
-                                                 delta.removals.end(), handle);
-                     }),
+          [&](std::uint64_t handle) {
+            return std::binary_search(delta.removals.begin(),
+                delta.removals.end(), handle);
+          }),
       delta.upserts.end());
 }
 
@@ -171,7 +178,7 @@ struct DirtyDraw {
 };
 
 template <typename Table, typename Entries, typename HandleOf,
-          typename BuildRecord>
+    typename BuildRecord>
 DenseTableUpdate UpdateTable(
     Table& table, std::map<std::uint64_t, std::size_t>& indices,
     const Entries& entries, const ResourceDelta& delta, HandleOf handle_of,
@@ -230,10 +237,10 @@ DenseTableUpdate UpdateTable(
   return update;
 }
 
-}  // namespace
+} // namespace
 
 class SceneExtractor::Impl {
- public:
+public:
   void ApplyMesh(const RenderWorld& world, const Change& change) {
     if (change.change_kind == ChangeKind::Removed) {
       meshes.erase(change.handle);
@@ -262,7 +269,7 @@ class SceneExtractor::Impl {
     }
     if (created ||
         (has_vertex_aspect &&
-         (!change.vertex_ranges_known || !change.vertex_ranges.empty()))) {
+            (!change.vertex_ranges_known || !change.vertex_ranges.empty()))) {
       auto vertices = std::make_shared<std::vector<DrawVertex>>();
       vertices->reserve(descriptor.positions.size());
       for (std::size_t i = 0; i < descriptor.positions.size(); ++i) {
@@ -291,7 +298,7 @@ class SceneExtractor::Impl {
     }
     if (created ||
         (change.HasAspect(ChangeAspect::Topology) &&
-         (!change.index_ranges_known || !change.index_ranges.empty()))) {
+            (!change.index_ranges_known || !change.index_ranges.empty()))) {
       entry.indices = std::make_shared<const std::vector<std::uint32_t>>(
           descriptor.indices);
       entry.index_revision = change.resource_revision;
@@ -377,11 +384,11 @@ class SceneExtractor::Impl {
       record.alpha_mode = AlphaMode::Opaque;
       fallbacks.push_back(
           {handle, MaterialFallbackCode::UnsupportedAlphaBlend,
-           "alpha blend is unsupported; using opaque fallback"});
+              "alpha blend is unsupported; using opaque fallback"});
     }
     if (material.base_color_texture &&
         HasMaterialFeature(record.features,
-                           MaterialFeature::BaseColorTexture)) {
+            MaterialFeature::BaseColorTexture)) {
       const auto texture =
           texture_indices.find(material.base_color_texture->texture.value());
       const auto sampler =
@@ -392,14 +399,14 @@ class SceneExtractor::Impl {
             ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
         fallbacks.push_back(
             {handle, MaterialFallbackCode::MissingTexture,
-             "base-color texture is unavailable; using constant color"});
+                "base-color texture is unavailable; using constant color"});
       } else if (sampler == sampler_indices.end()) {
         record.features = static_cast<MaterialFeature>(
             static_cast<std::uint32_t>(record.features) &
             ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture));
         fallbacks.push_back(
             {handle, MaterialFallbackCode::MissingSampler,
-             "base-color sampler is unavailable; using constant color"});
+                "base-color sampler is unavailable; using constant color"});
       } else {
         record.base_color_texture = TextureBindingRecord{
             static_cast<std::uint32_t>(texture->second),
@@ -411,7 +418,7 @@ class SceneExtractor::Impl {
   }
 
   void EraseMaterialFallbacks(FrameSnapshot& next,
-                              std::uint64_t handle) const {
+      std::uint64_t handle) const {
     const auto fallback_index = next.material_fallbacks.lower_bound_index(
         handle,
         [](const MaterialFallbackRecord& candidate, std::uint64_t value) {
@@ -442,8 +449,8 @@ class SceneExtractor::Impl {
   }
 
   DenseTableUpdate UpdateMaterials(FrameSnapshot& next,
-                                   const SnapshotDelta& delta,
-                                   bool initialize) {
+      const SnapshotDelta& delta,
+      bool initialize) {
     auto& counters = next.build_counters;
     DenseTableUpdate update;
     if (initialize && !materials.empty()) {
@@ -455,14 +462,14 @@ class SceneExtractor::Impl {
         ++counters.visited_records;
         ++counters.copied_records;
         material_indices.emplace_hint(material_indices.end(), handle,
-                                      records.size());
+            records.size());
         records.push_back(
             BuildMaterial(handle, entry, next.revision, fallbacks));
       }
       std::stable_sort(
           fallbacks.begin(), fallbacks.end(),
           [](const MaterialFallbackRecord& lhs,
-             const MaterialFallbackRecord& rhs) {
+              const MaterialFallbackRecord& rhs) {
             return std::tie(lhs.material, lhs.code) <
                    std::tie(rhs.material, rhs.code);
           });
@@ -543,12 +550,12 @@ class SceneExtractor::Impl {
       throw std::logic_error("draw references an instance without identity");
     }
     return DrawRecord{static_cast<std::uint32_t>(geometry->second),
-                      static_cast<std::uint32_t>(material->second),
-                      static_cast<std::uint32_t>(instance_index),
-                      StableSortKey(instance.material, instance.mesh),
-                      instance.instance,
-                      draw->second,
-                      draw_revision};
+        static_cast<std::uint32_t>(material->second),
+        static_cast<std::uint32_t>(instance_index),
+        StableSortKey(instance.material, instance.mesh),
+        instance.instance,
+        draw->second,
+        draw_revision};
   }
 
   using DrawOrderKey = std::tuple<std::uint64_t, std::uint64_t>;
@@ -572,7 +579,7 @@ class SceneExtractor::Impl {
               "snapshot draw table exceeds 32-bit indices");
         }
         indices.emplace(next.draws[index].draw,
-                        static_cast<std::uint32_t>(index));
+            static_cast<std::uint32_t>(index));
       }
       for (const auto draw : delta.upserts) {
         const auto index = indices.find(draw);
@@ -605,7 +612,7 @@ class SceneExtractor::Impl {
   }
 
   void UpdateDraws(FrameSnapshot& next, bool initialize,
-                   std::vector<DirtyDraw> dirty_instances) const {
+      std::vector<DirtyDraw> dirty_instances) const {
     auto& counters = next.build_counters;
     std::map<std::uint64_t, DrawOrderKey> upsert_keys;
     std::stable_sort(
@@ -615,9 +622,9 @@ class SceneExtractor::Impl {
         });
     dirty_instances.erase(
         std::unique(dirty_instances.begin(), dirty_instances.end(),
-                    [](const DirtyDraw& lhs, const DirtyDraw& rhs) {
-                      return lhs.instance == rhs.instance;
-                    }),
+            [](const DirtyDraw& lhs, const DirtyDraw& rhs) {
+              return lhs.instance == rhs.instance;
+            }),
         dirty_instances.end());
     if (initialize) {
       std::vector<DrawRecord> draws;
@@ -632,10 +639,10 @@ class SceneExtractor::Impl {
         ++instance_index;
       }
       std::stable_sort(draws.begin(), draws.end(),
-                       [](const DrawRecord& lhs, const DrawRecord& rhs) {
-                         return std::tie(lhs.sort_key, lhs.instance) <
-                                std::tie(rhs.sort_key, rhs.instance);
-                       });
+          [](const DrawRecord& lhs, const DrawRecord& rhs) {
+            return std::tie(lhs.sort_key, lhs.instance) <
+                   std::tie(rhs.sort_key, rhs.instance);
+          });
       counters.rebuilt_draws = draws.size();
       next.draws.assign(std::move(draws));
       SortAndUnique(next.delta->draws);
@@ -668,7 +675,7 @@ class SceneExtractor::Impl {
                 BuildDraw(next.instances[instance->second], next.revision)) {
           replacement_draw = replacement->draw;
           upsert_keys.insert_or_assign(replacement->draw,
-                                       OrderKey(*replacement));
+              OrderKey(*replacement));
           const auto key =
               std::tie(replacement->sort_key, replacement->instance);
           const auto position_index = next.draws.lower_bound_index(
@@ -697,15 +704,15 @@ class SceneExtractor::Impl {
       std::map<std::uint64_t, std::set<std::uint64_t>>;
 
   static void AddDependency(DependencyIndex& dependencies,
-                            std::uint64_t resource,
-                            std::uint64_t dependent) {
+      std::uint64_t resource,
+      std::uint64_t dependent) {
     auto& dependents = dependencies[resource];
     dependents.insert(dependents.end(), dependent);
   }
 
   static void RemoveDependency(DependencyIndex& dependencies,
-                               std::uint64_t resource,
-                               std::uint64_t dependent) {
+      std::uint64_t resource,
+      std::uint64_t dependent) {
     const auto found = dependencies.find(resource);
     if (found == dependencies.end()) {
       return;
@@ -717,12 +724,12 @@ class SceneExtractor::Impl {
   }
 
   void AddMaterialDependencies(std::uint64_t handle,
-                               const MaterialDescriptor& descriptor) {
+      const MaterialDescriptor& descriptor) {
     if (descriptor.base_color_texture) {
       AddDependency(texture_materials,
-                    descriptor.base_color_texture->texture.value(), handle);
+          descriptor.base_color_texture->texture.value(), handle);
       AddDependency(sampler_materials,
-                    descriptor.base_color_texture->sampler.value(), handle);
+          descriptor.base_color_texture->sampler.value(), handle);
     }
     for (const auto& entry : descriptor.generated_resources.entries) {
       for (const auto& value : entry.values) {
@@ -737,12 +744,12 @@ class SceneExtractor::Impl {
   }
 
   void RemoveMaterialDependencies(std::uint64_t handle,
-                                  const MaterialDescriptor& descriptor) {
+      const MaterialDescriptor& descriptor) {
     if (descriptor.base_color_texture) {
       RemoveDependency(texture_materials,
-                       descriptor.base_color_texture->texture.value(), handle);
+          descriptor.base_color_texture->texture.value(), handle);
       RemoveDependency(sampler_materials,
-                       descriptor.base_color_texture->sampler.value(), handle);
+          descriptor.base_color_texture->sampler.value(), handle);
     }
     for (const auto& entry : descriptor.generated_resources.entries) {
       for (const auto& value : entry.values) {
@@ -757,20 +764,20 @@ class SceneExtractor::Impl {
   }
 
   void AddInstanceDependencies(std::uint64_t handle,
-                               const InstanceDescriptor& descriptor) {
+      const InstanceDescriptor& descriptor) {
     AddDependency(mesh_instances, descriptor.mesh.value(), handle);
     AddDependency(material_instances, descriptor.material.value(), handle);
   }
 
   void RemoveInstanceDependencies(std::uint64_t handle,
-                                  const InstanceDescriptor& descriptor) {
+      const InstanceDescriptor& descriptor) {
     RemoveDependency(mesh_instances, descriptor.mesh.value(), handle);
     RemoveDependency(material_instances, descriptor.material.value(), handle);
   }
 
   void AppendDependentMaterials(ResourceDelta& material_delta,
-                                const DependencyIndex& dependencies,
-                                const std::vector<std::uint64_t>& resources)
+      const DependencyIndex& dependencies,
+      const std::vector<std::uint64_t>& resources)
       const {
     for (const auto resource : resources) {
       const auto found = dependencies.find(resource);
@@ -786,7 +793,7 @@ class SceneExtractor::Impl {
   }
 
   void AppendDirtyDraw(std::vector<DirtyDraw>& dirty_draws,
-                       std::uint64_t handle) const {
+      std::uint64_t handle) const {
     const auto found = instances.find(handle);
     if (found == instances.end()) {
       return;
@@ -794,12 +801,12 @@ class SceneExtractor::Impl {
     const auto& descriptor = found->second.descriptor;
     dirty_draws.push_back(
         {handle, StableSortKey(descriptor.material.value(),
-                              descriptor.mesh.value())});
+                     descriptor.mesh.value())});
   }
 
   void AppendDependentDraws(std::vector<DirtyDraw>& dirty_draws,
-                            const DependencyIndex& dependencies,
-                            const std::vector<std::uint64_t>& resources) const {
+      const DependencyIndex& dependencies,
+      const std::vector<std::uint64_t>& resources) const {
     for (const auto resource : resources) {
       const auto found = dependencies.find(resource);
       if (found == dependencies.end()) {
@@ -812,7 +819,7 @@ class SceneExtractor::Impl {
   }
 
   void RebuildSnapshot(SnapshotDelta delta,
-                       std::vector<DirtyDraw> dirty_instances = {}) {
+      std::vector<DirtyDraw> dirty_instances = {}) {
     const auto previous = snapshot;
     auto next = std::make_shared<FrameSnapshot>(*previous);
     next->source_id = source_id;
@@ -914,7 +921,7 @@ class SceneExtractor::Impl {
         [](const TextureRecord& record) { return record.texture; },
         [](std::uint64_t handle, const TextureEntry& entry) {
           return TextureRecord{handle, entry.revision, entry.width,
-                               entry.height, entry.format, entry.pixels};
+              entry.height, entry.format, entry.pixels};
         },
         next->build_counters, initialize);
     next->delta->textures.upserts.insert(
@@ -928,8 +935,8 @@ class SceneExtractor::Impl {
         [](std::uint64_t handle, const SamplerEntry& entry) {
           const auto& sampler = entry.descriptor;
           return SamplerRecord{handle, entry.revision, sampler.min_filter,
-                               sampler.mag_filter, sampler.address_u,
-                               sampler.address_v};
+              sampler.mag_filter, sampler.address_u,
+              sampler.address_v};
         },
         next->build_counters, initialize);
     next->delta->samplers.upserts.insert(
@@ -939,13 +946,13 @@ class SceneExtractor::Impl {
     SortAndUnique(next->delta->samplers);
 
     AppendDependentMaterials(next->delta->materials, texture_materials,
-                             next->delta->textures.removals);
+        next->delta->textures.removals);
     AppendDependentMaterials(next->delta->materials, texture_materials,
-                             texture_update.displaced_handles);
+        texture_update.displaced_handles);
     AppendDependentMaterials(next->delta->materials, sampler_materials,
-                             next->delta->samplers.removals);
+        next->delta->samplers.removals);
     AppendDependentMaterials(next->delta->materials, sampler_materials,
-                             sampler_update.displaced_handles);
+        sampler_update.displaced_handles);
     SortAndUnique(next->delta->materials);
     const auto changed_material_records = next->delta->materials.upserts;
     const auto material_update =
@@ -962,14 +969,14 @@ class SceneExtractor::Impl {
         [](std::uint64_t handle, const InstanceEntry& entry) {
           const auto& instance = entry.descriptor;
           return InstanceRecord{handle,
-                                entry.revision,
-                                entry.transform_revision,
-                                entry.visibility_revision,
-                                entry.material_binding_revision,
-                                instance.mesh.value(),
-                                instance.material.value(),
-                                instance.transform,
-                                instance.visible};
+              entry.revision,
+              entry.transform_revision,
+              entry.visibility_revision,
+              entry.material_binding_revision,
+              instance.mesh.value(),
+              instance.material.value(),
+              instance.transform,
+              instance.visible};
         },
         next->build_counters, initialize);
     next->delta->instances.upserts.insert(
@@ -979,17 +986,17 @@ class SceneExtractor::Impl {
     SortAndUnique(next->delta->instances);
 
     AppendDependentDraws(dirty_instances, mesh_instances,
-                         next->delta->geometries.removals);
+        next->delta->geometries.removals);
     AppendDependentDraws(dirty_instances, mesh_instances,
-                         changed_geometry_records);
+        changed_geometry_records);
     AppendDependentDraws(dirty_instances, mesh_instances,
-                         geometry_update.displaced_handles);
+        geometry_update.displaced_handles);
     AppendDependentDraws(dirty_instances, material_instances,
-                         next->delta->materials.removals);
+        next->delta->materials.removals);
     AppendDependentDraws(dirty_instances, material_instances,
-                         changed_material_records);
+        changed_material_records);
     AppendDependentDraws(dirty_instances, material_instances,
-                         material_update.displaced_handles);
+        material_update.displaced_handles);
     for (const auto handle : instance_update.displaced_handles) {
       AppendDirtyDraw(dirty_instances, handle);
     }
@@ -1012,7 +1019,7 @@ class SceneExtractor::Impl {
         [](std::uint64_t handle, const LightEntry& entry) {
           const auto& light = entry.descriptor;
           return LightRecord{handle, entry.revision, light.type, light.color,
-                             light.intensity, light.transform};
+              light.intensity, light.transform};
         },
         next->build_counters, initialize);
     next->delta->lights.upserts.insert(
@@ -1059,7 +1066,8 @@ class SceneExtractor::Impl {
       std::make_shared<FrameSnapshot>()};
 };
 
-SceneExtractor::SceneExtractor() : impl_(std::make_unique<Impl>()) {}
+SceneExtractor::SceneExtractor() : impl_(std::make_unique<Impl>()) {
+}
 SceneExtractor::~SceneExtractor() = default;
 SceneExtractor::SceneExtractor(SceneExtractor&&) noexcept = default;
 SceneExtractor& SceneExtractor::operator=(SceneExtractor&&) noexcept = default;
@@ -1099,147 +1107,147 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
       if (found != impl_->instances.end()) {
         const auto& descriptor = found->second.descriptor;
         previous_sort_key = StableSortKey(descriptor.material.value(),
-                                          descriptor.mesh.value());
+            descriptor.mesh.value());
       }
       dirty_draw_instances.push_back({change.handle, previous_sort_key});
     }
     switch (change.object_kind) {
-      case ObjectKind::Mesh:
-        impl_->ApplyMesh(world, change);
-        break;
-      case ObjectKind::Gaussian:
-        impl_->ApplyGaussian(world, change);
-        break;
-      case ObjectKind::Material:
-        if (erase) {
-          const auto found = impl_->materials.find(change.handle);
-          if (found != impl_->materials.end()) {
-            impl_->RemoveMaterialDependencies(change.handle,
-                                              found->second.descriptor);
-          }
-          impl_->materials.erase(change.handle);
-        } else {
-          auto found = impl_->materials.find(change.handle);
-          MaterialEntry entry;
-          if (found != impl_->materials.end()) {
-            entry = found->second;
-            impl_->RemoveMaterialDependencies(change.handle,
-                                              found->second.descriptor);
-          }
-          entry.revision = change.resource_revision;
-          if (change.change_kind == ChangeKind::Created ||
-              change.HasAspect(ChangeAspect::MaterialParameters)) {
-            entry.parameter_revision = change.resource_revision;
-          }
-          if (change.change_kind == ChangeKind::Created ||
-              change.HasAspect(ChangeAspect::MaterialFeatures)) {
-            entry.feature_revision = change.resource_revision;
-          }
-          if (change.change_kind == ChangeKind::Created ||
-              change.HasAspect(ChangeAspect::MaterialModule)) {
-            entry.module_revision = change.resource_revision;
-          }
-          if (change.change_kind == ChangeKind::Created ||
-              change.HasAspect(ChangeAspect::MaterialResources)) {
-            entry.resource_binding_revision = change.resource_revision;
-          }
-          entry.descriptor =
-              world.Get(MaterialHandle::FromValue(change.handle));
-          impl_->AddMaterialDependencies(change.handle, entry.descriptor);
-          impl_->materials.insert_or_assign(impl_->materials.end(),
-                                            change.handle, std::move(entry));
+    case ObjectKind::Mesh:
+      impl_->ApplyMesh(world, change);
+      break;
+    case ObjectKind::Gaussian:
+      impl_->ApplyGaussian(world, change);
+      break;
+    case ObjectKind::Material:
+      if (erase) {
+        const auto found = impl_->materials.find(change.handle);
+        if (found != impl_->materials.end()) {
+          impl_->RemoveMaterialDependencies(change.handle,
+              found->second.descriptor);
         }
-        break;
-      case ObjectKind::Texture:
-        if (erase) {
-          impl_->textures.erase(change.handle);
-        } else {
-          const auto& texture =
-              world.Get(TextureHandle::FromValue(change.handle));
-          impl_->textures.insert_or_assign(
-              impl_->textures.end(), change.handle,
-              TextureEntry{change.resource_revision, texture.width,
-                           texture.height, texture.format,
-                           std::make_shared<const std::vector<std::uint8_t>>(
-                               texture.pixels)});
+        impl_->materials.erase(change.handle);
+      } else {
+        auto found = impl_->materials.find(change.handle);
+        MaterialEntry entry;
+        if (found != impl_->materials.end()) {
+          entry = found->second;
+          impl_->RemoveMaterialDependencies(change.handle,
+              found->second.descriptor);
         }
-        break;
-      case ObjectKind::Sampler:
-        if (erase) {
-          impl_->samplers.erase(change.handle);
-        } else {
-          impl_->samplers.insert_or_assign(
-              impl_->samplers.end(), change.handle,
-              SamplerEntry{change.resource_revision,
-                           world.Get(SamplerHandle::FromValue(change.handle))});
+        entry.revision = change.resource_revision;
+        if (change.change_kind == ChangeKind::Created ||
+            change.HasAspect(ChangeAspect::MaterialParameters)) {
+          entry.parameter_revision = change.resource_revision;
         }
-        break;
-      case ObjectKind::Instance:
-        if (erase) {
-          const auto found = impl_->instances.find(change.handle);
-          if (found != impl_->instances.end()) {
-            impl_->RemoveInstanceDependencies(change.handle,
-                                              found->second.descriptor);
-          }
-          impl_->instances.erase(change.handle);
-          impl_->draw_ids.erase(change.handle);
-        } else {
-          auto found = impl_->instances.find(change.handle);
-          InstanceEntry entry;
-          if (found != impl_->instances.end()) {
-            entry = found->second;
-            impl_->RemoveInstanceDependencies(change.handle,
-                                              found->second.descriptor);
-          }
-          entry.revision = change.resource_revision;
-          if (change.change_kind == ChangeKind::Created ||
-              change.HasAspect(ChangeAspect::Transform)) {
-            entry.transform_revision = change.resource_revision;
-          }
-          if (change.change_kind == ChangeKind::Created ||
-              change.HasAspect(ChangeAspect::Visibility)) {
-            entry.visibility_revision = change.resource_revision;
-          }
-          if (change.change_kind == ChangeKind::Created ||
-              change.HasAspect(ChangeAspect::MaterialBinding)) {
-            entry.material_binding_revision = change.resource_revision;
-          }
-          entry.descriptor =
-              world.Get(InstanceHandle::FromValue(change.handle));
-          impl_->AddInstanceDependencies(change.handle, entry.descriptor);
-          impl_->instances.insert_or_assign(
-              impl_->instances.end(), change.handle, std::move(entry));
-          if (!impl_->draw_ids.contains(change.handle)) {
-            if (impl_->next_draw_id == 0) {
-              throw std::length_error("SceneExtractor draw identity exhausted");
-            }
-            impl_->draw_ids.emplace(change.handle, impl_->next_draw_id++);
-          }
+        if (change.change_kind == ChangeKind::Created ||
+            change.HasAspect(ChangeAspect::MaterialFeatures)) {
+          entry.feature_revision = change.resource_revision;
         }
-        break;
-      case ObjectKind::Camera:
-        if (erase) {
-          impl_->cameras.erase(change.handle);
-        } else {
-          impl_->cameras.insert_or_assign(
-              impl_->cameras.end(), change.handle,
-              world.Get(CameraHandle::FromValue(change.handle)));
+        if (change.change_kind == ChangeKind::Created ||
+            change.HasAspect(ChangeAspect::MaterialModule)) {
+          entry.module_revision = change.resource_revision;
         }
-        break;
-      case ObjectKind::Light:
-        if (erase) {
-          impl_->lights.erase(change.handle);
-        } else {
-          impl_->lights.insert_or_assign(
-              impl_->lights.end(), change.handle,
-              LightEntry{change.resource_revision,
-                         world.Get(LightHandle::FromValue(change.handle))});
+        if (change.change_kind == ChangeKind::Created ||
+            change.HasAspect(ChangeAspect::MaterialResources)) {
+          entry.resource_binding_revision = change.resource_revision;
         }
-        break;
-      case ObjectKind::RenderSettings:
-        // Render settings are frame/host state and are consumed outside the
-        // extracted draw model until render requests are introduced.
-        break;
+        entry.descriptor =
+            world.Get(MaterialHandle::FromValue(change.handle));
+        impl_->AddMaterialDependencies(change.handle, entry.descriptor);
+        impl_->materials.insert_or_assign(impl_->materials.end(),
+            change.handle, std::move(entry));
+      }
+      break;
+    case ObjectKind::Texture:
+      if (erase) {
+        impl_->textures.erase(change.handle);
+      } else {
+        const auto& texture =
+            world.Get(TextureHandle::FromValue(change.handle));
+        impl_->textures.insert_or_assign(
+            impl_->textures.end(), change.handle,
+            TextureEntry{change.resource_revision, texture.width,
+                texture.height, texture.format,
+                std::make_shared<const std::vector<std::uint8_t>>(
+                    texture.pixels)});
+      }
+      break;
+    case ObjectKind::Sampler:
+      if (erase) {
+        impl_->samplers.erase(change.handle);
+      } else {
+        impl_->samplers.insert_or_assign(
+            impl_->samplers.end(), change.handle,
+            SamplerEntry{change.resource_revision,
+                world.Get(SamplerHandle::FromValue(change.handle))});
+      }
+      break;
+    case ObjectKind::Instance:
+      if (erase) {
+        const auto found = impl_->instances.find(change.handle);
+        if (found != impl_->instances.end()) {
+          impl_->RemoveInstanceDependencies(change.handle,
+              found->second.descriptor);
+        }
+        impl_->instances.erase(change.handle);
+        impl_->draw_ids.erase(change.handle);
+      } else {
+        auto found = impl_->instances.find(change.handle);
+        InstanceEntry entry;
+        if (found != impl_->instances.end()) {
+          entry = found->second;
+          impl_->RemoveInstanceDependencies(change.handle,
+              found->second.descriptor);
+        }
+        entry.revision = change.resource_revision;
+        if (change.change_kind == ChangeKind::Created ||
+            change.HasAspect(ChangeAspect::Transform)) {
+          entry.transform_revision = change.resource_revision;
+        }
+        if (change.change_kind == ChangeKind::Created ||
+            change.HasAspect(ChangeAspect::Visibility)) {
+          entry.visibility_revision = change.resource_revision;
+        }
+        if (change.change_kind == ChangeKind::Created ||
+            change.HasAspect(ChangeAspect::MaterialBinding)) {
+          entry.material_binding_revision = change.resource_revision;
+        }
+        entry.descriptor =
+            world.Get(InstanceHandle::FromValue(change.handle));
+        impl_->AddInstanceDependencies(change.handle, entry.descriptor);
+        impl_->instances.insert_or_assign(
+            impl_->instances.end(), change.handle, std::move(entry));
+        if (!impl_->draw_ids.contains(change.handle)) {
+          if (impl_->next_draw_id == 0) {
+            throw std::length_error("SceneExtractor draw identity exhausted");
+          }
+          impl_->draw_ids.emplace(change.handle, impl_->next_draw_id++);
+        }
+      }
+      break;
+    case ObjectKind::Camera:
+      if (erase) {
+        impl_->cameras.erase(change.handle);
+      } else {
+        impl_->cameras.insert_or_assign(
+            impl_->cameras.end(), change.handle,
+            world.Get(CameraHandle::FromValue(change.handle)));
+      }
+      break;
+    case ObjectKind::Light:
+      if (erase) {
+        impl_->lights.erase(change.handle);
+      } else {
+        impl_->lights.insert_or_assign(
+            impl_->lights.end(), change.handle,
+            LightEntry{change.resource_revision,
+                world.Get(LightHandle::FromValue(change.handle))});
+      }
+      break;
+    case ObjectKind::RenderSettings:
+      // Render settings are frame/host state and are consumed outside the
+      // extracted draw model until render requests are introduced.
+      break;
     }
   }
 
@@ -1262,4 +1270,4 @@ std::shared_ptr<const FrameSnapshot> SceneExtractor::snapshot() const noexcept {
   return impl_->snapshot;
 }
 
-}  // namespace merlin::extraction
+} // namespace merlin::extraction

@@ -23,11 +23,11 @@ std::string ReadFile(const char* path) {
   std::ifstream stream(path, std::ios::binary);
   assert(stream);
   return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+      std::istreambuf_iterator<char>()};
 }
 
 std::uint8_t CenterChannel(const merlin::vulkan::RenderResult& result,
-                           std::uint32_t channel) {
+    std::uint32_t channel) {
   const auto x = result.color.product.width / 2U;
   const auto y = result.color.product.height / 2U;
   const auto index = static_cast<std::size_t>(y) * result.color.row_pitch_bytes +
@@ -36,7 +36,7 @@ std::uint8_t CenterChannel(const merlin::vulkan::RenderResult& result,
 }
 
 bool Near(std::uint8_t value, std::uint8_t expected,
-          std::uint8_t tolerance = 2) {
+    std::uint8_t tolerance = 2) {
   const auto difference =
       value > expected ? value - expected : expected - value;
   return difference <= tolerance;
@@ -48,7 +48,7 @@ void Require(bool condition, const char* message) {
   }
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 8) {
@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
   };
   standard_artifact.resource_bindings = {
       {"albedo_file", merlin::MaterialValueType::CombinedTextureSampler,
-       1, 1, 2},
+          1, 1, 2},
   };
   standard_artifact.reflection.target = "spirv";
   standard_artifact.reflection.entry_points = {
@@ -153,7 +153,7 @@ int main(int argc, char** argv) {
   merlin::MeshDescriptor mesh;
   mesh.label = "generated-material-quad";
   mesh.positions = {{-0.8F, -0.8F, 0.2F}, {0.8F, -0.8F, 0.2F},
-                    {0.8F, 0.8F, 0.2F}, {-0.8F, 0.8F, 0.2F}};
+      {0.8F, 0.8F, 0.2F}, {-0.8F, 0.8F, 0.2F}};
   mesh.normals.assign(4, {0.0F, 0.0F, 1.0F});
   mesh.texcoords.assign(4, {0.0F, 0.0F});
   mesh.indices = {0, 1, 2, 0, 2, 3};
@@ -191,7 +191,7 @@ int main(int argc, char** argv) {
   tint = merlin::Vec3{0.25F, 0.5F, 0.5F};
   material.generated_parameters.key = "sha256:edited-parameter-state";
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialParameters);
+      merlin::ChangeAspect::MaterialParameters);
   const auto edited = render();
   assert(edited.counters.pipeline_creation_count == 0);
   assert(edited.counters.generated_material_draw_count == 1);
@@ -207,7 +207,7 @@ int main(int argc, char** argv) {
         options.generated_material_artifacts.push_back(std::move(candidate));
         merlin::vulkan::Renderer candidate_renderer(std::move(options));
         return candidate_renderer.Render(*extractor.snapshot(), 64, 64,
-                                         shaders);
+            shaders);
       };
 
   auto invalid_layout_artifact = artifact;
@@ -216,14 +216,14 @@ int main(int argc, char** argv) {
   const auto invalid_layout =
       render_with_artifact(std::move(invalid_layout_artifact));
   Require(invalid_layout.counters.generated_material_draw_count == 0,
-          "invalid concrete layout selected a generated pipeline");
+      "invalid concrete layout selected a generated pipeline");
   Require(invalid_layout.counters.generated_material_fallback_count == 1,
-          "invalid concrete layout did not record a draw fallback");
+      "invalid concrete layout did not record a draw fallback");
   Require(invalid_layout.material_diagnostics.size() == 1,
-          "invalid concrete layout did not emit one diagnostic");
+      "invalid concrete layout did not emit one diagnostic");
   Require(invalid_layout.material_diagnostics.front().category ==
               merlin::MaterialDiagnosticCategory::ReflectionMismatch,
-          "invalid concrete layout used the wrong diagnostic category");
+      "invalid concrete layout used the wrong diagnostic category");
 
   const auto corrupt_path =
       std::filesystem::path(argv[4]).parent_path() /
@@ -232,7 +232,7 @@ int main(int argc, char** argv) {
     const std::array<std::uint32_t, 5> corrupt_code{};
     std::ofstream stream(corrupt_path, std::ios::binary);
     stream.write(reinterpret_cast<const char*>(corrupt_code.data()),
-                 static_cast<std::streamsize>(sizeof(corrupt_code)));
+        static_cast<std::streamsize>(sizeof(corrupt_code)));
     Require(static_cast<bool>(stream), "could not write corrupt SPIR-V fixture");
   }
   auto corrupt_artifact = artifact;
@@ -241,14 +241,14 @@ int main(int argc, char** argv) {
   std::error_code remove_error;
   std::filesystem::remove(corrupt_path, remove_error);
   Require(corrupt.counters.generated_material_draw_count == 0,
-          "corrupt SPIR-V selected a generated pipeline");
+      "corrupt SPIR-V selected a generated pipeline");
   Require(corrupt.counters.generated_material_fallback_count == 1,
-          "corrupt SPIR-V did not record a draw fallback");
+      "corrupt SPIR-V did not record a draw fallback");
   Require(corrupt.material_diagnostics.size() == 1,
-          "corrupt SPIR-V did not emit one diagnostic");
+      "corrupt SPIR-V did not emit one diagnostic");
   Require(corrupt.material_diagnostics.front().category ==
               merlin::MaterialDiagnosticCategory::CacheCorrupt,
-          "corrupt SPIR-V used the wrong diagnostic category");
+      "corrupt SPIR-V used the wrong diagnostic category");
 
   auto incompatible_artifact = artifact;
   incompatible_artifact.fragment_entry_point =
@@ -256,14 +256,14 @@ int main(int argc, char** argv) {
   const auto incompatible =
       render_with_artifact(std::move(incompatible_artifact));
   Require(incompatible.counters.generated_material_draw_count == 0,
-          "incompatible SPIR-V selected a generated pipeline");
+      "incompatible SPIR-V selected a generated pipeline");
   Require(incompatible.counters.generated_material_fallback_count == 1,
-          "incompatible SPIR-V did not record a draw fallback");
+      "incompatible SPIR-V did not record a draw fallback");
   Require(incompatible.material_diagnostics.size() == 1,
-          "incompatible SPIR-V did not emit one diagnostic");
+      "incompatible SPIR-V did not emit one diagnostic");
   Require(incompatible.material_diagnostics.front().category ==
               merlin::MaterialDiagnosticCategory::TargetFailure,
-          "incompatible SPIR-V used the wrong diagnostic category");
+      "incompatible SPIR-V used the wrong diagnostic category");
 
   merlin::TextureDescriptor generated_texture;
   generated_texture.label = "generated-checker";
@@ -286,13 +286,13 @@ int main(int argc, char** argv) {
   standard_material.generated_resources.key = standard.module->resource_key;
   standard_material.generated_resources.entries = {
       {"albedo_file", merlin::MaterialValueType::CombinedTextureSampler,
-       {{generated_texture_handle, generated_sampler_handle}}},
+          {{generated_texture_handle, generated_sampler_handle}}},
   };
   const auto standard_material_handle =
       world.CreateMaterial(standard_material);
   instance.material = standard_material_handle;
   world.UpdateInstance(instance_handle, instance,
-                       merlin::ChangeAspect::MaterialBinding);
+      merlin::ChangeAspect::MaterialBinding);
   const auto textured = render();
   assert(textured.counters.generated_material_draw_count == 1);
   assert(textured.counters.generated_material_fallback_count == 0);
@@ -324,10 +324,10 @@ int main(int argc, char** argv) {
 
   instance.material = material_handle;
   world.UpdateInstance(instance_handle, instance,
-                       merlin::ChangeAspect::MaterialBinding);
+      merlin::ChangeAspect::MaterialBinding);
   material.module->key = "sha256:missing-vulkan-artifact";
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialModule);
+      merlin::ChangeAspect::MaterialModule);
   const auto fallback = render();
   assert(fallback.counters.generated_material_draw_count == 0);
   assert(fallback.counters.generated_material_fallback_count == 1);

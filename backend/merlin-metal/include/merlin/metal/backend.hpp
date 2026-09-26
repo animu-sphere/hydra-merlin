@@ -15,7 +15,7 @@ namespace merlin::metal {
 // not acquire a Metal dependency; the lease keeps the frame texture alive
 // until the bridge command buffer has completed.
 class AovImageLease {
- public:
+public:
   AovImageLease() = default;
   AovImageLease(AovImageLease&& other) noexcept;
   AovImageLease& operator=(AovImageLease&&) = delete;
@@ -28,16 +28,19 @@ class AovImageLease {
   [[nodiscard]] std::uint64_t completion_value() const noexcept {
     return completion_;
   }
-  [[nodiscard]] Aov aov() const noexcept { return aov_; }
+  [[nodiscard]] Aov aov() const noexcept {
+    return aov_;
+  }
   void Reset() noexcept {
     owner_ = 0;
     completion_ = 0;
   }
 
- private:
+private:
   friend class Backend;
   AovImageLease(std::uint64_t owner, std::uint64_t completion, Aov aov)
-      : owner_(owner), completion_(completion), aov_(aov) {}
+      : owner_(owner), completion_(completion), aov_(aov) {
+  }
 
   std::uint64_t owner_{};
   std::uint64_t completion_{};
@@ -58,7 +61,7 @@ struct AovImageExport {
 };
 
 class AovImageExporter {
- public:
+public:
   virtual ~AovImageExporter() = default;
   [[nodiscard]] virtual AovImageExport AcquireAovImage(
       render::CompletionToken token, Aov aov) = 0;
@@ -92,7 +95,7 @@ struct PresentationOverlayContext {
 };
 
 struct PresentationOptions {
-  using RenderOverlay = void (*)(void *, const PresentationOverlayContext &);
+  using RenderOverlay = void (*)(void*, const PresentationOverlayContext&);
 
   // Encoded CAMetalLayer*. Native Objective-C types remain private to the
   // Apple presentation adapter and Metal implementation.
@@ -102,7 +105,7 @@ struct PresentationOptions {
   PresentationDynamicRange dynamic_range{
       PresentationDynamicRange::Standard};
   std::uint32_t drawable_count{3};
-  void *overlay_user_data{};
+  void* overlay_user_data{};
   RenderOverlay render_overlay{};
 };
 
@@ -139,33 +142,33 @@ struct MetalStatistics {
 
 class Backend final : public render::Backend, public AovImageExporter {
 public:
-  Backend(const render::BackendCreateInfo &info, BackendOptions options);
+  Backend(const render::BackendCreateInfo& info, BackendOptions options);
   ~Backend() override;
 
-  Backend(Backend &&) noexcept;
-  Backend &operator=(Backend &&) noexcept;
-  Backend(const Backend &) = delete;
-  Backend &operator=(const Backend &) = delete;
+  Backend(Backend&&) noexcept;
+  Backend& operator=(Backend&&) noexcept;
+  Backend(const Backend&) = delete;
+  Backend& operator=(const Backend&) = delete;
 
-  [[nodiscard]] const render::RendererCapabilities &
+  [[nodiscard]] const render::RendererCapabilities&
   capabilities() const noexcept override;
   [[nodiscard]] render::RendererStatistics statistics() const noexcept override;
   [[nodiscard]] MetalStatistics metal_statistics() const noexcept;
   [[nodiscard]] std::optional<render::PresentationTarget>
   default_presentation_target() const noexcept override;
   void ResizePresentationTarget(render::PresentationTarget target,
-                                std::uint32_t width,
-                                std::uint32_t height) override;
+      std::uint32_t width,
+      std::uint32_t height) override;
   [[nodiscard]] render::CompletionToken
-  Submit(const render::RenderRequest &request) override;
+  Submit(const render::RenderRequest& request) override;
   [[nodiscard]] bool IsComplete(render::CompletionToken token) const override;
   [[nodiscard]] AovImageExport AcquireAovImage(
       render::CompletionToken token, Aov aov) override;
   void ReleaseAovImage(AovImageLease&& lease) override;
   [[nodiscard]] render::RenderResult
   Resolve(render::CompletionToken token,
-          std::chrono::nanoseconds timeout =
-              std::chrono::nanoseconds::max()) override;
+      std::chrono::nanoseconds timeout =
+          std::chrono::nanoseconds::max()) override;
 
 private:
   class Impl;
@@ -179,7 +182,7 @@ public:
   [[nodiscard]] render::BackendKind kind() const noexcept override;
   [[nodiscard]] render::BackendAvailability availability() const override;
   [[nodiscard]] std::unique_ptr<render::Backend>
-  Create(const render::BackendCreateInfo &info) const override;
+  Create(const render::BackendCreateInfo& info) const override;
 
 private:
   BackendOptions options_;

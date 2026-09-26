@@ -26,4 +26,4 @@ namespace merlin::materialx::internal {
     std::string_view source, std::string element_path,
     const merlin::MaterialDiagnosticContext& context = {});
 
-}  // namespace merlin::materialx::internal
+} // namespace merlin::materialx::internal

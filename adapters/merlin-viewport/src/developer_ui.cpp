@@ -82,7 +82,7 @@ void LabelValue(const char* label, std::uint64_t value) {
 
 template <typename... Values>
 void LabelFormattedValue(const char* label, const char* format,
-                         Values... values) {
+    Values... values) {
   ImGui::TableNextRow();
   ImGui::TableSetColumnIndex(0);
   ImGui::TextUnformatted(label);
@@ -112,7 +112,7 @@ void LabelMilliseconds(const char* label, std::uint64_t nanoseconds) {
 }
 
 void LabelCountAndPercent(const char* label, std::uint64_t value,
-                          std::uint64_t total) {
+    std::uint64_t total) {
   ImGui::TableNextRow();
   ImGui::TableSetColumnIndex(0);
   ImGui::TextUnformatted(label);
@@ -122,14 +122,12 @@ void LabelCountAndPercent(const char* label, std::uint64_t value,
                            : static_cast<double>(value) * 100.0 /
                                  static_cast<double>(total);
   ImGui::Text("%llu (%.1f%%)", static_cast<unsigned long long>(value),
-              percent);
+      percent);
 }
 
 template <typename DrawRows>
 void TwoColumnTable(const char* id, DrawRows&& draw_rows) {
-  if (ImGui::BeginTable(id, 2, ImGuiTableFlags_BordersInnerV |
-                                  ImGuiTableFlags_RowBg |
-                                  ImGuiTableFlags_SizingStretchProp)) {
+  if (ImGui::BeginTable(id, 2, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
     ImGui::TableSetupColumn("Metric");
     ImGui::TableSetupColumn("Value");
     draw_rows();
@@ -142,8 +140,8 @@ void DrawAovMask(const char* label, std::uint64_t mask) {
   ImGui::SameLine();
   bool any{};
   constexpr std::array aovs{
-      Aov::Color,     Aov::Depth,      Aov::Normal,     Aov::Albedo,
-      Aov::Roughness, Aov::Metallic,   Aov::Emission,   Aov::PrimId,
+      Aov::Color, Aov::Depth, Aov::Normal, Aov::Albedo,
+      Aov::Roughness, Aov::Metallic, Aov::Emission, Aov::PrimId,
       Aov::InstanceId, Aov::MotionVector};
   for (const auto aov : aovs) {
     const auto bit = std::uint64_t{1} << static_cast<std::uint32_t>(aov);
@@ -208,7 +206,7 @@ struct TimingHistory {
 };
 
 double Average(const std::array<float, kTimingHistorySamples>& values,
-               std::size_t count) {
+    std::size_t count) {
   double total{};
   for (std::size_t index = 0; index < count; ++index) {
     total += values[index];
@@ -217,27 +215,27 @@ double Average(const std::array<float, kTimingHistorySamples>& values,
 }
 
 float Maximum(const std::array<float, kTimingHistorySamples>& values,
-              std::size_t count) {
+    std::size_t count) {
   return count == 0
              ? 0.0F
              : *std::max_element(values.begin(), values.begin() + count);
 }
 
 std::size_t CountAbove(const std::array<float, kTimingHistorySamples>& values,
-                       std::size_t count, float threshold) {
+    std::size_t count, float threshold) {
   return static_cast<std::size_t>(std::count_if(
       values.begin(), values.begin() + count,
       [threshold](float value) { return value > threshold; }));
 }
 
 void DrawTimingPlot(const char* id,
-                    const std::array<float, kTimingHistorySamples>& values,
-                    std::size_t count, std::size_t offset,
-                    float hitch_threshold_ms) {
+    const std::array<float, kTimingHistorySamples>& values,
+    std::size_t count, std::size_t offset,
+    float hitch_threshold_ms) {
   ImGui::PlotLines(id, values.data(), static_cast<int>(count),
-                   static_cast<int>(offset), nullptr, 0.0F,
-                   std::numeric_limits<float>::max(),
-                   ImVec2(0.0F, 54.0F));
+      static_cast<int>(offset), nullptr, 0.0F,
+      std::numeric_limits<float>::max(),
+      ImVec2(0.0F, 54.0F));
   if (count == 0 || hitch_threshold_ms <= 0.0F) {
     return;
   }
@@ -248,7 +246,7 @@ void DrawTimingPlot(const char* id,
   const auto denominator =
       static_cast<float>(std::max<std::size_t>(count, 2U) - 1U);
   for (std::size_t display_index = 0; display_index < count;
-       ++display_index) {
+      ++display_index) {
     const auto value_index = (offset + display_index) % count;
     if (values[value_index] <= hitch_threshold_ms) {
       continue;
@@ -257,7 +255,7 @@ void DrawTimingPlot(const char* id,
                    (plot_max.x - plot_min.x) *
                        static_cast<float>(display_index) / denominator;
     draw_list->AddLine(ImVec2(x, plot_min.y), ImVec2(x, plot_max.y),
-                       IM_COL32(255, 80, 70, 210), 1.5F);
+        IM_COL32(255, 80, 70, 210), 1.5F);
   }
 }
 
@@ -270,8 +268,8 @@ double PercentChange(std::uint64_t current, std::uint64_t baseline) {
 }
 
 void BenchmarkDeltaRow(const char* label, std::uint64_t current,
-                       std::uint64_t baseline,
-                       float regression_threshold_percent) {
+    std::uint64_t baseline,
+    float regression_threshold_percent) {
   ImGui::TableNextRow();
   ImGui::TableSetColumnIndex(0);
   ImGui::TextUnformatted(label);
@@ -284,34 +282,42 @@ void BenchmarkDeltaRow(const char* label, std::uint64_t current,
   const auto color = delta > regression_threshold_percent
                          ? ImVec4(1.0F, 0.35F, 0.30F, 1.0F)
                          : (delta < -regression_threshold_percent
-                                ? ImVec4(0.35F, 0.90F, 0.45F, 1.0F)
-                                : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+                                   ? ImVec4(0.35F, 0.90F, 0.45F, 1.0F)
+                                   : ImGui::GetStyleColorVec4(ImGuiCol_Text));
   ImGui::TextColored(color, "%.3f ms (%+.1f%%)",
-                     static_cast<double>(current) / 1'000'000.0, delta);
+      static_cast<double>(current) / 1'000'000.0, delta);
 }
 
 const char* SeverityName(DiagnosticSeverity severity) noexcept {
   switch (severity) {
-    case DiagnosticSeverity::Info: return "info";
-    case DiagnosticSeverity::Warning: return "warning";
-    case DiagnosticSeverity::Error: return "error";
+  case DiagnosticSeverity::Info:
+    return "info";
+  case DiagnosticSeverity::Warning:
+    return "warning";
+  case DiagnosticSeverity::Error:
+    return "error";
   }
   return "error";
 }
 
 const char* DispositionName(DiagnosticDisposition disposition) noexcept {
   switch (disposition) {
-    case DiagnosticDisposition::Fallback: return "fallback";
-    case DiagnosticDisposition::Rejected: return "rejected";
-    case DiagnosticDisposition::Ignored: return "ignored";
+  case DiagnosticDisposition::Fallback:
+    return "fallback";
+  case DiagnosticDisposition::Rejected:
+    return "rejected";
+  case DiagnosticDisposition::Ignored:
+    return "ignored";
   }
   return "rejected";
 }
 
 const char* OriginName(DeveloperUiDiagnosticOrigin origin) noexcept {
   switch (origin) {
-    case DeveloperUiDiagnosticOrigin::Host: return "host";
-    case DeveloperUiDiagnosticOrigin::Backend: return "backend";
+  case DeveloperUiDiagnosticOrigin::Host:
+    return "host";
+  case DeveloperUiDiagnosticOrigin::Backend:
+    return "backend";
   }
   return "host";
 }
@@ -319,19 +325,19 @@ const char* OriginName(DeveloperUiDiagnosticOrigin origin) noexcept {
 std::string_view Utf8Filename(std::string_view path) noexcept {
   const auto separator = path.find_last_of("/\\");
   return separator == std::string_view::npos ? path
-                                              : path.substr(separator + 1U);
+                                             : path.substr(separator + 1U);
 }
 
 void DrawSettingsFeedback(const DeveloperUiSettingsFeedback& feedback) {
   switch (feedback.status) {
-    case DeveloperUiSettingsStatus::None:
-      return;
-    case DeveloperUiSettingsStatus::Applied:
-      ImGui::TextColored(ImVec4(0.35F, 0.90F, 0.45F, 1.0F), "Applied");
-      break;
-    case DeveloperUiSettingsStatus::Rejected:
-      ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.30F, 1.0F), "Rejected");
-      break;
+  case DeveloperUiSettingsStatus::None:
+    return;
+  case DeveloperUiSettingsStatus::Applied:
+    ImGui::TextColored(ImVec4(0.35F, 0.90F, 0.45F, 1.0F), "Applied");
+    break;
+  case DeveloperUiSettingsStatus::Rejected:
+    ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.30F, 1.0F), "Rejected");
+    break;
   }
   ImGui::SameLine();
   ImGui::TextWrapped("%s", feedback.message.c_str());
@@ -341,8 +347,8 @@ constexpr std::array<Aov, 4> kInspectableAovs{
     Aov::Color, Aov::Depth, Aov::PrimId, Aov::InstanceId};
 constexpr std::array<render::GpuDrivenIndexedMode, 3>
     kGpuDrivenIndexedModes{render::GpuDrivenIndexedMode::Disabled,
-                           render::GpuDrivenIndexedMode::Prefer,
-                           render::GpuDrivenIndexedMode::Require};
+        render::GpuDrivenIndexedMode::Prefer,
+        render::GpuDrivenIndexedMode::Require};
 
 void DrawAovPreview(const DeveloperUiAovPreview& preview) {
   if (!preview.available || preview.preview_width == 0 ||
@@ -352,19 +358,19 @@ void DrawAovPreview(const DeveloperUiAovPreview& preview) {
   }
 
   ImGui::Text("%s, %u x %u, frame %llu", AovName(preview.aov).data(),
-              preview.source_width, preview.source_height,
-              static_cast<unsigned long long>(preview.frame_index));
+      preview.source_width, preview.source_height,
+      static_cast<unsigned long long>(preview.frame_index));
   if (preview.aov == Aov::Color) {
     ImGui::Text("Range: R %.0f-%.0f  G %.0f-%.0f  B %.0f-%.0f  A %.0f-%.0f",
-                preview.minimum[0], preview.maximum[0], preview.minimum[1],
-                preview.maximum[1], preview.minimum[2], preview.maximum[2],
-                preview.minimum[3], preview.maximum[3]);
+        preview.minimum[0], preview.maximum[0], preview.minimum[1],
+        preview.maximum[1], preview.minimum[2], preview.maximum[2],
+        preview.minimum[3], preview.maximum[3]);
   } else if (preview.aov == Aov::Depth) {
     ImGui::Text("Depth range: %.6g - %.6g", preview.minimum[0],
-                preview.maximum[0]);
+        preview.maximum[0]);
   } else {
     ImGui::Text("ID range: %.0f - %.0f", preview.minimum[0],
-                preview.maximum[0]);
+        preview.maximum[0]);
   }
   if (preview.invalid_value_count != 0) {
     ImGui::SameLine();
@@ -387,20 +393,19 @@ void DrawAovPreview(const DeveloperUiAovPreview& preview) {
   const auto cell_height = image_height / preview.preview_height;
   for (std::uint32_t y = 0; y < preview.preview_height; ++y) {
     for (std::uint32_t x = 0; x < preview.preview_width; ++x) {
-      const auto& pixel = preview.pixels[
-          static_cast<std::size_t>(y) * preview.preview_width + x];
+      const auto& pixel = preview.pixels[static_cast<std::size_t>(y) * preview.preview_width + x];
       const auto& color = pixel.display_rgba;
       draw_list->AddRectFilled(
           ImVec2(origin.x + x * cell_width, origin.y + y * cell_height),
           ImVec2(origin.x + (x + 1U) * cell_width,
-                 origin.y + (y + 1U) * cell_height),
+              origin.y + (y + 1U) * cell_height),
           IM_COL32(color[0], color[1], color[2], color[3]));
     }
   }
   draw_list->PopClipRect();
   draw_list->AddRect(origin,
-                     ImVec2(origin.x + image_width, origin.y + image_height),
-                     IM_COL32(180, 180, 180, 255));
+      ImVec2(origin.x + image_width, origin.y + image_height),
+      IM_COL32(180, 180, 180, 255));
 
   if (ImGui::IsItemHovered()) {
     const auto mouse = ImGui::GetIO().MousePos;
@@ -410,26 +415,25 @@ void DrawAovPreview(const DeveloperUiAovPreview& preview) {
     const auto y = std::min(
         preview.preview_height - 1U,
         static_cast<std::uint32_t>((mouse.y - origin.y) / cell_height));
-    const auto& pixel = preview.pixels[
-        static_cast<std::size_t>(y) * preview.preview_width + x];
+    const auto& pixel = preview.pixels[static_cast<std::size_t>(y) * preview.preview_width + x];
     if (preview.aov == Aov::Color) {
       ImGui::SetTooltip("(%u, %u): rgba(%u, %u, %u, %u)", pixel.source_x,
-                        pixel.source_y, pixel.color[0], pixel.color[1],
-                        pixel.color[2], pixel.color[3]);
+          pixel.source_y, pixel.color[0], pixel.color[1],
+          pixel.color[2], pixel.color[3]);
     } else if (preview.aov == Aov::Depth) {
       ImGui::SetTooltip("(%u, %u): %.8g", pixel.source_x, pixel.source_y,
-                        pixel.depth);
+          pixel.depth);
     } else if (pixel.id == std::numeric_limits<std::uint32_t>::max()) {
       ImGui::SetTooltip("(%u, %u): no ID", pixel.source_x, pixel.source_y);
     } else {
       ImGui::SetTooltip("(%u, %u): %u", pixel.source_x, pixel.source_y,
-                        pixel.id);
+          pixel.id);
     }
   }
 }
 
 class ImGuiDeveloperUi final : public DeveloperUi {
- public:
+public:
   explicit ImGuiDeveloperUi(Window& window) {
     IMGUI_CHECKVERSION();
     context_ = ImGui::CreateContext();
@@ -533,7 +537,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     return ImGui::GetIO().WantCaptureMouse;
   }
 
- private:
+private:
   void EnsureGlfw(bool vulkan) {
     if (glfw_initialized_) {
       if (glfw_for_vulkan_ != vulkan) {
@@ -564,47 +568,47 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       const vulkan::PresentationOverlayContext& context) {
     SetContext();
     switch (context.phase) {
-      case vulkan::PresentationOverlayPhase::Initialize: {
-        EnsureGlfw(true);
-        if (vulkan_initialized_) {
-          ImGui_ImplVulkan_Shutdown();
-          vulkan_initialized_ = false;
-        }
-        ImGui_ImplVulkan_InitInfo info{};
-        info.ApiVersion = context.api_version;
-        info.Instance = DecodeHandle<VkInstance>(context.instance);
-        info.PhysicalDevice =
-            DecodeHandle<VkPhysicalDevice>(context.physical_device);
-        info.Device = DecodeHandle<VkDevice>(context.device);
-        info.QueueFamily = context.queue_family;
-        info.Queue = DecodeHandle<VkQueue>(context.queue);
-        info.DescriptorPoolSize = 32;
-        info.MinImageCount = context.image_count;
-        info.ImageCount = context.image_count;
-        info.PipelineInfoMain.RenderPass =
-            DecodeHandle<VkRenderPass>(context.render_pass);
-        info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-        info.CheckVkResultFn = CheckVulkanResult;
-        if (!ImGui_ImplVulkan_Init(&info)) {
-          throw std::runtime_error(
-              "could not initialize Dear ImGui Vulkan backend");
-        }
-        vulkan_initialized_ = true;
-        break;
+    case vulkan::PresentationOverlayPhase::Initialize: {
+      EnsureGlfw(true);
+      if (vulkan_initialized_) {
+        ImGui_ImplVulkan_Shutdown();
+        vulkan_initialized_ = false;
       }
-      case vulkan::PresentationOverlayPhase::Render:
-        if (vulkan_initialized_ && ImGui::GetDrawData() != nullptr) {
-          ImGui_ImplVulkan_RenderDrawData(
-              ImGui::GetDrawData(),
-              DecodeHandle<VkCommandBuffer>(context.command_buffer));
-        }
-        break;
-      case vulkan::PresentationOverlayPhase::Shutdown:
-        if (vulkan_initialized_) {
-          ImGui_ImplVulkan_Shutdown();
-          vulkan_initialized_ = false;
-        }
-        break;
+      ImGui_ImplVulkan_InitInfo info{};
+      info.ApiVersion = context.api_version;
+      info.Instance = DecodeHandle<VkInstance>(context.instance);
+      info.PhysicalDevice =
+          DecodeHandle<VkPhysicalDevice>(context.physical_device);
+      info.Device = DecodeHandle<VkDevice>(context.device);
+      info.QueueFamily = context.queue_family;
+      info.Queue = DecodeHandle<VkQueue>(context.queue);
+      info.DescriptorPoolSize = 32;
+      info.MinImageCount = context.image_count;
+      info.ImageCount = context.image_count;
+      info.PipelineInfoMain.RenderPass =
+          DecodeHandle<VkRenderPass>(context.render_pass);
+      info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+      info.CheckVkResultFn = CheckVulkanResult;
+      if (!ImGui_ImplVulkan_Init(&info)) {
+        throw std::runtime_error(
+            "could not initialize Dear ImGui Vulkan backend");
+      }
+      vulkan_initialized_ = true;
+      break;
+    }
+    case vulkan::PresentationOverlayPhase::Render:
+      if (vulkan_initialized_ && ImGui::GetDrawData() != nullptr) {
+        ImGui_ImplVulkan_RenderDrawData(
+            ImGui::GetDrawData(),
+            DecodeHandle<VkCommandBuffer>(context.command_buffer));
+      }
+      break;
+    case vulkan::PresentationOverlayPhase::Shutdown:
+      if (vulkan_initialized_) {
+        ImGui_ImplVulkan_Shutdown();
+        vulkan_initialized_ = false;
+      }
+      break;
     }
   }
 #endif
@@ -620,36 +624,36 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       const metal::PresentationOverlayContext& context) {
     SetContext();
     switch (context.phase) {
-      case metal::PresentationOverlayPhase::Initialize:
-        EnsureGlfw(false);
-        if (!ImGui_ImplMetal_Init(
-                DecodeObjCHandle<id<MTLDevice>>(context.device))) {
-          throw std::runtime_error(
-              "could not initialize Dear ImGui Metal backend");
-        }
-        metal_initialized_ = true;
-        break;
-      case metal::PresentationOverlayPhase::Render:
-        if (metal_initialized_ && ImGui::GetDrawData() != nullptr) {
-          auto* pass = DecodeObjCHandle<MTLRenderPassDescriptor*>(
-              context.render_pass_descriptor);
-          // The Metal backend's NewFrame call records the current framebuffer
-          // formats; platform input and ImGui draw-data construction already
-          // happened in DrawFrame().
-          ImGui_ImplMetal_NewFrame(pass);
-          ImGui_ImplMetal_RenderDrawData(
-              ImGui::GetDrawData(),
-              DecodeObjCHandle<id<MTLCommandBuffer>>(context.command_buffer),
-              DecodeObjCHandle<id<MTLRenderCommandEncoder>>(
-                  context.render_encoder));
-        }
-        break;
-      case metal::PresentationOverlayPhase::Shutdown:
-        if (metal_initialized_) {
-          ImGui_ImplMetal_Shutdown();
-          metal_initialized_ = false;
-        }
-        break;
+    case metal::PresentationOverlayPhase::Initialize:
+      EnsureGlfw(false);
+      if (!ImGui_ImplMetal_Init(
+              DecodeObjCHandle<id<MTLDevice>>(context.device))) {
+        throw std::runtime_error(
+            "could not initialize Dear ImGui Metal backend");
+      }
+      metal_initialized_ = true;
+      break;
+    case metal::PresentationOverlayPhase::Render:
+      if (metal_initialized_ && ImGui::GetDrawData() != nullptr) {
+        auto* pass = DecodeObjCHandle<MTLRenderPassDescriptor*>(
+            context.render_pass_descriptor);
+        // The Metal backend's NewFrame call records the current framebuffer
+        // formats; platform input and ImGui draw-data construction already
+        // happened in DrawFrame().
+        ImGui_ImplMetal_NewFrame(pass);
+        ImGui_ImplMetal_RenderDrawData(
+            ImGui::GetDrawData(),
+            DecodeObjCHandle<id<MTLCommandBuffer>>(context.command_buffer),
+            DecodeObjCHandle<id<MTLRenderCommandEncoder>>(
+                context.render_encoder));
+      }
+      break;
+    case metal::PresentationOverlayPhase::Shutdown:
+      if (metal_initialized_) {
+        ImGui_ImplMetal_Shutdown();
+        metal_initialized_ = false;
+      }
+      break;
     }
   }
 #endif
@@ -657,26 +661,26 @@ class ImGuiDeveloperUi final : public DeveloperUi {
   void DrawDiagnostics(const DeveloperUiSnapshot& snapshot) {
     ImGui::SetNextWindowPos(ImVec2(12.0F, 12.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(430.0F, 680.0F),
-                             ImGuiCond_FirstUseEver);
+        ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Merlin renderer diagnostics")) {
       ImGui::End();
       return;
     }
 
     ImGui::Text("Scene: %.*s", static_cast<int>(snapshot.scene_source.size()),
-                snapshot.scene_source.data());
+        snapshot.scene_source.data());
     if (!snapshot.scene_path.empty()) {
       const auto filename = Utf8Filename(snapshot.scene_path);
       ImGui::Text("Stage: %.*s", static_cast<int>(filename.size()),
-                  filename.data());
+          filename.data());
       if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("%.*s", static_cast<int>(snapshot.scene_path.size()),
-                          snapshot.scene_path.data());
+            snapshot.scene_path.data());
       }
     }
     ImGui::Text("Viewport: %u x %u", snapshot.width, snapshot.height);
     ImGui::Text("Frame: %llu",
-                static_cast<unsigned long long>(snapshot.frame_index));
+        static_cast<unsigned long long>(snapshot.frame_index));
     if (ImGui::Button("Capture screenshot")) {
       actions_.capture_screenshot = true;
     }
@@ -700,7 +704,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 
     if (snapshot.selection != nullptr &&
         ImGui::CollapsingHeader("Backend selection",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       const auto selected =
           render::BackendKindName(snapshot.selection->selected);
       const auto requested =
@@ -709,48 +713,47 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         LabelValue("Requested", requested.data());
         LabelValue("Selected", selected.data());
         LabelValue("Mode",
-                   snapshot.selection->automatic ? "automatic" : "explicit");
+            snapshot.selection->automatic ? "automatic" : "explicit");
       });
       ImGui::TextWrapped("Reason: %s", snapshot.selection->reason.c_str());
     }
 
     if (snapshot.capabilities != nullptr &&
         ImGui::CollapsingHeader("Capabilities",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       const auto& capabilities = *snapshot.capabilities;
       TwoColumnTable("capabilities", [&] {
         LabelValue("Backend", capabilities.backend_name.c_str());
         LabelValue("Device", capabilities.device_name.c_str());
         LabelValue("Bindless textures",
-                   capabilities.bindless_textures ? "yes" : "fallback");
+            capabilities.bindless_textures ? "yes" : "fallback");
         LabelValue("Async upload",
-                   capabilities.asynchronous_upload ? "yes" : "no");
+            capabilities.asynchronous_upload ? "yes" : "no");
         LabelValue("GPU timestamps",
-                   capabilities.timestamp_queries ? "yes" : "no");
+            capabilities.timestamp_queries ? "yes" : "no");
         LabelValue("Generated materials",
-                   capabilities.generated_materials ? "yes" : "fallback");
+            capabilities.generated_materials ? "yes" : "fallback");
         LabelValue("GPU-driven indexed",
-                   capabilities.gpu_driven_indexed ? "available" :
-                                                     "fallback");
+            capabilities.gpu_driven_indexed ? "available" : "fallback");
         LabelValue("Validation",
-                   capabilities.validation_enabled ? "enabled" : "disabled");
+            capabilities.validation_enabled ? "enabled" : "disabled");
         LabelValue("External presentation",
-                   capabilities.external_presentation ? "yes" : "no");
+            capabilities.external_presentation ? "yes" : "no");
         LabelValue("CPU readback",
-                   capabilities.cpu_readback ? "available" : "unavailable");
+            capabilities.cpu_readback ? "available" : "unavailable");
         LabelValue("Max image dimension",
-                   capabilities.limits.max_image_dimension_2d);
+            capabilities.limits.max_image_dimension_2d);
         LabelValue("Frames in flight",
-                   capabilities.limits.max_frames_in_flight);
+            capabilities.limits.max_frames_in_flight);
         LabelValue("Texture slots",
-                   capabilities.limits.sampled_image_slots);
+            capabilities.limits.sampled_image_slots);
         LabelValue("Sampler slots", capabilities.limits.sampler_slots);
       });
     }
 
     if (snapshot.renderer_settings.available &&
         ImGui::CollapsingHeader("Renderer settings",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       if (!settings_draft_revision_ ||
           *settings_draft_revision_ != snapshot.renderer_settings.revision) {
         settings_contract_ = snapshot.renderer_settings.contract;
@@ -767,29 +770,29 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         const auto& contract = settings_contract_;
         LabelValue("Schema", contract.schema_version);
         LabelValue("Backend",
-                   render::BackendRequestName(contract.backend).data());
+            render::BackendRequestName(contract.backend).data());
         LabelValue(
             "Presentation",
             render::PresentationModeName(contract.presentation_mode).data());
         LabelValue("Render path",
-                   render::RenderPathName(contract.render_path).data());
+            render::RenderPathName(contract.render_path).data());
         LabelValue("GPU-driven indexed",
-                   render::GpuDrivenIndexedModeName(
-                       contract.gpu_driven_indexed.mode)
-                       .data());
+            render::GpuDrivenIndexedModeName(
+                contract.gpu_driven_indexed.mode)
+                .data());
         LabelValue("AOV", AovName(contract.aov).data());
         LabelValue("Lighting",
-                   render::LightingModeName(contract.lighting_mode).data());
+            render::LightingModeName(contract.lighting_mode).data());
         LabelFormattedValue("Exposure", "%.2f EV", contract.exposure_ev);
         LabelValue("Tone mapping",
-                   render::ToneMappingName(contract.tone_mapping).data());
+            render::ToneMappingName(contract.tone_mapping).data());
         LabelValue("Alpha policy",
-                   render::AlphaPolicyName(contract.alpha_policy).data());
+            render::AlphaPolicyName(contract.alpha_policy).data());
         LabelValue("Debug view",
-                   render::DebugViewName(contract.debug_view).data());
+            render::DebugViewName(contract.debug_view).data());
         LabelValue("Validation", contract.validation ? "enabled" : "disabled");
         LabelValue("Telemetry",
-                   render::TelemetryModeName(contract.telemetry).data());
+            render::TelemetryModeName(contract.telemetry).data());
       });
 
       if (ImGui::BeginCombo(
@@ -820,27 +823,27 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       ImGui::Checkbox(
           "Visibility-mask culling",
           &settings_contract_.gpu_driven_indexed
-               .enable_visibility_mask_culling);
+              .enable_visibility_mask_culling);
       ImGui::Checkbox("Frustum culling",
-                      &settings_contract_.gpu_driven_indexed
-                           .enable_frustum_culling);
+          &settings_contract_.gpu_driven_indexed
+              .enable_frustum_culling);
       ImGui::EndDisabled();
       ImGui::TextDisabled(
           "Prefer falls back to conventional Forward; Require rejects an "
           "unavailable GPU-driven path.");
 
       ImGui::ColorEdit4("Clear color", settings_clear_color_.data(),
-                        ImGuiColorEditFlags_Float);
+          ImGuiColorEditFlags_Float);
       ImGui::Checkbox("Continuous color CPU readback",
-                      &settings_continuous_color_readback_);
+          &settings_continuous_color_readback_);
       ImGui::TextDisabled(
           "Continuous readback is intended for inspection and affects frame "
           "timings.");
       ImGui::Checkbox("Inspect diagnostic AOV",
-                      &settings_aov_inspection_enabled_);
+          &settings_aov_inspection_enabled_);
       ImGui::BeginDisabled(!settings_aov_inspection_enabled_);
       if (ImGui::BeginCombo("Inspection AOV",
-                            AovName(settings_inspection_aov_).data())) {
+              AovName(settings_inspection_aov_).data())) {
         for (const auto aov : kInspectableAovs) {
           const bool selected = settings_inspection_aov_ == aov;
           if (ImGui::Selectable(AovName(aov).data(), selected)) {
@@ -875,7 +878,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 
     if (snapshot.renderer_settings.aov_inspection_enabled &&
         ImGui::CollapsingHeader("AOV inspector",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       if (snapshot.aov_preview != nullptr) {
         DrawAovPreview(*snapshot.aov_preview);
       } else {
@@ -884,67 +887,67 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     }
 
     if (ImGui::CollapsingHeader("Frame timings",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       TwoColumnTable("frame-timings", [&] {
         LabelMilliseconds("Host frame", snapshot.host_frame_ns);
         LabelMilliseconds("Backend total",
-                          snapshot.timings.backend_total_ns);
+            snapshot.timings.backend_total_ns);
         LabelMilliseconds("GPU execution",
-                          snapshot.timings.gpu_execution_ns);
+            snapshot.timings.gpu_execution_ns);
         LabelMilliseconds("Uploads", snapshot.timings.upload_ns);
         LabelMilliseconds("Command recording",
-                          snapshot.timings.command_recording_ns);
+            snapshot.timings.command_recording_ns);
         LabelMilliseconds("Queue submission",
-                          snapshot.timings.queue_submission_ns);
+            snapshot.timings.queue_submission_ns);
         LabelMilliseconds("Completion wait",
-                          snapshot.timings.completion_wait_ns);
+            snapshot.timings.completion_wait_ns);
         LabelMilliseconds("Readback", snapshot.timings.readback_ns);
         LabelMilliseconds("Presentation",
-                          snapshot.timings.presentation_ns);
+            snapshot.timings.presentation_ns);
       });
       if (timing_history_.count != 0) {
         ImGui::Text("Host history: avg %.3f ms, max %.3f ms",
-                    Average(timing_history_.host_ms, timing_history_.count),
-                    Maximum(timing_history_.host_ms, timing_history_.count));
+            Average(timing_history_.host_ms, timing_history_.count),
+            Maximum(timing_history_.host_ms, timing_history_.count));
         DrawTimingPlot("##host-frame-history", timing_history_.host_ms,
-                       timing_history_.count, timing_history_.offset(),
-                       hitch_threshold_ms_);
+            timing_history_.count, timing_history_.offset(),
+            hitch_threshold_ms_);
         ImGui::Text("Backend history: avg %.3f ms, max %.3f ms",
-                    Average(timing_history_.backend_ms,
-                            timing_history_.count),
-                    Maximum(timing_history_.backend_ms,
-                            timing_history_.count));
+            Average(timing_history_.backend_ms,
+                timing_history_.count),
+            Maximum(timing_history_.backend_ms,
+                timing_history_.count));
         ImGui::Text("GPU history: avg %.3f ms, max %.3f ms",
-                    Average(timing_history_.gpu_ms, timing_history_.count),
-                    Maximum(timing_history_.gpu_ms, timing_history_.count));
+            Average(timing_history_.gpu_ms, timing_history_.count),
+            Maximum(timing_history_.gpu_ms, timing_history_.count));
         DrawTimingPlot("##gpu-frame-history", timing_history_.gpu_ms,
-                       timing_history_.count, timing_history_.offset(),
-                       hitch_threshold_ms_);
+            timing_history_.count, timing_history_.offset(),
+            hitch_threshold_ms_);
       }
     }
 
     if (ImGui::CollapsingHeader("Benchmark comparison",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::SetNextItemWidth(150.0F);
       ImGui::DragFloat("Hitch threshold (ms)", &hitch_threshold_ms_, 0.25F,
-                       1.0F, 1000.0F, "%.2f");
+          1.0F, 1000.0F, "%.2f");
       ImGui::SetNextItemWidth(150.0F);
       ImGui::DragFloat("Regression threshold (%)",
-                       &regression_threshold_percent_, 0.5F, 0.0F, 100.0F,
-                       "%.1f");
+          &regression_threshold_percent_, 0.5F, 0.0F, 100.0F,
+          "%.1f");
 
       const auto recent_host_hitches =
           CountAbove(timing_history_.host_ms, timing_history_.count,
-                     hitch_threshold_ms_);
+              hitch_threshold_ms_);
       const auto recent_gpu_hitches =
           CountAbove(timing_history_.gpu_ms, timing_history_.count,
-                     hitch_threshold_ms_);
+              hitch_threshold_ms_);
       TwoColumnTable("benchmark-current", [&] {
         LabelValue("Accumulated frames", snapshot.benchmark.frames);
         LabelMilliseconds("CPU average",
-                          snapshot.benchmark.cpu_average_frame_ns);
+            snapshot.benchmark.cpu_average_frame_ns);
         LabelMilliseconds("GPU average",
-                          snapshot.benchmark.gpu_average_frame_ns);
+            snapshot.benchmark.gpu_average_frame_ns);
         LabelValue("Recent host hitches", recent_host_hitches);
         LabelValue("Recent GPU hitches", recent_gpu_hitches);
       });
@@ -960,21 +963,21 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         const auto baseline_path = baseline.path.generic_string();
         const auto baseline_filename = Utf8Filename(baseline_path);
         ImGui::Text("Saved baseline: %.*s",
-                    static_cast<int>(baseline_filename.size()),
-                    baseline_filename.data());
+            static_cast<int>(baseline_filename.size()),
+            baseline_filename.data());
         if (ImGui::IsItemHovered()) {
           ImGui::SetTooltip("%s", baseline_path.c_str());
         }
         TwoColumnTable("benchmark-comparison", [&] {
           LabelValue("Baseline frames", baseline.frames);
           BenchmarkDeltaRow("CPU average",
-                            snapshot.benchmark.cpu_average_frame_ns,
-                            baseline.cpu_average_frame_ns,
-                            regression_threshold_percent_);
+              snapshot.benchmark.cpu_average_frame_ns,
+              baseline.cpu_average_frame_ns,
+              regression_threshold_percent_);
           BenchmarkDeltaRow("GPU average",
-                            snapshot.benchmark.gpu_average_frame_ns,
-                            baseline.gpu_average_frame_ns,
-                            regression_threshold_percent_);
+              snapshot.benchmark.gpu_average_frame_ns,
+              baseline.gpu_average_frame_ns,
+              regression_threshold_percent_);
         });
         if (!snapshot.benchmark.available) {
           ImGui::TextDisabled(
@@ -983,29 +986,29 @@ class ImGuiDeveloperUi final : public DeveloperUi {
           const bool cpu_regression =
               baseline.cpu_average_frame_ns != 0 &&
               PercentChange(snapshot.benchmark.cpu_average_frame_ns,
-                            baseline.cpu_average_frame_ns) >
+                  baseline.cpu_average_frame_ns) >
                   regression_threshold_percent_;
           const bool gpu_regression =
               baseline.gpu_average_frame_ns != 0 &&
               PercentChange(snapshot.benchmark.gpu_average_frame_ns,
-                            baseline.gpu_average_frame_ns) >
+                  baseline.gpu_average_frame_ns) >
                   regression_threshold_percent_;
           if (cpu_regression || gpu_regression) {
             ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.30F, 1.0F),
-                               "Threshold exceeded: %s%s%s.",
-                               cpu_regression ? "CPU" : "",
-                               cpu_regression && gpu_regression ? " and " : "",
-                               gpu_regression ? "GPU" : "");
+                "Threshold exceeded: %s%s%s.",
+                cpu_regression ? "CPU" : "",
+                cpu_regression && gpu_regression ? " and " : "",
+                gpu_regression ? "GPU" : "");
           } else {
             ImGui::TextColored(ImVec4(0.35F, 0.90F, 0.45F, 1.0F),
-                               "Current averages are within threshold.");
+                "Current averages are within threshold.");
           }
         }
       }
     }
 
     if (ImGui::CollapsingHeader("Scene and residency",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       TwoColumnTable("scene-residency", [&] {
         if (snapshot.scene.available) {
           LabelValue("Geometry", snapshot.scene.geometries);
@@ -1017,7 +1020,7 @@ class ImGuiDeveloperUi final : public DeveloperUi {
           LabelValue("Lights", snapshot.scene.lights);
         }
         LabelValue("Visible primitives",
-                   snapshot.telemetry.visible_primitive_count);
+            snapshot.telemetry.visible_primitive_count);
         LabelValue("Draws", snapshot.telemetry.draw_count);
         LabelValue("Triangles", snapshot.telemetry.triangle_count);
       });
@@ -1025,25 +1028,25 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 
     if (snapshot.camera.available &&
         ImGui::CollapsingHeader("Camera and navigation",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       const auto& camera = snapshot.camera;
       TwoColumnTable("camera-state", [&] {
         LabelValue("Controller", camera.controller.data());
         LabelValue("Projection",
-                   camera.perspective ? "perspective" : "identity");
+            camera.perspective ? "perspective" : "identity");
         LabelValue("Stage up axis", camera.up_axis.data());
         LabelFormattedValue("Position", "%.4f, %.4f, %.4f",
-                            camera.position[0], camera.position[1],
-                            camera.position[2]);
+            camera.position[0], camera.position[1],
+            camera.position[2]);
         LabelFormattedValue("Target", "%.4f, %.4f, %.4f", camera.target[0],
-                            camera.target[1], camera.target[2]);
+            camera.target[1], camera.target[2]);
         LabelFormattedValue("Yaw", "%.2f deg", camera.yaw_degrees);
         LabelFormattedValue("Pitch", "%.2f deg", camera.pitch_degrees);
         LabelFormattedValue("Distance", "%.4f", camera.distance);
         LabelFormattedValue("Aspect", "%.4f", camera.aspect_ratio);
         if (camera.perspective) {
           LabelFormattedValue("Vertical FOV", "%.2f deg",
-                              camera.vertical_fov_degrees);
+              camera.vertical_fov_degrees);
           LabelFormattedValue("Near clip", "%.6g", camera.near_plane);
           LabelFormattedValue("Far clip", "%.6g", camera.far_plane);
         }
@@ -1063,29 +1066,29 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         snapshot.telemetry.gaussian_upload_bytes != 0;
     if (has_gaussians &&
         ImGui::CollapsingHeader("Gaussian rendering",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       if (snapshot.gaussian.available) {
         TwoColumnTable("gaussian-source", [&] {
           LabelValue("Resources", snapshot.gaussian.resources);
           LabelValue("Particles", snapshot.gaussian.particles);
           LabelCountAndPercent("Visible resources",
-                               snapshot.gaussian.visible_resources,
-                               snapshot.gaussian.resources);
+              snapshot.gaussian.visible_resources,
+              snapshot.gaussian.resources);
           LabelValue("SH degree 0",
-                     snapshot.gaussian.spherical_harmonics_degree_resources[0]);
+              snapshot.gaussian.spherical_harmonics_degree_resources[0]);
           LabelValue("SH degree 1",
-                     snapshot.gaussian.spherical_harmonics_degree_resources[1]);
+              snapshot.gaussian.spherical_harmonics_degree_resources[1]);
           LabelValue("SH degree 2",
-                     snapshot.gaussian.spherical_harmonics_degree_resources[2]);
+              snapshot.gaussian.spherical_harmonics_degree_resources[2]);
           LabelValue("SH degree 3",
-                     snapshot.gaussian.spherical_harmonics_degree_resources[3]);
+              snapshot.gaussian.spherical_harmonics_degree_resources[3]);
           LabelValue("Perspective projection",
-                     snapshot.gaussian.perspective_resources);
+              snapshot.gaussian.perspective_resources);
           LabelValue("Tangential projection",
-                     snapshot.gaussian.tangential_resources);
+              snapshot.gaussian.tangential_resources);
           LabelValue("Z-depth sorting", snapshot.gaussian.z_depth_resources);
           LabelValue("Camera-distance sorting",
-                     snapshot.gaussian.camera_distance_resources);
+              snapshot.gaussian.camera_distance_resources);
         });
       }
       const auto candidates = snapshot.telemetry.gaussian_candidate_count;
@@ -1099,10 +1102,10 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       TwoColumnTable("gaussian-frame", [&] {
         LabelValue("Candidates", candidates);
         LabelCountAndPercent("Visible", snapshot.telemetry.gaussian_visible_count,
-                             candidates);
+            candidates);
         LabelCountAndPercent("Rejected", rejected, candidates);
         LabelCountAndPercent("Hidden", snapshot.telemetry.gaussian_hidden_count,
-                             candidates);
+            candidates);
         LabelCountAndPercent(
             "Opacity culled", snapshot.telemetry.gaussian_opacity_culled_count,
             candidates);
@@ -1117,35 +1120,35 @@ class ImGuiDeveloperUi final : public DeveloperUi {
             "Preparation cache hits",
             snapshot.telemetry.gaussian_preparation_cache_hits, cache_lookups);
         LabelValue("Preparation cache misses",
-                   snapshot.telemetry.gaussian_preparation_cache_misses);
+            snapshot.telemetry.gaussian_preparation_cache_misses);
         LabelValue("Sorting fallbacks",
-                   snapshot.telemetry.gaussian_sorting_policy_fallback_count);
+            snapshot.telemetry.gaussian_sorting_policy_fallback_count);
         LabelValue("Draws", snapshot.telemetry.gaussian_draw_count);
         LabelBytes("Attribute upload",
-                   snapshot.telemetry.gaussian_attribute_upload_bytes);
+            snapshot.telemetry.gaussian_attribute_upload_bytes);
         LabelValue("Attribute ranges",
-                   snapshot.telemetry.gaussian_attribute_copy_range_count);
+            snapshot.telemetry.gaussian_attribute_copy_range_count);
         LabelValue("Residency generations",
-                   snapshot.telemetry.gaussian_attribute_generation_count);
+            snapshot.telemetry.gaussian_attribute_generation_count);
         LabelBytes("Prepared upload", snapshot.telemetry.gaussian_upload_bytes);
         LabelMilliseconds("CPU prepare",
-                          snapshot.timings.gaussian_preparation_ns);
+            snapshot.timings.gaussian_preparation_ns);
         LabelMilliseconds("Attribute sync",
-                          snapshot.timings.gaussian_attribute_upload_ns);
+            snapshot.timings.gaussian_attribute_upload_ns);
         LabelMilliseconds("Prepared sync",
-                          snapshot.timings.gaussian_prepared_upload_ns);
+            snapshot.timings.gaussian_prepared_upload_ns);
         LabelMilliseconds("GPU sort",
-              snapshot.timings.gaussian_gpu_sort_ns);
+            snapshot.timings.gaussian_gpu_sort_ns);
         LabelMilliseconds("GPU raster",
-                          snapshot.timings.gaussian_raster_ns);
+            snapshot.timings.gaussian_raster_ns);
       });
       if (snapshot.telemetry.gaussian_invalid_culled_count != 0) {
         ImGui::TextColored(ImVec4(1.0F, 0.55F, 0.25F, 1.0F),
-                           "Invalid Gaussian payloads were culled.");
+            "Invalid Gaussian payloads were culled.");
       }
       if (snapshot.telemetry.gaussian_sorting_policy_fallback_count != 0) {
         ImGui::TextColored(ImVec4(1.0F, 0.75F, 0.25F, 1.0F),
-                           "Mixed sorting policies fell back to Z depth.");
+            "Mixed sorting policies fell back to Z depth.");
       }
     }
 
@@ -1156,36 +1159,36 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         LabelBytes("Total uploaded", snapshot.statistics.uploaded_bytes);
         LabelValue("Allocations", snapshot.telemetry.allocation_count);
         LabelBytes("Buffer allocations",
-                   snapshot.telemetry.buffer_allocation_bytes);
+            snapshot.telemetry.buffer_allocation_bytes);
         LabelBytes("Image allocations",
-                   snapshot.telemetry.image_allocation_bytes);
+            snapshot.telemetry.image_allocation_bytes);
         LabelValue("Pipeline creations",
-                   snapshot.telemetry.pipeline_creation_count);
+            snapshot.telemetry.pipeline_creation_count);
         LabelValue("Geometry reconciles",
-                   snapshot.telemetry.geometry_reconcile_count);
+            snapshot.telemetry.geometry_reconcile_count);
         LabelValue("Texture reconciles",
-                   snapshot.telemetry.texture_reconcile_count);
+            snapshot.telemetry.texture_reconcile_count);
         LabelValue("Sampler reconciles",
-                   snapshot.telemetry.sampler_reconcile_count);
+            snapshot.telemetry.sampler_reconcile_count);
         LabelValue("Geometry cache misses",
-                   snapshot.telemetry.geometry_cache_misses);
+            snapshot.telemetry.geometry_cache_misses);
         LabelValue("Texture cache hits",
-                   snapshot.telemetry.texture_cache_hits);
+            snapshot.telemetry.texture_cache_hits);
         LabelValue("Texture cache misses",
-                   snapshot.telemetry.texture_cache_misses);
+            snapshot.telemetry.texture_cache_misses);
         LabelValue("Shader module cache misses",
-                   snapshot.telemetry.shader_module_cache_misses);
+            snapshot.telemetry.shader_module_cache_misses);
         LabelValue("Descriptor pool creations",
-                   snapshot.telemetry.descriptor_pool_creation_count);
+            snapshot.telemetry.descriptor_pool_creation_count);
         LabelValue("Descriptor allocations",
-                   snapshot.telemetry.descriptor_allocation_count);
+            snapshot.telemetry.descriptor_allocation_count);
         LabelValue("Descriptor updates",
-                   snapshot.telemetry.descriptor_update_count);
+            snapshot.telemetry.descriptor_update_count);
         LabelValue("Bindless image updates",
-                   snapshot.telemetry
-                       .bindless_sampled_image_descriptor_update_count);
+            snapshot.telemetry
+                .bindless_sampled_image_descriptor_update_count);
         LabelValue("Bindless sampler updates",
-                   snapshot.telemetry.bindless_sampler_descriptor_update_count);
+            snapshot.telemetry.bindless_sampler_descriptor_update_count);
         LabelValue("Waits", snapshot.telemetry.wait_count);
         LabelValue("Resolves", snapshot.telemetry.resolve_count);
         LabelValue("Maps", snapshot.telemetry.map_count);
@@ -1193,56 +1196,56 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     }
 
     if (ImGui::CollapsingHeader("VRAM and persistent residency",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       const auto& residency = snapshot.statistics.residency;
       TwoColumnTable("persistent-residency", [&] {
         LabelValue("Memory budget extension",
-                   residency.memory_budget_available ? "available"
-                                                     : "unavailable");
+            residency.memory_budget_available ? "available"
+                                              : "unavailable");
         LabelBytes("Heap capacity",
-                   residency.vram_heap_capacity_bytes);
+            residency.vram_heap_capacity_bytes);
         LabelBytes("Heap budget", residency.vram_heap_budget_bytes);
         LabelBytes("Driver heap usage",
-                   residency.vram_heap_usage_bytes);
+            residency.vram_heap_usage_bytes);
         LabelBytes("Heap available",
-                   residency.vram_heap_available_bytes);
+            residency.vram_heap_available_bytes);
         LabelBytes("Renderer allocated",
-                   residency.renderer_allocated_bytes);
+            residency.renderer_allocated_bytes);
         LabelBytes("Renderer peak",
-                   residency.renderer_peak_allocated_bytes);
+            residency.renderer_peak_allocated_bytes);
         LabelBytes("Effective limit",
-                   residency.effective_vram_limit_bytes);
+            residency.effective_vram_limit_bytes);
         LabelBytes("Geometry capacity",
-                   residency.geometry_capacity_bytes);
+            residency.geometry_capacity_bytes);
         LabelBytes("Geometry resident",
-                   residency.geometry_resident_bytes);
+            residency.geometry_resident_bytes);
         LabelBytes("Geometry retiring",
-                   residency.geometry_retiring_bytes);
+            residency.geometry_retiring_bytes);
         LabelValue("Geometry blocks", residency.geometry_blocks);
         LabelBytes("Gaussian capacity",
-                   residency.gaussian_capacity_bytes);
+            residency.gaussian_capacity_bytes);
         LabelBytes("Gaussian resident",
-                   residency.gaussian_resident_bytes);
+            residency.gaussian_resident_bytes);
         LabelBytes("Gaussian retiring",
-                   residency.gaussian_retiring_bytes);
+            residency.gaussian_retiring_bytes);
         LabelValue("Gaussian blocks", residency.gaussian_blocks);
         LabelValue("Gaussian resources", residency.gaussian_resources);
         LabelBytes("Gaussian upload ring",
-                   residency.gaussian_upload_ring_capacity_bytes);
+            residency.gaussian_upload_ring_capacity_bytes);
         LabelBytes("Upload ring capacity",
-                   residency.upload_ring_capacity_bytes);
+            residency.upload_ring_capacity_bytes);
         LabelBytes("Upload ring in flight",
-                   residency.upload_ring_in_flight_bytes);
+            residency.upload_ring_in_flight_bytes);
         LabelValue("Bindless tables",
-                   residency.bindless_tables ? "active" : "fallback");
+            residency.bindless_tables ? "active" : "fallback");
         LabelValue("Texture slots in use",
-                   residency.texture_slots_in_use);
+            residency.texture_slots_in_use);
         LabelValue("Texture slots retiring",
-                   residency.texture_slots_retiring);
+            residency.texture_slots_retiring);
         LabelValue("Sampler slots in use",
-                   residency.sampler_slots_in_use);
+            residency.sampler_slots_in_use);
         LabelValue("Unique samplers",
-                   residency.unique_sampler_count);
+            residency.unique_sampler_count);
       });
     }
 
@@ -1250,31 +1253,31 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       DrawAovMask("Requested:", snapshot.telemetry.requested_aov_mask);
       DrawAovMask("Rendered:", snapshot.telemetry.rendered_aov_mask);
       DrawAovMask("CPU readback:",
-                  snapshot.telemetry.cpu_readback_aov_mask);
+          snapshot.telemetry.cpu_readback_aov_mask);
       TwoColumnTable("presentation", [&] {
         LabelValue("Requested AOVs",
-                   snapshot.telemetry.requested_aov_count);
+            snapshot.telemetry.requested_aov_count);
         LabelValue("Rendered AOVs", snapshot.telemetry.rendered_aov_count);
         LabelValue("CPU readback AOVs",
-                   snapshot.telemetry.cpu_readback_aov_count);
+            snapshot.telemetry.cpu_readback_aov_count);
         LabelValue("AOV image exports",
-                   snapshot.telemetry.aov_image_export_count);
+            snapshot.telemetry.aov_image_export_count);
         LabelValue("Active AOV leases",
-                   snapshot.statistics.active_aov_image_leases);
+            snapshot.statistics.active_aov_image_leases);
         LabelValue("Frames presented",
-                   snapshot.statistics.frames_presented);
+            snapshot.statistics.frames_presented);
         LabelValue("Swapchain recreates",
-                   snapshot.statistics.presentation_recreates);
+            snapshot.statistics.presentation_recreates);
         LabelBytes("Presentation copies",
-                   snapshot.statistics.presentation_copy_bytes);
+            snapshot.statistics.presentation_copy_bytes);
         LabelBytes("CPU readback", snapshot.statistics.readback_bytes);
         LabelValue("Validation messages",
-                   snapshot.statistics.validation_messages);
+            snapshot.statistics.validation_messages);
       });
     }
 
     if (ImGui::CollapsingHeader("Host and backend diagnostic history",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::Checkbox("Host", &show_host_diagnostics_);
       ImGui::SameLine();
       ImGui::Checkbox("Backend", &show_backend_diagnostics_);
@@ -1292,16 +1295,16 @@ class ImGuiDeveloperUi final : public DeveloperUi {
         for (const auto& entry : *snapshot.diagnostic_history) {
           const bool origin_visible =
               (entry.origin == DeveloperUiDiagnosticOrigin::Host &&
-               show_host_diagnostics_) ||
+                  show_host_diagnostics_) ||
               (entry.origin == DeveloperUiDiagnosticOrigin::Backend &&
-               show_backend_diagnostics_);
+                  show_backend_diagnostics_);
           const bool severity_visible =
               (entry.diagnostic.severity == DiagnosticSeverity::Info &&
-               show_info_diagnostics_) ||
+                  show_info_diagnostics_) ||
               (entry.diagnostic.severity == DiagnosticSeverity::Warning &&
-               show_warning_diagnostics_) ||
+                  show_warning_diagnostics_) ||
               (entry.diagnostic.severity == DiagnosticSeverity::Error &&
-               show_error_diagnostics_);
+                  show_error_diagnostics_);
           visible_count += origin_visible && severity_visible ? 1U : 0U;
         }
       }
@@ -1313,21 +1316,21 @@ class ImGuiDeveloperUi final : public DeveloperUi {
       } else {
         int diagnostic_index{};
         for (auto iterator = snapshot.diagnostic_history->rbegin();
-             iterator != snapshot.diagnostic_history->rend(); ++iterator) {
+            iterator != snapshot.diagnostic_history->rend(); ++iterator) {
           const auto& entry = *iterator;
           const auto& diagnostic = entry.diagnostic;
           const bool origin_visible =
               (entry.origin == DeveloperUiDiagnosticOrigin::Host &&
-               show_host_diagnostics_) ||
+                  show_host_diagnostics_) ||
               (entry.origin == DeveloperUiDiagnosticOrigin::Backend &&
-               show_backend_diagnostics_);
+                  show_backend_diagnostics_);
           const bool severity_visible =
               (diagnostic.severity == DiagnosticSeverity::Info &&
-               show_info_diagnostics_) ||
+                  show_info_diagnostics_) ||
               (diagnostic.severity == DiagnosticSeverity::Warning &&
-               show_warning_diagnostics_) ||
+                  show_warning_diagnostics_) ||
               (diagnostic.severity == DiagnosticSeverity::Error &&
-               show_error_diagnostics_);
+                  show_error_diagnostics_);
           if (!origin_visible || !severity_visible) {
             continue;
           }
@@ -1340,10 +1343,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
             ImGui::TextWrapped("%s", diagnostic.message.c_str());
             TwoColumnTable("general-diagnostic-context", [&] {
               LabelValue("Disposition",
-                         DispositionName(diagnostic.disposition));
+                  DispositionName(diagnostic.disposition));
               LabelFormattedValue(
-                  "Frames", entry.first_frame == entry.last_frame ? "%llu"
-                                                                  : "%llu-%llu",
+                  "Frames", entry.first_frame == entry.last_frame ? "%llu" : "%llu-%llu",
                   static_cast<unsigned long long>(entry.first_frame),
                   static_cast<unsigned long long>(entry.last_frame));
               LabelValue("Occurrences", entry.occurrences);
@@ -1365,17 +1367,17 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     if (ImGui::CollapsingHeader("Materials and diagnostics")) {
       TwoColumnTable("material-state", [&] {
         LabelValue("Generated draws",
-                   snapshot.telemetry.generated_material_draw_count);
+            snapshot.telemetry.generated_material_draw_count);
         LabelValue("Generated fallbacks",
-                   snapshot.telemetry.generated_material_fallback_count);
+            snapshot.telemetry.generated_material_fallback_count);
         LabelValue("Recorded diagnostics",
-                   snapshot.telemetry.material_fallbacks.recorded_count);
+            snapshot.telemetry.material_fallbacks.recorded_count);
         LabelValue("Simplifications",
-                   snapshot.telemetry.material_fallbacks.simplification_count);
+            snapshot.telemetry.material_fallbacks.simplification_count);
         LabelValue("Basic material fallbacks",
-                   snapshot.telemetry.material_fallbacks.basic_material_count);
+            snapshot.telemetry.material_fallbacks.basic_material_count);
         LabelValue("Error material fallbacks",
-                   snapshot.telemetry.material_fallbacks.error_material_count);
+            snapshot.telemetry.material_fallbacks.error_material_count);
         LabelValue(
             "Effective fallback",
             MaterialFallbackName(
@@ -1473,7 +1475,9 @@ class ImGuiDeveloperUi final : public DeveloperUi {
     actions_.apply_renderer_settings = request;
   }
 
-  void SetContext() const noexcept { ImGui::SetCurrentContext(context_); }
+  void SetContext() const noexcept {
+    ImGui::SetCurrentContext(context_);
+  }
 
   ImGuiContext* context_{};
   GLFWwindow* window_{};
@@ -1506,10 +1510,10 @@ class ImGuiDeveloperUi final : public DeveloperUi {
 #endif
 };
 
-}  // namespace
+} // namespace
 
 std::unique_ptr<DeveloperUi> DeveloperUi::Create(Window& window) {
   return std::make_unique<ImGuiDeveloperUi>(window);
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

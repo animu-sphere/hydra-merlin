@@ -73,7 +73,7 @@ struct alignas(16) GpuDraw {
 };
 
 constexpr void SetGpuDrawIdentity(GpuDraw& draw,
-                                  std::uint64_t identity) noexcept {
+    std::uint64_t identity) noexcept {
   draw.draw_id_low = static_cast<std::uint32_t>(identity);
   draw.draw_id_high = static_cast<std::uint32_t>(identity >> 32U);
 }
@@ -134,4 +134,4 @@ static_assert(offsetof(GpuDraw, flags) == 20);
 static_assert(offsetof(GpuDraw, draw_id_low) == 24);
 static_assert(offsetof(GpuDraw, draw_id_high) == 28);
 
-}  // namespace merlin::render
+} // namespace merlin::render

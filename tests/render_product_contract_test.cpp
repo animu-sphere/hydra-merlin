@@ -15,7 +15,7 @@ bool Rejects(const merlin::vulkan::RenderResult& result) {
   return false;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   merlin::vulkan::RenderResult result;
@@ -37,7 +37,7 @@ int main() {
   result.instance_id.pixels.assign(
       4, std::numeric_limits<std::uint32_t>::max());
   result.rendered_aovs = {merlin::Aov::Color, merlin::Aov::Depth,
-                          merlin::Aov::PrimId, merlin::Aov::InstanceId};
+      merlin::Aov::PrimId, merlin::Aov::InstanceId};
   result.cpu_readback_aovs = result.rendered_aovs;
   result.completion_value = 1;
   merlin::vulkan::ValidateRenderResult(result);

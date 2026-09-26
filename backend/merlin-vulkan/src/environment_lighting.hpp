@@ -22,4 +22,4 @@ struct DiffuseEnvironment {
 [[nodiscard]] Vec3 EvaluateDiffuseEnvironment(
     const DiffuseEnvironment& environment, const Vec3& normal);
 
-}  // namespace merlin::vulkan::detail
+} // namespace merlin::vulkan::detail

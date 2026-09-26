@@ -15,7 +15,7 @@ bool Near(float lhs, float rhs, float tolerance = 1.0e-5F) {
 }
 
 class CollectingSink final : public merlin::DiagnosticSink {
- public:
+public:
   void Report(const merlin::Diagnostic& diagnostic) override {
     diagnostics.push_back(diagnostic);
   }
@@ -23,7 +23,7 @@ class CollectingSink final : public merlin::DiagnosticSink {
   std::vector<merlin::Diagnostic> diagnostics;
 };
 
-}  // namespace
+} // namespace
 
 int main() {
   merlin::GaussianSourceData source;
@@ -37,7 +37,7 @@ int main() {
   source.opacities = {-1.0F, 2.0F};
   source.spherical_harmonics_degree = 1;
   source.spherical_harmonics_coefficients.resize(8,
-                                                  {0.25F, 0.5F, 0.75F});
+      {0.25F, 0.5F, 0.75F});
 
   CollectingSink sink;
   auto normalized = merlin::NormalizeGaussianSource(source, &sink);
@@ -81,10 +81,10 @@ int main() {
   auto edited = resource;
   edited.opacities[0] = 0.5F;
   world.UpdateGaussian(handle, edited, merlin::ChangeAspect::GaussianOpacity,
-                       std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   edited.opacities[1] = 0.25F;
   world.UpdateGaussian(handle, edited, merlin::ChangeAspect::GaussianOpacity,
-                       std::vector<merlin::ElementRange>{{1, 1}});
+      std::vector<merlin::ElementRange>{{1, 1}});
   changes = world.Commit();
   assert(changes.revision == 2);
   assert(changes.changes.size() == 1);
@@ -130,7 +130,7 @@ int main() {
   fallback.positions = {{0.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}};
   fallback.orientations = {{1.0F, {0.0F, 0.0F, 0.0F}}};
   fallback.scales = {{2.0F, 2.0F, 2.0F}, {2.0F, 2.0F, 2.0F},
-                     {9.0F, 9.0F, 9.0F}};
+      {9.0F, 9.0F, 9.0F}};
   auto fallback_result = merlin::NormalizeGaussianSource(fallback);
   assert(fallback_result.accepted());
   assert(fallback_result.diagnostics.size() == 4);
@@ -158,7 +158,7 @@ int main() {
       merlin::NormalizeGaussianSource(huge_orientation);
   assert(huge_orientation_result.accepted());
   for (const auto covariance :
-       huge_orientation_result.resource->covariances) {
+      huge_orientation_result.resource->covariances) {
     assert(std::isfinite(covariance.xx));
     assert(std::isfinite(covariance.xy));
     assert(std::isfinite(covariance.xz));

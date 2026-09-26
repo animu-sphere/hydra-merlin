@@ -54,10 +54,10 @@ struct Event {
 };
 
 class Window {
- public:
+public:
   static std::unique_ptr<Window> Create(std::string_view title,
-                                        std::uint32_t width,
-                                        std::uint32_t height, bool visible);
+      std::uint32_t width,
+      std::uint32_t height, bool visible);
   virtual ~Window() = default;
 
   [[nodiscard]] virtual bool PollEvent(Event& event) = 0;
@@ -69,4 +69,4 @@ class Window {
   [[nodiscard]] virtual std::uint32_t height() const noexcept = 0;
 };
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

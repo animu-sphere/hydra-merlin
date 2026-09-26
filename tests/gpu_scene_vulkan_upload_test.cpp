@@ -46,8 +46,8 @@ std::shared_ptr<FrameSnapshot> MakeSnapshot() {
   geometry.has_normals = true;
   geometry.vertices = std::make_shared<const std::vector<DrawVertex>>(
       std::vector<DrawVertex>{{{-0.5F, -0.5F, 0.2F}},
-                              {{0.5F, -0.5F, 0.2F}},
-                              {{0.0F, 0.5F, 0.2F}}});
+          {{0.5F, -0.5F, 0.2F}},
+          {{0.0F, 0.5F, 0.2F}}});
   geometry.indices = std::make_shared<const std::vector<std::uint32_t>>(
       std::vector<std::uint32_t>{0, 1, 2});
   snapshot->geometries.assign({geometry});
@@ -164,14 +164,14 @@ std::shared_ptr<FrameSnapshot> MakePipelineBatchSnapshot(
 
 merlin::vulkan::ShaderPaths MakeShaders(const std::filesystem::path& root) {
   return {root / "triangle.vert.spv",
-          root / "triangle.frag.spv",
-          root / "triangle.bindless.vert.spv",
-          root / "triangle.bindless.frag.spv",
-          root / "environment.hdr",
-          root / "gaussian.vert.spv",
-          root / "gaussian.frag.spv",
-          root / "gaussian-id.frag.spv",
-          root / "gaussian-id.vert.spv"};
+      root / "triangle.frag.spv",
+      root / "triangle.bindless.vert.spv",
+      root / "triangle.bindless.frag.spv",
+      root / "environment.hdr",
+      root / "gaussian.vert.spv",
+      root / "gaussian.frag.spv",
+      root / "gaussian-id.frag.spv",
+      root / "gaussian-id.vert.spv"};
 }
 
 merlin::vulkan::RenderResult Submit(
@@ -188,8 +188,8 @@ merlin::vulkan::RenderResult Submit(
   request.height = 32;
   request.shaders = shaders;
   request.products = {{merlin::Aov::Color, true},
-                      {merlin::Aov::PrimId, true},
-                      {merlin::Aov::InstanceId, true}};
+      {merlin::Aov::PrimId, true},
+      {merlin::Aov::InstanceId, true}};
   request.gpu_scene_update = std::move(update);
   if (gpu_driven != merlin::vulkan::GpuDrivenIndexedMode::Disabled) {
     request.gpu_driven_indexed.mode = gpu_driven;
@@ -198,7 +198,7 @@ merlin::vulkan::RenderResult Submit(
   return renderer.Resolve(renderer.Submit(request));
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -305,7 +305,7 @@ int main(int argc, char** argv) {
   merlin::vulkan::RenderResult first;
   try {
     first = Submit(*renderer, snapshot, shaders, first_update,
-                   merlin::vulkan::GpuDrivenIndexedMode::Require);
+        merlin::vulkan::GpuDrivenIndexedMode::Require);
   } catch (const std::exception& error) {
     std::cerr << "gpu-scene: first table draw failed: " << error.what()
               << '\n';
@@ -363,11 +363,11 @@ int main(int argc, char** argv) {
   // descriptors whose buffers, offsets, and ranges are unchanged.
   auto gpu_driven_completion = culled.completion_value;
   for (std::uint32_t frame = 0;
-       frame < renderer->statistics().frame_context_count; ++frame) {
+      frame < renderer->statistics().frame_context_count; ++frame) {
     auto warm_update =
         std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
             packing.Apply(*snapshot, gpu_driven_completion,
-                          gpu_driven_completion, {}));
+                gpu_driven_completion, {}));
     const auto warm = Submit(
         *renderer, snapshot, shaders, warm_update,
         merlin::vulkan::GpuDrivenIndexedMode::Require);
@@ -376,7 +376,7 @@ int main(int argc, char** argv) {
   auto gpu_driven_static_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
           packing.Apply(*snapshot, gpu_driven_completion,
-                        gpu_driven_completion, {}));
+              gpu_driven_completion, {}));
   const auto gpu_driven_static = Submit(
       *renderer, snapshot, shaders, gpu_driven_static_update,
       merlin::vulkan::GpuDrivenIndexedMode::Require);
@@ -465,8 +465,8 @@ int main(int argc, char** argv) {
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
           source_less_packing.Apply(*source_less_snapshot, 0, 0, inputs));
   const auto source_less_first = Submit(source_less_renderer,
-                                        source_less_snapshot, shaders,
-                                        source_less_first_update);
+      source_less_snapshot, shaders,
+      source_less_first_update);
   assert(source_less_first.counters.gpu_scene_upload_bytes ==
          expected_gpu_scene_bytes);
   const auto source_less_repeat_update =
@@ -475,8 +475,8 @@ int main(int argc, char** argv) {
               *source_less_snapshot, source_less_first.completion_value,
               source_less_first.completion_value, inputs));
   const auto source_less_repeat = Submit(source_less_renderer,
-                                         source_less_snapshot, shaders,
-                                         source_less_repeat_update);
+      source_less_snapshot, shaders,
+      source_less_repeat_update);
   assert(source_less_repeat.counters.gpu_scene_upload_bytes ==
          expected_gpu_scene_bytes);
 
@@ -502,7 +502,7 @@ int main(int argc, char** argv) {
           multi_packing.Apply(
               *multi_snapshot, 0, 0,
               GpuScenePackingInputs{multi_placements, multi_identities,
-                                    multi_bindings}));
+                  multi_bindings}));
   assert(multi_update->draw_slot_indices->size() == 2);
   assert((*multi_update->draw_slot_indices)[1] != 0);
   const auto multi = Submit(
@@ -525,13 +525,13 @@ int main(int argc, char** argv) {
   const auto mixed_pipeline_snapshot = MakeMixedPipelineSnapshot();
   GpuScenePackingState mixed_pipeline_packing(capacities);
   const std::vector mixed_pipeline_bindings{GpuMaterialBinding{},
-                                             GpuMaterialBinding{}};
+      GpuMaterialBinding{}};
   auto mixed_pipeline_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
           mixed_pipeline_packing.Apply(
               *mixed_pipeline_snapshot, 0, 0,
               GpuScenePackingInputs{multi_placements, multi_identities,
-                                    mixed_pipeline_bindings}));
+                  mixed_pipeline_bindings}));
   const auto mixed_pipeline = Submit(
       *renderer, mixed_pipeline_snapshot, shaders, mixed_pipeline_update,
       merlin::vulkan::GpuDrivenIndexedMode::Require);
@@ -568,14 +568,14 @@ int main(int argc, char** argv) {
     alternating_identities.push_back({1000U + i, 2000U + i});
   }
   const std::vector alternating_bindings{GpuMaterialBinding{},
-                                          GpuMaterialBinding{}};
+      GpuMaterialBinding{}};
   auto alternating_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
           alternating_packing.Apply(
               *alternating_snapshot, 0, 0,
               GpuScenePackingInputs{alternating_placements,
-                                    alternating_identities,
-                                    alternating_bindings}));
+                  alternating_identities,
+                  alternating_bindings}));
   const auto alternating = Submit(
       alternating_renderer, alternating_snapshot, shaders,
       alternating_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
@@ -596,8 +596,8 @@ int main(int argc, char** argv) {
           single_batch_packing.Apply(
               *single_batch_snapshot, 0, 0,
               GpuScenePackingInputs{alternating_placements,
-                                    alternating_identities,
-                                    alternating_bindings}));
+                  alternating_identities,
+                  alternating_bindings}));
   const auto single_batch = Submit(
       single_batch_renderer, single_batch_snapshot, shaders,
       single_batch_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
@@ -628,10 +628,10 @@ int main(int argc, char** argv) {
   for (std::uint32_t i = 0; i < parallel_candidate_count; ++i) {
     parallel_identities.push_back(
         {3000U + i, 4000U + i,
-         i % 3U == 0U ? 0U : ~std::uint32_t{}});
+            i % 3U == 0U ? 0U : ~std::uint32_t{}});
   }
   const std::vector parallel_bindings{GpuMaterialBinding{},
-                                      GpuMaterialBinding{}};
+      GpuMaterialBinding{}};
   auto parallel_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
           parallel_packing.Apply(
@@ -644,19 +644,19 @@ int main(int argc, char** argv) {
       merlin::vulkan::GpuDrivenIndexedMode::Require);
   Require(parallel.counters.gpu_driven_candidate_draw_count ==
               parallel_candidate_count,
-          "parallel candidate count is incorrect");
+      "parallel candidate count is incorrect");
   Require(parallel.counters.gpu_driven_visible_draw_count ==
               parallel_candidate_count - parallel_culled_count,
-          "parallel visible count is incorrect");
+      "parallel visible count is incorrect");
   Require(parallel.counters.gpu_driven_visibility_mask_culled_count ==
               parallel_culled_count,
-          "parallel visibility-mask culling count is incorrect");
+      "parallel visibility-mask culling count is incorrect");
   Require(parallel.counters.gpu_driven_frustum_culled_count == 0,
-          "parallel frustum culling count is incorrect");
+      "parallel frustum culling count is incorrect");
   Require(parallel.counters.gpu_driven_indirect_draw_count == 1,
-          "parallel batch did not issue one indirect draw");
+      "parallel batch did not issue one indirect draw");
   Require(parallel.counters.gpu_driven_fallback_count == 0,
-          "parallel batch unexpectedly fell back");
+      "parallel batch unexpectedly fell back");
 
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
 }

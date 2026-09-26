@@ -29,7 +29,9 @@ struct GaussianNormalizationResult {
   std::optional<GaussianDescriptor> resource;
   std::vector<Diagnostic> diagnostics;
 
-  [[nodiscard]] bool accepted() const noexcept { return resource.has_value(); }
+  [[nodiscard]] bool accepted() const noexcept {
+    return resource.has_value();
+  }
 };
 
 // OpenUSD Gaussian splats carry the Graphdeco-style real SH coefficients used
@@ -44,4 +46,4 @@ inline constexpr std::uint32_t kMaxGaussianSphericalHarmonicsDegree = 3;
 [[nodiscard]] GaussianNormalizationResult NormalizeGaussianSource(
     const GaussianSourceData& source, DiagnosticSink* sink = nullptr);
 
-}  // namespace merlin
+} // namespace merlin

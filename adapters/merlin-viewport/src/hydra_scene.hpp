@@ -26,4 +26,4 @@ struct HydraViewportOptions {
 
 int RunHydraViewport(const HydraViewportOptions& options);
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

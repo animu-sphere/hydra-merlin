@@ -7,8 +7,8 @@ namespace merlin::viewport {
 namespace {
 
 bool SameDiagnostic(const DeveloperUiDiagnosticEntry& entry,
-                    DeveloperUiDiagnosticOrigin origin,
-                    const Diagnostic& diagnostic) {
+    DeveloperUiDiagnosticOrigin origin,
+    const Diagnostic& diagnostic) {
   return entry.origin == origin &&
          entry.diagnostic.schema_version == diagnostic.schema_version &&
          entry.diagnostic.code == diagnostic.code &&
@@ -19,22 +19,23 @@ bool SameDiagnostic(const DeveloperUiDiagnosticEntry& entry,
          entry.diagnostic.recovery == diagnostic.recovery;
 }
 
-}  // namespace
+} // namespace
 
 DeveloperUiDiagnosticHistory::DeveloperUiDiagnosticHistory(
     std::size_t capacity)
-    : capacity_(std::max<std::size_t>(capacity, 1U)) {}
+    : capacity_(std::max<std::size_t>(capacity, 1U)) {
+}
 
 void DeveloperUiDiagnosticHistory::Report(const Diagnostic& diagnostic) {
   std::scoped_lock lock(mutex_);
   const auto frame_index = frame_index_;
   if (!entries_.empty() &&
       SameDiagnostic(entries_.back(), DeveloperUiDiagnosticOrigin::Backend,
-                     diagnostic) &&
+          diagnostic) &&
       (frame_index <= entries_.back().last_frame ||
-       frame_index - entries_.back().last_frame <= 1U)) {
+          frame_index - entries_.back().last_frame <= 1U)) {
     entries_.back().last_frame = std::max(entries_.back().last_frame,
-                                          frame_index);
+        frame_index);
     ++entries_.back().occurrences;
     return;
   }
@@ -42,7 +43,7 @@ void DeveloperUiDiagnosticHistory::Report(const Diagnostic& diagnostic) {
     entries_.erase(entries_.begin());
   }
   entries_.push_back({next_sequence_++, frame_index, frame_index, 1,
-                      DeveloperUiDiagnosticOrigin::Backend, diagnostic});
+      DeveloperUiDiagnosticOrigin::Backend, diagnostic});
 }
 
 void DeveloperUiDiagnosticHistory::SetFrameIndex(
@@ -57,9 +58,9 @@ void DeveloperUiDiagnosticHistory::Record(
   std::scoped_lock lock(mutex_);
   if (!entries_.empty() && SameDiagnostic(entries_.back(), origin, diagnostic) &&
       (frame_index <= entries_.back().last_frame ||
-       frame_index - entries_.back().last_frame <= 1U)) {
+          frame_index - entries_.back().last_frame <= 1U)) {
     entries_.back().last_frame = std::max(entries_.back().last_frame,
-                                          frame_index);
+        frame_index);
     ++entries_.back().occurrences;
     return;
   }
@@ -98,29 +99,29 @@ void RecordDeveloperUiBackendSelection(
     history.Record(
         DeveloperUiDiagnosticOrigin::Backend, frame_index,
         {kDiagnosticSchemaVersion, "viewport.backend.bindless-fallback",
-         DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
-         capabilities.backend_name,
-         "Bindless textures are unavailable on the selected backend path.",
-         "conventional-descriptors"});
+            DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
+            capabilities.backend_name,
+            "Bindless textures are unavailable on the selected backend path.",
+            "conventional-descriptors"});
   }
   if (!capabilities.generated_materials) {
     history.Record(
         DeveloperUiDiagnosticOrigin::Backend, frame_index,
         {kDiagnosticSchemaVersion,
-         "viewport.backend.generated-material-fallback",
-         DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
-         capabilities.backend_name,
-         "Generated materials are unavailable on the selected backend path.",
-         "basic-material"});
+            "viewport.backend.generated-material-fallback",
+            DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
+            capabilities.backend_name,
+            "Generated materials are unavailable on the selected backend path.",
+            "basic-material"});
   }
   if (!capabilities.timestamp_queries) {
     history.Record(
         DeveloperUiDiagnosticOrigin::Backend, frame_index,
         {kDiagnosticSchemaVersion, "viewport.backend.gpu-timing-unavailable",
-         DiagnosticSeverity::Info, DiagnosticDisposition::Fallback,
-         capabilities.backend_name,
-         "GPU timestamp queries are unavailable on the selected backend path.",
-         "cpu-frame-timing"});
+            DiagnosticSeverity::Info, DiagnosticDisposition::Fallback,
+            capabilities.backend_name,
+            "GPU timestamp queries are unavailable on the selected backend path.",
+            "cpu-frame-timing"});
   }
 }
 
@@ -135,12 +136,12 @@ void RecordDeveloperUiSettingsFeedback(
   history.Record(
       DeveloperUiDiagnosticOrigin::Host, frame_index,
       {kDiagnosticSchemaVersion,
-       rejected ? "viewport.settings.rejected" : "viewport.settings.applied",
-       rejected ? DiagnosticSeverity::Warning : DiagnosticSeverity::Info,
-       rejected ? DiagnosticDisposition::Rejected
-                : DiagnosticDisposition::Ignored,
-       "merlin-viewport", feedback.message,
-       rejected ? "retain-previous-settings" : "settings-active"});
+          rejected ? "viewport.settings.rejected" : "viewport.settings.applied",
+          rejected ? DiagnosticSeverity::Warning : DiagnosticSeverity::Info,
+          rejected ? DiagnosticDisposition::Rejected
+                   : DiagnosticDisposition::Ignored,
+          "merlin-viewport", feedback.message,
+          rejected ? "retain-previous-settings" : "settings-active"});
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

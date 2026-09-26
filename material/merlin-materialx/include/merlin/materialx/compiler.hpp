@@ -10,7 +10,8 @@
 
 namespace merlin::materialx {
 
-enum class DiagnosticSeverity { Warning, Error };
+enum class DiagnosticSeverity { Warning,
+  Error };
 
 // Failures this integration can actually detect. Compile, target, reflection
 // agreement, and cache failures are detected by the Slang compilation and
@@ -152,4 +153,4 @@ struct CompileResult {
 [[nodiscard]] CompileResult CompileMaterialFunction(
     std::string_view document_xml, const CompileOptions& options = {});
 
-}  // namespace merlin::materialx
+} // namespace merlin::materialx

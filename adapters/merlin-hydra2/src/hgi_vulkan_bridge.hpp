@@ -163,9 +163,9 @@ struct HdMerlinBorrowedVulkanContext {
 // version number) remains part of bridge capability selection.
 [[nodiscard]] HdMerlinHgiVulkanBridgeStatus
 HdMerlinEvaluateHgiVulkanBridgeSupport(bool enabled,
-                                       std::uint32_t openusd_version,
-                                       bool render_driver_available,
-                                       bool vulkan_render_driver) noexcept;
+    std::uint32_t openusd_version,
+    bool render_driver_available,
+    bool vulkan_render_driver) noexcept;
 
 // The one table mapping the RenderBuffer formats this adapter implements onto
 // their Hgi equivalents. HgiFormatInvalid means "no Hgi target for this
@@ -190,7 +190,7 @@ class Hgi;
 // satisfies that.
 class HdMerlinHgiVulkanBridge final
     : public std::enable_shared_from_this<HdMerlinHgiVulkanBridge> {
- public:
+public:
   explicit HdMerlinHgiVulkanBridge(bool enabled);
   ~HdMerlinHgiVulkanBridge();
 
@@ -210,17 +210,17 @@ class HdMerlinHgiVulkanBridge final
   BorrowedContext() const;
 
   [[nodiscard]] HgiTextureHandle CreateTarget(const HgiTextureDesc& descriptor,
-                                              bool recreation);
+      bool recreation);
   void DestroyTarget(HgiTextureHandle* target);
   [[nodiscard]] bool Upload(HgiTextureHandle target, const void* data,
-                            std::size_t byte_size);
+      std::size_t byte_size);
   [[nodiscard]] bool Copy(
       HgiTextureHandle target, merlin::vulkan::AovImageExport&& source,
       std::shared_ptr<merlin::render::Backend> backend,
       std::uint64_t& submission_serial);
   [[nodiscard]] bool IsCopyComplete(std::uint64_t submission_serial) const;
 
- private:
+private:
   // A one-way latch for the delegate's lifetime, cleared only by a fresh
   // SetDrivers: an operational failure disables Hgi-owned targets for every
   // buffer, not just the one that failed. Retrying per frame would mean

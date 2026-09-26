@@ -72,17 +72,17 @@ constexpr bool IsValidatedOpenUsd(
 #endif
 }
 
-}  // namespace
+} // namespace
 
 std::string_view HdMerlinHgiVulkanTransferModeName(
     HdMerlinHgiVulkanTransferMode mode) noexcept {
   switch (mode) {
-    case HdMerlinHgiVulkanTransferMode::CpuReadback:
-      return "cpu-readback";
-    case HdMerlinHgiVulkanTransferMode::GpuCopy:
-      return "gpu-copy";
-    case HdMerlinHgiVulkanTransferMode::DirectSharedResource:
-      return "direct-shared-resource";
+  case HdMerlinHgiVulkanTransferMode::CpuReadback:
+    return "cpu-readback";
+  case HdMerlinHgiVulkanTransferMode::GpuCopy:
+    return "gpu-copy";
+  case HdMerlinHgiVulkanTransferMode::DirectSharedResource:
+    return "direct-shared-resource";
   }
   return "unknown";
 }
@@ -90,38 +90,38 @@ std::string_view HdMerlinHgiVulkanTransferModeName(
 std::string_view HdMerlinHgiVulkanDirectShareRejectionName(
     HdMerlinHgiVulkanDirectShareRejection reason) noexcept {
   switch (reason) {
-    case HdMerlinHgiVulkanDirectShareRejection::None:
-      return "none";
-    case HdMerlinHgiVulkanDirectShareRejection::NotEvaluated:
-      return "not-evaluated";
-    case HdMerlinHgiVulkanDirectShareRejection::PhysicalDeviceMismatch:
-      return "physical-device-mismatch";
-    case HdMerlinHgiVulkanDirectShareRejection::LogicalDeviceMismatch:
-      return "logical-device-mismatch";
-    case HdMerlinHgiVulkanDirectShareRejection::QueueOwnershipUnsupported:
-      return "queue-ownership-unsupported";
-    case HdMerlinHgiVulkanDirectShareRejection::ApiIncompatible:
-      return "api-incompatible";
-    case HdMerlinHgiVulkanDirectShareRejection::RequiredExtensionMissing:
-      return "required-extension-missing";
-    case HdMerlinHgiVulkanDirectShareRejection::FormatUsageMismatch:
-      return "format-usage-mismatch";
-    case HdMerlinHgiVulkanDirectShareRejection::SampleCountUnsupported:
-      return "sample-count-unsupported";
-    case HdMerlinHgiVulkanDirectShareRejection::TilingUnsupported:
-      return "tiling-unsupported";
-    case HdMerlinHgiVulkanDirectShareRejection::MemoryConstraintsUnsupported:
-      return "memory-constraints-unsupported";
-    case HdMerlinHgiVulkanDirectShareRejection::PublicTextureImportUnavailable:
-      return "public-texture-import-unavailable";
-    case HdMerlinHgiVulkanDirectShareRejection::HostConsumptionUnretained:
-      return "host-consumption-unretained";
-    case HdMerlinHgiVulkanDirectShareRejection::CompletionRetentionUnavailable:
-      return "completion-retention-unavailable";
-    case HdMerlinHgiVulkanDirectShareRejection::ResizeRetirementUnsafe:
-      return "resize-retirement-unsafe";
-    case HdMerlinHgiVulkanDirectShareRejection::DirectPathUnavailable:
-      return "direct-path-unavailable";
+  case HdMerlinHgiVulkanDirectShareRejection::None:
+    return "none";
+  case HdMerlinHgiVulkanDirectShareRejection::NotEvaluated:
+    return "not-evaluated";
+  case HdMerlinHgiVulkanDirectShareRejection::PhysicalDeviceMismatch:
+    return "physical-device-mismatch";
+  case HdMerlinHgiVulkanDirectShareRejection::LogicalDeviceMismatch:
+    return "logical-device-mismatch";
+  case HdMerlinHgiVulkanDirectShareRejection::QueueOwnershipUnsupported:
+    return "queue-ownership-unsupported";
+  case HdMerlinHgiVulkanDirectShareRejection::ApiIncompatible:
+    return "api-incompatible";
+  case HdMerlinHgiVulkanDirectShareRejection::RequiredExtensionMissing:
+    return "required-extension-missing";
+  case HdMerlinHgiVulkanDirectShareRejection::FormatUsageMismatch:
+    return "format-usage-mismatch";
+  case HdMerlinHgiVulkanDirectShareRejection::SampleCountUnsupported:
+    return "sample-count-unsupported";
+  case HdMerlinHgiVulkanDirectShareRejection::TilingUnsupported:
+    return "tiling-unsupported";
+  case HdMerlinHgiVulkanDirectShareRejection::MemoryConstraintsUnsupported:
+    return "memory-constraints-unsupported";
+  case HdMerlinHgiVulkanDirectShareRejection::PublicTextureImportUnavailable:
+    return "public-texture-import-unavailable";
+  case HdMerlinHgiVulkanDirectShareRejection::HostConsumptionUnretained:
+    return "host-consumption-unretained";
+  case HdMerlinHgiVulkanDirectShareRejection::CompletionRetentionUnavailable:
+    return "completion-retention-unavailable";
+  case HdMerlinHgiVulkanDirectShareRejection::ResizeRetirementUnsafe:
+    return "resize-retirement-unsafe";
+  case HdMerlinHgiVulkanDirectShareRejection::DirectPathUnavailable:
+    return "direct-path-unavailable";
   }
   return "unknown";
 }
@@ -129,32 +129,32 @@ std::string_view HdMerlinHgiVulkanDirectShareRejectionName(
 std::string_view HdMerlinHgiVulkanFallbackReasonName(
     HdMerlinHgiVulkanFallbackReason reason) noexcept {
   switch (reason) {
-    case HdMerlinHgiVulkanFallbackReason::None:
-      return "none";
-    case HdMerlinHgiVulkanFallbackReason::BridgeDisabled:
-      return "bridge-disabled";
-    case HdMerlinHgiVulkanFallbackReason::MissingRenderDriver:
-      return "missing-render-driver";
-    case HdMerlinHgiVulkanFallbackReason::NonVulkanRenderDriver:
-      return "non-vulkan-render-driver";
-    case HdMerlinHgiVulkanFallbackReason::UnsupportedOpenUsd:
-      return "unsupported-openusd";
-    case HdMerlinHgiVulkanFallbackReason::GpuCopyUnavailable:
-      return "gpu-copy-unavailable";
-    case HdMerlinHgiVulkanFallbackReason::DriverSwapRejected:
-      return "driver-swap-rejected";
-    case HdMerlinHgiVulkanFallbackReason::InvalidTarget:
-      return "invalid-target";
-    case HdMerlinHgiVulkanFallbackReason::TargetCreationFailed:
-      return "target-creation-failed";
-    case HdMerlinHgiVulkanFallbackReason::TargetUploadFailed:
-      return "target-upload-failed";
-    case HdMerlinHgiVulkanFallbackReason::NativeContextUnavailable:
-      return "native-context-unavailable";
-    case HdMerlinHgiVulkanFallbackReason::SourceMismatch:
-      return "source-mismatch";
-    case HdMerlinHgiVulkanFallbackReason::GpuCopyFailed:
-      return "gpu-copy-failed";
+  case HdMerlinHgiVulkanFallbackReason::None:
+    return "none";
+  case HdMerlinHgiVulkanFallbackReason::BridgeDisabled:
+    return "bridge-disabled";
+  case HdMerlinHgiVulkanFallbackReason::MissingRenderDriver:
+    return "missing-render-driver";
+  case HdMerlinHgiVulkanFallbackReason::NonVulkanRenderDriver:
+    return "non-vulkan-render-driver";
+  case HdMerlinHgiVulkanFallbackReason::UnsupportedOpenUsd:
+    return "unsupported-openusd";
+  case HdMerlinHgiVulkanFallbackReason::GpuCopyUnavailable:
+    return "gpu-copy-unavailable";
+  case HdMerlinHgiVulkanFallbackReason::DriverSwapRejected:
+    return "driver-swap-rejected";
+  case HdMerlinHgiVulkanFallbackReason::InvalidTarget:
+    return "invalid-target";
+  case HdMerlinHgiVulkanFallbackReason::TargetCreationFailed:
+    return "target-creation-failed";
+  case HdMerlinHgiVulkanFallbackReason::TargetUploadFailed:
+    return "target-upload-failed";
+  case HdMerlinHgiVulkanFallbackReason::NativeContextUnavailable:
+    return "native-context-unavailable";
+  case HdMerlinHgiVulkanFallbackReason::SourceMismatch:
+    return "source-mismatch";
+  case HdMerlinHgiVulkanFallbackReason::GpuCopyFailed:
+    return "gpu-copy-failed";
   }
   return "unknown";
 }
@@ -243,21 +243,22 @@ HdMerlinHgiVulkanDirectShareSupport HdMerlinEvaluateHgiVulkanDirectShare(
 
 HgiFormat HdMerlinHgiFormatForRenderBuffer(HdFormat format) noexcept {
   switch (format) {
-    case HdFormatUNorm8Vec4:
-      return HgiFormatUNorm8Vec4;
-    case HdFormatFloat32:
-      return HgiFormatFloat32;
-    case HdFormatInt32:
-      return HgiFormatInt32;
-    default:
-      return HgiFormatInvalid;
+  case HdFormatUNorm8Vec4:
+    return HgiFormatUNorm8Vec4;
+  case HdFormatFloat32:
+    return HgiFormatFloat32;
+  case HdFormatInt32:
+    return HgiFormatInt32;
+  default:
+    return HgiFormatInvalid;
   }
 }
 
 HdMerlinHgiVulkanBridge::HdMerlinHgiVulkanBridge(bool enabled)
     : enabled_(enabled),
       status_(HdMerlinEvaluateHgiVulkanBridgeSupport(
-          enabled, PXR_VERSION, false, false)) {}
+          enabled, PXR_VERSION, false, false)) {
+}
 
 HdMerlinHgiVulkanBridge::~HdMerlinHgiVulkanBridge() = default;
 
@@ -463,7 +464,7 @@ void HdMerlinHgiVulkanBridge::DestroyTarget(HgiTextureHandle* target) {
 }
 
 bool HdMerlinHgiVulkanBridge::Upload(HgiTextureHandle target, const void* data,
-                                     std::size_t byte_size) {
+    std::size_t byte_size) {
   TRACE_SCOPE("HdMerlinHgiVulkanBridge::Upload");
   Hgi* hgi = nullptr;
   {
@@ -578,16 +579,16 @@ bool HdMerlinHgiVulkanBridge::Copy(
       source.native_aspect_mask ==
           static_cast<std::uint32_t>(VK_IMAGE_ASPECT_COLOR_BIT) &&
       (source.native_usage_mask &
-       static_cast<std::uint32_t>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                  VK_IMAGE_USAGE_SAMPLED_BIT)) ==
+          static_cast<std::uint32_t>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                     VK_IMAGE_USAGE_SAMPLED_BIT)) ==
           static_cast<std::uint32_t>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                                      VK_IMAGE_USAGE_SAMPLED_BIT) &&
       source.native_tiling ==
           static_cast<std::uint32_t>(VK_IMAGE_TILING_OPTIMAL) &&
       (source.native_memory_property_mask &
-       static_cast<std::uint32_t>(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) != 0 &&
+          static_cast<std::uint32_t>(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) != 0 &&
       source.native_sharing_mode ==
           static_cast<std::uint32_t>(VK_SHARING_MODE_EXCLUSIVE) &&
       source.queue_family == device->GetGfxQueueFamilyIndex() &&
@@ -639,10 +640,10 @@ bool HdMerlinHgiVulkanBridge::Copy(
     region.dstSubresource.layerCount = 1;
     region.extent = {source.product.width, source.product.height, 1};
     vkCmdCopyImage(command_buffer->GetVulkanCommandBuffer(),
-                   DecodeHandle<VkImage>(source.image),
-                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   destination->GetImage(),
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        DecodeHandle<VkImage>(source.image),
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        destination->GetImage(),
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     destination->LayoutBarrier(
         command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -654,7 +655,7 @@ bool HdMerlinHgiVulkanBridge::Copy(
     const auto weak_bridge = weak_from_this();
     command_buffer->AddCompletedHandler(
         [backend = std::move(backend), lease, weak_bridge,
-         copy_serial]() mutable noexcept {
+            copy_serial]() mutable noexcept {
           if (auto* completed_exporter =
                   dynamic_cast<merlin::vulkan::AovImageExporter*>(
                       backend.get());

@@ -30,17 +30,17 @@ constexpr std::uint32_t kMaskedAlphaFlag = 0x10000000U;
 
 std::atomic<std::uint64_t> g_owner{1000};
 
-std::string String(NSString *value) {
+std::string String(NSString* value) {
   if (value == nil) {
     return {};
   }
-  const char *utf8 = value.UTF8String;
+  const char* utf8 = value.UTF8String;
   return utf8 == nullptr ? std::string{} : std::string(utf8);
 }
 
 template <typename Handle>
 Handle DecodeHandle(std::uintptr_t value) noexcept {
-  return (__bridge Handle)(reinterpret_cast<void *>(value));
+  return (__bridge Handle)(reinterpret_cast<void*>(value));
 }
 
 std::uint64_t DurationNs(Clock::time_point begin, Clock::time_point end) {
@@ -61,7 +61,7 @@ std::uint32_t AlignedRowPitch(std::uint32_t width) {
       AlignUp(static_cast<std::uint64_t>(width) * 4U, 256U));
 }
 
-Mat4 Multiply(const Mat4 &lhs, const Mat4 &rhs) {
+Mat4 Multiply(const Mat4& lhs, const Mat4& rhs) {
   Mat4 result;
   result.values.fill(0.0F);
   for (std::size_t column = 0; column < 4; ++column) {
@@ -75,16 +75,16 @@ Mat4 Multiply(const Mat4 &lhs, const Mat4 &rhs) {
   return result;
 }
 
-std::array<Vec4, 3> NormalMatrix(const Mat4 &transform) {
+std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
   const Vec3 column0{transform.values[0], transform.values[1],
-                     transform.values[2]};
+      transform.values[2]};
   const Vec3 column1{transform.values[4], transform.values[5],
-                     transform.values[6]};
+      transform.values[6]};
   const Vec3 column2{transform.values[8], transform.values[9],
-                     transform.values[10]};
-  const auto cross = [](const Vec3 &lhs, const Vec3 &rhs) {
+      transform.values[10]};
+  const auto cross = [](const Vec3& lhs, const Vec3& rhs) {
     return Vec3{lhs.y * rhs.z - lhs.z * rhs.y, lhs.z * rhs.x - lhs.x * rhs.z,
-                lhs.x * rhs.y - lhs.y * rhs.x};
+        lhs.x * rhs.y - lhs.y * rhs.x};
   };
   const auto cofactor0 = cross(column1, column2);
   const auto cofactor1 = cross(column2, column0);
@@ -93,14 +93,14 @@ std::array<Vec4, 3> NormalMatrix(const Mat4 &transform) {
                            column0.z * cofactor0.z;
   if (std::abs(determinant) <= 1.0e-20F) {
     return {Vec4{1.0F, 0.0F, 0.0F, 0.0F}, Vec4{0.0F, 1.0F, 0.0F, 0.0F},
-            Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
+        Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
   }
   const auto scale = 1.0F / determinant;
   return {
       Vec4{cofactor0.x * scale, cofactor0.y * scale, cofactor0.z * scale, 0.0F},
       Vec4{cofactor1.x * scale, cofactor1.y * scale, cofactor1.z * scale, 0.0F},
       Vec4{cofactor2.x * scale, cofactor2.y * scale, cofactor2.z * scale,
-           0.0F}};
+          0.0F}};
 }
 
 struct alignas(16) DrawConstants {
@@ -140,7 +140,7 @@ static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
 static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
 
-const char *kShaderSource = R"METAL(
+const char* kShaderSource = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -434,20 +434,20 @@ std::uint64_t AovBit(Aov aov) {
   return 1ULL << static_cast<std::uint32_t>(aov);
 }
 
-bool HasAov(const std::vector<Aov> &values, Aov aov) {
+bool HasAov(const std::vector<Aov>& values, Aov aov) {
   return std::find(values.begin(), values.end(), aov) != values.end();
 }
 
 std::vector<Aov>
-ValidateProducts(const std::vector<render::RenderProductRequest> &products,
-                 std::vector<Aov> *readbacks) {
+ValidateProducts(const std::vector<render::RenderProductRequest>& products,
+    std::vector<Aov>* readbacks) {
   if (products.empty()) {
     throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                "submit Metal frame",
-                                "at least one render product is required");
+        "submit Metal frame",
+        "at least one render product is required");
   }
   std::vector<Aov> rendered;
-  for (const auto &product : products) {
+  for (const auto& product : products) {
     if (product.aov != Aov::Color && product.aov != Aov::Depth &&
         product.aov != Aov::PrimId && product.aov != Aov::InstanceId) {
       throw render::RendererError(
@@ -456,8 +456,8 @@ ValidateProducts(const std::vector<render::RenderProductRequest> &products,
     }
     if (HasAov(rendered, product.aov)) {
       throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                  "submit Metal frame",
-                                  "duplicate render product");
+          "submit Metal frame",
+          "duplicate render product");
     }
     rendered.push_back(product.aov);
     if (product.cpu_readback) {
@@ -484,8 +484,8 @@ MTLSamplerAddressMode Address(AddressMode value) {
   return MTLSamplerAddressModeClampToEdge;
 }
 
-MTLHeapDescriptor *SceneHeapDescriptor(std::uint64_t capacity_bytes) {
-  MTLHeapDescriptor *descriptor = [MTLHeapDescriptor new];
+MTLHeapDescriptor* SceneHeapDescriptor(std::uint64_t capacity_bytes) {
+  MTLHeapDescriptor* descriptor = [MTLHeapDescriptor new];
   descriptor.size = capacity_bytes;
   descriptor.storageMode = MTLStorageModeShared;
   descriptor.cpuCacheMode = MTLCPUCacheModeWriteCombined;
@@ -495,7 +495,7 @@ MTLHeapDescriptor *SceneHeapDescriptor(std::uint64_t capacity_bytes) {
 
 template <typename Record>
 std::uint64_t GpuSceneTableReservation(id<MTLDevice> device,
-                                       std::uint32_t capacity) {
+    std::uint32_t capacity) {
   const auto length = static_cast<std::uint64_t>(capacity) * sizeof(Record);
   const auto size_and_align = [device
       heapBufferSizeAndAlignWithLength:static_cast<NSUInteger>(length)
@@ -505,13 +505,13 @@ std::uint64_t GpuSceneTableReservation(id<MTLDevice> device,
 
 std::uint64_t GpuSceneReservation(
     id<MTLDevice> device,
-    const render::GpuScenePackingCapacities &capacities) {
+    const render::GpuScenePackingCapacities& capacities) {
   return GpuSceneTableReservation<render::GpuGeometry>(device,
-                                                        capacities.geometries) +
+             capacities.geometries) +
          GpuSceneTableReservation<render::GpuInstance>(device,
-                                                        capacities.instances) +
+             capacities.instances) +
          GpuSceneTableReservation<render::GpuMaterial>(device,
-                                                        capacities.materials) +
+             capacities.materials) +
          GpuSceneTableReservation<render::GpuDraw>(device, capacities.draws);
 }
 
@@ -525,15 +525,15 @@ AovImageLease::AovImageLease(AovImageLease&& other) noexcept
 
 class Backend::Impl {
 public:
-  Impl(const render::BackendCreateInfo &info, BackendOptions options)
+  Impl(const render::BackendCreateInfo& info, BackendOptions options)
       : owner_(++g_owner), options_(options),
         texture_slots_(options.texture_capacity),
         sampler_slots_(options.sampler_capacity) {
     @autoreleasepool {
       if (info.frames_in_flight == 0 || info.frames_in_flight > 8) {
         throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                    "create Metal backend",
-                                    "frames_in_flight must be between 1 and 8");
+            "create Metal backend",
+            "frames_in_flight must be between 1 and 8");
       }
       if (options_.texture_capacity > kShaderTextureCapacity ||
           options_.sampler_capacity > kShaderSamplerCapacity) {
@@ -543,13 +543,13 @@ public:
       }
       if (options_.heap_capacity_bytes < 1024U * 1024U) {
         throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                    "create Metal backend",
-                                    "heap capacity must be at least 1 MiB");
+            "create Metal backend",
+            "heap capacity must be at least 1 MiB");
       }
       if (options_.presentation &&
           (options_.presentation->layer == 0 ||
-           options_.presentation->drawable_count < 2 ||
-           options_.presentation->drawable_count > 3)) {
+              options_.presentation->drawable_count < 2 ||
+              options_.presentation->drawable_count > 3)) {
         throw render::RendererError(
             render::RendererErrorCode::InvalidRequest,
             "create Metal presentation",
@@ -574,8 +574,8 @@ public:
       queue_ = [device_ newCommandQueue];
       if (queue_ == nil) {
         throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                    "create Metal command queue",
-                                    "newCommandQueue returned nil");
+            "create Metal command queue",
+            "newCommandQueue returned nil");
       }
 
       bindless_ = device_.argumentBuffersSupport == MTLArgumentBuffersTier2;
@@ -596,7 +596,7 @@ public:
       }
 
       frames_.resize(info.frames_in_flight);
-      for (auto &frame : frames_) {
+      for (auto& frame : frames_) {
         frame.encoded_textures.resize(options_.texture_capacity);
         frame.encoded_texture_revisions.resize(options_.texture_capacity);
         frame.encoded_samplers.resize(options_.sampler_capacity);
@@ -635,7 +635,7 @@ public:
 
   ~Impl() {
     @autoreleasepool {
-      for (auto &[value, pending] : pending_) {
+      for (auto& [value, pending] : pending_) {
         (void)value;
         [pending.command waitUntilCompleted];
       }
@@ -643,7 +643,7 @@ public:
     }
   }
 
-  const render::RendererCapabilities &capabilities() const noexcept {
+  const render::RendererCapabilities& capabilities() const noexcept {
     return capabilities_;
   }
 
@@ -684,7 +684,7 @@ public:
 
   MetalStatistics metal_statistics() const noexcept {
     auto result = metal_statistics_;
-    for (const auto &frame : frames_) {
+    for (const auto& frame : frames_) {
       if (frame.gpu_scene_staging != nil) {
         result.gpu_scene_staging_capacity_bytes +=
             frame.gpu_scene_staging.length;
@@ -701,25 +701,25 @@ public:
   }
 
   void ResizePresentationTarget(render::PresentationTarget target,
-                                std::uint32_t width, std::uint32_t height) {
+      std::uint32_t width, std::uint32_t height) {
     ValidatePresentation(target, "resize Metal presentation");
     ValidatePresentationExtent(width, height, "resize Metal presentation");
     UpdatePresentationExtent(width, height);
   }
 
-  render::CompletionToken Submit(const render::RenderRequest &request) {
+  render::CompletionToken Submit(const render::RenderRequest& request) {
     @autoreleasepool {
       const auto submit_begin = Clock::now();
       if (!request.snapshot) {
         throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                    "submit Metal frame", "snapshot is null");
+            "submit Metal frame", "snapshot is null");
       }
       if (request.width == 0 || request.height == 0 ||
           request.width > capabilities_.limits.max_image_dimension_2d ||
           request.height > capabilities_.limits.max_image_dimension_2d) {
         throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                    "submit Metal frame",
-                                    "render extent is invalid");
+            "submit Metal frame",
+            "render extent is invalid");
       }
       if (render::GpuDrivenIndexedModeName(
               request.gpu_driven_indexed.mode) == "unknown") {
@@ -757,10 +757,10 @@ public:
       }
       if (searched == frames_.size()) {
         throw render::RendererError(render::RendererErrorCode::ResourceBusy,
-                                    "submit Metal frame",
-                                    "all frames-in-flight are unresolved");
+            "submit Metal frame",
+            "all frames-in-flight are unresolved");
       }
-      auto &frame = frames_[context_index];
+      auto& frame = frames_[context_index];
       next_context_ = (context_index + 1U) % frames_.size();
 
       FrameBuild build;
@@ -770,13 +770,13 @@ public:
         EncodeArgumentBuffer(frame, build);
       }
       PrepareGpuSceneUpdate(*request.snapshot,
-                            request.gpu_scene_update.get(), frame, build);
+          request.gpu_scene_update.get(), frame, build);
 
       id<MTLCommandBuffer> command = [queue_ commandBuffer];
       if (command == nil) {
         throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                    "create Metal command buffer",
-                                    "commandBuffer returned nil");
+            "create Metal command buffer",
+            "commandBuffer returned nil");
       }
       command.label = @"hdMerlin offscreen frame";
 
@@ -803,7 +803,7 @@ public:
 
       const auto value = ++submitted_value_;
       dispatch_semaphore_t completion = dispatch_semaphore_create(0);
-      auto *completed = &completed_value_;
+      auto* completed = &completed_value_;
       [command addCompletedHandler:^(id<MTLCommandBuffer>) {
         completed->store(value, std::memory_order_release);
         dispatch_semaphore_signal(completion);
@@ -857,16 +857,16 @@ public:
   }
 
   bool IsComplete(render::CompletionToken token) const {
-    const auto &pending = ValidateToken(token, "query Metal completion");
+    const auto& pending = ValidateToken(token, "query Metal completion");
     return pending.command.status == MTLCommandBufferStatusCompleted ||
            pending.command.status == MTLCommandBufferStatusError;
   }
 
   AovImageExport AcquireAovImage(render::CompletionToken token, Aov aov) {
     @autoreleasepool {
-      auto &pending = ValidateToken(token, "acquire Metal AOV image");
+      auto& pending = ValidateToken(token, "acquire Metal AOV image");
       const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(aov);
-      auto &frame = frames_[pending.context_index];
+      auto& frame = frames_[pending.context_index];
       if (frame.exported_aov_mask & mask) {
         throw render::RendererError(
             render::RendererErrorCode::ResourceBusy,
@@ -934,12 +934,11 @@ public:
       if (!lease) {
         return;
       }
-      for (auto &frame : frames_) {
+      for (auto& frame : frames_) {
         if (frame.completion_value != lease.completion_value()) {
           continue;
         }
-        const auto mask = std::uint64_t{1} <<
-                          static_cast<std::uint32_t>(lease.aov());
+        const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(lease.aov());
         if ((frame.exported_aov_mask & mask) == 0) {
           return;
         }
@@ -959,9 +958,9 @@ public:
   }
 
   render::RenderResult Resolve(render::CompletionToken token,
-                               std::chrono::nanoseconds timeout) {
+      std::chrono::nanoseconds timeout) {
     @autoreleasepool {
-      auto &pending = ValidateToken(token, "resolve Metal frame");
+      auto& pending = ValidateToken(token, "resolve Metal frame");
       const auto wait_begin = Clock::now();
       if (pending.command.status != MTLCommandBufferStatusCompleted &&
           pending.command.status != MTLCommandBufferStatusError) {
@@ -972,8 +971,8 @@ public:
           const auto deadline = dispatch_time(DISPATCH_TIME_NOW, count);
           if (dispatch_semaphore_wait(pending.completion, deadline) != 0) {
             throw render::RendererError(render::RendererErrorCode::Timeout,
-                                        "resolve Metal frame",
-                                        "completion wait timed out");
+                "resolve Metal frame",
+                "completion wait timed out");
           }
         }
       }
@@ -990,12 +989,12 @@ public:
         ++statistics_.validation_messages;
         const auto detail = command_failed
                                 ? (pending.command.error == nil
-                                       ? std::string(
-                                             "Metal command buffer failed")
-                                       : String(pending.command.error
+                                          ? std::string(
+                                                "Metal command buffer failed")
+                                          : String(pending.command.error
                                                     .localizedDescription))
                                 : gpu_scene_failure_detail_;
-        auto &failed_frame = frames_[pending.context_index];
+        auto& failed_frame = frames_[pending.context_index];
         // A bridge blit may still be waiting on this frame's completion event.
         // Keep the frame identified until that lease callback releases it.
         failed_frame.busy = failed_frame.exported_aov_mask != 0;
@@ -1009,11 +1008,11 @@ public:
         pending_.erase(token.value());
         CollectRetirements();
         throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                    "execute Metal frame", detail, native_code);
+            "execute Metal frame", detail, native_code);
       }
 
       const auto readback_begin = Clock::now();
-      auto &frame = frames_[pending.context_index];
+      auto& frame = frames_[pending.context_index];
       pending.result.rendered_aovs = pending.rendered_aovs;
       pending.result.cpu_readback_aovs = pending.readback_aovs;
       CopyReadbacks(frame, pending);
@@ -1155,8 +1154,8 @@ private:
     // fails, every already-submitted update chained after it is based on
     // table contents that may only be partially resident.
     std::uint64_t failed_value{};
-    Pending *failed_pending{};
-    for (auto &[value, candidate] : pending_) {
+    Pending* failed_pending{};
+    for (auto& [value, candidate] : pending_) {
       if (value <= completion_value && candidate.has_gpu_scene_copies &&
           candidate.command.status == MTLCommandBufferStatusError &&
           value > failed_value) {
@@ -1183,7 +1182,7 @@ private:
 
   template <typename Record>
   id<MTLBuffer> CreateGpuSceneTable(std::uint32_t capacity,
-                                    std::string_view table_name) {
+      std::string_view table_name) {
     if (capacity == 0) {
       throw render::RendererError(
           render::RendererErrorCode::InvalidRequest,
@@ -1213,7 +1212,7 @@ private:
     metal_statistics_.heap_resident_bytes += charged;
     metal_statistics_.heap_peak_resident_bytes =
         std::max(metal_statistics_.heap_peak_resident_bytes,
-                 metal_statistics_.heap_resident_bytes);
+            metal_statistics_.heap_resident_bytes);
     ++metal_statistics_.heap_allocation_count;
     return buffer;
   }
@@ -1222,13 +1221,13 @@ private:
     gpu_scene_buffers_.capacities = capacities;
     gpu_scene_buffers_.geometries =
         CreateGpuSceneTable<render::GpuGeometry>(capacities.geometries,
-                                                  "geometry");
+            "geometry");
     gpu_scene_buffers_.instances =
         CreateGpuSceneTable<render::GpuInstance>(capacities.instances,
-                                                  "instance");
+            "instance");
     gpu_scene_buffers_.materials =
         CreateGpuSceneTable<render::GpuMaterial>(capacities.materials,
-                                                  "material");
+            "material");
     gpu_scene_buffers_.draws =
         CreateGpuSceneTable<render::GpuDraw>(capacities.draws, "draw");
     metal_statistics_.gpu_scene_buffers = true;
@@ -1240,8 +1239,8 @@ private:
 
   template <typename Record>
   void ValidateGpuSceneTableUpdate(
-      const render::GpuScenePackedUpdate<Record> &packed,
-      const std::vector<render::GpuSceneDirtyRange> &dirty_ranges,
+      const render::GpuScenePackedUpdate<Record>& packed,
+      const std::vector<render::GpuSceneDirtyRange>& dirty_ranges,
       std::uint32_t capacity, std::string_view table_name) const {
     if (packed.ranges.size() != dirty_ranges.size()) {
       throw render::RendererError(
@@ -1253,8 +1252,8 @@ private:
     std::uint64_t copy_bytes{};
     std::uint64_t previous_end{};
     for (std::size_t i = 0; i < packed.ranges.size(); ++i) {
-      const auto &range = packed.ranges[i];
-      const auto &dirty = dirty_ranges[i];
+      const auto& range = packed.ranges[i];
+      const auto& dirty = dirty_ranges[i];
       if (range.records.empty() || range.first_slot != dirty.first_slot ||
           range.records.size() != dirty.slot_count) {
         throw render::RendererError(
@@ -1285,9 +1284,9 @@ private:
   }
 
   void PrepareGpuSceneUpdate(
-      const extraction::FrameSnapshot &snapshot,
-      const render::GpuScenePackedFrameUpdate *update, FrameContext &frame,
-      FrameBuild &build) {
+      const extraction::FrameSnapshot& snapshot,
+      const render::GpuScenePackedFrameUpdate* update, FrameContext& frame,
+      FrameBuild& build) {
     if (update == nullptr) {
       return;
     }
@@ -1297,7 +1296,7 @@ private:
           render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
           "backend has no GPU Scene table capacities");
     }
-    const auto validate_plan = [&](const auto &plan,
+    const auto validate_plan = [&](const auto& plan,
                                    std::string_view table_name) {
       if (plan.source_id != snapshot.source_id ||
           plan.revision != snapshot.revision) {
@@ -1312,8 +1311,8 @@ private:
     validate_plan(update->instance_plan, "instance");
     validate_plan(update->material_plan, "material");
     validate_plan(update->draw_plan, "draw");
-    const auto &reference_plan = update->geometry_plan;
-    const auto same_plan_boundary = [&](const auto &plan) {
+    const auto& reference_plan = update->geometry_plan;
+    const auto same_plan_boundary = [&](const auto& plan) {
       return plan.source_id == reference_plan.source_id &&
              plan.base_revision == reference_plan.base_revision &&
              plan.revision == reference_plan.revision;
@@ -1338,17 +1337,17 @@ private:
 
     const auto capacities = gpu_scene_buffers_.capacities;
     ValidateGpuSceneTableUpdate(update->geometries,
-                                update->geometry_plan.dirty_ranges,
-                                capacities.geometries, "geometry");
+        update->geometry_plan.dirty_ranges,
+        capacities.geometries, "geometry");
     ValidateGpuSceneTableUpdate(update->instances,
-                                update->instance_plan.dirty_ranges,
-                                capacities.instances, "instance");
+        update->instance_plan.dirty_ranges,
+        capacities.instances, "instance");
     ValidateGpuSceneTableUpdate(update->materials,
-                                update->material_plan.dirty_ranges,
-                                capacities.materials, "material");
+        update->material_plan.dirty_ranges,
+        capacities.materials, "material");
     ValidateGpuSceneTableUpdate(update->draws,
-                                update->draw_plan.dirty_ranges,
-                                capacities.draws, "draw");
+        update->draw_plan.dirty_ranges,
+        capacities.draws, "draw");
     if (!update->draw_slot_indices ||
         update->draw_slot_indices->size() != snapshot.draws.size()) {
       throw render::RendererError(
@@ -1439,31 +1438,30 @@ private:
       build.telemetry.gpu_scene_staging_growth_bytes += required;
       ++metal_statistics_.gpu_scene_staging_growth_count;
       std::uint64_t staging_capacity{};
-      for (const auto &candidate : frames_) {
+      for (const auto& candidate : frames_) {
         if (candidate.gpu_scene_staging != nil) {
           staging_capacity += candidate.gpu_scene_staging.length;
         }
       }
       metal_statistics_.gpu_scene_staging_peak_capacity_bytes =
           std::max(metal_statistics_.gpu_scene_staging_peak_capacity_bytes,
-                   staging_capacity);
+              staging_capacity);
     }
 
     NSUInteger cursor{};
     const auto stage_table = [&]<typename Record>(
-                                 const render::GpuScenePackedUpdate<Record>
-                                     &packed,
+                                 const render::GpuScenePackedUpdate<Record>& packed,
                                  id<MTLBuffer> destination) {
-      for (const auto &range : packed.ranges) {
+      for (const auto& range : packed.ranges) {
         const auto bytes = static_cast<NSUInteger>(range.records.size() *
                                                    sizeof(Record));
-        std::memcpy(static_cast<std::byte *>(frame.gpu_scene_staging.contents) +
+        std::memcpy(static_cast<std::byte*>(frame.gpu_scene_staging.contents) +
                         cursor,
-                    range.records.data(), bytes);
+            range.records.data(), bytes);
         build.gpu_scene_copies.push_back(
             {frame.gpu_scene_staging, cursor, destination,
-             static_cast<NSUInteger>(range.first_slot) * sizeof(Record),
-             bytes});
+                static_cast<NSUInteger>(range.first_slot) * sizeof(Record),
+                bytes});
         cursor += bytes;
       }
     };
@@ -1480,7 +1478,7 @@ private:
   }
 
   void EncodeGpuSceneUpdate(id<MTLCommandBuffer> command,
-                            const FrameBuild &build) {
+      const FrameBuild& build) {
     if (build.gpu_scene_copies.empty()) {
       return;
     }
@@ -1491,17 +1489,17 @@ private:
           "upload Metal GPU Scene", "blitCommandEncoder returned nil");
     }
     encoder.label = @"hdMerlin GPU Scene dirty ranges";
-    for (const auto &copy : build.gpu_scene_copies) {
+    for (const auto& copy : build.gpu_scene_copies) {
       [encoder copyFromBuffer:copy.source
-                sourceOffset:copy.source_offset
-                    toBuffer:copy.destination
-           destinationOffset:copy.destination_offset
-                        size:copy.size];
+                 sourceOffset:copy.source_offset
+                     toBuffer:copy.destination
+            destinationOffset:copy.destination_offset
+                         size:copy.size];
     }
     [encoder endEncoding];
   }
 
-  void CommitGpuSceneUpdate(const FrameBuild &build) noexcept {
+  void CommitGpuSceneUpdate(const FrameBuild& build) noexcept {
     if (!build.has_gpu_scene_update) {
       return;
     }
@@ -1523,9 +1521,9 @@ private:
   }
 
   void CreateLibraryAndPipeline() {
-    MTLCompileOptions *options = [MTLCompileOptions new];
+    MTLCompileOptions* options = [MTLCompileOptions new];
     options.fastMathEnabled = YES;
-    NSError *error = nil;
+    NSError* error = nil;
     library_ = [device_
         newLibraryWithSource:[NSString stringWithUTF8String:kShaderSource]
                      options:options
@@ -1538,16 +1536,16 @@ private:
           static_cast<std::int32_t>(error.code));
     }
     id<MTLFunction> vertex = [library_ newFunctionWithName:@"merlin_vertex"];
-    NSString *fragment_name = bindless_ ? @"merlin_fragment_argument_buffer"
+    NSString* fragment_name = bindless_ ? @"merlin_fragment_argument_buffer"
                                         : @"merlin_fragment_conventional";
     id<MTLFunction> fragment = [library_ newFunctionWithName:fragment_name];
     if (vertex == nil || fragment == nil) {
       throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                  "load Metal shader entry point",
-                                  "compiled entry point is missing");
+          "load Metal shader entry point",
+          "compiled entry point is missing");
     }
 
-    MTLVertexDescriptor *vertices = [MTLVertexDescriptor vertexDescriptor];
+    MTLVertexDescriptor* vertices = [MTLVertexDescriptor vertexDescriptor];
     vertices.attributes[0].format = MTLVertexFormatFloat3;
     vertices.attributes[0].offset = offsetof(extraction::DrawVertex, position);
     vertices.attributes[0].bufferIndex = 0;
@@ -1563,7 +1561,7 @@ private:
     vertices.layouts[0].stride = sizeof(extraction::DrawVertex);
     vertices.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
 
-    MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
+    MTLRenderPipelineDescriptor* descriptor = [MTLRenderPipelineDescriptor new];
     descriptor.label = @"hdMerlin Forward";
     descriptor.vertexFunction = vertex;
     descriptor.fragmentFunction = fragment;
@@ -1576,11 +1574,11 @@ private:
                                                         error:&error];
     if (pipeline_ == nil) {
       throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                  "create Metal render pipeline",
-                                  error == nil
-                                      ? "newRenderPipelineState returned nil"
-                                      : String(error.localizedDescription),
-                                  static_cast<std::int32_t>(error.code));
+          "create Metal render pipeline",
+          error == nil
+              ? "newRenderPipelineState returned nil"
+              : String(error.localizedDescription),
+          static_cast<std::int32_t>(error.code));
     }
     if (bindless_) {
       id<MTLFunction> gpu_scene_vertex =
@@ -1612,8 +1610,8 @@ private:
       argument_encoder_ = [fragment newArgumentEncoderWithBufferIndex:3];
       if (argument_encoder_ == nil) {
         throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                    "create Metal argument encoder",
-                                    "fragment argument encoder is unavailable");
+            "create Metal argument encoder",
+            "fragment argument encoder is unavailable");
       }
     }
     if (options_.presentation) {
@@ -1621,7 +1619,7 @@ private:
           [library_ newFunctionWithName:@"merlin_presentation_vertex"];
       id<MTLFunction> presentation_fragment =
           [library_ newFunctionWithName:@"merlin_presentation_fragment"];
-      MTLRenderPipelineDescriptor *presentation =
+      MTLRenderPipelineDescriptor* presentation =
           [MTLRenderPipelineDescriptor new];
       presentation.label = @"hdMerlin native presentation";
       presentation.vertexFunction = presentation_vertex;
@@ -1642,8 +1640,8 @@ private:
     }
   }
 
-  void ConfigurePresentation(const PresentationOptions &options) {
-    layer_ = DecodeHandle<CAMetalLayer *>(options.layer);
+  void ConfigurePresentation(const PresentationOptions& options) {
+    layer_ = DecodeHandle<CAMetalLayer*>(options.layer);
     layer_.device = device_;
     layer_.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
     layer_.framebufferOnly = YES;
@@ -1663,9 +1661,9 @@ private:
   }
 
   void NotifyOverlay(PresentationOverlayPhase phase,
-                     id<MTLCommandBuffer> command = nil,
-                     id<MTLRenderCommandEncoder> encoder = nil,
-                     MTLRenderPassDescriptor *pass = nil) {
+      id<MTLCommandBuffer> command = nil,
+      id<MTLRenderCommandEncoder> encoder = nil,
+      MTLRenderPassDescriptor* pass = nil) {
     if (!options_.presentation ||
         options_.presentation->render_overlay == nullptr) {
       return;
@@ -1673,19 +1671,19 @@ private:
     PresentationOverlayContext context;
     context.phase = phase;
     context.device =
-        reinterpret_cast<std::uintptr_t>((__bridge void *)device_);
+        reinterpret_cast<std::uintptr_t>((__bridge void*)device_);
     context.command_buffer =
-        reinterpret_cast<std::uintptr_t>((__bridge void *)command);
+        reinterpret_cast<std::uintptr_t>((__bridge void*)command);
     context.render_encoder =
-        reinterpret_cast<std::uintptr_t>((__bridge void *)encoder);
+        reinterpret_cast<std::uintptr_t>((__bridge void*)encoder);
     context.render_pass_descriptor =
-        reinterpret_cast<std::uintptr_t>((__bridge void *)pass);
+        reinterpret_cast<std::uintptr_t>((__bridge void*)pass);
     options_.presentation->render_overlay(
         options_.presentation->overlay_user_data, context);
   }
 
   void ValidatePresentation(render::PresentationTarget target,
-                            const char *operation) const {
+      const char* operation) const {
     if (!presentation_ || target != *presentation_) {
       throw render::RendererError(
           render::RendererErrorCode::InvalidRequest, operation,
@@ -1694,13 +1692,13 @@ private:
   }
 
   void ValidatePresentationExtent(std::uint32_t width, std::uint32_t height,
-                                  const char *operation) const {
+      const char* operation) const {
     if (width == 0 || height == 0 ||
         width > capabilities_.limits.max_image_dimension_2d ||
         height > capabilities_.limits.max_image_dimension_2d) {
       throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                  operation,
-                                  "presentation extent is invalid");
+          operation,
+          "presentation extent is invalid");
     }
   }
 
@@ -1718,14 +1716,14 @@ private:
   }
 
   void CreateDepthState() {
-    MTLDepthStencilDescriptor *descriptor = [MTLDepthStencilDescriptor new];
+    MTLDepthStencilDescriptor* descriptor = [MTLDepthStencilDescriptor new];
     descriptor.depthCompareFunction = MTLCompareFunctionLessEqual;
     descriptor.depthWriteEnabled = YES;
     depth_state_ = [device_ newDepthStencilStateWithDescriptor:descriptor];
     if (depth_state_ == nil) {
       throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                  "create Metal depth state",
-                                  "newDepthStencilState returned nil");
+          "create Metal depth state",
+          "newDepthStencilState returned nil");
     }
   }
 
@@ -1748,7 +1746,7 @@ private:
               std::to_string(options_.heap_capacity_bytes) +
               "-byte residency budget");
     }
-    MTLHeapDescriptor *descriptor =
+    MTLHeapDescriptor* descriptor =
         SceneHeapDescriptor(options_.heap_capacity_bytes -
                             gpu_scene_reservation);
     heap_ = [device_ newHeapWithDescriptor:descriptor];
@@ -1762,8 +1760,8 @@ private:
     heap_.label = @"hdMerlin scene residency";
   }
 
-  id<MTLBuffer> HeapBuffer(std::uint64_t length, std::uint64_t *charged,
-                           FrameBuild &build) {
+  id<MTLBuffer> HeapBuffer(std::uint64_t length, std::uint64_t* charged,
+      FrameBuild& build) {
     if (length == 0) {
       *charged = 0;
       return nil;
@@ -1791,8 +1789,8 @@ private:
     return buffer;
   }
 
-  id<MTLTexture> HeapTexture(MTLTextureDescriptor *descriptor,
-                             std::uint64_t *charged, FrameBuild &build) {
+  id<MTLTexture> HeapTexture(MTLTextureDescriptor* descriptor,
+      std::uint64_t* charged, FrameBuild& build) {
     const auto size_and_align =
         [device_ heapTextureSizeAndAlignWithDescriptor:descriptor];
     *charged = AlignUp(size_and_align.size, size_and_align.align);
@@ -1810,18 +1808,18 @@ private:
     return texture;
   }
 
-  void ChargeAllocation(std::uint64_t bytes, FrameBuild &build) {
+  void ChargeAllocation(std::uint64_t bytes, FrameBuild& build) {
     metal_statistics_.heap_resident_bytes += bytes;
     metal_statistics_.heap_peak_resident_bytes =
         std::max(metal_statistics_.heap_peak_resident_bytes,
-                 metal_statistics_.heap_resident_bytes);
+            metal_statistics_.heap_resident_bytes);
     ++metal_statistics_.heap_allocation_count;
     ++build.telemetry.allocation_count;
     build.telemetry.buffer_allocation_bytes += bytes;
   }
 
   void Retire(id<MTLResource> first, id<MTLResource> second,
-              std::uint64_t bytes) {
+      std::uint64_t bytes) {
     if (first == nil && second == nil) {
       return;
     }
@@ -1835,7 +1833,7 @@ private:
     sampler_slots_.Collect(completed);
     auto output = retirements_.begin();
     for (auto current = retirements_.begin(); current != retirements_.end();
-         ++current) {
+        ++current) {
       if (current->completion_value <= completed) {
         metal_statistics_.heap_resident_bytes -= current->bytes;
         metal_statistics_.heap_release_count +=
@@ -1851,10 +1849,10 @@ private:
     retirements_.erase(output, retirements_.end());
   }
 
-  void Reconcile(const extraction::FrameSnapshot &snapshot, FrameBuild &build) {
+  void Reconcile(const extraction::FrameSnapshot& snapshot, FrameBuild& build) {
     const auto begin = Clock::now();
     std::unordered_set<std::uint64_t> active;
-    for (const auto &record : snapshot.geometries) {
+    for (const auto& record : snapshot.geometries) {
       active.insert(record.mesh);
     }
     for (auto it = geometries_.begin(); it != geometries_.end();) {
@@ -1866,7 +1864,7 @@ private:
       }
     }
     CollectRetirements();
-    for (const auto &record : snapshot.geometries) {
+    for (const auto& record : snapshot.geometries) {
       const auto found = geometries_.find(record.mesh);
       if (found != geometries_.end() &&
           found->second.vertex_revision == record.vertex_revision &&
@@ -1875,8 +1873,8 @@ private:
       }
       if (!record.vertices || !record.indices) {
         throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                    "upload Metal geometry",
-                                    "geometry payload is null");
+            "upload Metal geometry",
+            "geometry payload is null");
       }
       Geometry replacement;
       replacement.vertex_revision = record.vertex_revision;
@@ -1900,11 +1898,11 @@ private:
       }
       if (vertex_bytes != 0) {
         std::memcpy(replacement.vertices.contents, record.vertices->data(),
-                    vertex_bytes);
+            vertex_bytes);
       }
       if (index_bytes != 0) {
         std::memcpy(replacement.indices.contents, record.indices->data(),
-                    index_bytes);
+            index_bytes);
       }
       replacement.bytes = vertex_charged + index_charged;
       build.telemetry.upload_bytes += vertex_bytes + index_bytes;
@@ -1912,7 +1910,7 @@ private:
       build.telemetry.geometry_reconcile_count++;
       if (found != geometries_.end()) {
         Retire(found->second.vertices, found->second.indices,
-               found->second.bytes);
+            found->second.bytes);
         found->second = std::move(replacement);
       } else {
         geometries_.emplace(record.mesh, std::move(replacement));
@@ -1922,7 +1920,7 @@ private:
         std::max(geometry_peak_resident_bytes_, GeometryResidentBytes());
 
     active.clear();
-    for (const auto &record : snapshot.textures) {
+    for (const auto& record : snapshot.textures) {
       active.insert(record.texture);
     }
     for (auto it = textures_.begin(); it != textures_.end();) {
@@ -1935,7 +1933,7 @@ private:
       }
     }
     CollectRetirements();
-    for (const auto &record : snapshot.textures) {
+    for (const auto& record : snapshot.textures) {
       const auto found = textures_.find(record.texture);
       if (found != textures_.end() &&
           found->second.revision == record.revision) {
@@ -1946,10 +1944,10 @@ private:
           record.pixels->size() !=
               static_cast<std::size_t>(record.width) * record.height * 4U) {
         throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                    "upload Metal texture",
-                                    "texture payload is invalid");
+            "upload Metal texture",
+            "texture payload is invalid");
       }
-      MTLTextureDescriptor *descriptor = [MTLTextureDescriptor
+      MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
           texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                        width:record.width
                                       height:record.height
@@ -1962,7 +1960,7 @@ private:
       const bool new_resource = found == textures_.end();
       if (new_resource) {
         (void)AcquireSlot(texture_slots_, record.texture,
-                          "allocate Metal texture slot");
+            "allocate Metal texture slot");
       }
       try {
         replacement.texture =
@@ -1992,7 +1990,7 @@ private:
     }
 
     active.clear();
-    for (const auto &record : snapshot.samplers) {
+    for (const auto& record : snapshot.samplers) {
       active.insert(record.sampler);
     }
     for (auto it = samplers_.begin(); it != samplers_.end();) {
@@ -2004,13 +2002,13 @@ private:
       }
     }
     sampler_slots_.Collect(CompletedValue());
-    for (const auto &record : snapshot.samplers) {
+    for (const auto& record : snapshot.samplers) {
       const auto found = samplers_.find(record.sampler);
       if (found != samplers_.end() &&
           found->second.revision == record.revision) {
         continue;
       }
-      MTLSamplerDescriptor *descriptor = [MTLSamplerDescriptor new];
+      MTLSamplerDescriptor* descriptor = [MTLSamplerDescriptor new];
       descriptor.minFilter = Filter(record.min_filter);
       descriptor.magFilter = Filter(record.mag_filter);
       descriptor.sAddressMode = Address(record.address_u);
@@ -2019,10 +2017,10 @@ private:
       const bool new_resource = found == samplers_.end();
       if (new_resource) {
         (void)AcquireSlot(sampler_slots_, record.sampler,
-                          "allocate Metal sampler slot");
+            "allocate Metal sampler slot");
       }
       Sampler replacement{record.revision,
-                          [device_ newSamplerStateWithDescriptor:descriptor]};
+          [device_ newSamplerStateWithDescriptor:descriptor]};
       if (replacement.sampler == nil) {
         if (new_resource) {
           sampler_slots_.Release(record.sampler, CompletedValue());
@@ -2042,11 +2040,11 @@ private:
     build.upload_ns = DurationNs(begin, Clock::now());
   }
 
-  ResourceSlot AcquireSlot(StableResourceTable &table, std::uint64_t resource,
-                           const char *operation) {
+  ResourceSlot AcquireSlot(StableResourceTable& table, std::uint64_t resource,
+      const char* operation) {
     try {
       return table.Acquire(resource, CompletedValue());
-    } catch (const std::length_error &) {
+    } catch (const std::length_error&) {
       const auto telemetry = table.telemetry();
       throw render::RendererError(
           render::RendererErrorCode::ResourceExhausted, operation,
@@ -2061,13 +2059,13 @@ private:
     return completed_value_.load(std::memory_order_acquire);
   }
 
-  void EnsureTargets(FrameContext &frame, std::uint32_t width,
-                     std::uint32_t height, FrameBuild &build) {
+  void EnsureTargets(FrameContext& frame, std::uint32_t width,
+      std::uint32_t height, FrameBuild& build) {
     if (frame.width == width && frame.height == height && frame.color != nil) {
       return;
     }
     auto texture = [&](MTLPixelFormat format, MTLTextureUsage usage) {
-      MTLTextureDescriptor *descriptor =
+      MTLTextureDescriptor* descriptor =
           [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
                                                              width:width
                                                             height:height
@@ -2124,20 +2122,20 @@ private:
     frame.instance_readback = instance_readback;
   }
 
-  void EncodeArgumentBuffer(FrameContext &frame, FrameBuild &build) {
+  void EncodeArgumentBuffer(FrameContext& frame, FrameBuild& build) {
     [argument_encoder_ setArgumentBuffer:frame.argument_buffer offset:0];
-    std::vector<const Texture *> by_texture(options_.texture_capacity);
+    std::vector<const Texture*> by_texture(options_.texture_capacity);
     std::vector<std::uint64_t> texture_handles(options_.texture_capacity);
-    for (const auto &[handle, texture] : textures_) {
+    for (const auto& [handle, texture] : textures_) {
       const auto slot = texture_slots_.Find(handle);
       if (slot) {
         by_texture[slot->index] = &texture;
         texture_handles[slot->index] = handle;
       }
     }
-    std::vector<const Sampler *> by_sampler(options_.sampler_capacity);
+    std::vector<const Sampler*> by_sampler(options_.sampler_capacity);
     std::vector<std::uint64_t> sampler_handles(options_.sampler_capacity);
-    for (const auto &[handle, sampler] : samplers_) {
+    for (const auto& [handle, sampler] : samplers_) {
       const auto slot = sampler_slots_.Find(handle);
       if (slot) {
         by_sampler[slot->index] = &sampler;
@@ -2184,18 +2182,18 @@ private:
   }
 
   static MaterialConstants
-  MakeMaterial(const extraction::MaterialRecord &material,
-               const extraction::FrameSnapshot &snapshot) {
+  MakeMaterial(const extraction::MaterialRecord& material,
+      const extraction::FrameSnapshot& snapshot) {
     MaterialConstants result{};
     result.base_color = material.parameters.base_color;
     result.light_direction_intensity = {0.0F, 0.0F, 1.0F, 1.0F};
     result.light_color_alpha_cutoff = {1.0F, 1.0F, 1.0F,
-                                       material.parameters.alpha_cutoff};
+        material.parameters.alpha_cutoff};
     const auto light =
         std::find_if(snapshot.lights.begin(), snapshot.lights.end(),
-                     [](const auto &candidate) {
-                       return candidate.type == LightType::Directional;
-                     });
+            [](const auto& candidate) {
+              return candidate.type == LightType::Directional;
+            });
     if (light != snapshot.lights.end()) {
       auto x = light->transform.values[8];
       auto y = light->transform.values[9];
@@ -2214,16 +2212,16 @@ private:
     return result;
   }
 
-  void EncodeRender(id<MTLCommandBuffer> command, FrameContext &frame,
-                    const render::RenderRequest &request, FrameBuild &build) {
-    MTLRenderPassDescriptor *pass =
+  void EncodeRender(id<MTLCommandBuffer> command, FrameContext& frame,
+      const render::RenderRequest& request, FrameBuild& build) {
+    MTLRenderPassDescriptor* pass =
         [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = frame.color;
     pass.colorAttachments[0].loadAction = MTLLoadActionClear;
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     pass.colorAttachments[0].clearColor =
         MTLClearColorMake(request.clear_color.x, request.clear_color.y,
-                          request.clear_color.z, request.clear_color.w);
+            request.clear_color.z, request.clear_color.w);
     pass.colorAttachments[1].texture = frame.prim_id;
     pass.colorAttachments[1].loadAction = MTLLoadActionClear;
     pass.colorAttachments[1].storeAction = MTLStoreActionStore;
@@ -2243,17 +2241,17 @@ private:
         [command renderCommandEncoderWithDescriptor:pass];
     if (encoder == nil) {
       throw render::RendererError(render::RendererErrorCode::BackendFailure,
-                                  "encode Metal render pass",
-                                  "renderCommandEncoder returned nil");
+          "encode Metal render pass",
+          "renderCommandEncoder returned nil");
     }
     [encoder setRenderPipelineState:pipeline_];
     [encoder setDepthStencilState:depth_state_];
     const MTLViewport viewport{0.0,
-                               0.0,
-                               static_cast<double>(request.width),
-                               static_cast<double>(request.height),
-                               0.0,
-                               1.0};
+        0.0,
+        static_cast<double>(request.width),
+        static_cast<double>(request.height),
+        0.0,
+        1.0};
     const MTLScissorRect scissor{0, 0, request.width, request.height};
     [encoder setViewport:viewport];
     [encoder setScissorRect:scissor];
@@ -2263,7 +2261,7 @@ private:
                                        : MTLWindingClockwise];
     if (bindless_) {
       [encoder setFragmentBuffer:frame.argument_buffer offset:0 atIndex:3];
-      for (const auto &[handle, texture] : textures_) {
+      for (const auto& [handle, texture] : textures_) {
         (void)handle;
         [encoder useResource:texture.texture
                        usage:MTLResourceUsageRead
@@ -2277,11 +2275,11 @@ private:
         build.has_gpu_scene_update
             ? build.gpu_scene_draw_slot_indices
             : (gpu_scene_buffers_.has_resident_update &&
-                       gpu_scene_buffers_.source_id ==
-                           request.snapshot->source_id &&
-                       gpu_scene_buffers_.revision == request.snapshot->revision
-                   ? gpu_scene_buffers_.draw_slot_indices
-                   : nullptr);
+                          gpu_scene_buffers_.source_id ==
+                              request.snapshot->source_id &&
+                          gpu_scene_buffers_.revision == request.snapshot->revision
+                      ? gpu_scene_buffers_.draw_slot_indices
+                      : nullptr);
     const bool gpu_scene_ready =
         bindless_ && gpu_scene_pipeline_ != nil && gpu_scene_draw_slots &&
         gpu_scene_draw_slots->size() == request.snapshot->draws.size();
@@ -2300,27 +2298,27 @@ private:
                     stages:MTLRenderStageVertex | MTLRenderStageFragment];
     }
     for (std::size_t draw_index = 0;
-         draw_index < request.snapshot->draws.size(); ++draw_index) {
-      const auto &draw = request.snapshot->draws[draw_index];
+        draw_index < request.snapshot->draws.size(); ++draw_index) {
+      const auto& draw = request.snapshot->draws[draw_index];
       if (draw.geometry_index >= request.snapshot->geometries.size() ||
           draw.material_index >= request.snapshot->materials.size() ||
           draw.instance_index >= request.snapshot->instances.size()) {
         [encoder endEncoding];
         throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                    "encode Metal draw",
-                                    "draw record index is invalid");
+            "encode Metal draw",
+            "draw record index is invalid");
       }
-      const auto &geometry_record =
+      const auto& geometry_record =
           request.snapshot->geometries[draw.geometry_index];
       const auto geometry = geometries_.find(geometry_record.mesh);
       if (geometry == geometries_.end()) {
         continue;
       }
-      const auto &instance = request.snapshot->instances[draw.instance_index];
+      const auto& instance = request.snapshot->instances[draw.instance_index];
       if (!instance.visible) {
         continue;
       }
-      const auto &material = request.snapshot->materials[draw.material_index];
+      const auto& material = request.snapshot->materials[draw.material_index];
       [encoder setCullMode:material.double_sided ? MTLCullModeNone
                                                  : MTLCullModeBack];
 
@@ -2413,33 +2411,33 @@ private:
         gpu_scene_constants.view_projection = view_projection;
         gpu_scene_constants.draw_slot = (*gpu_scene_draw_slots)[draw_index];
         [encoder setVertexBytes:&gpu_scene_constants
-                          length:sizeof(gpu_scene_constants)
-                         atIndex:1];
+                         length:sizeof(gpu_scene_constants)
+                        atIndex:1];
         [encoder setFragmentBytes:&gpu_scene_constants
-                            length:sizeof(gpu_scene_constants)
-                           atIndex:1];
+                           length:sizeof(gpu_scene_constants)
+                          atIndex:1];
         [encoder setVertexBuffer:gpu_scene_buffers_.geometries
-                           offset:0
-                          atIndex:4];
+                          offset:0
+                         atIndex:4];
         [encoder setVertexBuffer:gpu_scene_buffers_.instances
-                           offset:0
-                          atIndex:5];
+                          offset:0
+                         atIndex:5];
         [encoder setVertexBuffer:gpu_scene_buffers_.materials
-                           offset:0
-                          atIndex:6];
+                          offset:0
+                         atIndex:6];
         [encoder setVertexBuffer:gpu_scene_buffers_.draws offset:0 atIndex:7];
         [encoder setFragmentBuffer:gpu_scene_buffers_.geometries
-                             offset:0
-                            atIndex:4];
+                            offset:0
+                           atIndex:4];
         [encoder setFragmentBuffer:gpu_scene_buffers_.instances
-                             offset:0
-                            atIndex:5];
+                            offset:0
+                           atIndex:5];
         [encoder setFragmentBuffer:gpu_scene_buffers_.materials
-                             offset:0
-                            atIndex:6];
+                            offset:0
+                           atIndex:6];
         [encoder setFragmentBuffer:gpu_scene_buffers_.draws
-                             offset:0
-                            atIndex:7];
+                            offset:0
+                           atIndex:7];
         ++build.telemetry.gpu_scene_draw_count;
       } else {
         [encoder setVertexBytes:&constants length:sizeof(constants) atIndex:1];
@@ -2461,9 +2459,9 @@ private:
     [encoder endEncoding];
   }
 
-  void EncodePresentation(id<MTLCommandBuffer> command, FrameContext &frame,
-                          id<CAMetalDrawable> drawable, FrameBuild &build) {
-    MTLRenderPassDescriptor *pass =
+  void EncodePresentation(id<MTLCommandBuffer> command, FrameContext& frame,
+      id<CAMetalDrawable> drawable, FrameBuild& build) {
+    MTLRenderPassDescriptor* pass =
         [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = drawable.texture;
     pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
@@ -2499,8 +2497,8 @@ private:
         static_cast<std::uint64_t>(frame.width) * frame.height * 4U;
   }
 
-  void EncodeReadback(id<MTLCommandBuffer> command, FrameContext &frame,
-                      const std::vector<Aov> &readbacks) {
+  void EncodeReadback(id<MTLCommandBuffer> command, FrameContext& frame,
+      const std::vector<Aov>& readbacks) {
     if (readbacks.empty()) {
       return;
     }
@@ -2533,38 +2531,38 @@ private:
 
   template <typename T>
   static std::vector<T> TightCopy(id<MTLBuffer> buffer, std::uint32_t width,
-                                  std::uint32_t height) {
+      std::uint32_t height) {
     std::vector<T> result(static_cast<std::size_t>(width) * height);
     const auto source_pitch = AlignedRowPitch(width);
     const auto row_bytes = static_cast<std::size_t>(width) * sizeof(T);
-    const auto *source = static_cast<const std::byte *>(buffer.contents);
-    auto *destination = reinterpret_cast<std::byte *>(result.data());
+    const auto* source = static_cast<const std::byte*>(buffer.contents);
+    auto* destination = reinterpret_cast<std::byte*>(result.data());
     for (std::uint32_t row = 0; row < height; ++row) {
       std::memcpy(destination + row * row_bytes,
-                  source + static_cast<std::size_t>(row) * source_pitch,
-                  row_bytes);
+          source + static_cast<std::size_t>(row) * source_pitch,
+          row_bytes);
     }
     return result;
   }
 
   static std::vector<std::uint8_t> TightColorCopy(id<MTLBuffer> buffer,
-                                                  std::uint32_t width,
-                                                  std::uint32_t height) {
+      std::uint32_t width,
+      std::uint32_t height) {
     std::vector<std::uint8_t> result(static_cast<std::size_t>(width) * height *
                                      4U);
     const auto source_pitch = AlignedRowPitch(width);
     const auto row_bytes = static_cast<std::size_t>(width) * 4U;
-    const auto *source = static_cast<const std::byte *>(buffer.contents);
-    auto *destination = reinterpret_cast<std::byte *>(result.data());
+    const auto* source = static_cast<const std::byte*>(buffer.contents);
+    auto* destination = reinterpret_cast<std::byte*>(result.data());
     for (std::uint32_t row = 0; row < height; ++row) {
       std::memcpy(destination + row * row_bytes,
-                  source + static_cast<std::size_t>(row) * source_pitch,
-                  row_bytes);
+          source + static_cast<std::size_t>(row) * source_pitch,
+          row_bytes);
     }
     return result;
   }
 
-  void CopyReadbacks(FrameContext &frame, Pending &pending) {
+  void CopyReadbacks(FrameContext& frame, Pending& pending) {
     const auto width = pending.width;
     const auto height = pending.height;
     const auto tight_pitch = width * 4U;
@@ -2617,40 +2615,40 @@ private:
     pending.result.telemetry.wait_count = 1;
   }
 
-  Pending &ValidateToken(render::CompletionToken token, const char *operation) {
+  Pending& ValidateToken(render::CompletionToken token, const char* operation) {
     if (token.owner() != owner_ || token.value() == 0) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  operation,
-                                  "token belongs to another backend");
+          operation,
+          "token belongs to another backend");
     }
     const auto found = pending_.find(token.value());
     if (found == pending_.end()) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  operation,
-                                  "token is unknown or already resolved");
+          operation,
+          "token is unknown or already resolved");
     }
     return found->second;
   }
 
-  const Pending &ValidateToken(render::CompletionToken token,
-                               const char *operation) const {
+  const Pending& ValidateToken(render::CompletionToken token,
+      const char* operation) const {
     if (token.owner() != owner_ || token.value() == 0) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  operation,
-                                  "token belongs to another backend");
+          operation,
+          "token belongs to another backend");
     }
     const auto found = pending_.find(token.value());
     if (found == pending_.end()) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  operation,
-                                  "token is unknown or already resolved");
+          operation,
+          "token is unknown or already resolved");
     }
     return found->second;
   }
 
   std::uint64_t GeometryResidentBytes() const noexcept {
     std::uint64_t result{};
-    for (const auto &[handle, geometry] : geometries_) {
+    for (const auto& [handle, geometry] : geometries_) {
       (void)handle;
       result += geometry.bytes;
     }
@@ -2659,7 +2657,7 @@ private:
 
   std::uint64_t RetiringBytes() const noexcept {
     std::uint64_t result{};
-    for (const auto &retirement : retirements_) {
+    for (const auto& retirement : retirements_) {
       result += retirement.bytes;
     }
     return result;
@@ -2677,7 +2675,7 @@ private:
   id<MTLDepthStencilState> depth_state_;
   id<MTLArgumentEncoder> argument_encoder_;
   id<MTLHeap> heap_;
-  CAMetalLayer *layer_;
+  CAMetalLayer* layer_;
   bool bindless_{};
   std::optional<render::PresentationTarget> presentation_;
   PresentationColorSpace presentation_color_space_{
@@ -2712,14 +2710,15 @@ private:
   std::uint64_t geometry_peak_resident_bytes_{};
 };
 
-Backend::Backend(const render::BackendCreateInfo &info, BackendOptions options)
-    : impl_(std::make_unique<Impl>(info, options)) {}
+Backend::Backend(const render::BackendCreateInfo& info, BackendOptions options)
+    : impl_(std::make_unique<Impl>(info, options)) {
+}
 
 Backend::~Backend() = default;
-Backend::Backend(Backend &&) noexcept = default;
-Backend &Backend::operator=(Backend &&) noexcept = default;
+Backend::Backend(Backend&&) noexcept = default;
+Backend& Backend::operator=(Backend&&) noexcept = default;
 
-const render::RendererCapabilities &Backend::capabilities() const noexcept {
+const render::RendererCapabilities& Backend::capabilities() const noexcept {
   return impl_->capabilities();
 }
 
@@ -2737,12 +2736,12 @@ Backend::default_presentation_target() const noexcept {
 }
 
 void Backend::ResizePresentationTarget(render::PresentationTarget target,
-                                       std::uint32_t width,
-                                       std::uint32_t height) {
+    std::uint32_t width,
+    std::uint32_t height) {
   impl_->ResizePresentationTarget(target, width, height);
 }
 
-render::CompletionToken Backend::Submit(const render::RenderRequest &request) {
+render::CompletionToken Backend::Submit(const render::RenderRequest& request) {
   return impl_->Submit(request);
 }
 
@@ -2751,7 +2750,7 @@ bool Backend::IsComplete(render::CompletionToken token) const {
 }
 
 AovImageExport Backend::AcquireAovImage(render::CompletionToken token,
-                                        Aov aov) {
+    Aov aov) {
   return impl_->AcquireAovImage(token, aov);
 }
 
@@ -2760,11 +2759,12 @@ void Backend::ReleaseAovImage(AovImageLease&& lease) {
 }
 
 render::RenderResult Backend::Resolve(render::CompletionToken token,
-                                      std::chrono::nanoseconds timeout) {
+    std::chrono::nanoseconds timeout) {
   return impl_->Resolve(token, timeout);
 }
 
-BackendFactory::BackendFactory(BackendOptions options) : options_(options) {}
+BackendFactory::BackendFactory(BackendOptions options) : options_(options) {
+}
 
 render::BackendKind BackendFactory::kind() const noexcept {
   return render::BackendKind::Metal;
@@ -2783,11 +2783,11 @@ render::BackendAvailability BackendFactory::availability() const {
     }
     if (gpu_scene_reservation >= options_.heap_capacity_bytes) {
       return {false,
-              "Metal GPU Scene tables require " +
-                  std::to_string(gpu_scene_reservation) +
-                  " bytes of the configured " +
-                  std::to_string(options_.heap_capacity_bytes) +
-                  "-byte scene residency budget"};
+          "Metal GPU Scene tables require " +
+              std::to_string(gpu_scene_reservation) +
+              " bytes of the configured " +
+              std::to_string(options_.heap_capacity_bytes) +
+              "-byte scene residency budget"};
     }
     id<MTLHeap> heap = [device
         newHeapWithDescriptor:SceneHeapDescriptor(
@@ -2795,20 +2795,20 @@ render::BackendAvailability BackendFactory::availability() const {
                                   gpu_scene_reservation)];
     if (heap == nil) {
       return {false,
-              "Metal resource heaps are unavailable for the configured " +
-                  std::to_string(options_.heap_capacity_bytes) +
-                  "-byte scene residency budget"};
+          "Metal resource heaps are unavailable for the configured " +
+              std::to_string(options_.heap_capacity_bytes) +
+              "-byte scene residency budget"};
     }
     return {true, String(device.name)};
   }
 }
 
 std::unique_ptr<render::Backend>
-BackendFactory::Create(const render::BackendCreateInfo &info) const {
+BackendFactory::Create(const render::BackendCreateInfo& info) const {
   if (info.backend == render::BackendRequest::Vulkan) {
     throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-                                "create Metal backend",
-                                "the Metal factory received a Vulkan request");
+        "create Metal backend",
+        "the Metal factory received a Vulkan request");
   }
   return std::make_unique<Backend>(info, options_);
 }

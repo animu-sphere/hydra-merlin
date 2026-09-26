@@ -71,12 +71,17 @@ enum class CameraMode {
 };
 
 class ViewportRenderPassState final : public HdRenderPassState {
- public:
+public:
   explicit ViewportRenderPassState(bool reflect_projection_y)
-      : reflect_projection_y_(reflect_projection_y) {}
+      : reflect_projection_y_(reflect_projection_y) {
+  }
 
-  GfMatrix4d GetWorldToViewMatrix() const override { return view_; }
-  GfMatrix4d GetProjectionMatrix() const override { return projection_; }
+  GfMatrix4d GetWorldToViewMatrix() const override {
+    return view_;
+  }
+  GfMatrix4d GetProjectionMatrix() const override {
+    return projection_;
+  }
 
   void Pan(double x, double y) {
     const auto camera_right =
@@ -116,10 +121,10 @@ class ViewportRenderPassState final : public HdRenderPassState {
   }
 
   void FrameStage(const UsdStageRefPtr& stage, std::uint32_t width,
-                   std::uint32_t height) {
+      std::uint32_t height) {
     const TfTokenVector purposes{UsdGeomTokens->default_,
-                                 UsdGeomTokens->proxy,
-                                 UsdGeomTokens->render};
+        UsdGeomTokens->proxy,
+        UsdGeomTokens->render};
     UsdGeomBBoxCache bounds(UsdTimeCode::Default(), purposes, true);
     stage_bounds_ = bounds.ComputeWorldBound(stage->GetPseudoRoot());
     const auto range = stage_bounds_.ComputeAlignedRange();
@@ -130,7 +135,7 @@ class ViewportRenderPassState final : public HdRenderPassState {
 
     center_ = stage_bounds_.ComputeCentroid();
     scene_size_ = std::max({range.GetSize()[0], range.GetSize()[1],
-                            range.GetSize()[2]});
+        range.GetSize()[2]});
     scene_radius_ = range.GetSize().GetLength() * 0.5;
     if (!std::isfinite(scene_size_) || scene_size_ <= 0.0 ||
         !std::isfinite(scene_radius_) || scene_radius_ <= 0.0) {
@@ -161,24 +166,42 @@ class ViewportRenderPassState final : public HdRenderPassState {
     UpdateProjection(width, height);
   }
 
-  const GfVec3d& center() const noexcept { return center_; }
-  GfVec3d position() const { return camera_transform_.Transform(GfVec3d(0.0)); }
-  double radius() const noexcept { return scene_radius_; }
-  double distance() const noexcept { return distance_; }
-  double yaw_degrees() const noexcept { return theta_degrees_; }
-  double pitch_degrees() const noexcept { return phi_degrees_; }
+  const GfVec3d& center() const noexcept {
+    return center_;
+  }
+  GfVec3d position() const {
+    return camera_transform_.Transform(GfVec3d(0.0));
+  }
+  double radius() const noexcept {
+    return scene_radius_;
+  }
+  double distance() const noexcept {
+    return distance_;
+  }
+  double yaw_degrees() const noexcept {
+    return theta_degrees_;
+  }
+  double pitch_degrees() const noexcept {
+    return phi_degrees_;
+  }
   double vertical_fov_degrees() const noexcept {
     return kVerticalFovDegrees;
   }
-  double near_plane() const noexcept { return near_; }
-  double far_plane() const noexcept { return far_; }
+  double near_plane() const noexcept {
+    return near_;
+  }
+  double far_plane() const noexcept {
+    return far_;
+  }
   double aspect_ratio() const noexcept {
     return static_cast<double>(viewport_width_) /
            static_cast<double>(std::max(1U, viewport_height_));
   }
-  const char* up_axis_name() const noexcept { return is_z_up_ ? "Z" : "Y"; }
+  const char* up_axis_name() const noexcept {
+    return is_z_up_ ? "Z" : "Y";
+  }
 
- private:
+private:
   static constexpr double kVerticalFovDegrees = 60.0;
   static constexpr double kFrameFit = 1.1;
 
@@ -283,14 +306,15 @@ class ViewportRenderPassState final : public HdRenderPassState {
 };
 
 class ViewportTask final : public HdTask {
- public:
+public:
   ViewportTask(HdRenderPassSharedPtr pass,
-               std::shared_ptr<ViewportRenderPassState> state,
-               HdResourceRegistrySharedPtr resources)
+      std::shared_ptr<ViewportRenderPassState> state,
+      HdResourceRegistrySharedPtr resources)
       : HdTask(SdfPath("/__merlinViewportTask")),
         pass_(std::move(pass)),
         state_(std::move(state)),
-        resources_(std::move(resources)) {}
+        resources_(std::move(resources)) {
+  }
 
   void Sync(HdSceneDelegate*, HdTaskContext*, HdDirtyBits* dirty_bits) override {
     pass_->Sync();
@@ -301,11 +325,15 @@ class ViewportTask final : public HdTask {
     state_->Prepare(resources_);
   }
 
-  void Execute(HdTaskContext*) override { pass_->Execute(state_, render_tags_); }
+  void Execute(HdTaskContext*) override {
+    pass_->Execute(state_, render_tags_);
+  }
 
-  const TfTokenVector& GetRenderTags() const override { return render_tags_; }
+  const TfTokenVector& GetRenderTags() const override {
+    return render_tags_;
+  }
 
- private:
+private:
   HdRenderPassSharedPtr pass_;
   std::shared_ptr<ViewportRenderPassState> state_;
   HdResourceRegistrySharedPtr resources_;
@@ -313,7 +341,7 @@ class ViewportTask final : public HdTask {
 };
 
 void WritePpm(const std::filesystem::path& path, std::uint32_t width,
-              std::uint32_t height, const std::vector<std::uint8_t>& rgba) {
+    std::uint32_t height, const std::vector<std::uint8_t>& rgba) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -322,7 +350,8 @@ void WritePpm(const std::filesystem::path& path, std::uint32_t width,
     throw std::runtime_error("could not create Hydra screenshot: " +
                              path.string());
   }
-  stream << "P6\n" << width << ' ' << height << "\n255\n";
+  stream << "P6\n"
+         << width << ' ' << height << "\n255\n";
   for (std::size_t offset = 0; offset < rgba.size(); offset += 4) {
     stream.write(reinterpret_cast<const char*>(rgba.data() + offset), 3);
   }
@@ -342,10 +371,10 @@ bool HasVisibleColor(const std::vector<std::uint8_t>& rgba) {
 }
 
 void WriteBenchmark(const std::filesystem::path& path,
-                    const render::BackendSelection& selection,
-                    const render::RendererStatistics& statistics,
-                    std::uint64_t frames, std::uint64_t elapsed_ns,
-                    std::uint64_t gpu_ns) {
+    const render::BackendSelection& selection,
+    const render::RendererStatistics& statistics,
+    std::uint64_t frames, std::uint64_t elapsed_ns,
+    std::uint64_t gpu_ns) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -379,9 +408,9 @@ void WriteBenchmark(const std::filesystem::path& path,
 }
 
 DeveloperUiBenchmark MakeUiBenchmark(std::uint64_t frames,
-                                      std::uint64_t elapsed_ns,
-                                      std::uint64_t gpu_ns,
-                                      std::filesystem::path path = {}) {
+    std::uint64_t elapsed_ns,
+    std::uint64_t gpu_ns,
+    std::filesystem::path path = {}) {
   DeveloperUiBenchmark result;
   result.available = frames != 0;
   result.path = std::move(path);
@@ -444,7 +473,7 @@ std::shared_ptr<render::Backend> CreateRenderer(
 }
 
 HdRenderPassAovBinding MakeBinding(const TfToken& name,
-                                   HdRenderBuffer* buffer) {
+    HdRenderBuffer* buffer) {
   HdRenderPassAovBinding result;
   result.aovName = name;
   result.renderBuffer = buffer;
@@ -456,7 +485,7 @@ std::string PathToUtf8(const std::filesystem::path& path) {
   return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};
 }
 
-}  // namespace
+} // namespace
 
 static std::optional<std::filesystem::path> RunHydraViewportSession(
     const HydraViewportOptions& options) {
@@ -466,24 +495,24 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     throw std::runtime_error("could not open USD stage: " + stage_path);
   }
   auto window = Window::Create("merlin-viewport | Hydra", options.width,
-                               options.height, options.visible);
+      options.height, options.visible);
   auto developer_ui = DeveloperUi::Create(*window);
   DeveloperUiDiagnosticHistory diagnostic_history;
   render::BackendSelection selection;
   auto backend = CreateRenderer(options, *window, *developer_ui, selection,
-                                &diagnostic_history);
+      &diagnostic_history);
   const auto presentation = backend->default_presentation_target();
   if (!presentation) {
     throw std::runtime_error(
         "selected Hydra viewport backend has no presentation target");
   }
   RecordDeveloperUiBackendSelection(diagnostic_history, 0, selection,
-                                    backend->capabilities());
+      backend->capabilities());
   diagnostic_history.Record(
       DeveloperUiDiagnosticOrigin::Host, 0,
       {kDiagnosticSchemaVersion, "viewport.stage.opened",
-       DiagnosticSeverity::Info, DiagnosticDisposition::Ignored, stage_path,
-       "OpenUSD stage was opened for the Hydra viewport.", "stage-active"});
+          DiagnosticSeverity::Info, DiagnosticDisposition::Ignored, stage_path,
+          "OpenUSD stage was opened for the Hydra viewport.", "stage-active"});
 
   HdMerlinRenderDelegate render_delegate(backend);
   const bool reflect_projection_y =
@@ -495,12 +524,12 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     throw std::runtime_error("could not create Hydra render index");
   }
   UsdImagingDelegate scene_delegate(render_index.get(),
-                                    SdfPath::AbsoluteRootPath());
+      SdfPath::AbsoluteRootPath());
   scene_delegate.Populate(stage->GetPseudoRoot());
   scene_delegate.SetTime(UsdTimeCode::Default());
 
   HdRprimCollection collection(HdTokens->geometry,
-                               HdReprSelector(HdReprTokens->smoothHull));
+      HdReprSelector(HdReprTokens->smoothHull));
   auto pass = render_delegate.CreateRenderPass(render_index.get(), collection);
   auto state =
       std::make_shared<ViewportRenderPassState>(reflect_projection_y);
@@ -559,87 +588,87 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       const bool wants_keyboard = developer_ui->WantsKeyboard();
       const bool wants_mouse = developer_ui->WantsMouse();
       switch (event.type) {
-        case EventType::Close:
+      case EventType::Close:
+        running = false;
+        break;
+      case EventType::Resize:
+        width = event.width;
+        height = event.height;
+        if (width != 0 && height != 0) {
+          state->SetViewport(GfVec4d(0.0, 0.0, width, height));
+          state->Resize(width, height);
+          backend->ResizePresentationTarget(*presentation, width, height);
+        }
+        break;
+      case EventType::KeyDown:
+        if (event.key == Key::Escape) {
           running = false;
-          break;
-        case EventType::Resize:
-          width = event.width;
-          height = event.height;
-          if (width != 0 && height != 0) {
-            state->SetViewport(GfVec4d(0.0, 0.0, width, height));
-            state->Resize(width, height);
-            backend->ResizePresentationTarget(*presentation, width, height);
-          }
-          break;
-        case EventType::KeyDown:
-          if (event.key == Key::Escape) {
-            running = false;
-          } else if (!wants_keyboard && event.key == Key::Screenshot) {
-            screenshot_pending = true;
-            readback_requested = true;
-          } else if (!wants_keyboard && event.key == Key::Frame &&
-                     width != 0 && height != 0) {
-            state->FrameStage(stage, width, height);
-          } else if (!wants_keyboard && event.key == Key::Left) {
-            state->Pan(-0.05, 0.0);
-          } else if (!wants_keyboard && event.key == Key::Right) {
-            state->Pan(0.05, 0.0);
-          } else if (!wants_keyboard && event.key == Key::Up) {
-            state->Pan(0.0, 0.05);
-          } else if (!wants_keyboard && event.key == Key::Down) {
-            state->Pan(0.0, -0.05);
-          }
-          break;
-        case EventType::PointerDown: {
-          if (wants_mouse) {
-            break;
-          }
-          const bool camera_modifier =
-              event.modifiers.alt || event.modifiers.super;
-          if (camera_modifier) {
-            if (event.button == MouseButton::Left) {
-              camera_mode = event.modifiers.control ? CameraMode::Track
-                                                    : CameraMode::Tumble;
-            } else if (event.button == MouseButton::Middle) {
-              camera_mode = CameraMode::Track;
-            } else if (event.button == MouseButton::Right) {
-              camera_mode = CameraMode::Dolly;
-            }
-            last_pointer_x = event.x;
-            last_pointer_y = event.y;
-          } else if (event.button == MouseButton::Left) {
-            pick = std::pair{event.x, event.y};
-            readback_requested = true;
-          }
+        } else if (!wants_keyboard && event.key == Key::Screenshot) {
+          screenshot_pending = true;
+          readback_requested = true;
+        } else if (!wants_keyboard && event.key == Key::Frame &&
+                   width != 0 && height != 0) {
+          state->FrameStage(stage, width, height);
+        } else if (!wants_keyboard && event.key == Key::Left) {
+          state->Pan(-0.05, 0.0);
+        } else if (!wants_keyboard && event.key == Key::Right) {
+          state->Pan(0.05, 0.0);
+        } else if (!wants_keyboard && event.key == Key::Up) {
+          state->Pan(0.0, 0.05);
+        } else if (!wants_keyboard && event.key == Key::Down) {
+          state->Pan(0.0, -0.05);
+        }
+        break;
+      case EventType::PointerDown: {
+        if (wants_mouse) {
           break;
         }
-        case EventType::PointerUp:
-          camera_mode = CameraMode::None;
-          break;
-        case EventType::PointerMove: {
-          if (wants_mouse) {
-            break;
+        const bool camera_modifier =
+            event.modifiers.alt || event.modifiers.super;
+        if (camera_modifier) {
+          if (event.button == MouseButton::Left) {
+            camera_mode = event.modifiers.control ? CameraMode::Track
+                                                  : CameraMode::Tumble;
+          } else if (event.button == MouseButton::Middle) {
+            camera_mode = CameraMode::Track;
+          } else if (event.button == MouseButton::Right) {
+            camera_mode = CameraMode::Dolly;
           }
-          const auto delta_x = event.x - last_pointer_x;
-          const auto delta_y = event.y - last_pointer_y;
-          if (camera_mode == CameraMode::Tumble) {
-            state->Tumble(delta_x, delta_y);
-          } else if (camera_mode == CameraMode::Track) {
-            state->Track(delta_x, delta_y);
-          } else if (camera_mode == CameraMode::Dolly) {
-            state->DollyDrag(delta_x, delta_y);
-          }
-          if (camera_mode != CameraMode::None) {
-            last_pointer_x = event.x;
-            last_pointer_y = event.y;
-          }
+          last_pointer_x = event.x;
+          last_pointer_y = event.y;
+        } else if (event.button == MouseButton::Left) {
+          pick = std::pair{event.x, event.y};
+          readback_requested = true;
+        }
+        break;
+      }
+      case EventType::PointerUp:
+        camera_mode = CameraMode::None;
+        break;
+      case EventType::PointerMove: {
+        if (wants_mouse) {
           break;
         }
-        case EventType::Scroll:
-          if (!wants_mouse) {
-            state->DollyWheel(event.scroll_y);
-          }
-          break;
+        const auto delta_x = event.x - last_pointer_x;
+        const auto delta_y = event.y - last_pointer_y;
+        if (camera_mode == CameraMode::Tumble) {
+          state->Tumble(delta_x, delta_y);
+        } else if (camera_mode == CameraMode::Track) {
+          state->Track(delta_x, delta_y);
+        } else if (camera_mode == CameraMode::Dolly) {
+          state->DollyDrag(delta_x, delta_y);
+        }
+        if (camera_mode != CameraMode::None) {
+          last_pointer_x = event.x;
+          last_pointer_y = event.y;
+        }
+        break;
+      }
+      case EventType::Scroll:
+        if (!wants_mouse) {
+          state->DollyWheel(event.scroll_y);
+        }
+        break;
       }
     }
     if (!running) {
@@ -701,9 +730,9 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     ui_snapshot.camera.controller = "orbit";
     ui_snapshot.camera.up_axis = state->up_axis_name();
     ui_snapshot.camera.position = {camera_position[0], camera_position[1],
-                                   camera_position[2]};
+        camera_position[2]};
     ui_snapshot.camera.target = {state->center()[0], state->center()[1],
-                                 state->center()[2]};
+        state->center()[2]};
     ui_snapshot.camera.yaw_degrees = state->yaw_degrees();
     ui_snapshot.camera.pitch_degrees = state->pitch_degrees();
     ui_snapshot.camera.distance = state->distance();
@@ -741,7 +770,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
             renderer_settings.aov_inspection_enabled;
       }
       RecordDeveloperUiSettingsFeedback(diagnostic_history, frames,
-                                        settings_feedback);
+          settings_feedback);
     }
 
     std::unique_ptr<HdMerlinRenderBuffer> color;
@@ -750,7 +779,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     std::unique_ptr<HdMerlinRenderBuffer> instance_id;
     HdRenderPassAovBindingVector bindings;
     const GfVec3i dimensions(static_cast<int>(width),
-                             static_cast<int>(height), 1);
+        static_cast<int>(height), 1);
     const bool inspect_color = renderer_settings.aov_inspection_enabled &&
                                renderer_settings.inspection_aov == Aov::Color;
     const bool inspect_depth = renderer_settings.aov_inspection_enabled &&
@@ -809,7 +838,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     latest_viewport_frame = render_delegate.GetLatestViewportFrame();
     for (const auto& diagnostic : latest_viewport_frame.diagnostics) {
       diagnostic_history.Record(DeveloperUiDiagnosticOrigin::Host, frames,
-                                diagnostic);
+          diagnostic);
     }
     gpu_ns += latest_viewport_frame.timings.gpu_execution_ns;
     ++frames;
@@ -825,7 +854,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
               .count());
       const std::filesystem::path path = "merlin-viewport-benchmark.json";
       WriteBenchmark(path, selection, backend->statistics(), frames,
-                     elapsed_ns, gpu_ns);
+          elapsed_ns, gpu_ns);
       saved_benchmark = MakeUiBenchmark(
           frames - comparison_start_frame, comparison_elapsed_ns,
           gpu_ns - comparison_start_gpu_ns, path);
@@ -833,8 +862,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       diagnostic_history.Record(
           DeveloperUiDiagnosticOrigin::Host, frames,
           {kDiagnosticSchemaVersion, "viewport.benchmark.saved",
-           DiagnosticSeverity::Info, DiagnosticDisposition::Ignored,
-           path.string(), "Viewport benchmark snapshot was saved.", "none"});
+              DiagnosticSeverity::Info, DiagnosticDisposition::Ignored,
+              path.string(), "Viewport benchmark snapshot was saved.", "none"});
       benchmark_snapshot_pending = false;
       comparison_start = Clock::now();
       comparison_start_frame = frames;
@@ -851,7 +880,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       color->Unmap();
       if (inspect_color) {
         aov_preview = BuildDeveloperUiColorPreview(width, height, frames,
-                                                   pixels);
+            pixels);
       }
       if (reference_pending) {
         if (!HasVisibleColor(pixels)) {
@@ -870,8 +899,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
         diagnostic_history.Record(
             DeveloperUiDiagnosticOrigin::Host, frames,
             {kDiagnosticSchemaVersion, "viewport.screenshot.saved",
-             DiagnosticSeverity::Info, DiagnosticDisposition::Ignored,
-             path.string(), "Viewport screenshot was saved.", "none"});
+                DiagnosticSeverity::Info, DiagnosticDisposition::Ignored,
+                path.string(), "Viewport screenshot was saved.", "none"});
         screenshot_pending = false;
       }
     }
@@ -883,14 +912,14 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       aov_preview = BuildDeveloperUiDepthPreview(
           width, height, frames,
           std::span<const float>(mapped,
-                                 static_cast<std::size_t>(width) * height));
+              static_cast<std::size_t>(width) * height));
       depth->Unmap();
     }
     if (prim_id && instance_id && pick) {
       const auto x = std::clamp(pick->first, 0,
-                                static_cast<std::int32_t>(width) - 1);
+          static_cast<std::int32_t>(width) - 1);
       const auto y = std::clamp(pick->second, 0,
-                                static_cast<std::int32_t>(height) - 1);
+          static_cast<std::int32_t>(height) - 1);
       const auto index = static_cast<std::size_t>(y) * width + x;
       const auto* prim = static_cast<const std::uint32_t*>(prim_id->Map());
       const auto* instance =
@@ -949,7 +978,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   const auto statistics = backend->statistics();
   if (!options.benchmark.empty()) {
     WriteBenchmark(options.benchmark, selection, statistics, frames,
-                   elapsed_ns, gpu_ns);
+        elapsed_ns, gpu_ns);
   }
   if (options.resize_test && statistics.presentation_recreates == 0) {
     throw std::runtime_error(
@@ -985,4 +1014,4 @@ int RunHydraViewport(const HydraViewportOptions& options) {
   return 0;
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

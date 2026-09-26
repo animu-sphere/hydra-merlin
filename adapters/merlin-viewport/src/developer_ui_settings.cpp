@@ -61,4 +61,4 @@ bool ApplyDeveloperUiRendererSettings(
   return true;
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

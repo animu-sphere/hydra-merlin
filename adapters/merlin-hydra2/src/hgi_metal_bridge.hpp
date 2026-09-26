@@ -136,7 +136,7 @@ class Hgi;
 
 class HdMerlinHgiMetalBridge final
     : public std::enable_shared_from_this<HdMerlinHgiMetalBridge> {
- public:
+public:
   explicit HdMerlinHgiMetalBridge(bool enabled);
   ~HdMerlinHgiMetalBridge();
 
@@ -147,15 +147,15 @@ class HdMerlinHgiMetalBridge final
   [[nodiscard]] HdMerlinHgiMetalBridgeStatus status() const;
   [[nodiscard]] HdMerlinHgiMetalBridgeTelemetry telemetry() const;
   [[nodiscard]] HgiTextureHandle CreateTarget(const HgiTextureDesc& descriptor,
-                                              bool recreation);
+      bool recreation);
   void DestroyTarget(HgiTextureHandle* target);
   [[nodiscard]] bool Upload(HgiTextureHandle target, const void* data,
-                            std::size_t byte_size);
+      std::size_t byte_size);
   [[nodiscard]] bool Copy(
       HgiTextureHandle target, merlin::metal::AovImageExport&& source,
       std::shared_ptr<merlin::render::Backend> backend);
 
- private:
+private:
   void SetOperationalFallbackLocked(
       HdMerlinHgiMetalFallbackReason reason) noexcept;
 

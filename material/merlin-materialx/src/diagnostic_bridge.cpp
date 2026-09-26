@@ -5,34 +5,34 @@ namespace merlin::materialx {
 merlin::MaterialDiagnosticCategory ToMaterialDiagnosticCategory(
     DiagnosticCode code) noexcept {
   switch (code) {
-    case DiagnosticCode::InvalidDocument:
-      return merlin::MaterialDiagnosticCategory::InvalidDocument;
-    case DiagnosticCode::MissingStandardLibrary:
-      return merlin::MaterialDiagnosticCategory::MissingLibrary;
-    case DiagnosticCode::RenderableNotFound:
-      return merlin::MaterialDiagnosticCategory::RenderableNotFound;
-    case DiagnosticCode::AmbiguousRenderable:
-      return merlin::MaterialDiagnosticCategory::AmbiguousRenderable;
-    // A renderable whose type the slice does not accept is rejected for the
-    // same reason an interior node is: the authored node is outside the
-    // supported set.
-    case DiagnosticCode::UnsupportedRenderable:
-    case DiagnosticCode::UnsupportedNode:
-      return merlin::MaterialDiagnosticCategory::UnsupportedNode;
-    case DiagnosticCode::UnsupportedInput:
-      return merlin::MaterialDiagnosticCategory::UnsupportedInput;
-    case DiagnosticCode::UnsupportedConversion:
-      return merlin::MaterialDiagnosticCategory::UnsupportedConversion;
-    case DiagnosticCode::MissingInclude:
-      return merlin::MaterialDiagnosticCategory::MissingInclude;
-    case DiagnosticCode::MissingTexture:
-      return merlin::MaterialDiagnosticCategory::MissingTexture;
-    // The document is fine and the graph is supported; the generator emitted
-    // something outside the boundary it was given, which is a failure of
-    // generation rather than of the material that was authored.
-    case DiagnosticCode::GeneratedPassDeclaration:
-    case DiagnosticCode::GenerationFailure:
-      return merlin::MaterialDiagnosticCategory::GenerationFailure;
+  case DiagnosticCode::InvalidDocument:
+    return merlin::MaterialDiagnosticCategory::InvalidDocument;
+  case DiagnosticCode::MissingStandardLibrary:
+    return merlin::MaterialDiagnosticCategory::MissingLibrary;
+  case DiagnosticCode::RenderableNotFound:
+    return merlin::MaterialDiagnosticCategory::RenderableNotFound;
+  case DiagnosticCode::AmbiguousRenderable:
+    return merlin::MaterialDiagnosticCategory::AmbiguousRenderable;
+  // A renderable whose type the slice does not accept is rejected for the
+  // same reason an interior node is: the authored node is outside the
+  // supported set.
+  case DiagnosticCode::UnsupportedRenderable:
+  case DiagnosticCode::UnsupportedNode:
+    return merlin::MaterialDiagnosticCategory::UnsupportedNode;
+  case DiagnosticCode::UnsupportedInput:
+    return merlin::MaterialDiagnosticCategory::UnsupportedInput;
+  case DiagnosticCode::UnsupportedConversion:
+    return merlin::MaterialDiagnosticCategory::UnsupportedConversion;
+  case DiagnosticCode::MissingInclude:
+    return merlin::MaterialDiagnosticCategory::MissingInclude;
+  case DiagnosticCode::MissingTexture:
+    return merlin::MaterialDiagnosticCategory::MissingTexture;
+  // The document is fine and the graph is supported; the generator emitted
+  // something outside the boundary it was given, which is a failure of
+  // generation rather than of the material that was authored.
+  case DiagnosticCode::GeneratedPassDeclaration:
+  case DiagnosticCode::GenerationFailure:
+    return merlin::MaterialDiagnosticCategory::GenerationFailure;
   }
   return merlin::MaterialDiagnosticCategory::GenerationFailure;
 }
@@ -40,10 +40,10 @@ merlin::MaterialDiagnosticCategory ToMaterialDiagnosticCategory(
 merlin::DiagnosticSeverity ToDiagnosticSeverity(
     DiagnosticSeverity severity) noexcept {
   switch (severity) {
-    case DiagnosticSeverity::Warning:
-      return merlin::DiagnosticSeverity::Warning;
-    case DiagnosticSeverity::Error:
-      return merlin::DiagnosticSeverity::Error;
+  case DiagnosticSeverity::Warning:
+    return merlin::DiagnosticSeverity::Warning;
+  case DiagnosticSeverity::Error:
+    return merlin::DiagnosticSeverity::Error;
   }
   return merlin::DiagnosticSeverity::Error;
 }
@@ -63,7 +63,7 @@ merlin::MaterialDiagnostic ToMaterialDiagnostic(
   bridged.fallback =
       bridged.severity == merlin::DiagnosticSeverity::Error
           ? merlin::ResolveMaterialFallback(bridged.category,
-                                            result.module.has_value(), policy)
+                result.module.has_value(), policy)
           : merlin::MaterialFallback::None;
   bridged.message = diagnostic.message;
   bridged.context.material_identity =
@@ -96,4 +96,4 @@ merlin::MaterialFallbackEvidence ReportCompileDiagnostics(
   return evidence;
 }
 
-}  // namespace merlin::materialx
+} // namespace merlin::materialx

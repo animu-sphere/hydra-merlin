@@ -30,26 +30,35 @@ namespace merlin::vulkan {
 
 std::string_view RendererErrorCodeName(RendererErrorCode code) noexcept {
   switch (code) {
-    case RendererErrorCode::InvalidRequest: return "invalid-request";
-    case RendererErrorCode::InvalidToken: return "invalid-token";
-    case RendererErrorCode::ResourceBusy: return "resource-busy";
-    case RendererErrorCode::Timeout: return "timeout";
-    case RendererErrorCode::DeviceLost: return "device-lost";
-    case RendererErrorCode::ResourceExhausted: return "resource-exhausted";
-    case RendererErrorCode::Unsupported: return "unsupported";
-    case RendererErrorCode::BackendFailure: return "backend-failure";
+  case RendererErrorCode::InvalidRequest:
+    return "invalid-request";
+  case RendererErrorCode::InvalidToken:
+    return "invalid-token";
+  case RendererErrorCode::ResourceBusy:
+    return "resource-busy";
+  case RendererErrorCode::Timeout:
+    return "timeout";
+  case RendererErrorCode::DeviceLost:
+    return "device-lost";
+  case RendererErrorCode::ResourceExhausted:
+    return "resource-exhausted";
+  case RendererErrorCode::Unsupported:
+    return "unsupported";
+  case RendererErrorCode::BackendFailure:
+    return "backend-failure";
   }
   return "unknown";
 }
 
 RendererError::RendererError(RendererErrorCode code, std::string operation,
-                             std::string detail, std::int32_t native_code)
+    std::string detail, std::int32_t native_code)
     : std::runtime_error(std::string(RendererErrorCodeName(code)) + ": " +
                          operation + ": " + detail),
       code_(code),
       operation_(std::move(operation)),
       detail_(std::move(detail)),
-      native_code_(native_code) {}
+      native_code_(native_code) {
+}
 
 namespace {
 
@@ -65,7 +74,7 @@ std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
 
 template <typename T>
 class IndexedTableView {
- public:
+public:
   void Sync(const extraction::PersistentTable<T>& table) {
     if (source_.table_identity() == table.table_identity()) {
       return;
@@ -78,13 +87,17 @@ class IndexedTableView {
     }
   }
 
-  [[nodiscard]] std::size_t size() const noexcept { return records_.size(); }
-  [[nodiscard]] bool empty() const noexcept { return records_.empty(); }
+  [[nodiscard]] std::size_t size() const noexcept {
+    return records_.size();
+  }
+  [[nodiscard]] bool empty() const noexcept {
+    return records_.empty();
+  }
   [[nodiscard]] const T& operator[](std::size_t index) const {
     return *records_[index];
   }
 
- private:
+private:
   // Retaining the table root keeps every cached record pointer alive and also
   // prevents allocator address reuse from aliasing table_identity().
   extraction::PersistentTable<T> source_;
@@ -93,7 +106,7 @@ class IndexedTableView {
 
 template <typename T>
 class DenseTableView {
- public:
+public:
   void Sync(const extraction::PersistentTable<T>& table) {
     if (source_.table_identity() == table.table_identity()) {
       return;
@@ -106,12 +119,14 @@ class DenseTableView {
     }
   }
 
-  [[nodiscard]] std::size_t size() const noexcept { return records_.size(); }
+  [[nodiscard]] std::size_t size() const noexcept {
+    return records_.size();
+  }
   [[nodiscard]] const T& operator[](std::size_t index) const {
     return records_[index];
   }
 
- private:
+private:
   // Keep the root alive so an allocator cannot recycle its identity while the
   // dense view is current.
   extraction::PersistentTable<T> source_;
@@ -120,8 +135,8 @@ class DenseTableView {
 
 template <typename T, typename HandleOf>
 const T* FindDeltaRecord(const extraction::PersistentTable<T>& table,
-                         const extraction::ResourceDelta& delta,
-                         std::size_t delta_index, HandleOf handle_of) {
+    const extraction::ResourceDelta& delta,
+    std::size_t delta_index, HandleOf handle_of) {
   const auto handle = delta.upserts[delta_index];
   if (delta.upsert_indices.size() == delta.upserts.size()) {
     const auto index = delta.upsert_indices[delta_index];
@@ -169,9 +184,9 @@ void Check(VkResult result, const char* operation) {
     code = RendererErrorCode::Unsupported;
   }
   throw RendererError(code, operation,
-                      "VkResult " +
-                          std::to_string(static_cast<std::int32_t>(result)),
-                      static_cast<std::int32_t>(result));
+      "VkResult " +
+          std::to_string(static_cast<std::int32_t>(result)),
+      static_cast<std::int32_t>(result));
 }
 
 template <typename Handle>
@@ -196,14 +211,14 @@ std::vector<std::uint32_t> ReadSpirv(const std::filesystem::path& path) {
   std::ifstream stream(path, std::ios::binary | std::ios::ate);
   if (!stream) {
     throw RendererError(RendererErrorCode::InvalidRequest,
-                        "load SPIR-V shader",
-                        "could not open file: " + path.string());
+        "load SPIR-V shader",
+        "could not open file: " + path.string());
   }
   const auto end = stream.tellg();
   if (end <= 0 || (end % static_cast<std::streamoff>(sizeof(std::uint32_t))) != 0) {
     throw RendererError(RendererErrorCode::InvalidRequest,
-                        "load SPIR-V shader",
-                        "file size is invalid: " + path.string());
+        "load SPIR-V shader",
+        "file size is invalid: " + path.string());
   }
   std::vector<std::uint32_t> code(static_cast<std::size_t>(end) /
                                   sizeof(std::uint32_t));
@@ -211,15 +226,15 @@ std::vector<std::uint32_t> ReadSpirv(const std::filesystem::path& path) {
   stream.read(reinterpret_cast<char*>(code.data()), end);
   if (!stream) {
     throw RendererError(RendererErrorCode::BackendFailure,
-                        "load SPIR-V shader",
-                        "could not read file: " + path.string());
+        "load SPIR-V shader",
+        "could not read file: " + path.string());
   }
   constexpr std::uint32_t kSpirvMagic = 0x07230203U;
   if (code.size() < 5U || code[0] != kSpirvMagic || code[3] == 0U ||
       code[4] != 0U) {
     throw RendererError(RendererErrorCode::InvalidRequest,
-                        "load SPIR-V shader",
-                        "file header is invalid: " + path.string());
+        "load SPIR-V shader",
+        "file header is invalid: " + path.string());
   }
   return code;
 }
@@ -227,10 +242,10 @@ std::vector<std::uint32_t> ReadSpirv(const std::filesystem::path& path) {
 bool HasLayer(const char* name) {
   std::uint32_t count{};
   Check(vkEnumerateInstanceLayerProperties(&count, nullptr),
-        "enumerate instance layers");
+      "enumerate instance layers");
   std::vector<VkLayerProperties> layers(count);
   Check(vkEnumerateInstanceLayerProperties(&count, layers.data()),
-        "enumerate instance layers");
+      "enumerate instance layers");
   return std::any_of(layers.begin(), layers.end(), [name](const auto& layer) {
     return std::strcmp(layer.layerName, name) == 0;
   });
@@ -239,29 +254,29 @@ bool HasLayer(const char* name) {
 bool HasInstanceExtension(const char* name) {
   std::uint32_t count{};
   Check(vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr),
-        "enumerate instance extensions");
+      "enumerate instance extensions");
   std::vector<VkExtensionProperties> extensions(count);
   Check(vkEnumerateInstanceExtensionProperties(nullptr, &count,
-                                               extensions.data()),
-        "enumerate instance extensions");
+            extensions.data()),
+      "enumerate instance extensions");
   return std::any_of(extensions.begin(), extensions.end(),
-                     [name](const auto& extension) {
-                       return std::strcmp(extension.extensionName, name) == 0;
-                     });
+      [name](const auto& extension) {
+        return std::strcmp(extension.extensionName, name) == 0;
+      });
 }
 
 bool HasDeviceExtension(VkPhysicalDevice device, const char* name) {
   std::uint32_t count{};
   Check(vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr),
-        "enumerate device extensions");
+      "enumerate device extensions");
   std::vector<VkExtensionProperties> extensions(count);
   Check(vkEnumerateDeviceExtensionProperties(device, nullptr, &count,
-                                             extensions.data()),
-        "enumerate device extensions");
+            extensions.data()),
+      "enumerate device extensions");
   return std::any_of(extensions.begin(), extensions.end(),
-                     [name](const auto& extension) {
-                       return std::strcmp(extension.extensionName, name) == 0;
-                     });
+      [name](const auto& extension) {
+        return std::strcmp(extension.extensionName, name) == 0;
+      });
 }
 
 Mat4 Multiply(const Mat4& lhs, const Mat4& rhs) {
@@ -280,15 +295,15 @@ Mat4 Multiply(const Mat4& lhs, const Mat4& rhs) {
 
 std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
   const Vec3 column0{transform.values[0], transform.values[1],
-                     transform.values[2]};
+      transform.values[2]};
   const Vec3 column1{transform.values[4], transform.values[5],
-                     transform.values[6]};
+      transform.values[6]};
   const Vec3 column2{transform.values[8], transform.values[9],
-                     transform.values[10]};
+      transform.values[10]};
   const auto cross = [](const Vec3& lhs, const Vec3& rhs) {
     return Vec3{lhs.y * rhs.z - lhs.z * rhs.y,
-                lhs.z * rhs.x - lhs.x * rhs.z,
-                lhs.x * rhs.y - lhs.y * rhs.x};
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x};
   };
   const auto cofactor0 = cross(column1, column2);
   const auto cofactor1 = cross(column2, column0);
@@ -298,14 +313,14 @@ std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
                            column0.z * cofactor0.z;
   if (std::abs(determinant) <= 1.0e-20F) {
     return {Vec4{1.0F, 0.0F, 0.0F, 0.0F},
-            Vec4{0.0F, 1.0F, 0.0F, 0.0F},
-            Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
+        Vec4{0.0F, 1.0F, 0.0F, 0.0F},
+        Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
   }
   const auto inverse_determinant = 1.0F / determinant;
   const auto column = [inverse_determinant](const Vec3& value) {
     return Vec4{value.x * inverse_determinant,
-                value.y * inverse_determinant,
-                value.z * inverse_determinant, 0.0F};
+        value.y * inverse_determinant,
+        value.z * inverse_determinant, 0.0F};
   };
   return {column(cofactor0), column(cofactor1), column(cofactor2)};
 }
@@ -336,9 +351,9 @@ static_assert(offsetof(GaussianGpuInstance, resource_id) == 44U);
 
 static_assert(shader_abi::kArtifactSchemaVersion ==
                   MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION,
-              "shader artifact schema version drifted from the build system");
+    "shader artifact schema version drifted from the build system");
 static_assert(shader_abi::kVersion == MERLIN_SHADER_ABI_VERSION,
-              "shader ABI version drifted from the build system");
+    "shader ABI version drifted from the build system");
 
 // The descriptor layouts and writes below are built from these declarations,
 // so the shader ABI and the Vulkan resource setup cannot drift apart.
@@ -385,10 +400,10 @@ struct Buffer {
 };
 
 class DeviceMemoryBudget {
- public:
+public:
   void Initialize(VkPhysicalDevice physical_device, VkDevice device,
-                  bool extension_available,
-                  std::uint64_t configured_limit_bytes) {
+      bool extension_available,
+      std::uint64_t configured_limit_bytes) {
     physical_device_ = physical_device;
     device_ = device;
     extension_available_ = extension_available;
@@ -398,18 +413,18 @@ class DeviceMemoryBudget {
   }
 
   [[nodiscard]] VkDeviceMemory Allocate(VkDeviceSize bytes,
-                                        std::uint32_t memory_type,
-                                        const char* operation) {
+      std::uint32_t memory_type,
+      const char* operation) {
     const auto heap = properties_.memoryTypes[memory_type].heapIndex;
     const bool device_local =
         (properties_.memoryHeaps[heap].flags &
-         VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0U;
+            VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0U;
     if (device_local) {
       Refresh();
       const auto global_limit = configured_limit_bytes_ == 0
                                     ? telemetry_.heap_budget_bytes
                                     : std::min(configured_limit_bytes_,
-                                               telemetry_.heap_budget_bytes);
+                                          telemetry_.heap_budget_bytes);
       const auto heap_available =
           heap_budget_[heap] > heap_usage_[heap]
               ? heap_budget_[heap] - heap_usage_[heap]
@@ -444,7 +459,7 @@ class DeviceMemoryBudget {
       telemetry_.renderer_allocated_bytes += bytes;
       telemetry_.renderer_peak_allocated_bytes =
           std::max(telemetry_.renderer_peak_allocated_bytes,
-                   telemetry_.renderer_allocated_bytes);
+              telemetry_.renderer_allocated_bytes);
     }
     return memory;
   }
@@ -484,7 +499,7 @@ class DeviceMemoryBudget {
     heap_usage_.fill(0);
     for (std::uint32_t heap = 0; heap < properties_.memoryHeapCount; ++heap) {
       if ((properties_.memoryHeaps[heap].flags &
-           VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0U) {
+              VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0U) {
         continue;
       }
       const auto capacity = properties_.memoryHeaps[heap].size;
@@ -512,7 +527,7 @@ class DeviceMemoryBudget {
     return telemetry_;
   }
 
- private:
+private:
   struct Allocation {
     VkDeviceSize bytes{};
     std::uint32_t heap{};
@@ -531,8 +546,8 @@ class DeviceMemoryBudget {
 };
 
 std::uint32_t FindMemoryTypeRaw(VkPhysicalDevice physical_device,
-                                std::uint32_t bits,
-                                VkMemoryPropertyFlags properties) {
+    std::uint32_t bits,
+    VkMemoryPropertyFlags properties) {
   VkPhysicalDeviceMemoryProperties memory{};
   vkGetPhysicalDeviceMemoryProperties(physical_device, &memory);
   for (std::uint32_t index = 0; index < memory.memoryTypeCount; ++index) {
@@ -545,7 +560,7 @@ std::uint32_t FindMemoryTypeRaw(VkPhysicalDevice physical_device,
 }
 
 void DestroyBufferRaw(VkDevice device, Buffer& buffer,
-                      DeviceMemoryBudget* memory_budget = nullptr) noexcept {
+    DeviceMemoryBudget* memory_budget = nullptr) noexcept {
   if (buffer.handle != VK_NULL_HANDLE) {
     vkDestroyBuffer(device, buffer.handle, nullptr);
   }
@@ -560,11 +575,11 @@ void DestroyBufferRaw(VkDevice device, Buffer& buffer,
 }
 
 Buffer CreateBufferRaw(VkDevice device, VkPhysicalDevice physical_device,
-                       VkDeviceSize size, VkBufferUsageFlags usage,
-                       VkMemoryPropertyFlags properties,
-                       DeviceMemoryBudget* memory_budget = nullptr,
-                       std::uint32_t first_queue_family = VK_QUEUE_FAMILY_IGNORED,
-                       std::uint32_t second_queue_family = VK_QUEUE_FAMILY_IGNORED) {
+    VkDeviceSize size, VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties,
+    DeviceMemoryBudget* memory_budget = nullptr,
+    std::uint32_t first_queue_family = VK_QUEUE_FAMILY_IGNORED,
+    std::uint32_t second_queue_family = VK_QUEUE_FAMILY_IGNORED) {
   Buffer result;
   result.size = size;
   VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -582,7 +597,7 @@ Buffer CreateBufferRaw(VkDevice device, VkPhysicalDevice physical_device,
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   }
   Check(vkCreateBuffer(device, &buffer_info, nullptr, &result.handle),
-        "create buffer");
+      "create buffer");
   VkMemoryRequirements requirements{};
   vkGetBufferMemoryRequirements(device, result.handle, &requirements);
   const auto memory_type =
@@ -590,16 +605,16 @@ Buffer CreateBufferRaw(VkDevice device, VkPhysicalDevice physical_device,
   try {
     if (memory_budget != nullptr) {
       result.memory = memory_budget->Allocate(requirements.size, memory_type,
-                                              "allocate buffer memory");
+          "allocate buffer memory");
     } else {
       VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
       allocation.allocationSize = requirements.size;
       allocation.memoryTypeIndex = memory_type;
       Check(vkAllocateMemory(device, &allocation, nullptr, &result.memory),
-            "allocate buffer memory");
+          "allocate buffer memory");
     }
     Check(vkBindBufferMemory(device, result.handle, result.memory, 0),
-          "bind buffer memory");
+        "bind buffer memory");
   } catch (...) {
     DestroyBufferRaw(device, result, memory_budget);
     throw;
@@ -615,14 +630,16 @@ struct BufferRange {
   VkDeviceSize offset{};
   VkDeviceSize size{};
 
-  [[nodiscard]] bool valid() const noexcept { return block != kInvalidBlock; }
+  [[nodiscard]] bool valid() const noexcept {
+    return block != kInvalidBlock;
+  }
 };
 
 // Grow-only pool of device-local blocks with first-fit free-list
 // suballocation. Allocation and release order is deterministic, so identical
 // edit sequences produce identical block/offset assignments.
 class DeviceArena {
- public:
+public:
   struct Allocation {
     BufferRange range;
     bool created_block{};
@@ -630,11 +647,11 @@ class DeviceArena {
   };
 
   void Initialize(VkDevice device, VkPhysicalDevice physical_device,
-                  VkBufferUsageFlags usage,
-                  DeviceMemoryBudget* memory_budget,
-                  std::uint32_t graphics_queue_family,
-                  std::uint32_t transfer_queue_family,
-                  VkDeviceSize alignment = kArenaAlignment) {
+      VkBufferUsageFlags usage,
+      DeviceMemoryBudget* memory_budget,
+      std::uint32_t graphics_queue_family,
+      std::uint32_t transfer_queue_family,
+      VkDeviceSize alignment = kArenaAlignment) {
     device_ = device;
     physical_device_ = physical_device;
     usage_ = usage;
@@ -672,17 +689,17 @@ class DeviceArena {
     const auto block_bytes = std::max(kMinArenaBlockBytes, aligned);
     Block block;
     block.buffer = CreateBufferRaw(device_, physical_device_, block_bytes,
-                                   usage_ | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                   memory_budget_, graphics_queue_family_,
-                                   transfer_queue_family_);
+        usage_ | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        memory_budget_, graphics_queue_family_,
+        transfer_queue_family_);
     if (block_bytes > aligned) {
       block.free_spans.push_back({aligned, block_bytes - aligned});
     }
     blocks_.push_back(std::move(block));
     RecordAllocation(true, aligned);
     return {{static_cast<std::uint32_t>(blocks_.size() - 1U), 0, aligned},
-            true, block_bytes};
+        true, block_bytes};
   }
 
   void Release(const BufferRange& range) noexcept {
@@ -742,7 +759,7 @@ class DeviceArena {
     return result;
   }
 
- private:
+private:
   struct FreeSpan {
     VkDeviceSize offset{};
     VkDeviceSize size{};
@@ -750,7 +767,7 @@ class DeviceArena {
 
   struct Block {
     Buffer buffer;
-    std::vector<FreeSpan> free_spans;  // sorted by offset, adjacent-merged
+    std::vector<FreeSpan> free_spans; // sorted by offset, adjacent-merged
   };
 
   void RecordAllocation(bool grew, VkDeviceSize bytes) noexcept {
@@ -764,7 +781,7 @@ class DeviceArena {
     }
     telemetry_.peak_resident_bytes =
         std::max(telemetry_.peak_resident_bytes,
-                 telemetry_.resident_bytes);
+            telemetry_.resident_bytes);
   }
 
   VkDevice device_{};
@@ -784,7 +801,7 @@ class DeviceArena {
 // ring reallocates and hands the old buffer to the caller for deferred
 // destruction.
 class StagingRing {
- public:
+public:
   struct Reservation {
     std::byte* mapped{};
     VkBuffer buffer{};
@@ -792,7 +809,7 @@ class StagingRing {
   };
 
   void Initialize(VkDevice device, VkPhysicalDevice physical_device,
-                  DeviceMemoryBudget* memory_budget) {
+      DeviceMemoryBudget* memory_budget) {
     device_ = device;
     physical_device_ = physical_device;
     memory_budget_ = memory_budget;
@@ -817,7 +834,7 @@ class StagingRing {
   // buffer when the ring grew; the caller must defer its destruction until
   // in-flight frames complete.
   Reservation Reserve(VkDeviceSize bytes, Buffer& retired,
-                      VkDeviceSize& growth_bytes) {
+      VkDeviceSize& growth_bytes) {
     if (pending_.active) {
       throw std::logic_error("staging region is already reserved this frame");
     }
@@ -851,8 +868,8 @@ class StagingRing {
       void* replacement_mapped{};
       try {
         Check(vkMapMemory(device_, replacement.memory, 0, replacement.size, 0,
-                          &replacement_mapped),
-              "map staging ring");
+                  &replacement_mapped),
+            "map staging ring");
       } catch (...) {
         DestroyBufferRaw(device_, replacement, memory_budget_);
         throw;
@@ -865,7 +882,7 @@ class StagingRing {
       replacement = {};
       mapped_ = static_cast<std::byte*>(replacement_mapped);
       retired_regions_.insert(retired_regions_.end(), regions_.begin(),
-                              regions_.end());
+          regions_.end());
       regions_.clear();
       head_ = 0;
       offset = 0;
@@ -936,7 +953,7 @@ class StagingRing {
     return result;
   }
 
- private:
+private:
   struct Region {
     VkDeviceSize begin{};
     VkDeviceSize end{};
@@ -984,7 +1001,7 @@ class StagingRing {
   void RefreshPeakInFlight() noexcept {
     telemetry_.peak_in_flight_bytes =
         std::max(telemetry_.peak_in_flight_bytes,
-                 telemetry().in_flight_bytes);
+            telemetry().in_flight_bytes);
   }
 
   VkDevice device_{};
@@ -999,23 +1016,23 @@ class StagingRing {
   UploadRingTelemetry telemetry_;
 };
 
-}  // namespace
+} // namespace
 
 class Renderer::Impl {
- public:
+public:
   explicit Impl(RendererOptions options) {
     diagnostic_sink_ = options.diagnostic_sink;
     if (options.frames_in_flight < 2 || options.frames_in_flight > 8) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "create renderer",
-                          "frames_in_flight must be between 2 and 8");
+          "create renderer",
+          "frames_in_flight must be between 2 and 8");
     }
     if (options.descriptor_backend !=
             DescriptorBackendRequest::Conventional &&
         options.bindless_sampler_capacity > (1U << 16U)) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "create renderer",
-                          "bindless_sampler_capacity must not exceed 65536");
+          "create renderer",
+          "bindless_sampler_capacity must not exceed 65536");
     }
     if (options.borrowed_context && options.presentation) {
       throw RendererError(
@@ -1032,8 +1049,8 @@ class Renderer::Impl {
     if (options.presentation) {
       if (options.presentation->create_surface == nullptr) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "create presentation target",
-                            "presentation surface callback is null");
+            "create presentation target",
+            "presentation surface callback is null");
       }
       presentation_vsync_ = options.presentation->vsync;
       presentation_overlay_user_data_ =
@@ -1050,11 +1067,11 @@ class Renderer::Impl {
             "generated material artifact metadata is incomplete");
       }
       if (!generated_material_artifacts_
-               .emplace(artifact.module_key, std::move(artifact))
-               .second) {
+              .emplace(artifact.module_key, std::move(artifact))
+              .second) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "register material artifact",
-                            "generated material module key is duplicated");
+            "register material artifact",
+            "generated material module key is duplicated");
       }
     }
     try {
@@ -1064,8 +1081,8 @@ class Renderer::Impl {
           capabilities_.descriptor_indexing_selection.selected_backend ==
               DescriptorBackend::Conventional;
       memory_budget_.Initialize(physical_device_, device_,
-                                capabilities_.memory_budget_extension,
-                                options.vram_limit_bytes);
+          capabilities_.memory_budget_extension,
+          options.vram_limit_bytes);
       const auto& initial_memory = memory_budget_.telemetry();
       capabilities_.device_local_heap_capacity_bytes =
           initial_memory.heap_capacity_bytes;
@@ -1110,9 +1127,9 @@ class Renderer::Impl {
       staging_.Initialize(device_, physical_device_, &memory_budget_);
       gaussian_staging_.Initialize(device_, physical_device_, &memory_budget_);
       gpu_scene_staging_.Initialize(device_, physical_device_,
-                                    &memory_budget_);
+          &memory_budget_);
       gpu_driven_staging_.Initialize(device_, physical_device_,
-                                     &memory_budget_);
+          &memory_budget_);
       if (options.gpu_scene_capacities) {
         CreateGpuSceneBuffers(*options.gpu_scene_capacities);
       }
@@ -1123,7 +1140,9 @@ class Renderer::Impl {
     }
   }
 
-  ~Impl() { Destroy(true); }
+  ~Impl() {
+    Destroy(true);
+  }
 
   void Destroy(bool wait_for_submissions) noexcept {
     if (device_ != VK_NULL_HANDLE) {
@@ -1253,7 +1272,7 @@ class Renderer::Impl {
       generated_descriptor_set_layouts_.clear();
       if (bindless_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device_, bindless_descriptor_set_layout_,
-                                     nullptr);
+            nullptr);
       }
       if (bindless_material_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(
@@ -1269,18 +1288,18 @@ class Renderer::Impl {
       }
       if (gpu_driven_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(device_,
-                                     gpu_driven_descriptor_set_layout_,
-                                     nullptr);
+            gpu_driven_descriptor_set_layout_,
+            nullptr);
       }
       for (const auto& [path, pipeline] :
-           gaussian_prepare_compute_pipelines_) {
+          gaussian_prepare_compute_pipelines_) {
         (void)path;
         vkDestroyPipeline(device_, pipeline, nullptr);
       }
       gaussian_prepare_compute_pipelines_.clear();
       if (gaussian_prepare_pipeline_layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device_, gaussian_prepare_pipeline_layout_,
-                                nullptr);
+            nullptr);
       }
       if (gaussian_prepare_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(
@@ -1297,7 +1316,7 @@ class Renderer::Impl {
       gaussian_sort_compute_pipelines_.clear();
       if (gaussian_sort_pipeline_layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device_, gaussian_sort_pipeline_layout_,
-                                nullptr);
+            nullptr);
       }
       if (gaussian_sort_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(
@@ -1362,17 +1381,19 @@ class Renderer::Impl {
       EnsureGeneratedDescriptorSetLayouts();
     }
     auto& frame = AcquireFrame(request.width, request.height, request.shaders,
-                               cpu_readback_aovs);
+        cpu_readback_aovs);
     frame.scene_revision = request.snapshot->revision;
     frame.rendered_aovs = std::move(rendered_aovs);
     frame.cpu_readback_aovs = std::move(cpu_readback_aovs);
     active_target_ = &frame.target;
     struct ResetActiveTarget {
       RenderTarget*& target;
-      ~ResetActiveTarget() { target = nullptr; }
+      ~ResetActiveTarget() {
+        target = nullptr;
+      }
     } reset_active_target{active_target_};
     EnsureTarget(frame.target, request.width, request.height, request.shaders,
-                  frame.cpu_readback_aovs);
+        frame.cpu_readback_aovs);
     if (request.present) {
       PreparePresentation(frame, request.width, request.height);
     } else {
@@ -1488,32 +1509,32 @@ class Renderer::Impl {
 
     const auto recording_start = CpuClock::now();
     Check(vkResetCommandPool(device_, frame.command_pool, 0),
-          "reset frame command pool");
+        "reset frame command pool");
     const bool asynchronous_upload =
         capabilities_.async_transfer_queue &&
         (!pending_copies_.empty() || !pending_image_copies_.empty());
     if (asynchronous_upload) {
       Check(vkResetCommandPool(device_, frame.transfer_command_pool, 0),
-            "reset transfer command pool");
+          "reset transfer command pool");
       VkCommandBufferBeginInfo transfer_begin{
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
       transfer_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       Check(vkBeginCommandBuffer(frame.transfer_command_buffer,
-                                 &transfer_begin),
-            "begin transfer command buffer");
+                &transfer_begin),
+          "begin transfer command buffer");
       RecordUploads(frame.transfer_command_buffer, true);
       Check(vkEndCommandBuffer(frame.transfer_command_buffer),
-            "end transfer command buffer");
+          "end transfer command buffer");
     }
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
-          "begin frame command buffer");
+        "begin frame command buffer");
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
       vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0, 6);
       vkCmdWriteTimestamp(frame.command_buffer,
-                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                          frame.timestamp_pool, 0);
+          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+          frame.timestamp_pool, 0);
     }
     if (asynchronous_upload) {
       RecordUploadAcquires(frame.command_buffer);
@@ -1524,25 +1545,25 @@ class Renderer::Impl {
     if (frame.timestamp_pool != VK_NULL_HANDLE &&
         frame.gaussian_gpu_sort.selected) {
       vkCmdWriteTimestamp(frame.command_buffer,
-                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                          frame.timestamp_pool, 4);
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+          frame.timestamp_pool, 4);
     }
     RecordGaussianGpuSort(frame.command_buffer, frame);
     if (frame.timestamp_pool != VK_NULL_HANDLE &&
         frame.gaussian_gpu_sort.selected) {
       vkCmdWriteTimestamp(frame.command_buffer,
-                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                          frame.timestamp_pool, 5);
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+          frame.timestamp_pool, 5);
     }
     RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
-                            request.gpu_driven_indexed);
+        request.gpu_driven_indexed);
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
-                 request.clear_color,
-                 frame.cpu_readback_aovs);
+        request.clear_color,
+        frame.cpu_readback_aovs);
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
       vkCmdWriteTimestamp(frame.command_buffer,
-                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                          frame.timestamp_pool, 1);
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+          frame.timestamp_pool, 1);
     }
     Check(vkEndCommandBuffer(frame.command_buffer), "end frame command buffer");
     const auto recording_ns = ElapsedNanoseconds(recording_start);
@@ -1570,7 +1591,7 @@ class Renderer::Impl {
         wait_info.pSemaphores = &transfer_timeline_semaphore_;
         wait_info.pValues = &transfer_completion;
         (void)vkWaitSemaphores(device_, &wait_info,
-                               std::numeric_limits<std::uint64_t>::max());
+            std::numeric_limits<std::uint64_t>::max());
         if (frame_counters_.gpu_scene_copy_range_count != 0) {
           // The completed transfer may have replaced slots that the resident
           // CPU revision still names. Do not reuse that revision after the
@@ -1641,7 +1662,7 @@ class Renderer::Impl {
     if (timeline_semaphore_ != VK_NULL_HANDLE) {
       std::uint64_t value{};
       Check(vkGetSemaphoreCounterValue(device_, timeline_semaphore_, &value),
-            "query frame completion");
+          "query frame completion");
       return value >= completion;
     }
     const auto status = vkGetFenceStatus(device_, frame.fence);
@@ -1656,14 +1677,14 @@ class Renderer::Impl {
     auto& frame = FindFrame(completion);
     if (!HasAov(frame.rendered_aovs, aov)) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "acquire AOV image",
-                          "AOV was not selected for this submission");
+          "acquire AOV image",
+          "AOV was not selected for this submission");
     }
     const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(aov);
     if ((frame.exported_aov_mask & mask) != 0) {
       throw RendererError(RendererErrorCode::ResourceBusy,
-                          "acquire AOV image",
-                          "AOV image already has an active export lease");
+          "acquire AOV image",
+          "AOV image already has an active export lease");
     }
 
     VkImage image{};
@@ -1671,44 +1692,44 @@ class Renderer::Impl {
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{};
     switch (aov) {
-      case Aov::Color:
-        image = frame.target.color;
-        format = kColorFormat;
-        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                VK_IMAGE_USAGE_SAMPLED_BIT;
-        break;
-      case Aov::Depth:
-        image = frame.target.depth;
-        format = kDepthFormat;
-        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-        usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-                VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        break;
-      case Aov::PrimId:
-        image = frame.target.prim_id;
-        format = kIdFormat;
-        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        break;
-      case Aov::InstanceId:
-        image = frame.target.instance_id;
-        format = kIdFormat;
-        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        break;
-      default:
-        throw RendererError(RendererErrorCode::Unsupported,
-                            "acquire AOV image",
-                            "AOV has no Vulkan export image");
+    case Aov::Color:
+      image = frame.target.color;
+      format = kColorFormat;
+      aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+      usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+              VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+              VK_IMAGE_USAGE_SAMPLED_BIT;
+      break;
+    case Aov::Depth:
+      image = frame.target.depth;
+      format = kDepthFormat;
+      aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+      usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+              VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+      break;
+    case Aov::PrimId:
+      image = frame.target.prim_id;
+      format = kIdFormat;
+      aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+      usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+              VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+      break;
+    case Aov::InstanceId:
+      image = frame.target.instance_id;
+      format = kIdFormat;
+      aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+      usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+              VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+      break;
+    default:
+      throw RendererError(RendererErrorCode::Unsupported,
+          "acquire AOV image",
+          "AOV has no Vulkan export image");
     }
     if (image == VK_NULL_HANDLE || format == VK_FORMAT_UNDEFINED) {
       throw RendererError(RendererErrorCode::BackendFailure,
-                          "acquire AOV image",
-                          "selected AOV image is unavailable");
+          "acquire AOV image",
+          "selected AOV image is unavailable");
     }
 
     frame.exported_aov_mask |= mask;
@@ -1748,15 +1769,15 @@ class Renderer::Impl {
         });
     if (found == frames_.end()) {
       throw RendererError(RendererErrorCode::InvalidToken,
-                          "release AOV image",
-                          "lease completion is unknown");
+          "release AOV image",
+          "lease completion is unknown");
     }
     const auto mask =
         std::uint64_t{1} << static_cast<std::uint32_t>(aov);
     if ((found->exported_aov_mask & mask) == 0) {
       throw RendererError(RendererErrorCode::InvalidToken,
-                          "release AOV image",
-                          "lease is unknown or already released");
+          "release AOV image",
+          "lease is unknown or already released");
     }
     found->exported_aov_mask &= ~mask;
     if (active_aov_image_leases_ != 0) {
@@ -1765,7 +1786,7 @@ class Renderer::Impl {
   }
 
   RenderResult Resolve(std::uint64_t completion,
-                       std::chrono::nanoseconds timeout) {
+      std::chrono::nanoseconds timeout) {
     auto& frame = FindFrame(completion);
     const auto resolve_start = CpuClock::now();
     const auto wait_start = CpuClock::now();
@@ -1784,7 +1805,9 @@ class Renderer::Impl {
     active_target_ = &frame.target;
     struct ResetActiveTarget {
       RenderTarget*& target;
-      ~ResetActiveTarget() { target = nullptr; }
+      ~ResetActiveTarget() {
+        target = nullptr;
+      }
     } reset_active_target{active_target_};
     RenderResult result;
     const auto readback_start = CpuClock::now();
@@ -1796,12 +1819,12 @@ class Renderer::Impl {
     }
     if (HasAov(frame.cpu_readback_aovs, Aov::PrimId)) {
       result.prim_id = ReadId(frame.target.width, frame.target.height,
-                              Aov::PrimId, frame.target.prim_id_readback);
+          Aov::PrimId, frame.target.prim_id_readback);
     }
     if (HasAov(frame.cpu_readback_aovs, Aov::InstanceId)) {
       result.instance_id = ReadId(frame.target.width, frame.target.height,
-                                  Aov::InstanceId,
-                                  frame.target.instance_id_readback);
+          Aov::InstanceId,
+          frame.target.instance_id_readback);
     }
     const auto readback_ns = ElapsedNanoseconds(readback_start);
     result.rendered_aovs = frame.rendered_aovs;
@@ -2190,9 +2213,9 @@ class Renderer::Impl {
         physical_device_ == VK_NULL_HANDLE ||
         device_ == VK_NULL_HANDLE || queue_ == VK_NULL_HANDLE) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "borrow Vulkan context",
-                          "instance, physical device, device, and graphics "
-                          "queue handles must all be non-null");
+          "borrow Vulkan context",
+          "instance, physical device, device, and graphics "
+          "queue handles must all be non-null");
     }
     if (options.enable_validation &&
         (!borrowed.validation_enabled || !borrowed.debug_utils_enabled)) {
@@ -2204,30 +2227,30 @@ class Renderer::Impl {
 
     std::uint32_t queue_count{};
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_count,
-                                             nullptr);
+        nullptr);
     if (queue_family_ >= queue_count) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "borrow Vulkan context",
-                          "graphics queue family is out of range");
+          "borrow Vulkan context",
+          "graphics queue family is out of range");
     }
     std::vector<VkQueueFamilyProperties> queues(queue_count);
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_count,
-                                             queues.data());
+        queues.data());
     const auto& queue_properties = queues[queue_family_];
     if ((queue_properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0U ||
         borrowed.graphics_queue_index >= queue_properties.queueCount) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "borrow Vulkan context",
-                          "borrowed queue is not a valid graphics queue");
+          "borrow Vulkan context",
+          "borrowed queue is not a valid graphics queue");
     }
     VkQueue declared_queue{};
     vkGetDeviceQueue(device_, queue_family_, borrowed.graphics_queue_index,
-                     &declared_queue);
+        &declared_queue);
     if (declared_queue != queue_) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "borrow Vulkan context",
-                          "graphics queue does not match its declared family "
-                          "and index");
+          "borrow Vulkan context",
+          "graphics queue does not match its declared family "
+          "and index");
     }
 
     std::uint32_t loader_api_version = VK_API_VERSION_1_0;
@@ -2236,12 +2259,12 @@ class Renderer::Impl {
             vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion"));
     if (enumerate_instance_version != nullptr) {
       Check(enumerate_instance_version(&loader_api_version),
-            "query Vulkan loader version");
+          "query Vulkan loader version");
     }
     if (loader_api_version < kMinimumBorrowedVulkanApiVersion) {
       throw RendererError(RendererErrorCode::Unsupported,
-                          "borrow Vulkan context",
-                          "Vulkan 1.3 loader is required");
+          "borrow Vulkan context",
+          "Vulkan 1.3 loader is required");
     }
 
     VkPhysicalDeviceDescriptorIndexingProperties descriptor_properties{
@@ -2256,8 +2279,8 @@ class Renderer::Impl {
     if (properties.properties.apiVersion <
         kMinimumBorrowedVulkanApiVersion) {
       throw RendererError(RendererErrorCode::Unsupported,
-                          "borrow Vulkan context",
-                          "borrowed device does not provide Vulkan 1.3");
+          "borrow Vulkan context",
+          "borrowed device does not provide Vulkan 1.3");
     }
 
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline{
@@ -2304,15 +2327,15 @@ class Renderer::Impl {
 
     VkFormatProperties depth_properties{};
     vkGetPhysicalDeviceFormatProperties(physical_device_, kDepthFormat,
-                                        &depth_properties);
+        &depth_properties);
     const auto required_depth =
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
         VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
     if ((depth_properties.optimalTilingFeatures & required_depth) !=
         required_depth) {
       throw RendererError(RendererErrorCode::Unsupported,
-                          "borrow Vulkan context",
-                          "D32 depth attachment readback is unsupported");
+          "borrow Vulkan context",
+          "D32 depth attachment readback is unsupported");
     }
 
     capabilities_.loader_api_version = loader_api_version;
@@ -2389,7 +2412,7 @@ class Renderer::Impl {
       const auto create =
           reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
               vkGetInstanceProcAddr(instance_,
-                                    "vkCreateDebugUtilsMessengerEXT"));
+                  "vkCreateDebugUtilsMessengerEXT"));
       if (create == nullptr) {
         throw RendererError(
             RendererErrorCode::Unsupported, "borrow Vulkan context",
@@ -2406,7 +2429,7 @@ class Renderer::Impl {
       debug_info.pfnUserCallback = ValidationCallback;
       debug_info.pUserData = this;
       Check(create(instance_, &debug_info, nullptr, &debug_messenger_),
-            "create borrowed validation debug messenger");
+          "create borrowed validation debug messenger");
     }
 
     if (capabilities_.timeline_semaphore) {
@@ -2418,8 +2441,8 @@ class Renderer::Impl {
           VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       semaphore_info.pNext = &type_info;
       Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
-                              &timeline_semaphore_),
-            "create frame timeline semaphore");
+                &timeline_semaphore_),
+          "create frame timeline semaphore");
     }
   }
 
@@ -2433,8 +2456,8 @@ class Renderer::Impl {
     const bool use_validation =
         options.enable_validation && HasLayer(validation_layer);
     const std::vector<const char*> layers = use_validation
-        ? std::vector<const char*>{validation_layer}
-        : std::vector<const char*>{};
+                                                ? std::vector<const char*>{validation_layer}
+                                                : std::vector<const char*>{};
     const bool use_debug_utils =
         use_validation && HasInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     std::vector<const char*> extensions;
@@ -2444,21 +2467,21 @@ class Renderer::Impl {
     if (options.presentation) {
       if (options.presentation->required_instance_extensions.empty()) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "create presentation target",
-                            "presentation adapter supplied no instance extensions");
+            "create presentation target",
+            "presentation adapter supplied no instance extensions");
       }
       for (const auto& extension :
-           options.presentation->required_instance_extensions) {
+          options.presentation->required_instance_extensions) {
         if (extension.empty() || !HasInstanceExtension(extension.c_str())) {
           throw RendererError(RendererErrorCode::Unsupported,
-                              "create presentation target",
-                              "required Vulkan instance extension is unavailable: " +
-                                  extension);
+              "create presentation target",
+              "required Vulkan instance extension is unavailable: " +
+                  extension);
         }
         if (std::find_if(extensions.begin(), extensions.end(),
-                         [&](const char* existing) {
-                           return extension == existing;
-                         }) == extensions.end()) {
+                [&](const char* existing) {
+                  return extension == existing;
+                }) == extensions.end()) {
           extensions.push_back(extension.c_str());
         }
       }
@@ -2487,13 +2510,13 @@ class Renderer::Impl {
             vkGetInstanceProcAddr(nullptr, "vkEnumerateInstanceVersion"));
     if (enumerate_instance_version != nullptr) {
       Check(enumerate_instance_version(&loader_api_version),
-            "query Vulkan loader version");
+          "query Vulkan loader version");
     }
     if (loader_api_version < kMinimumVulkanApiVersion) {
       throw RendererError(RendererErrorCode::Unsupported, "create renderer",
-                          std::string("Vulkan ") +
-                              MERLIN_VULKAN_MIN_VERSION_STRING +
-                              " loader is required");
+          std::string("Vulkan ") +
+              MERLIN_VULKAN_MIN_VERSION_STRING +
+              " loader is required");
     }
     capabilities_.loader_api_version = loader_api_version;
     capabilities_.header_version = VK_HEADER_VERSION_COMPLETE;
@@ -2508,7 +2531,7 @@ class Renderer::Impl {
         static_cast<std::uint32_t>(extensions.size());
     instance_info.ppEnabledExtensionNames = extensions.data();
     Check(vkCreateInstance(&instance_info, nullptr, &instance_),
-          "create Vulkan instance");
+        "create Vulkan instance");
     if (options.presentation) {
       std::uintptr_t encoded_surface{};
       const auto result = static_cast<VkResult>(
@@ -2519,8 +2542,8 @@ class Renderer::Impl {
       surface_ = DecodeHandle<VkSurfaceKHR>(encoded_surface);
       if (surface_ == VK_NULL_HANDLE) {
         throw RendererError(RendererErrorCode::BackendFailure,
-                            "create presentation target",
-                            "presentation adapter returned a null surface");
+            "create presentation target",
+            "presentation adapter returned a null surface");
       }
     }
     if (use_debug_utils) {
@@ -2530,19 +2553,19 @@ class Renderer::Impl {
         throw std::runtime_error("VK_EXT_debug_utils entry point is unavailable");
       }
       Check(create(instance_, &debug_info, nullptr, &debug_messenger_),
-            "create validation debug messenger");
+          "create validation debug messenger");
     }
 
     std::uint32_t device_count{};
     Check(vkEnumeratePhysicalDevices(instance_, &device_count, nullptr),
-          "enumerate physical devices");
+        "enumerate physical devices");
     if (device_count == 0) {
       throw RendererError(RendererErrorCode::Unsupported, "create renderer",
-                          "no Vulkan physical device is available");
+          "no Vulkan physical device is available");
     }
     std::vector<VkPhysicalDevice> devices(device_count);
     Check(vkEnumeratePhysicalDevices(instance_, &device_count, devices.data()),
-          "enumerate physical devices");
+        "enumerate physical devices");
 
     VkQueueFlags selected_queue_flags{};
     for (auto candidate : devices) {
@@ -2563,8 +2586,8 @@ class Renderer::Impl {
         if (surface_ != VK_NULL_HANDLE) {
           VkBool32 supported{};
           Check(vkGetPhysicalDeviceSurfaceSupportKHR(candidate, index,
-                                                     surface_, &supported),
-                "query Vulkan presentation support");
+                    surface_, &supported),
+              "query Vulkan presentation support");
           presentation_supported = supported == VK_TRUE;
         }
         if (graphics_family == VK_QUEUE_FAMILY_IGNORED &&
@@ -2580,12 +2603,12 @@ class Renderer::Impl {
       }
       if (graphics_family != VK_QUEUE_FAMILY_IGNORED &&
           (surface_ == VK_NULL_HANDLE ||
-           HasDeviceExtension(candidate, VK_KHR_SWAPCHAIN_EXTENSION_NAME))) {
+              HasDeviceExtension(candidate, VK_KHR_SWAPCHAIN_EXTENSION_NAME))) {
         physical_device_ = candidate;
         queue_family_ = graphics_family;
         transfer_queue_family_ =
             transfer_family == VK_QUEUE_FAMILY_IGNORED ? graphics_family
-                                                        : transfer_family;
+                                                       : transfer_family;
         selected_queue_flags = queues[graphics_family].queueFlags;
         selected_timestamp_valid_bits_ =
             queues[graphics_family].timestampValidBits;
@@ -2647,12 +2670,12 @@ class Renderer::Impl {
 
     VkFormatProperties depth_properties{};
     vkGetPhysicalDeviceFormatProperties(physical_device_, kDepthFormat,
-                                        &depth_properties);
+        &depth_properties);
     const auto required_depth = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
                                 VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
     if ((depth_properties.optimalTilingFeatures & required_depth) != required_depth) {
       throw RendererError(RendererErrorCode::Unsupported, "create renderer",
-                          "D32 depth attachment readback is unsupported");
+          "D32 depth attachment readback is unsupported");
     }
 
     VkPhysicalDeviceDescriptorIndexingFeatures descriptor_features{
@@ -2779,7 +2802,7 @@ class Renderer::Impl {
         static_cast<std::uint32_t>(device_extensions.size());
     device_info.ppEnabledExtensionNames = device_extensions.data();
     Check(vkCreateDevice(physical_device_, &device_info, nullptr, &device_),
-          "create Vulkan device");
+        "create Vulkan device");
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
     vkGetDeviceQueue(device_, transfer_queue_family_, 0, &transfer_queue_);
 
@@ -2790,12 +2813,12 @@ class Renderer::Impl {
       VkSemaphoreCreateInfo semaphore_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       semaphore_info.pNext = &type_info;
       Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
-                              &timeline_semaphore_),
-            "create frame timeline semaphore");
+                &timeline_semaphore_),
+          "create frame timeline semaphore");
       if (capabilities_.async_transfer_queue) {
         Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
-                                &transfer_timeline_semaphore_),
-              "create transfer timeline semaphore");
+                  &transfer_timeline_semaphore_),
+            "create transfer timeline semaphore");
       }
     }
   }
@@ -2808,37 +2831,37 @@ class Renderer::Impl {
                         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
       pool_info.queueFamilyIndex = queue_family_;
       Check(vkCreateCommandPool(device_, &pool_info, nullptr,
-                                &frame.command_pool),
-            "create frame command pool");
+                &frame.command_pool),
+          "create frame command pool");
       VkCommandBufferAllocateInfo command_info{
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
       command_info.commandPool = frame.command_pool;
       command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
       command_info.commandBufferCount = 1;
       Check(vkAllocateCommandBuffers(device_, &command_info,
-                                     &frame.command_buffer),
-            "allocate frame command buffer");
+                &frame.command_buffer),
+          "allocate frame command buffer");
       if (surface_ != VK_NULL_HANDLE) {
         VkSemaphoreCreateInfo semaphore_info{
             VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         Check(vkCreateSemaphore(device_, &semaphore_info, nullptr,
-                                &frame.image_available),
-              "create presentation acquire semaphore");
+                  &frame.image_available),
+            "create presentation acquire semaphore");
       }
       if (capabilities_.async_transfer_queue) {
         pool_info.queueFamilyIndex = transfer_queue_family_;
         Check(vkCreateCommandPool(device_, &pool_info, nullptr,
-                                  &frame.transfer_command_pool),
-              "create transfer command pool");
+                  &frame.transfer_command_pool),
+            "create transfer command pool");
         command_info.commandPool = frame.transfer_command_pool;
         Check(vkAllocateCommandBuffers(device_, &command_info,
-                                       &frame.transfer_command_buffer),
-              "allocate transfer command buffer");
+                  &frame.transfer_command_buffer),
+            "allocate transfer command buffer");
       }
       if (timeline_semaphore_ == VK_NULL_HANDLE) {
         VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         Check(vkCreateFence(device_, &fence_info, nullptr, &frame.fence),
-              "create frame fence");
+            "create frame fence");
       }
       if (capabilities_.timestamp_queries) {
         VkQueryPoolCreateInfo query_info{
@@ -2846,24 +2869,24 @@ class Renderer::Impl {
         query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
         query_info.queryCount = 6;
         Check(vkCreateQueryPool(device_, &query_info, nullptr,
-                                &frame.timestamp_pool),
-              "create frame timestamp query pool");
+                  &frame.timestamp_pool),
+            "create frame timestamp query pool");
       }
     }
   }
 
   Buffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-                      VkMemoryPropertyFlags properties,
-                      std::uint32_t first_queue_family =
-                          VK_QUEUE_FAMILY_IGNORED,
-                      std::uint32_t second_queue_family =
-                          VK_QUEUE_FAMILY_IGNORED) {
+      VkMemoryPropertyFlags properties,
+      std::uint32_t first_queue_family =
+          VK_QUEUE_FAMILY_IGNORED,
+      std::uint32_t second_queue_family =
+          VK_QUEUE_FAMILY_IGNORED) {
     ++frame_counters_.allocation_count;
     ++frame_counters_.buffer_allocation_count;
     frame_counters_.buffer_allocation_bytes += size;
     return CreateBufferRaw(device_, physical_device_, size, usage, properties,
-                           &memory_budget_, first_queue_family,
-                           second_queue_family);
+        &memory_budget_, first_queue_family,
+        second_queue_family);
   }
 
   void DestroyBuffer(Buffer& buffer) noexcept {
@@ -2874,8 +2897,8 @@ class Renderer::Impl {
   Buffer CreateGpuSceneTable(std::uint32_t capacity) {
     if (capacity == 0) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "create GPU Scene buffers",
-                          "every GPU Scene table capacity must be non-zero");
+          "create GPU Scene buffers",
+          "every GPU Scene table capacity must be non-zero");
     }
     const auto bytes = static_cast<VkDeviceSize>(capacity) * sizeof(Record);
     if (bytes > max_storage_buffer_range_) {
@@ -2966,9 +2989,9 @@ class Renderer::Impl {
       std::uint32_t capacity, std::string_view table_name) const {
     if (packed.ranges.size() != dirty_ranges.size()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          std::string(table_name) +
-                              " packed ranges do not match the update plan");
+          "upload GPU Scene",
+          std::string(table_name) +
+              " packed ranges do not match the update plan");
     }
     std::uint64_t record_count{};
     std::uint64_t copy_bytes{};
@@ -2979,17 +3002,17 @@ class Renderer::Impl {
       if (range.records.empty() || range.first_slot != dirty.first_slot ||
           range.records.size() != dirty.slot_count) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "upload GPU Scene",
-                            std::string(table_name) +
-                                " packed range does not match its dirty range");
+            "upload GPU Scene",
+            std::string(table_name) +
+                " packed range does not match its dirty range");
       }
       const auto end = static_cast<std::uint64_t>(range.first_slot) +
                        range.records.size();
       if (range.first_slot < previous_end || end > capacity) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "upload GPU Scene",
-                            std::string(table_name) +
-                                " packed range is unordered or exceeds capacity");
+            "upload GPU Scene",
+            std::string(table_name) +
+                " packed range is unordered or exceeds capacity");
       }
       previous_end = end;
       record_count += range.records.size();
@@ -2998,9 +3021,9 @@ class Renderer::Impl {
     if (packed.record_count != record_count ||
         packed.copy_bytes != copy_bytes) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          std::string(table_name) +
-                              " packed telemetry does not match its payload");
+          "upload GPU Scene",
+          std::string(table_name) +
+              " packed telemetry does not match its payload");
     }
   }
 
@@ -3012,17 +3035,17 @@ class Renderer::Impl {
     }
     if (!gpu_scene_buffers_.enabled()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          "renderer has no GPU Scene table capacities");
+          "upload GPU Scene",
+          "renderer has no GPU Scene table capacities");
     }
     const auto validate_plan = [&](const auto& plan,
                                    std::string_view table_name) {
       if (plan.source_id != snapshot.source_id ||
           plan.revision != snapshot.revision) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "upload GPU Scene",
-                            std::string(table_name) +
-                                " update was not packed from the request snapshot");
+            "upload GPU Scene",
+            std::string(table_name) +
+                " update was not packed from the request snapshot");
       }
     };
     validate_plan(update->geometry_plan, "geometry");
@@ -3039,8 +3062,8 @@ class Renderer::Impl {
         !same_plan_boundary(update->material_plan) ||
         !same_plan_boundary(update->draw_plan)) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          "table plans do not share one revision boundary");
+          "upload GPU Scene",
+          "table plans do not share one revision boundary");
     }
     if (update->geometry_plan.table !=
             render::GpuSceneResourceTable::Geometry ||
@@ -3049,23 +3072,23 @@ class Renderer::Impl {
         update->material_plan.table !=
             render::GpuSceneResourceTable::Material) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          "resource update plans name the wrong tables");
+          "upload GPU Scene",
+          "resource update plans name the wrong tables");
     }
 
     const auto capacities = gpu_scene_buffers_.capacities;
     ValidateGpuSceneTableUpdate(update->geometries,
-                                update->geometry_plan.dirty_ranges,
-                                capacities.geometries, "geometry");
+        update->geometry_plan.dirty_ranges,
+        capacities.geometries, "geometry");
     ValidateGpuSceneTableUpdate(update->instances,
-                                update->instance_plan.dirty_ranges,
-                                capacities.instances, "instance");
+        update->instance_plan.dirty_ranges,
+        capacities.instances, "instance");
     ValidateGpuSceneTableUpdate(update->materials,
-                                update->material_plan.dirty_ranges,
-                                capacities.materials, "material");
+        update->material_plan.dirty_ranges,
+        capacities.materials, "material");
     ValidateGpuSceneTableUpdate(update->draws,
-                                update->draw_plan.dirty_ranges,
-                                capacities.draws, "draw");
+        update->draw_plan.dirty_ranges,
+        capacities.draws, "draw");
     for (const auto& range : update->materials.ranges) {
       for (const auto& material : range.records) {
         const bool has_texture = material.base_color_texture_index !=
@@ -3079,8 +3102,8 @@ class Renderer::Impl {
         }
         if (has_texture && bindless_texture_table_ &&
             (material.base_color_texture_index >=
-                 bindless_texture_views_.size() ||
-             material.base_color_sampler_index >= bindless_samplers_.size())) {
+                    bindless_texture_views_.size() ||
+                material.base_color_sampler_index >= bindless_samplers_.size())) {
           throw RendererError(
               RendererErrorCode::InvalidRequest, "upload GPU Scene",
               "material texture or sampler reference exceeds bindless capacity");
@@ -3101,8 +3124,8 @@ class Renderer::Impl {
     if (!update->draw_slot_indices ||
         update->draw_slot_indices->size() != snapshot.draws.size()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          "draw slot map does not match the request snapshot");
+          "upload GPU Scene",
+          "draw slot map does not match the request snapshot");
     }
     if (gpu_scene_buffers_.draw_slot_indices != update->draw_slot_indices) {
       std::vector<bool> mapped_draw_slots(capacities.draws);
@@ -3121,8 +3144,8 @@ class Renderer::Impl {
                             update->draws.copy_bytes;
     if (update->copy_bytes != copy_bytes) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          "frame copy bytes do not match the table payloads");
+          "upload GPU Scene",
+          "frame copy bytes do not match the table payloads");
     }
     const bool complete_reconciliation =
         update->geometry_plan.full_reconciliation &&
@@ -3149,8 +3172,8 @@ class Renderer::Impl {
     }
     if (unchanged && copy_bytes != 0 && !complete_reconciliation) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "upload GPU Scene",
-                          "unchanged resident revision contains copy payload");
+          "upload GPU Scene",
+          "unchanged resident revision contains copy payload");
     }
     gpu_scene_buffers_.pending_source_id = reference_plan.source_id;
     gpu_scene_buffers_.pending_revision = reference_plan.revision;
@@ -3183,12 +3206,12 @@ class Renderer::Impl {
         const auto bytes = static_cast<VkDeviceSize>(range.records.size()) *
                            sizeof(Record);
         std::memcpy(reservation.mapped + cursor, range.records.data(),
-                    static_cast<std::size_t>(bytes));
+            static_cast<std::size_t>(bytes));
         pending_copies_.push_back(
             {reservation.buffer, reservation.offset + cursor,
-             destination.handle,
-             static_cast<VkDeviceSize>(range.first_slot) * sizeof(Record),
-             bytes});
+                destination.handle,
+                static_cast<VkDeviceSize>(range.first_slot) * sizeof(Record),
+                bytes});
         cursor += bytes;
         ++frame_counters_.gpu_scene_copy_range_count;
       }
@@ -3214,8 +3237,8 @@ class Renderer::Impl {
   }
 
   void PrepareGpuDrivenIndexed(FrameContext& frame,
-                               const extraction::FrameSnapshot& snapshot,
-                               const RenderRequest& request) {
+      const extraction::FrameSnapshot& snapshot,
+      const RenderRequest& request) {
     auto& resources = frame.gpu_driven;
     resources.selected = false;
     resources.candidate_count = 0;
@@ -3229,8 +3252,8 @@ class Renderer::Impl {
     const auto unavailable = [&](std::string detail) {
       if (request.gpu_driven_indexed.mode == GpuDrivenIndexedMode::Require) {
         throw RendererError(RendererErrorCode::Unsupported,
-                            "select GPU-driven indexed Forward",
-                            std::move(detail));
+            "select GPU-driven indexed Forward",
+            std::move(detail));
       }
       ++frame_counters_.gpu_driven_fallback_count;
     };
@@ -3254,18 +3277,18 @@ class Renderer::Impl {
         gpu_scene_buffers_.pending_update
             ? gpu_scene_buffers_.pending_draw_slot_indices
             : (gpu_scene_buffers_.has_resident_update &&
-                       gpu_scene_buffers_.source_id == snapshot.source_id &&
-                       gpu_scene_buffers_.revision == snapshot.revision
-                   ? gpu_scene_buffers_.draw_slot_indices
-                   : nullptr);
+                          gpu_scene_buffers_.source_id == snapshot.source_id &&
+                          gpu_scene_buffers_.revision == snapshot.revision
+                      ? gpu_scene_buffers_.draw_slot_indices
+                      : nullptr);
     if (!bindless_texture_table_ || !draw_slots ||
         draw_slots->size() != draw_records_.size()) {
       unavailable("persistent bindless GPU Scene state is unavailable");
       return;
     }
     if (std::any_of(selected_material_artifacts_.begin(),
-                    selected_material_artifacts_.end(),
-                    [](const auto* artifact) { return artifact != nullptr; })) {
+            selected_material_artifacts_.end(),
+            [](const auto* artifact) { return artifact != nullptr; })) {
       unavailable("generated material pipelines require conventional submission");
       return;
     }
@@ -3297,28 +3320,28 @@ class Renderer::Impl {
           (selections.back().pipeline_variant & pipeline_state_mask) !=
               masked_variant) {
         selections.push_back({slot.vertices.block, slot.indices.block,
-                              variant.variant_key, 0, 0, 0, {}});
+            variant.variant_key, 0, 0, 0, {}});
       }
       selections.back().draw_slots.push_back((*draw_slots)[i]);
     }
     const auto oversized_batch =
         std::any_of(selections.begin(), selections.end(),
-                    [&](const auto& batch) {
-                      return batch.draw_slots.size() >
-                             max_draw_indirect_count_;
-                    });
+            [&](const auto& batch) {
+              return batch.draw_slots.size() >
+                     max_draw_indirect_count_;
+            });
     if (oversized_batch) {
       unavailable("an arena/pipeline batch exceeds maxDrawIndirectCount");
       return;
     }
     const auto excessive_compute_batch =
         std::any_of(selections.begin(), selections.end(),
-                    [&](const auto& batch) {
-                      return shader_abi::GpuDrivenIndexedWorkgroupCount(
-                                 static_cast<std::uint32_t>(
-                                     batch.draw_slots.size())) >
-                             max_compute_work_group_count_x_;
-                    });
+            [&](const auto& batch) {
+              return shader_abi::GpuDrivenIndexedWorkgroupCount(
+                         static_cast<std::uint32_t>(
+                             batch.draw_slots.size())) >
+                     max_compute_work_group_count_x_;
+            });
     if (excessive_compute_batch) {
       unavailable(
           "an arena/pipeline batch exceeds maxComputeWorkGroupCount[0]");
@@ -3423,12 +3446,12 @@ class Renderer::Impl {
             static_cast<VkDeviceSize>(draw_slot_selection.size()) *
             sizeof(std::uint32_t);
         std::memcpy(reservation.mapped + source_offset,
-                    draw_slot_selection.data(),
-                    static_cast<std::size_t>(bytes));
+            draw_slot_selection.data(),
+            static_cast<std::size_t>(bytes));
         pending_copies_.push_back(
             {reservation.buffer, reservation.offset + source_offset,
-             resources.candidate_draw_slots.handle, batch.candidate_offset,
-             bytes});
+                resources.candidate_draw_slots.handle, batch.candidate_offset,
+                bytes});
         batch.pending_candidate_draw_slot_shadow = draw_slot_selection;
         batch.pending_candidate_draw_slot_shadow_offset =
             batch.candidate_offset;
@@ -3461,8 +3484,8 @@ class Renderer::Impl {
       if (request.gpu_driven_gaussian_preparation ==
           GpuDrivenGaussianPreparationMode::Require) {
         throw RendererError(RendererErrorCode::Unsupported,
-                            "select GPU-driven Gaussian preparation",
-                            std::move(detail));
+            "select GPU-driven Gaussian preparation",
+            std::move(detail));
       }
       ++frame_counters_.gaussian_gpu_preparation_fallback_count;
     };
@@ -3544,7 +3567,7 @@ class Renderer::Impl {
       counter_bytes = AlignUp(counter_bytes, storage_buffer_alignment_);
       constants_bytes = AlignUp(constants_bytes, uniform_buffer_alignment_);
       selections.push_back({&record, candidate_bytes, prepared_bytes,
-                            counter_bytes, constants_bytes, particle_count});
+          counter_bytes, constants_bytes, particle_count});
       candidate_bytes += resource_candidate_bytes;
       prepared_bytes += resource_prepared_bytes;
       counter_bytes += sizeof(shader_abi::GaussianPrepareDispatchCounters);
@@ -3595,10 +3618,10 @@ class Renderer::Impl {
 
       auto& value = constants[i];
       value.local_to_camera = Multiply(snapshot.view,
-                                       selection.record->transform);
+          selection.record->transform);
       value.projection = snapshot.projection;
       value.viewport_size = {static_cast<float>(request.width),
-                             static_cast<float>(request.height)};
+          static_cast<float>(request.height)};
       value.resource_id_low =
           static_cast<std::uint32_t>(selection.record->gaussian);
       value.resource_id_high = static_cast<std::uint32_t>(
@@ -3618,12 +3641,12 @@ class Renderer::Impl {
     }
     void* mapped{};
     Check(vkMapMemory(device_, resources.constants.memory, 0,
-                      resources.constants.size, 0, &mapped),
-          "map Gaussian preparation constants");
+              resources.constants.size, 0, &mapped),
+        "map Gaussian preparation constants");
     for (std::size_t i = 0; i < selections.size(); ++i) {
       std::memcpy(static_cast<std::byte*>(mapped) +
                       selections[i].constants_offset,
-                  &constants[i], sizeof(constants[i]));
+          &constants[i], sizeof(constants[i]));
     }
     vkUnmapMemory(device_, resources.constants.memory);
     UpdateGaussianGpuPreparationDescriptors(resources);
@@ -3689,8 +3712,8 @@ class Renderer::Impl {
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     void* mapped{};
     Check(vkMapMemory(device_, gaussian_corner_vertices_.memory, 0,
-                      sizeof(corners), 0, &mapped),
-          "map Gaussian corner vertices");
+              sizeof(corners), 0, &mapped),
+        "map Gaussian corner vertices");
     std::memcpy(mapped, corners.data(), sizeof(corners));
     vkUnmapMemory(device_, gaussian_corner_vertices_.memory);
   }
@@ -3774,7 +3797,7 @@ class Renderer::Impl {
               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
       void* mapped{};
       Check(vkMapMemory(device_, staging.memory, 0, staging.size, 0, &mapped),
-            "map texture staging buffer");
+          "map texture staging buffer");
       std::memcpy(mapped, pixels.data(), pixels.size());
       vkUnmapMemory(device_, staging.memory);
       pending_image_copies_.push_back(
@@ -3808,19 +3831,19 @@ class Renderer::Impl {
   }
 
   VkSampler CreateSamplerResource(FilterMode min_filter, FilterMode mag_filter,
-                                  AddressMode address_u,
-                                  AddressMode address_v) {
+      AddressMode address_u,
+      AddressMode address_v) {
     const auto filter = [](FilterMode value) {
       return value == FilterMode::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
     };
     const auto address = [](AddressMode value) {
       switch (value) {
-        case AddressMode::Repeat:
-          return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        case AddressMode::MirroredRepeat:
-          return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-        case AddressMode::ClampToEdge:
-          return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+      case AddressMode::Repeat:
+        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+      case AddressMode::MirroredRepeat:
+        return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+      case AddressMode::ClampToEdge:
+        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
       }
       return VK_SAMPLER_ADDRESS_MODE_REPEAT;
     };
@@ -3854,7 +3877,7 @@ class Renderer::Impl {
     if (texture.image != VK_NULL_HANDLE) {
       if (texture.bindless_slot) {
         bindless_texture_table_->Retire(texture.bindless_slot,
-                                        timeline_value_);
+            timeline_value_);
       }
       retired_textures_.push_back({texture, timeline_value_});
       texture = {};
@@ -3885,7 +3908,7 @@ class Renderer::Impl {
   }
 
   void SyncTextures(const extraction::FrameSnapshot& snapshot,
-                    ResourceSyncMode mode) {
+      ResourceSyncMode mode) {
     if (mode == ResourceSyncMode::Unchanged) {
       frame_counters_.texture_cache_hits += snapshot.textures.size();
       return;
@@ -3940,8 +3963,8 @@ class Renderer::Impl {
             });
         if (!record) {
           throw RendererError(RendererErrorCode::InvalidRequest,
-                              "synchronize textures",
-                              "snapshot texture delta has no matching record");
+              "synchronize textures",
+              "snapshot texture delta has no matching record");
         }
         records.push_back(record);
       }
@@ -3954,8 +3977,8 @@ class Renderer::Impl {
       const auto& texture = *texture_record;
       if (!texture.pixels) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "synchronize textures",
-                            "texture payload is null");
+            "synchronize textures",
+            "texture payload is null");
       }
       const auto [entry, inserted] =
           texture_slots_.try_emplace(texture.texture);
@@ -3983,7 +4006,7 @@ class Renderer::Impl {
   }
 
   void SyncSamplers(const extraction::FrameSnapshot& snapshot,
-                    ResourceSyncMode mode) {
+      ResourceSyncMode mode) {
     if (mode == ResourceSyncMode::Unchanged) {
       frame_counters_.sampler_cache_hits += snapshot.samplers.size();
       return;
@@ -4038,8 +4061,8 @@ class Renderer::Impl {
             });
         if (!record) {
           throw RendererError(RendererErrorCode::InvalidRequest,
-                              "synchronize samplers",
-                              "snapshot sampler delta has no matching record");
+              "synchronize samplers",
+              "snapshot sampler delta has no matching record");
         }
         records.push_back(record);
       }
@@ -4108,7 +4131,7 @@ class Renderer::Impl {
       return;
     }
     static const std::array<std::array<std::uint8_t, 4>,
-                            kReservedBindlessTextureSlots>
+        kReservedBindlessTextureSlots>
         pixels{{
             {255U, 255U, 255U, 255U},
             {0U, 0U, 0U, 255U},
@@ -4121,7 +4144,7 @@ class Renderer::Impl {
         texture = CreateTextureResource(
             1, 1, 1,
             std::vector<std::uint8_t>(pixels[index].begin(),
-                                      pixels[index].end()),
+                pixels[index].end()),
             false);
         bindless_texture_views_[index] = texture.view;
         force_reserved_bindless_texture_writes_ = true;
@@ -4171,8 +4194,8 @@ class Renderer::Impl {
     layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
     layout_info.pBindings = bindings.data();
     Check(vkCreateDescriptorSetLayout(device_, &layout_info, nullptr,
-                                      &bindless_descriptor_set_layout_),
-          "create bindless resource descriptor layout");
+              &bindless_descriptor_set_layout_),
+        "create bindless resource descriptor layout");
     ++frame_counters_.descriptor_layout_cache_misses;
 
     const std::array<VkDescriptorPoolSize, 2> sizes{{
@@ -4186,8 +4209,8 @@ class Renderer::Impl {
     pool_info.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
     pool_info.pPoolSizes = sizes.data();
     Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
-                                 &bindless_descriptor_pool_),
-          "create bindless resource descriptor pool");
+              &bindless_descriptor_pool_),
+        "create bindless resource descriptor pool");
     ++frame_counters_.descriptor_pool_creation_count;
 
     VkDescriptorSetVariableDescriptorCountAllocateInfo variable_count{
@@ -4201,8 +4224,8 @@ class Renderer::Impl {
     allocate.descriptorSetCount = 1;
     allocate.pSetLayouts = &bindless_descriptor_set_layout_;
     Check(vkAllocateDescriptorSets(device_, &allocate,
-                                   &bindless_descriptor_set_),
-          "allocate bindless resource descriptor set");
+              &bindless_descriptor_set_),
+        "allocate bindless resource descriptor set");
     ++frame_counters_.descriptor_allocation_count;
   }
 
@@ -4239,7 +4262,7 @@ class Renderer::Impl {
     Check(vkCreateDescriptorSetLayout(
               device_, &info, nullptr,
               &bindless_material_descriptor_set_layout_),
-          "create bindless material descriptor layout");
+        "create bindless material descriptor layout");
     ++frame_counters_.descriptor_layout_cache_misses;
   }
 
@@ -4265,8 +4288,8 @@ class Renderer::Impl {
     layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
     layout_info.pBindings = bindings.data();
     Check(vkCreateDescriptorSetLayout(device_, &layout_info, nullptr,
-                                      &gpu_driven_descriptor_set_layout_),
-          "create GPU-driven descriptor layout");
+              &gpu_driven_descriptor_set_layout_),
+        "create GPU-driven descriptor layout");
     ++frame_counters_.descriptor_layout_cache_misses;
 
     const std::array set_layouts{
@@ -4285,8 +4308,8 @@ class Renderer::Impl {
     pipeline_layout_info.pushConstantRangeCount = 1;
     pipeline_layout_info.pPushConstantRanges = &push_range;
     Check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr,
-                                 &gpu_driven_pipeline_layout_),
-          "create GPU-driven pipeline layout");
+              &gpu_driven_pipeline_layout_),
+        "create GPU-driven pipeline layout");
   }
 
   VkPipeline EnsureGpuDrivenComputePipeline(const ShaderPaths& shaders) {
@@ -4311,8 +4334,8 @@ class Renderer::Impl {
     info.layout = gpu_driven_pipeline_layout_;
     VkPipeline pipeline{};
     Check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &info, nullptr,
-                                   &pipeline),
-          "create GPU-driven compute pipeline");
+              &pipeline),
+        "create GPU-driven compute pipeline");
     gpu_driven_pipelines_.emplace(path, pipeline);
     ++frame_counters_.pipeline_creation_count;
     ++frame_counters_.pipeline_cache_misses;
@@ -4320,10 +4343,10 @@ class Renderer::Impl {
   }
 
   void EnsureGpuDrivenFrameResources(GpuDrivenFrameResources& resources,
-                                     VkDeviceSize candidate_bytes,
-                                     VkDeviceSize command_bytes,
-                                     VkDeviceSize counter_bytes,
-                                     std::uint32_t batch_count) {
+      VkDeviceSize candidate_bytes,
+      VkDeviceSize command_bytes,
+      VkDeviceSize counter_bytes,
+      std::uint32_t batch_count) {
     if (resources.candidate_capacity_bytes >= candidate_bytes &&
         resources.command_capacity_bytes >= command_bytes &&
         resources.counter_capacity_bytes >= counter_bytes &&
@@ -4370,28 +4393,30 @@ class Renderer::Impl {
     pool_info.poolSizeCount = 1;
     pool_info.pPoolSizes = &pool_size;
     Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
-                                 &resources.descriptor_pool),
-          "create GPU-driven descriptor pool");
+              &resources.descriptor_pool),
+        "create GPU-driven descriptor pool");
     ++frame_counters_.descriptor_pool_creation_count;
     VkDescriptorSetAllocateInfo allocate{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     allocate.descriptorPool = resources.descriptor_pool;
     allocate.descriptorSetCount = resources.batch_capacity;
     const std::vector layouts(resources.batch_capacity,
-                              gpu_driven_descriptor_set_layout_);
+        gpu_driven_descriptor_set_layout_);
     allocate.pSetLayouts = layouts.data();
     resources.descriptor_sets.resize(resources.batch_capacity);
     Check(vkAllocateDescriptorSets(device_, &allocate,
-                                   resources.descriptor_sets.data()),
-          "allocate GPU-driven descriptor sets");
+              resources.descriptor_sets.data()),
+        "allocate GPU-driven descriptor sets");
     frame_counters_.descriptor_allocation_count += resources.batch_capacity;
   }
 
   void UpdateGpuDrivenBatchDescriptors(
       const GpuDrivenFrameResources& resources) {
     const std::array descriptor_buffers{
-        &resources.candidate_draw_slots, &resources.candidate_results,
-        &resources.indirect_commands, &resources.dispatch_counters,
+        &resources.candidate_draw_slots,
+        &resources.candidate_results,
+        &resources.indirect_commands,
+        &resources.dispatch_counters,
     };
     const std::array descriptor_bindings{
         shader_abi::kGpuDrivenCandidateDrawSlots.binding,
@@ -4403,7 +4428,7 @@ class Renderer::Impl {
         resources.batches.size() * descriptor_buffers.size());
     std::vector<VkWriteDescriptorSet> writes(buffer_infos.size());
     for (std::size_t batch_index = 0;
-         batch_index < resources.batches.size(); ++batch_index) {
+        batch_index < resources.batches.size(); ++batch_index) {
       const auto& batch = resources.batches[batch_index];
       const auto slot_bytes = static_cast<VkDeviceSize>(batch.candidate_count) *
                               sizeof(std::uint32_t);
@@ -4411,16 +4436,16 @@ class Renderer::Impl {
           static_cast<VkDeviceSize>(batch.candidate_count) *
           sizeof(render::GpuIndexedIndirectCommand);
       const std::array offsets{batch.candidate_offset, batch.candidate_offset,
-                               batch.command_offset, batch.counter_offset};
+          batch.command_offset, batch.counter_offset};
       const std::array ranges{
           slot_bytes, slot_bytes, command_bytes,
           VkDeviceSize{sizeof(shader_abi::GpuDrivenIndexedDispatchCounters)}};
       for (std::size_t binding_index = 0;
-           binding_index < descriptor_buffers.size(); ++binding_index) {
+          binding_index < descriptor_buffers.size(); ++binding_index) {
         const auto index =
             batch_index * descriptor_buffers.size() + binding_index;
         buffer_infos[index] = {descriptor_buffers[binding_index]->handle,
-                               offsets[binding_index], ranges[binding_index]};
+            offsets[binding_index], ranges[binding_index]};
         writes[index] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         writes[index].dstSet = batch.descriptor_set;
         writes[index].dstBinding = descriptor_bindings[binding_index];
@@ -4430,7 +4455,7 @@ class Renderer::Impl {
       }
     }
     vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
-                           writes.data(), 0, nullptr);
+        writes.data(), 0, nullptr);
     frame_counters_.descriptor_update_count += writes.size();
   }
 
@@ -4450,11 +4475,11 @@ class Renderer::Impl {
     Check(vkCreateDescriptorSetLayout(
               device_, &empty_info, nullptr,
               &gaussian_prepare_empty_descriptor_set_layout_),
-          "create Gaussian preparation empty descriptor layout");
+        "create Gaussian preparation empty descriptor layout");
 
     std::array<VkDescriptorSetLayoutBinding,
-               kGaussianPrepareStorageBufferCount +
-                   kGaussianPrepareUniformBufferCount>
+        kGaussianPrepareStorageBufferCount +
+            kGaussianPrepareUniformBufferCount>
         bindings{};
     static constexpr std::array storage_bindings{
         shader_abi::kGaussianPositions.binding,
@@ -4484,7 +4509,7 @@ class Renderer::Impl {
     Check(vkCreateDescriptorSetLayout(
               device_, &layout_info, nullptr,
               &gaussian_prepare_descriptor_set_layout_),
-          "create Gaussian preparation descriptor layout");
+        "create Gaussian preparation descriptor layout");
     frame_counters_.descriptor_layout_cache_misses += 2;
 
     const std::array set_layouts{
@@ -4499,8 +4524,8 @@ class Renderer::Impl {
         static_cast<std::uint32_t>(set_layouts.size());
     pipeline_layout_info.pSetLayouts = set_layouts.data();
     Check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr,
-                                 &gaussian_prepare_pipeline_layout_),
-          "create Gaussian preparation pipeline layout");
+              &gaussian_prepare_pipeline_layout_),
+        "create Gaussian preparation pipeline layout");
   }
 
   static std::filesystem::path GaussianPrepareComputePath(
@@ -4536,8 +4561,8 @@ class Renderer::Impl {
     info.layout = gaussian_prepare_pipeline_layout_;
     VkPipeline pipeline{};
     Check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &info, nullptr,
-                                   &pipeline),
-          "create Gaussian preparation compute pipeline");
+              &pipeline),
+        "create Gaussian preparation compute pipeline");
     gaussian_prepare_compute_pipelines_.emplace(path, pipeline);
     ++frame_counters_.pipeline_creation_count;
     ++frame_counters_.pipeline_cache_misses;
@@ -4573,8 +4598,8 @@ class Renderer::Impl {
     layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
     layout_info.pBindings = bindings.data();
     Check(vkCreateDescriptorSetLayout(device_, &layout_info, nullptr,
-                                      &gaussian_sort_descriptor_set_layout_),
-          "create Gaussian sort descriptor layout");
+              &gaussian_sort_descriptor_set_layout_),
+        "create Gaussian sort descriptor layout");
     ++frame_counters_.descriptor_layout_cache_misses;
 
     VkPushConstantRange push_constants{};
@@ -4587,8 +4612,8 @@ class Renderer::Impl {
     pipeline_layout_info.pushConstantRangeCount = 1;
     pipeline_layout_info.pPushConstantRanges = &push_constants;
     Check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr,
-                                 &gaussian_sort_pipeline_layout_),
-          "create Gaussian sort pipeline layout");
+              &gaussian_sort_pipeline_layout_),
+        "create Gaussian sort pipeline layout");
   }
 
   std::array<VkPipeline, kGaussianSortKernelCount>
@@ -4602,7 +4627,7 @@ class Renderer::Impl {
             "gaussian-sort-scan-add.comp.spv",
             "gaussian-sort-scatter.comp.spv",
             "gaussian-sort-verify.comp.spv",
-        };
+    };
     const auto directory =
         shaders.gaussian_sort_directory.empty()
             ? GaussianPrepareComputePath(shaders).parent_path()
@@ -4627,8 +4652,8 @@ class Renderer::Impl {
       info.layout = gaussian_sort_pipeline_layout_;
       VkPipeline pipeline{};
       Check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &info,
-                                     nullptr, &pipeline),
-            "create Gaussian sort compute pipeline");
+                nullptr, &pipeline),
+          "create Gaussian sort compute pipeline");
       gaussian_sort_compute_pipelines_.emplace(path, pipeline);
       ++frame_counters_.pipeline_creation_count;
       ++frame_counters_.pipeline_cache_misses;
@@ -4650,7 +4675,7 @@ class Renderer::Impl {
     resources.scan_capacity_bytes = scan_bytes;
     for (auto& keys : resources.keys) {
       keys = CreateBuffer(key_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     }
     resources.scan = CreateBuffer(
         scan_bytes,
@@ -4673,19 +4698,19 @@ class Renderer::Impl {
     pool_info.poolSizeCount = 1;
     pool_info.pPoolSizes = &pool_size;
     Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
-                                 &resources.descriptor_pool),
-          "create Gaussian sort descriptor pool");
+              &resources.descriptor_pool),
+        "create Gaussian sort descriptor pool");
     ++frame_counters_.descriptor_pool_creation_count;
     const std::array layouts{gaussian_sort_descriptor_set_layout_,
-                             gaussian_sort_descriptor_set_layout_};
+        gaussian_sort_descriptor_set_layout_};
     VkDescriptorSetAllocateInfo allocate{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     allocate.descriptorPool = resources.descriptor_pool;
     allocate.descriptorSetCount = kSetCount;
     allocate.pSetLayouts = layouts.data();
     Check(vkAllocateDescriptorSets(device_, &allocate,
-                                   resources.descriptor_sets.data()),
-          "allocate Gaussian sort descriptor sets");
+              resources.descriptor_sets.data()),
+        "allocate Gaussian sort descriptor sets");
     frame_counters_.descriptor_allocation_count += kSetCount;
   }
 
@@ -4695,7 +4720,7 @@ class Renderer::Impl {
       const GaussianGpuSortFrameResources& resources,
       VkBuffer prepared_records) {
     std::array<VkDescriptorBufferInfo,
-               2 * kGaussianSortStorageBufferCount>
+        2 * kGaussianSortStorageBufferCount>
         buffer_infos{};
     std::array<VkWriteDescriptorSet, buffer_infos.size()> writes{};
     for (std::size_t set = 0; set < resources.descriptor_sets.size(); ++set) {
@@ -4711,7 +4736,7 @@ class Renderer::Impl {
               shader_abi::kGaussianSortDestination.binding,
               shader_abi::kGaussianSortScan.binding,
               shader_abi::kGaussianSortPreparedRecords.binding,
-          };
+      };
       for (std::size_t binding = 0; binding < buffers.size(); ++binding) {
         const auto index = set * kGaussianSortStorageBufferCount + binding;
         buffer_infos[index] = {buffers[binding], 0, VK_WHOLE_SIZE};
@@ -4724,12 +4749,12 @@ class Renderer::Impl {
       }
     }
     vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
-                           writes.data(), 0, nullptr);
+        writes.data(), 0, nullptr);
     frame_counters_.descriptor_update_count += writes.size();
   }
 
   void PrepareGaussianGpuSort(FrameContext& frame, const RenderRequest& request,
-                              GaussianGpuStageSelection preparation) {
+      GaussianGpuStageSelection preparation) {
     auto& resources = frame.gaussian_gpu_sort;
     resources.selected = false;
     if (request.gpu_driven_gaussian_sort ==
@@ -4741,8 +4766,8 @@ class Renderer::Impl {
       if (request.gpu_driven_gaussian_sort ==
           GpuDrivenGaussianSortMode::Require) {
         throw RendererError(RendererErrorCode::Unsupported,
-                            "select GPU-driven Gaussian sorting",
-                            std::move(detail));
+            "select GPU-driven Gaussian sorting",
+            std::move(detail));
       }
       ++frame_counters_.gaussian_gpu_sort_fallback_count;
     };
@@ -4762,10 +4787,10 @@ class Renderer::Impl {
     std::vector<std::size_t> order(prepared.batches.size());
     std::iota(order.begin(), order.end(), std::size_t{});
     std::sort(order.begin(), order.end(),
-              [&](std::size_t lhs, std::size_t rhs) {
-                return prepared.batches[lhs].resource <
-                       prepared.batches[rhs].resource;
-              });
+        [&](std::size_t lhs, std::size_t rhs) {
+          return prepared.batches[lhs].resource <
+                 prepared.batches[rhs].resource;
+        });
     std::uint64_t candidate_count{};
     for (const auto& batch : prepared.batches) {
       candidate_count += batch.particle_count;
@@ -4801,8 +4826,8 @@ class Renderer::Impl {
         return;
       }
       levels.push_back({static_cast<std::uint32_t>(level_offset),
-                        static_cast<std::uint32_t>(level_count),
-                        static_cast<std::uint32_t>(sums_offset)});
+          static_cast<std::uint32_t>(level_count),
+          static_cast<std::uint32_t>(sums_offset)});
       if (workgroups == 1U) {
         break;
       }
@@ -4865,7 +4890,7 @@ class Renderer::Impl {
     }
     EnsureGaussianGpuSortFrameResources(resources, key_bytes, scan_bytes);
     UpdateGaussianGpuSortDescriptors(resources,
-                                     prepared.prepared_records.handle);
+        prepared.prepared_records.handle);
     resources.pipelines = pipelines;
     resources.key_batches = std::move(key_batches);
     resources.scan_levels = std::move(levels);
@@ -4873,11 +4898,11 @@ class Renderer::Impl {
     for (std::size_t i = 0; i < prepared.batches.size(); ++i) {
       resources.visible_count_copies.push_back(
           {prepared.batches[i].counter_offset +
-               offsetof(shader_abi::GaussianPrepareDispatchCounters,
-                        visible_count),
-           (shader_abi::kGaussianSortControlWordCount + i) *
-               sizeof(std::uint32_t),
-           sizeof(std::uint32_t)});
+                  offsetof(shader_abi::GaussianPrepareDispatchCounters,
+                      visible_count),
+              (shader_abi::kGaussianSortControlWordCount + i) *
+                  sizeof(std::uint32_t),
+              sizeof(std::uint32_t)});
     }
     resources.key_count = key_count;
     resources.block_count = block_count;
@@ -4949,20 +4974,20 @@ class Renderer::Impl {
     pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
     pool_info.pPoolSizes = pool_sizes.data();
     Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
-                                 &resources.descriptor_pool),
-          "create Gaussian preparation descriptor pool");
+              &resources.descriptor_pool),
+        "create Gaussian preparation descriptor pool");
     ++frame_counters_.descriptor_pool_creation_count;
     VkDescriptorSetAllocateInfo allocate{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     allocate.descriptorPool = resources.descriptor_pool;
     allocate.descriptorSetCount = batch_count;
     const std::vector layouts(batch_count,
-                              gaussian_prepare_descriptor_set_layout_);
+        gaussian_prepare_descriptor_set_layout_);
     allocate.pSetLayouts = layouts.data();
     resources.descriptor_sets.resize(batch_count);
     Check(vkAllocateDescriptorSets(device_, &allocate,
-                                   resources.descriptor_sets.data()),
-          "allocate Gaussian preparation descriptor sets");
+              resources.descriptor_sets.data()),
+        "allocate Gaussian preparation descriptor sets");
     frame_counters_.descriptor_allocation_count += batch_count;
   }
 
@@ -4973,7 +4998,7 @@ class Renderer::Impl {
         resources.batches.size() * kBindingCount);
     std::vector<VkWriteDescriptorSet> writes(buffer_infos.size());
     for (std::size_t batch_index = 0;
-         batch_index < resources.batches.size(); ++batch_index) {
+        batch_index < resources.batches.size(); ++batch_index) {
       const auto& batch = resources.batches[batch_index];
       const auto& attributes = gaussian_attribute_slots_.at(batch.resource);
       const auto candidate_bytes =
@@ -5023,10 +5048,10 @@ class Renderer::Impl {
           shader_abi::kGaussianPrepareConstants.binding,
       };
       for (std::size_t binding_index = 0; binding_index < kBindingCount;
-           ++binding_index) {
+          ++binding_index) {
         const auto index = batch_index * kBindingCount + binding_index;
         buffer_infos[index] = {buffers[binding_index], offsets[binding_index],
-                               ranges[binding_index]};
+            ranges[binding_index]};
         writes[index] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         writes[index].dstSet = batch.descriptor_set;
         writes[index].dstBinding = bindings[binding_index];
@@ -5039,7 +5064,7 @@ class Renderer::Impl {
       }
     }
     vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
-                           writes.data(), 0, nullptr);
+        writes.data(), 0, nullptr);
     frame_counters_.descriptor_update_count += writes.size();
   }
 
@@ -5057,8 +5082,8 @@ class Renderer::Impl {
     for (std::size_t i = 0; i < texture_indices.size(); ++i) {
       const auto index = texture_indices[i];
       const auto view = bindless_texture_views_[index] == VK_NULL_HANDLE
-          ? error_view
-          : bindless_texture_views_[index];
+                            ? error_view
+                            : bindless_texture_views_[index];
       texture_infos[i] =
           {VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
       VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -5073,8 +5098,8 @@ class Renderer::Impl {
     for (std::size_t i = 0; i < sampler_indices.size(); ++i) {
       const auto index = sampler_indices[i];
       const auto sampler = bindless_samplers_[index] == VK_NULL_HANDLE
-          ? fallback_sampler_.sampler
-          : bindless_samplers_[index];
+                               ? fallback_sampler_.sampler
+                               : bindless_samplers_[index];
       sampler_infos[i] = {sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
       VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       write.dstSet = bindless_descriptor_set_;
@@ -5087,7 +5112,7 @@ class Renderer::Impl {
     }
     if (!writes.empty()) {
       vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
-                             writes.data(), 0, nullptr);
+          writes.data(), 0, nullptr);
       frame_counters_.descriptor_update_count += writes.size();
       frame_counters_.bindless_sampled_image_descriptor_update_count +=
           texture_indices.size();
@@ -5106,7 +5131,7 @@ class Renderer::Impl {
     auto texture_indices = bindless_texture_table_->ConsumeDirtySlots();
     if (force_reserved_bindless_texture_writes_) {
       for (std::uint32_t index = 0;
-           index < kReservedBindlessTextureSlots; ++index) {
+          index < kReservedBindlessTextureSlots; ++index) {
         texture_indices.push_back(index);
       }
       std::sort(texture_indices.begin(), texture_indices.end());
@@ -5141,8 +5166,8 @@ class Renderer::Impl {
     info.bindingCount = static_cast<std::uint32_t>(bindings.size());
     info.pBindings = bindings.data();
     Check(vkCreateDescriptorSetLayout(device_, &info, nullptr,
-                                      &descriptor_set_layout_),
-          "create material descriptor layout");
+              &descriptor_set_layout_),
+        "create material descriptor layout");
   }
 
   void EnsureGeneratedDescriptorSetLayouts() {
@@ -5154,33 +5179,32 @@ class Renderer::Impl {
       std::vector<VkDescriptorSetLayoutBinding> bindings;
       bindings.push_back(
           {artifact.parameter_binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
-           VK_SHADER_STAGE_FRAGMENT_BIT, nullptr});
+              VK_SHADER_STAGE_FRAGMENT_BIT, nullptr});
       for (const auto& resource : artifact.resource_bindings) {
         if (resource.type == MaterialValueType::Texture2D ||
             resource.type == MaterialValueType::CombinedTextureSampler) {
           bindings.push_back(
               {resource.texture_binding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-               resource.array_size, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr});
+                  resource.array_size, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr});
         }
         if (resource.type == MaterialValueType::Sampler ||
             resource.type == MaterialValueType::CombinedTextureSampler) {
           bindings.push_back(
               {resource.sampler_binding, VK_DESCRIPTOR_TYPE_SAMPLER,
-               resource.array_size, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr});
+                  resource.array_size, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr});
         }
       }
       bindings.push_back(
           {artifact.material_constants_binding,
-           VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
-           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-           nullptr});
+              VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+              VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+              nullptr});
       std::sort(bindings.begin(), bindings.end(),
-                [](const auto& left, const auto& right) {
-                  return left.binding < right.binding;
-                });
+          [](const auto& left, const auto& right) {
+            return left.binding < right.binding;
+          });
       const auto duplicate = std::adjacent_find(
-          bindings.begin(), bindings.end(), [](const auto& left,
-                                                const auto& right) {
+          bindings.begin(), bindings.end(), [](const auto& left, const auto& right) {
             return left.binding == right.binding;
           });
       if (duplicate != bindings.end() ||
@@ -5195,7 +5219,7 @@ class Renderer::Impl {
       info.pBindings = bindings.data();
       VkDescriptorSetLayout layout{};
       Check(vkCreateDescriptorSetLayout(device_, &info, nullptr, &layout),
-            "create generated material descriptor layout");
+          "create generated material descriptor layout");
       generated_descriptor_set_layouts_.emplace(module_key, layout);
       ++frame_counters_.descriptor_layout_cache_misses;
     }
@@ -5211,9 +5235,9 @@ class Renderer::Impl {
     DirectionalLighting result;
     const auto directional =
         std::find_if(snapshot.lights.begin(), snapshot.lights.end(),
-                     [](const extraction::LightRecord& light) {
-                       return light.type == LightType::Directional;
-                     });
+            [](const extraction::LightRecord& light) {
+              return light.type == LightType::Directional;
+            });
     if (directional == snapshot.lights.end()) {
       return result;
     }
@@ -5260,8 +5284,8 @@ class Renderer::Impl {
   }
 
   void RejectGeneratedMaterial(std::size_t index,
-                               MaterialDiagnosticCategory category,
-                               std::string message) {
+      MaterialDiagnosticCategory category,
+      std::string message) {
     const auto& module = *material_records_[index].module;
     selected_material_artifacts_[index] = nullptr;
     MaterialDiagnostic diagnostic;
@@ -5278,13 +5302,20 @@ class Renderer::Impl {
   static std::optional<std::size_t> PackedMaterialValueSize(
       MaterialValueType type) noexcept {
     switch (type) {
-      case MaterialValueType::Float: return sizeof(float);
-      case MaterialValueType::Float2: return sizeof(Vec2);
-      case MaterialValueType::Float3: return sizeof(Vec3);
-      case MaterialValueType::Float4: return sizeof(Vec4);
-      case MaterialValueType::Integer: return sizeof(std::int32_t);
-      case MaterialValueType::Boolean: return sizeof(std::uint32_t);
-      default: return std::nullopt;
+    case MaterialValueType::Float:
+      return sizeof(float);
+    case MaterialValueType::Float2:
+      return sizeof(Vec2);
+    case MaterialValueType::Float3:
+      return sizeof(Vec3);
+    case MaterialValueType::Float4:
+      return sizeof(Vec4);
+    case MaterialValueType::Integer:
+      return sizeof(std::int32_t);
+    case MaterialValueType::Boolean:
+      return sizeof(std::uint32_t);
+    default:
+      return std::nullopt;
     }
   }
 
@@ -5320,7 +5351,7 @@ class Renderer::Impl {
     frame_material_diagnostics_.clear();
     std::vector<bool> material_is_drawn(material_records_.size(), false);
     for (std::size_t draw_index = 0; draw_index < draw_records_.size();
-         ++draw_index) {
+        ++draw_index) {
       const auto material_index = draw_records_[draw_index].material_index;
       if (material_index < material_is_drawn.size()) {
         material_is_drawn[material_index] = true;
@@ -5375,8 +5406,8 @@ class Renderer::Impl {
       auto reflected =
           VerifyMaterialTargetReflection(module, artifact.reflection);
       diagnostics.insert(diagnostics.end(),
-                         std::make_move_iterator(reflected.begin()),
-                         std::make_move_iterator(reflected.end()));
+          std::make_move_iterator(reflected.begin()),
+          std::make_move_iterator(reflected.end()));
       bool concrete_layout_matches =
           artifact.parameter_bindings.size() ==
           module.parameters.entries.size();
@@ -5465,52 +5496,52 @@ class Renderer::Impl {
       return *size;
     }
     throw RendererError(RendererErrorCode::Unsupported,
-                        "pack generated material parameters",
-                        "unsupported generated material parameter type");
+        "pack generated material parameters",
+        "unsupported generated material parameter type");
   }
 
   static void CopyMaterialValue(std::byte* destination,
-                                const MaterialValue& value,
-                                MaterialValueType type) {
+      const MaterialValue& value,
+      MaterialValueType type) {
     const auto copy = [&](const auto* typed) {
       if (typed == nullptr) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "pack generated material parameters",
-                            "generated material parameter value has the "
-                            "wrong declared type");
+            "pack generated material parameters",
+            "generated material parameter value has the "
+            "wrong declared type");
       }
       std::memcpy(destination, typed, sizeof(*typed));
     };
     switch (type) {
-      case MaterialValueType::Float:
-        copy(std::get_if<float>(&value));
-        break;
-      case MaterialValueType::Float2:
-        copy(std::get_if<Vec2>(&value));
-        break;
-      case MaterialValueType::Float3:
-        copy(std::get_if<Vec3>(&value));
-        break;
-      case MaterialValueType::Float4:
-        copy(std::get_if<Vec4>(&value));
-        break;
-      case MaterialValueType::Integer:
-        copy(std::get_if<std::int32_t>(&value));
-        break;
-      case MaterialValueType::Boolean: {
-        const auto* boolean = std::get_if<bool>(&value);
-        if (boolean == nullptr) {
-          throw RendererError(RendererErrorCode::InvalidRequest,
-                              "pack generated material parameters",
-                              "generated material boolean has the wrong "
-                              "declared type");
-        }
-        const std::uint32_t encoded = *boolean ? 1U : 0U;
-        std::memcpy(destination, &encoded, sizeof(encoded));
-        break;
+    case MaterialValueType::Float:
+      copy(std::get_if<float>(&value));
+      break;
+    case MaterialValueType::Float2:
+      copy(std::get_if<Vec2>(&value));
+      break;
+    case MaterialValueType::Float3:
+      copy(std::get_if<Vec3>(&value));
+      break;
+    case MaterialValueType::Float4:
+      copy(std::get_if<Vec4>(&value));
+      break;
+    case MaterialValueType::Integer:
+      copy(std::get_if<std::int32_t>(&value));
+      break;
+    case MaterialValueType::Boolean: {
+      const auto* boolean = std::get_if<bool>(&value);
+      if (boolean == nullptr) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+            "pack generated material parameters",
+            "generated material boolean has the wrong "
+            "declared type");
       }
-      default:
-        (void)MaterialValueSize(type);
+      const std::uint32_t encoded = *boolean ? 1U : 0U;
+      std::memcpy(destination, &encoded, sizeof(encoded));
+      break;
+    }
+    default:
+      (void)MaterialValueSize(type);
     }
   }
 
@@ -5527,9 +5558,9 @@ class Renderer::Impl {
           state->type != binding.type ||
           state->values.size() != binding.array_size) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "pack generated material parameters",
-                            "generated parameter state does not match the "
-                            "registered Vulkan artifact");
+            "pack generated material parameters",
+            "generated parameter state does not match the "
+            "registered Vulkan artifact");
       }
       const auto value_size = MaterialValueSize(binding.type);
       const auto stride =
@@ -5538,13 +5569,13 @@ class Renderer::Impl {
                        stride * (binding.array_size - 1U) + value_size;
       if (end > artifact.parameter_buffer_size) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "pack generated material parameters",
-                            "generated parameter binding exceeds its buffer");
+            "pack generated material parameters",
+            "generated parameter binding exceeds its buffer");
       }
       for (std::size_t value_index = 0;
-           value_index < state->values.size(); ++value_index) {
+          value_index < state->values.size(); ++value_index) {
         CopyMaterialValue(destination + binding.offset + stride * value_index,
-                          state->values[value_index], binding.type);
+            state->values[value_index], binding.type);
       }
     }
   }
@@ -5584,8 +5615,8 @@ class Renderer::Impl {
       pool_info.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
       pool_info.pPoolSizes = sizes.data();
       Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
-                                   &frame.descriptor_pool),
-            "create bindless material descriptor pool");
+                &frame.descriptor_pool),
+          "create bindless material descriptor pool");
       ++frame_counters_.descriptor_pool_creation_count;
       VkDescriptorSetAllocateInfo allocate{
           VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -5595,7 +5626,7 @@ class Renderer::Impl {
       Check(vkAllocateDescriptorSets(
                 device_, &allocate,
                 &frame.bindless_material_descriptor_set),
-            "allocate bindless material descriptor set");
+          "allocate bindless material descriptor set");
       ++frame_counters_.descriptor_allocation_count;
       descriptor_dirty = true;
     }
@@ -5645,14 +5676,14 @@ class Renderer::Impl {
 
     void* mapped{};
     Check(vkMapMemory(device_, frame.material_uniforms.memory, 0,
-                      uniform_bytes, 0, &mapped),
-          "map bindless material uniform buffer");
+              uniform_bytes, 0, &mapped),
+        "map bindless material uniform buffer");
     const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
       const auto uniforms = MakeMaterialUniforms(material, lighting);
       std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
-                  &uniforms, sizeof(uniforms));
+          &uniforms, sizeof(uniforms));
     }
     vkUnmapMemory(device_, frame.material_uniforms.memory);
   }
@@ -5665,8 +5696,8 @@ class Renderer::Impl {
     if (prepared_gaussians_.gaussians.size() >
         std::numeric_limits<std::uint32_t>::max()) {
       throw RendererError(RendererErrorCode::Unsupported,
-                          "upload prepared Gaussian stream",
-                          "visible Gaussian count exceeds uint32 draw limit");
+          "upload prepared Gaussian stream",
+          "visible Gaussian count exceeds uint32 draw limit");
     }
     if (prepared_gaussians_.gaussians.empty()) {
       frame.gaussian_instance_count = 0;
@@ -5714,14 +5745,14 @@ class Renderer::Impl {
       std::size_t index{};
       while (index < shared_count) {
         if (std::memcmp(&frame.gaussian_instance_shadow[index], &packed[index],
-                        sizeof(GaussianGpuInstance)) == 0) {
+                sizeof(GaussianGpuInstance)) == 0) {
           ++index;
           continue;
         }
         const auto first = index++;
         while (index < shared_count &&
                std::memcmp(&frame.gaussian_instance_shadow[index],
-                           &packed[index], sizeof(GaussianGpuInstance)) != 0) {
+                   &packed[index], sizeof(GaussianGpuInstance)) != 0) {
           ++index;
         }
         changed_ranges.push_back({first, index - first});
@@ -5738,12 +5769,12 @@ class Renderer::Impl {
     if (uploaded_bytes != 0) {
       void* mapped{};
       Check(vkMapMemory(device_, frame.gaussian_instances.memory, 0, bytes, 0,
-                        &mapped),
-            "map prepared Gaussian stream");
+                &mapped),
+          "map prepared Gaussian stream");
       auto* destination = static_cast<GaussianGpuInstance*>(mapped);
       for (const auto& range : changed_ranges) {
         std::memcpy(destination + range.first, packed.data() + range.first,
-                    range.count * sizeof(GaussianGpuInstance));
+            range.count * sizeof(GaussianGpuInstance));
       }
       vkUnmapMemory(device_, frame.gaussian_instances.memory);
     }
@@ -5760,12 +5791,12 @@ class Renderer::Impl {
       const auto& material = material_records_[i];
       if (material.base_color_texture &&
           (material.base_color_texture->texture_index >=
-               texture_records_.size() ||
-           material.base_color_texture->sampler_index >=
-               sampler_records_.size())) {
+                  texture_records_.size() ||
+              material.base_color_texture->sampler_index >=
+                  sampler_records_.size())) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "prepare material descriptors",
-                            "material texture binding index is invalid");
+            "prepare material descriptors",
+            "material texture binding index is invalid");
       }
     }
   }
@@ -5817,11 +5848,11 @@ class Renderer::Impl {
       };
       if (maximum_sampled_images != 0U) {
         sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                         maximum_sampled_images * material_count});
+            maximum_sampled_images * material_count});
       }
       if (maximum_samplers != 0U) {
         sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLER,
-                         maximum_samplers * material_count});
+            maximum_samplers * material_count});
       }
       VkDescriptorPoolCreateInfo info{
           VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -5829,13 +5860,13 @@ class Renderer::Impl {
       info.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
       info.pPoolSizes = sizes.data();
       Check(vkCreateDescriptorPool(device_, &info, nullptr,
-                                   &frame.descriptor_pool),
-            "create material descriptor pool");
+                &frame.descriptor_pool),
+          "create material descriptor pool");
       ++frame_counters_.descriptor_pool_creation_count;
       frame.descriptor_capacity = material_count;
     } else {
       Check(vkResetDescriptorPool(device_, frame.descriptor_pool, 0),
-            "reset material descriptor pool");
+          "reset material descriptor pool");
     }
 
     const auto uniform_stride =
@@ -5851,14 +5882,14 @@ class Renderer::Impl {
     }
     void* mapped{};
     Check(vkMapMemory(device_, frame.material_uniforms.memory, 0,
-                      uniform_bytes, 0, &mapped),
-          "map material uniform buffer");
+              uniform_bytes, 0, &mapped),
+        "map material uniform buffer");
     const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
       const auto uniforms = MakeMaterialUniforms(material, lighting);
       std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
-                  &uniforms, sizeof(uniforms));
+          &uniforms, sizeof(uniforms));
     }
     vkUnmapMemory(device_, frame.material_uniforms.memory);
 
@@ -5884,8 +5915,8 @@ class Renderer::Impl {
       }
       void* generated_mapped{};
       Check(vkMapMemory(device_, frame.generated_parameter_uniforms.memory, 0,
-                        generated_uniform_bytes, 0, &generated_mapped),
-            "map generated material uniform buffer");
+                generated_uniform_bytes, 0, &generated_mapped),
+          "map generated material uniform buffer");
       for (std::uint32_t i = 0; i < material_count; ++i) {
         if (const auto* artifact = selected_material_artifacts_[i]) {
           PackGeneratedMaterialParameters(
@@ -5912,8 +5943,8 @@ class Renderer::Impl {
     allocate.descriptorSetCount = material_count;
     allocate.pSetLayouts = layouts.data();
     Check(vkAllocateDescriptorSets(device_, &allocate,
-                                   frame.material_descriptor_sets.data()),
-          "allocate material descriptor sets");
+              frame.material_descriptor_sets.data()),
+        "allocate material descriptor sets");
     frame_counters_.descriptor_allocation_count += material_count;
 
     std::size_t maximum_image_infos = material_count;
@@ -5940,7 +5971,7 @@ class Renderer::Impl {
     writes.reserve(material_count * 2U + maximum_image_infos);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       buffer_infos[i] = {frame.material_uniforms.handle, uniform_stride * i,
-                         sizeof(MaterialUniforms)};
+          sizeof(MaterialUniforms)};
       if (const auto* artifact = selected_material_artifacts_[i]) {
         generated_buffer_infos[i] = {
             frame.generated_parameter_uniforms.handle,
@@ -5997,12 +6028,12 @@ class Renderer::Impl {
           if (resource.type == MaterialValueType::Texture2D ||
               resource.type == MaterialValueType::CombinedTextureSampler) {
             write_resources(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                            resource.texture_binding);
+                resource.texture_binding);
           }
           if (resource.type == MaterialValueType::Sampler ||
               resource.type == MaterialValueType::CombinedTextureSampler) {
             write_resources(VK_DESCRIPTOR_TYPE_SAMPLER,
-                            resource.sampler_binding);
+                resource.sampler_binding);
           }
         }
 
@@ -6025,8 +6056,8 @@ class Renderer::Impl {
             material.base_color_texture->sampler_index >=
                 sampler_records_.size()) {
           throw RendererError(RendererErrorCode::InvalidRequest,
-                              "prepare material descriptors",
-                              "material texture binding index is invalid");
+              "prepare material descriptors",
+              "material texture binding index is invalid");
         }
         const auto texture_handle =
             texture_records_[material.base_color_texture->texture_index]
@@ -6057,7 +6088,7 @@ class Renderer::Impl {
       writes.push_back(buffer_write);
     }
     vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
-                           writes.data(), 0, nullptr);
+        writes.data(), 0, nullptr);
     frame_counters_.descriptor_update_count += writes.size();
   }
 
@@ -6073,7 +6104,7 @@ class Renderer::Impl {
   // resources; exact particle ranges visit only changed elements of the
   // affected attribute arrays when completion safety permits in-place reuse.
   void SyncGaussianAttributes(const extraction::FrameSnapshot& snapshot,
-                              ResourceSyncMode mode) {
+      ResourceSyncMode mode) {
     if (mode == ResourceSyncMode::Unchanged) {
       return;
     }
@@ -6096,7 +6127,7 @@ class Renderer::Impl {
         records.push_back(&gaussian);
       }
       for (auto slot = gaussian_attribute_slots_.begin();
-           slot != gaussian_attribute_slots_.end();) {
+          slot != gaussian_attribute_slots_.end();) {
         if (!snapshot_handles.contains(slot->first)) {
           ReleaseGaussianAttributes(slot->second);
           slot = gaussian_attribute_slots_.erase(slot);
@@ -6118,13 +6149,13 @@ class Renderer::Impl {
       for (std::size_t index = 0; index < delta.upserts.size(); ++index) {
         const auto* record =
             FindDeltaRecord(snapshot.gaussians, delta, index,
-                            [](const extraction::GaussianRecord& gaussian) {
-                              return gaussian.gaussian;
-                            });
+                [](const extraction::GaussianRecord& gaussian) {
+                  return gaussian.gaussian;
+                });
         if (!record) {
           throw RendererError(RendererErrorCode::InvalidRequest,
-                              "synchronize Gaussian attributes",
-                              "snapshot Gaussian delta has no matching record");
+              "synchronize Gaussian attributes",
+              "snapshot Gaussian delta has no matching record");
         }
         records.push_back(record);
       }
@@ -6147,11 +6178,11 @@ class Renderer::Impl {
         latest_completed_value_ >= timeline_value_;
 
     const auto checked_bytes = [](std::size_t count, std::size_t element_size,
-                                  std::string_view label) -> VkDeviceSize {
+                                   std::string_view label) -> VkDeviceSize {
       if (count > std::numeric_limits<VkDeviceSize>::max() / element_size) {
         throw RendererError(RendererErrorCode::Unsupported,
-                            "synchronize Gaussian attributes",
-                            std::string(label) + " payload is too large");
+            "synchronize Gaussian attributes",
+            std::string(label) + " payload is too large");
       }
       return static_cast<VkDeviceSize>(count * element_size);
     };
@@ -6164,23 +6195,23 @@ class Renderer::Impl {
               std::numeric_limits<std::uint32_t>::max() ||
           record->spherical_harmonics_degree > 3) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "synchronize Gaussian attributes",
-                            "Gaussian attribute payload is malformed");
+            "synchronize Gaussian attributes",
+            "Gaussian attribute payload is malformed");
       }
       const auto coefficient_count = (record->spherical_harmonics_degree + 1U) *
                                      (record->spherical_harmonics_degree + 1U);
       if (record->spherical_harmonics_coefficients->size() !=
           record->positions->size() * coefficient_count) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "synchronize Gaussian attributes",
-                            "Gaussian SH payload size is inconsistent");
+            "synchronize Gaussian attributes",
+            "Gaussian SH payload size is inconsistent");
       }
       for (const auto& range : record->particle_ranges) {
         if (range.first > record->positions->size() ||
             range.count > record->positions->size() - range.first) {
           throw RendererError(RendererErrorCode::InvalidRequest,
-                              "synchronize Gaussian attributes",
-                              "Gaussian changed range is out of bounds");
+              "synchronize Gaussian attributes",
+              "Gaussian changed range is out of bounds");
         }
       }
 
@@ -6214,7 +6245,7 @@ class Renderer::Impl {
           checked_bytes(record->opacities->size(), sizeof(float), "opacity");
       const auto radiance_bytes =
           checked_bytes(record->spherical_harmonics_coefficients->size(),
-                        sizeof(Vec3), "spherical-harmonic");
+              sizeof(Vec3), "spherical-harmonic");
       upload.partial =
           attributes_changed && resident_ranges_reusable && !inserted &&
           slot.record_revision == record->particle_base_revision &&
@@ -6222,17 +6253,17 @@ class Renderer::Impl {
           slot.particle_count == record->positions->size() &&
           slot.coefficients_per_particle == coefficient_count &&
           (!upload.positions ||
-           slot.positions.size ==
-               gaussian_position_arena_.aligned_size(position_bytes)) &&
+              slot.positions.size ==
+                  gaussian_position_arena_.aligned_size(position_bytes)) &&
           (!upload.covariances ||
-           slot.covariances.size ==
-               gaussian_covariance_arena_.aligned_size(covariance_bytes)) &&
+              slot.covariances.size ==
+                  gaussian_covariance_arena_.aligned_size(covariance_bytes)) &&
           (!upload.opacities ||
-           slot.opacities.size ==
-               gaussian_opacity_arena_.aligned_size(opacity_bytes)) &&
+              slot.opacities.size ==
+                  gaussian_opacity_arena_.aligned_size(opacity_bytes)) &&
           (!upload.radiance ||
-           slot.radiance.size ==
-               gaussian_radiance_arena_.aligned_size(radiance_bytes));
+              slot.radiance.size ==
+                  gaussian_radiance_arena_.aligned_size(radiance_bytes));
 
       const auto add_bytes = [&](std::size_t element_size,
                                  std::uint32_t multiplier = 1U) {
@@ -6241,20 +6272,24 @@ class Renderer::Impl {
             staging_bytes +=
                 AlignUp(checked_bytes(static_cast<std::size_t>(range.count) *
                                           multiplier,
-                                      element_size, "changed range"),
-                        kArenaAlignment);
+                            element_size, "changed range"),
+                    kArenaAlignment);
           }
         } else {
           staging_bytes +=
               AlignUp(checked_bytes(record->positions->size() * multiplier,
-                                    element_size, "attribute"),
-                      kArenaAlignment);
+                          element_size, "attribute"),
+                  kArenaAlignment);
         }
       };
-      if (upload.positions) add_bytes(sizeof(Vec3));
-      if (upload.covariances) add_bytes(sizeof(Covariance3));
-      if (upload.opacities) add_bytes(sizeof(float));
-      if (upload.radiance) add_bytes(sizeof(Vec3), coefficient_count);
+      if (upload.positions)
+        add_bytes(sizeof(Vec3));
+      if (upload.covariances)
+        add_bytes(sizeof(Covariance3));
+      if (upload.opacities)
+        add_bytes(sizeof(float));
+      if (upload.radiance)
+        add_bytes(sizeof(Vec3), coefficient_count);
       uploads.push_back(upload);
     }
 
@@ -6266,7 +6301,7 @@ class Renderer::Impl {
       Buffer retired_staging;
       VkDeviceSize growth_bytes{};
       reservation = gaussian_staging_.Reserve(staging_bytes, retired_staging,
-                                              growth_bytes);
+          growth_bytes);
       if (growth_bytes != 0) {
         ++frame_counters_.allocation_count;
         ++frame_counters_.buffer_allocation_count;
@@ -6279,13 +6314,14 @@ class Renderer::Impl {
     const auto stage = [&](const void* payload, VkDeviceSize bytes,
                            DeviceArena& arena, const BufferRange& range,
                            VkDeviceSize destination_offset) {
-      if (bytes == 0) return;
+      if (bytes == 0)
+        return;
       std::memcpy(reservation.mapped + cursor, payload,
-                  static_cast<std::size_t>(bytes));
+          static_cast<std::size_t>(bytes));
       pending_copies_.push_back({reservation.buffer,
-                                 reservation.offset + cursor,
-                                 arena.buffer(range.block),
-                                 range.offset + destination_offset, bytes});
+          reservation.offset + cursor,
+          arena.buffer(range.block),
+          range.offset + destination_offset, bytes});
       cursor += AlignUp(bytes, kArenaAlignment);
       frame_counters_.upload_bytes += bytes;
       frame_counters_.gaussian_attribute_upload_bytes += bytes;
@@ -6299,7 +6335,8 @@ class Renderer::Impl {
           [&](bool changed, const auto& payload, std::size_t stride,
               std::uint32_t multiplier, DeviceArena& arena,
               BufferRange& range) {
-            if (!changed) return;
+            if (!changed)
+              return;
             const auto total_bytes =
                 checked_bytes(particle_count * multiplier, stride, "attribute");
             if (!upload.partial) {
@@ -6309,25 +6346,25 @@ class Renderer::Impl {
             }
             for (const auto& changed_range : record.particle_ranges) {
               const auto first =
-                static_cast<std::size_t>(changed_range.first) * multiplier;
+                  static_cast<std::size_t>(changed_range.first) * multiplier;
               const auto count =
-                static_cast<std::size_t>(changed_range.count) * multiplier;
+                  static_cast<std::size_t>(changed_range.count) * multiplier;
               stage(payload.data() + first,
-                    checked_bytes(count, stride, "changed range"), arena, range,
-                    checked_bytes(first, stride, "changed offset"));
+                  checked_bytes(count, stride, "changed range"), arena, range,
+                  checked_bytes(first, stride, "changed offset"));
             }
           };
       upload_attribute(upload.positions, *record.positions, sizeof(Vec3), 1,
-                       gaussian_position_arena_, slot.positions);
+          gaussian_position_arena_, slot.positions);
       upload_attribute(upload.covariances, *record.covariances,
-                       sizeof(Covariance3), 1, gaussian_covariance_arena_,
-                       slot.covariances);
+          sizeof(Covariance3), 1, gaussian_covariance_arena_,
+          slot.covariances);
       upload_attribute(upload.opacities, *record.opacities, sizeof(float), 1,
-                       gaussian_opacity_arena_, slot.opacities);
+          gaussian_opacity_arena_, slot.opacities);
       upload_attribute(upload.radiance,
-                       *record.spherical_harmonics_coefficients, sizeof(Vec3),
-                       upload.coefficient_count, gaussian_radiance_arena_,
-                       slot.radiance);
+          *record.spherical_harmonics_coefficients, sizeof(Vec3),
+          upload.coefficient_count, gaussian_radiance_arena_,
+          slot.radiance);
 
       slot.record_revision = record.revision;
       slot.positions_revision = record.positions_revision;
@@ -6340,7 +6377,8 @@ class Renderer::Impl {
       slot.particle_count = static_cast<std::uint32_t>(particle_count);
       slot.coefficients_per_particle = upload.coefficient_count;
       ++slot.generation;
-      if (slot.generation == 0) ++slot.generation;
+      if (slot.generation == 0)
+        ++slot.generation;
       ++frame_counters_.gaussian_attribute_generation_count;
     }
   }
@@ -6349,7 +6387,7 @@ class Renderer::Impl {
   // and static frames do not walk the full geometry table. Revision gaps,
   // foreign sources, and manually constructed snapshots use the full path.
   void SyncGeometry(const extraction::FrameSnapshot& snapshot,
-                    ResourceSyncMode mode) {
+      ResourceSyncMode mode) {
     if (mode == ResourceSyncMode::Unchanged) {
       frame_counters_.geometry_cache_hits += snapshot.geometries.size();
       ++frame_counters_.scene_cache_hits;
@@ -6413,8 +6451,8 @@ class Renderer::Impl {
             });
         if (!record) {
           throw RendererError(RendererErrorCode::InvalidRequest,
-                              "synchronize geometry",
-                              "snapshot geometry delta has no matching record");
+              "synchronize geometry",
+              "snapshot geometry delta has no matching record");
         }
         records.push_back(record);
       }
@@ -6512,7 +6550,7 @@ class Renderer::Impl {
       VkDeviceSize staging_growth_bytes{};
       reservation =
           staging_.Reserve(staging_bytes, retired_staging,
-                           staging_growth_bytes);
+              staging_growth_bytes);
       frame_counters_.upload_ring_reserved_bytes += staging_bytes;
       if (staging_growth_bytes != 0) {
         ++frame_counters_.allocation_count;
@@ -6535,11 +6573,11 @@ class Renderer::Impl {
         return;
       }
       std::memcpy(reservation.mapped + cursor, payload,
-                  static_cast<std::size_t>(bytes));
+          static_cast<std::size_t>(bytes));
       pending_copies_.push_back({reservation.buffer,
-                                 reservation.offset + cursor,
-                                 arena.buffer(range.block), range.offset,
-                                 bytes});
+          reservation.offset + cursor,
+          arena.buffer(range.block), range.offset,
+          bytes});
       pending_copies_.back().destination_offset += destination_offset;
       cursor += AlignUp(bytes, kArenaAlignment);
       frame_counters_.upload_bytes += bytes;
@@ -6555,14 +6593,14 @@ class Renderer::Impl {
             const auto bytes = static_cast<VkDeviceSize>(range.count) *
                                sizeof(extraction::DrawVertex);
             stage(upload.record->vertices->data() + range.first, bytes,
-                  vertex_arena_, slot.vertices,
-                  frame_counters_.vertex_upload_bytes, byte_offset);
+                vertex_arena_, slot.vertices,
+                frame_counters_.vertex_upload_bytes, byte_offset);
           }
         } else {
           EnsureRange(vertex_arena_, slot.vertices, upload.vertex_bytes);
           stage(upload.record->vertices->data(), upload.vertex_bytes,
-                vertex_arena_, slot.vertices,
-                frame_counters_.vertex_upload_bytes);
+              vertex_arena_, slot.vertices,
+              frame_counters_.vertex_upload_bytes);
         }
         slot.vertex_revision = upload.record->vertex_revision;
       }
@@ -6574,14 +6612,14 @@ class Renderer::Impl {
             const auto bytes = static_cast<VkDeviceSize>(range.count) *
                                sizeof(std::uint32_t);
             stage(upload.record->indices->data() + range.first, bytes,
-                  index_arena_, slot.indices,
-                  frame_counters_.index_upload_bytes, byte_offset);
+                index_arena_, slot.indices,
+                frame_counters_.index_upload_bytes, byte_offset);
           }
         } else {
           EnsureRange(index_arena_, slot.indices, upload.index_bytes);
           stage(upload.record->indices->data(), upload.index_bytes,
-                index_arena_, slot.indices,
-                frame_counters_.index_upload_bytes);
+              index_arena_, slot.indices,
+              frame_counters_.index_upload_bytes);
         }
         slot.index_count =
             static_cast<std::uint32_t>(upload.record->indices->size());
@@ -6591,7 +6629,7 @@ class Renderer::Impl {
   }
 
   void EnsureRange(DeviceArena& arena, BufferRange& range,
-                   VkDeviceSize bytes) {
+      VkDeviceSize bytes) {
     if (bytes == 0) {
       ReleaseRange(arena, range);
       return;
@@ -6633,7 +6671,7 @@ class Renderer::Impl {
     }
     for (const auto& copy : pending_copies_) {
       const VkBufferCopy region{copy.source_offset, copy.destination_offset,
-                                copy.size};
+          copy.size};
       vkCmdCopyBuffer(command, copy.source, copy.destination, 1, &region);
     }
     if (!pending_copies_.empty() && !release_to_graphics) {
@@ -6643,11 +6681,11 @@ class Renderer::Impl {
           VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT |
           VK_ACCESS_SHADER_READ_BIT;
       vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                           VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
-                               VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
-                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                           0, 1, &barrier, 0, nullptr, 0, nullptr);
+          VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
+              VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          0, 1, &barrier, 0, nullptr, 0, nullptr);
     }
     pending_copies_.clear();
 
@@ -6677,8 +6715,8 @@ class Renderer::Impl {
         region.imageSubresource.layerCount = 1;
         region.imageExtent = {copy.width, copy.height, 1};
         vkCmdCopyBufferToImage(command, copy.source, copy.destination,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                               &region);
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+            &region);
       }
       std::vector<VkImageMemoryBarrier> to_shader;
       to_shader.reserve(pending_image_copies_.size());
@@ -6749,7 +6787,7 @@ class Renderer::Impl {
   }
 
   void CollectDeferred(std::uint64_t completed,
-                       bool write_bindless_descriptors = true) {
+      bool write_bindless_descriptors = true) {
     auto iterator = deferred_.begin();
     while (iterator != deferred_.end()) {
       if (iterator->retire_value <= completed) {
@@ -6809,8 +6847,8 @@ class Renderer::Impl {
         width > capabilities_.max_image_dimension_2d ||
         height > capabilities_.max_image_dimension_2d) {
       throw RendererError(RendererErrorCode::Unsupported,
-                          "validate render request",
-                          "offscreen extent is unsupported");
+          "validate render request",
+          "offscreen extent is unsupported");
     }
   }
 
@@ -6822,17 +6860,17 @@ class Renderer::Impl {
   void ValidateRequest(const RenderRequest& request) const {
     if (!request.snapshot) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "validate render request", "snapshot is null");
+          "validate render request", "snapshot is null");
     }
     switch (request.gpu_driven_indexed.mode) {
-      case GpuDrivenIndexedMode::Disabled:
-      case GpuDrivenIndexedMode::Prefer:
-      case GpuDrivenIndexedMode::Require:
-        break;
-      default:
-        throw RendererError(RendererErrorCode::InvalidRequest,
-                            "validate render request",
-                            "GPU-driven indexed mode is invalid");
+    case GpuDrivenIndexedMode::Disabled:
+    case GpuDrivenIndexedMode::Prefer:
+    case GpuDrivenIndexedMode::Require:
+      break;
+    default:
+      throw RendererError(RendererErrorCode::InvalidRequest,
+          "validate render request",
+          "GPU-driven indexed mode is invalid");
     }
     ValidateExtent(request.width, request.height);
     if (!std::isfinite(request.clear_color.x) ||
@@ -6840,56 +6878,56 @@ class Renderer::Impl {
         !std::isfinite(request.clear_color.z) ||
         !std::isfinite(request.clear_color.w)) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "validate render request",
-                          "clear color components must be finite");
+          "validate render request",
+          "clear color components must be finite");
     }
     if (request.shaders.vertex.empty() || request.shaders.fragment.empty()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "validate render request",
-                          "vertex and fragment shader paths are required");
+          "validate render request",
+          "vertex and fragment shader paths are required");
     }
     if (request.shaders.environment.empty()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "validate render request",
-                          "environment HDR path is required");
+          "validate render request",
+          "environment HDR path is required");
     }
     if (bindless_texture_table_ &&
         (request.shaders.bindless_vertex.empty() ||
-         request.shaders.bindless_fragment.empty())) {
+            request.shaders.bindless_fragment.empty())) {
       throw RendererError(
           RendererErrorCode::InvalidRequest, "validate render request",
           "bindless vertex and fragment shader paths are required");
     }
     if (request.present && surface_ == VK_NULL_HANDLE) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "validate render request",
-                          "presentation was requested without a presentation target");
+          "validate render request",
+          "presentation was requested without a presentation target");
     }
     if (request.products.empty()) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "validate render request",
-                          "at least one render product is required");
+          "validate render request",
+          "at least one render product is required");
     }
     std::vector<Aov> seen;
     for (const auto& product : request.products) {
       if (!IsSupportedAov(product.aov)) {
         throw RendererError(RendererErrorCode::Unsupported,
-                            "validate render request",
-                            "AOV " + std::string(AovName(product.aov)) +
-                                " is unsupported");
+            "validate render request",
+            "AOV " + std::string(AovName(product.aov)) +
+                " is unsupported");
       }
       if (HasAov(seen, product.aov)) {
         throw RendererError(RendererErrorCode::InvalidRequest,
-                            "validate render request",
-                            "duplicate AOV " +
-                                std::string(AovName(product.aov)));
+            "validate render request",
+            "duplicate AOV " +
+                std::string(AovName(product.aov)));
       }
       seen.push_back(product.aov);
     }
     if (request.present && !HasAov(seen, Aov::Color)) {
       throw RendererError(RendererErrorCode::InvalidRequest,
-                          "validate render request",
-                          "presentation requires the color AOV");
+          "validate render request",
+          "presentation requires the color AOV");
     }
   }
 
@@ -6913,8 +6951,8 @@ class Renderer::Impl {
   }
 
   FrameContext& AcquireFrame(std::uint32_t width, std::uint32_t height,
-                             const ShaderPaths& shaders,
-                             const std::vector<Aov>& cpu_readback_aovs) {
+      const ShaderPaths& shaders,
+      const std::vector<Aov>& cpu_readback_aovs) {
     auto reusable = [&](FrameContext& frame) {
       return !frame.outstanding && frame.exported_aov_mask == 0 &&
              frame.target.width == width &&
@@ -6925,10 +6963,10 @@ class Renderer::Impl {
     auto found = std::find_if(frames_.begin(), frames_.end(), reusable);
     if (found == frames_.end()) {
       found = std::find_if(frames_.begin(), frames_.end(),
-                           [](const FrameContext& frame) {
-                             return !frame.outstanding &&
-                                    frame.exported_aov_mask == 0;
-                           });
+          [](const FrameContext& frame) {
+            return !frame.outstanding &&
+                   frame.exported_aov_mask == 0;
+          });
     }
     if (found == frames_.end()) {
       throw RendererError(
@@ -6949,8 +6987,8 @@ class Renderer::Impl {
         });
     if (found == frames_.end()) {
       throw RendererError(RendererErrorCode::InvalidToken,
-                          "resolve completion token",
-                          "token is unknown or already resolved");
+          "resolve completion token",
+          "token is unknown or already resolved");
     }
     return *found;
   }
@@ -6962,14 +7000,14 @@ class Renderer::Impl {
         });
     if (found == frames_.end()) {
       throw RendererError(RendererErrorCode::InvalidToken,
-                          "query completion token",
-                          "token is unknown or already resolved");
+          "query completion token",
+          "token is unknown or already resolved");
     }
     return *found;
   }
 
   VkImage CreateImage(std::uint32_t width, std::uint32_t height, VkFormat format,
-                      VkImageUsageFlags usage, VkDeviceMemory& memory) {
+      VkImageUsageFlags usage, VkDeviceMemory& memory) {
     ++frame_counters_.allocation_count;
     ++frame_counters_.image_allocation_count;
     VkImage image{};
@@ -6993,7 +7031,7 @@ class Renderer::Impl {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     try {
       memory = memory_budget_.Allocate(requirements.size, memory_type,
-                                       "allocate image memory");
+          "allocate image memory");
       Check(vkBindImageMemory(device_, image, memory, 0), "bind image memory");
     } catch (...) {
       if (memory != VK_NULL_HANDLE) {
@@ -7007,7 +7045,7 @@ class Renderer::Impl {
   }
 
   VkImageView CreateImageView(VkImage image, VkFormat format,
-                              VkImageAspectFlags aspect) {
+      VkImageAspectFlags aspect) {
     VkImageView view{};
     VkImageViewCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     info.image = image;
@@ -7021,9 +7059,9 @@ class Renderer::Impl {
   }
 
   void EnsureTarget(RenderTarget& target, std::uint32_t width,
-                    std::uint32_t height,
-                    const ShaderPaths& shaders,
-                    const std::vector<Aov>& cpu_readback_aovs) {
+      std::uint32_t height,
+      const ShaderPaths& shaders,
+      const std::vector<Aov>& cpu_readback_aovs) {
     if (target.width == width && target.height == height &&
         target.shaders == shaders &&
         target.cpu_readback_aovs == cpu_readback_aovs) {
@@ -7036,8 +7074,8 @@ class Renderer::Impl {
   }
 
   void CreateTarget(std::uint32_t width, std::uint32_t height,
-                    const ShaderPaths& shaders,
-                    const std::vector<Aov>& cpu_readback_aovs) {
+      const ShaderPaths& shaders,
+      const std::vector<Aov>& cpu_readback_aovs) {
     active_target_->width = width;
     active_target_->height = height;
     active_target_->shaders = shaders;
@@ -7050,7 +7088,7 @@ class Renderer::Impl {
           active_target_->color_memory);
       active_target_->color_view =
           CreateImageView(active_target_->color, kColorFormat,
-                          VK_IMAGE_ASPECT_COLOR_BIT);
+              VK_IMAGE_ASPECT_COLOR_BIT);
       active_target_->depth = CreateImage(
           width, height, kDepthFormat,
           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
@@ -7058,7 +7096,7 @@ class Renderer::Impl {
           active_target_->depth_memory);
       active_target_->depth_view =
           CreateImageView(active_target_->depth, kDepthFormat,
-                          VK_IMAGE_ASPECT_DEPTH_BIT);
+              VK_IMAGE_ASPECT_DEPTH_BIT);
       active_target_->prim_id = CreateImage(
           width, height, kIdFormat,
           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -7085,8 +7123,8 @@ class Renderer::Impl {
       framebuffer_info.height = height;
       framebuffer_info.layers = 1;
       Check(vkCreateFramebuffer(device_, &framebuffer_info, nullptr,
-                                &active_target_->framebuffer),
-            "create framebuffer");
+                &active_target_->framebuffer),
+          "create framebuffer");
       const auto color_bytes = static_cast<VkDeviceSize>(width) * height * 4U;
       const auto depth_bytes = static_cast<VkDeviceSize>(width) * height *
                                sizeof(float);
@@ -7094,16 +7132,16 @@ class Renderer::Impl {
                                        VkDeviceSize bytes) {
         if (HasAov(cpu_readback_aovs, aov)) {
           buffer = CreateBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         }
       };
       create_readback(Aov::Color, active_target_->color_readback, color_bytes);
       create_readback(Aov::Depth, active_target_->depth_readback, depth_bytes);
       create_readback(Aov::PrimId, active_target_->prim_id_readback,
-                      depth_bytes);
+          depth_bytes);
       create_readback(Aov::InstanceId, active_target_->instance_id_readback,
-                      depth_bytes);
+          depth_bytes);
       VkPushConstantRange push_range{};
       push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
                               VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -7126,10 +7164,10 @@ class Renderer::Impl {
       layout_info.pushConstantRangeCount = 1;
       layout_info.pPushConstantRanges = &push_range;
       Check(vkCreatePipelineLayout(device_, &layout_info, nullptr,
-                                   &active_target_->pipeline_layout),
-            "create material pipeline layout");
+                &active_target_->pipeline_layout),
+          "create material pipeline layout");
       for (const auto& [module_key, descriptor_layout] :
-           generated_descriptor_set_layouts_) {
+          generated_descriptor_set_layouts_) {
         VkPipelineLayoutCreateInfo generated_layout_info{
             VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         generated_layout_info.setLayoutCount = 1;
@@ -7138,10 +7176,10 @@ class Renderer::Impl {
         generated_layout_info.pPushConstantRanges = &push_range;
         VkPipelineLayout generated_layout{};
         Check(vkCreatePipelineLayout(device_, &generated_layout_info, nullptr,
-                                     &generated_layout),
-              "create generated material pipeline layout");
+                  &generated_layout),
+            "create generated material pipeline layout");
         active_target_->generated_pipeline_layouts.emplace(module_key,
-                                                            generated_layout);
+            generated_layout);
       }
     } catch (...) {
       DestroyTarget(*active_target_);
@@ -7274,7 +7312,7 @@ class Renderer::Impl {
     info.dependencyCount = static_cast<std::uint32_t>(dependencies.size());
     info.pDependencies = dependencies.data();
     Check(vkCreateRenderPass(device_, &info, nullptr, &active_target_->render_pass),
-          "create color/depth render pass");
+        "create color/depth render pass");
   }
 
   VkShaderModule GetShaderModule(const std::filesystem::path& path) {
@@ -7290,7 +7328,7 @@ class Renderer::Impl {
     info.pCode = code.data();
     VkShaderModule module{};
     Check(vkCreateShaderModule(device_, &info, nullptr, &module),
-          "create shader module");
+        "create shader module");
     shader_modules_.emplace(path, module);
     return module;
   }
@@ -7326,7 +7364,7 @@ class Renderer::Impl {
     const auto vertex_shader = GetShaderModule(
         gpu_driven_pipeline
             ? gpu_driven_vertex
-            : gpu_scene_pipeline
+        : gpu_scene_pipeline
             ? gpu_scene_vertex
             : (bindless_texture_table_ ? shaders.bindless_vertex
                                        : shaders.vertex));
@@ -7334,33 +7372,32 @@ class Renderer::Impl {
         generated_artifact != nullptr
             ? generated_artifact->fragment
             : (gpu_driven_pipeline
-                   ? gpu_driven_fragment
-                   : gpu_scene_pipeline
-                   ? gpu_scene_fragment
-                   : (bindless_texture_table_ ? shaders.bindless_fragment
-                                              : shaders.fragment));
+                      ? gpu_driven_fragment
+                  : gpu_scene_pipeline
+                      ? gpu_scene_fragment
+                      : (bindless_texture_table_ ? shaders.bindless_fragment
+                                                 : shaders.fragment));
     const auto fragment_shader = GetShaderModule(fragment_path);
     const auto* fragment_entry =
         generated_artifact != nullptr
             ? generated_artifact->fragment_entry_point.c_str()
             : "main";
-    const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{
+    const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                                                                     VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-         VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
-        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-         VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, fragment_entry,
-         nullptr}}};
+            VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, fragment_entry,
+            nullptr}}};
     const VkVertexInputBindingDescription binding{
         0, sizeof(extraction::DrawVertex), VK_VERTEX_INPUT_RATE_VERTEX};
     const std::array<VkVertexInputAttributeDescription, 4> attributes{{
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
-         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, position))},
+            static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, position))},
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
-         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, normal))},
+            static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, normal))},
         {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, color))},
+            static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, color))},
         {3, 0, VK_FORMAT_R32G32_SFLOAT,
-         static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, texcoord))},
+            static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, texcoord))},
     }};
     VkPipelineVertexInputStateCreateInfo vertex_input{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -7397,9 +7434,9 @@ class Renderer::Impl {
     depth.depthCompareOp = VK_COMPARE_OP_LESS;
     VkPipelineColorBlendAttachmentState blend_attachment{};
     blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-                                       VK_COLOR_COMPONENT_G_BIT |
-                                       VK_COLOR_COMPONENT_B_BIT |
-                                       VK_COLOR_COMPONENT_A_BIT;
+                                      VK_COLOR_COMPONENT_G_BIT |
+                                      VK_COLOR_COMPONENT_B_BIT |
+                                      VK_COLOR_COMPONENT_A_BIT;
     std::array<VkPipelineColorBlendAttachmentState, 3> blend_attachments{
         blend_attachment, blend_attachment, blend_attachment};
     VkPipelineColorBlendStateCreateInfo blend{
@@ -7433,13 +7470,13 @@ class Renderer::Impl {
     pipeline_info.renderPass = active_target_->render_pass;
     VkPipeline pipeline{};
     Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
-                                    &pipeline_info, nullptr, &pipeline),
-          "create scene graphics pipeline");
+              &pipeline_info, nullptr, &pipeline),
+        "create scene graphics pipeline");
     return pipeline;
   }
 
   VkPipeline EnsurePipeline(const ShaderPaths& shaders,
-                            std::uint32_t variant_key) {
+      std::uint32_t variant_key) {
     const auto found = active_target_->pipelines.find(variant_key);
     if (found != active_target_->pipelines.end()) {
       return found->second;
@@ -7450,7 +7487,7 @@ class Renderer::Impl {
   }
 
   VkPipeline EnsureGpuDrivenGraphicsPipeline(const ShaderPaths& shaders,
-                                             std::uint32_t variant_key) {
+      std::uint32_t variant_key) {
     const auto found = active_target_->gpu_driven_pipelines.find(variant_key);
     if (found != active_target_->gpu_driven_pipelines.end()) {
       ++frame_counters_.pipeline_cache_hits;
@@ -7463,34 +7500,34 @@ class Renderer::Impl {
   }
 
   VkPipeline EnsureGaussianPipeline(const ShaderPaths& shaders,
-                                    bool id_pass = false) {
+      bool id_pass = false) {
     auto& cached = id_pass ? active_target_->gaussian_id_pipeline
                            : active_target_->gaussian_pipeline;
     if (cached != VK_NULL_HANDLE) {
       return cached;
     }
     const auto vertex_path = id_pass
-        ? (shaders.gaussian_id_vertex.empty()
-               ? shaders.vertex.parent_path() / "gaussian-id.vert.spv"
-               : shaders.gaussian_id_vertex)
-        : (shaders.gaussian_vertex.empty()
-               ? shaders.vertex.parent_path() / "gaussian.vert.spv"
-               : shaders.gaussian_vertex);
+                                 ? (shaders.gaussian_id_vertex.empty()
+                                           ? shaders.vertex.parent_path() / "gaussian-id.vert.spv"
+                                           : shaders.gaussian_id_vertex)
+                                 : (shaders.gaussian_vertex.empty()
+                                           ? shaders.vertex.parent_path() / "gaussian.vert.spv"
+                                           : shaders.gaussian_vertex);
     const auto fragment_path = id_pass
-        ? (shaders.gaussian_id_fragment.empty()
-               ? shaders.fragment.parent_path() / "gaussian-id.frag.spv"
-               : shaders.gaussian_id_fragment)
-        : (shaders.gaussian_fragment.empty()
-               ? shaders.fragment.parent_path() / "gaussian.frag.spv"
-               : shaders.gaussian_fragment);
+                                   ? (shaders.gaussian_id_fragment.empty()
+                                             ? shaders.fragment.parent_path() / "gaussian-id.frag.spv"
+                                             : shaders.gaussian_id_fragment)
+                                   : (shaders.gaussian_fragment.empty()
+                                             ? shaders.fragment.parent_path() / "gaussian.frag.spv"
+                                             : shaders.gaussian_fragment);
     ++frame_counters_.pipeline_creation_count;
     const auto vertex_shader = GetShaderModule(vertex_path);
     const auto fragment_shader = GetShaderModule(fragment_path);
     const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-         VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
+            VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-         VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, "main", nullptr},
+            VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, "main", nullptr},
     }};
     const std::array<VkVertexInputBindingDescription, 2> bindings{{
         {0, sizeof(Vec2), VK_VERTEX_INPUT_RATE_VERTEX},
@@ -7499,26 +7536,26 @@ class Renderer::Impl {
     const std::array<VkVertexInputAttributeDescription, 9> attributes{{
         {0, 0, VK_FORMAT_R32G32_SFLOAT, 0},
         {1, 1, VK_FORMAT_R32G32_SFLOAT,
-         static_cast<std::uint32_t>(
-             offsetof(GaussianGpuInstance, center_pixels))},
+            static_cast<std::uint32_t>(
+                offsetof(GaussianGpuInstance, center_pixels))},
         {2, 1, VK_FORMAT_R32G32B32_SFLOAT,
-         static_cast<std::uint32_t>(
-             offsetof(GaussianGpuInstance, inverse_conic))},
+            static_cast<std::uint32_t>(
+                offsetof(GaussianGpuInstance, inverse_conic))},
         {3, 1, VK_FORMAT_R32G32B32_SFLOAT,
-         static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, radiance))},
+            static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, radiance))},
         {4, 1, VK_FORMAT_R32_SFLOAT,
-         static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, opacity))},
+            static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, opacity))},
         {5, 1, VK_FORMAT_R32_SFLOAT,
-         static_cast<std::uint32_t>(
-             offsetof(GaussianGpuInstance, radius_pixels))},
+            static_cast<std::uint32_t>(
+                offsetof(GaussianGpuInstance, radius_pixels))},
         {6, 1, VK_FORMAT_R32_SFLOAT,
-         static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, depth))},
+            static_cast<std::uint32_t>(offsetof(GaussianGpuInstance, depth))},
         {7, 1, VK_FORMAT_R32_UINT,
-         static_cast<std::uint32_t>(
-             offsetof(GaussianGpuInstance, resource_id))},
+            static_cast<std::uint32_t>(
+                offsetof(GaussianGpuInstance, resource_id))},
         {8, 1, VK_FORMAT_R32_UINT,
-         static_cast<std::uint32_t>(
-             offsetof(GaussianGpuInstance, particle_id))},
+            static_cast<std::uint32_t>(
+                offsetof(GaussianGpuInstance, particle_id))},
     }};
     VkPipelineVertexInputStateCreateInfo vertex_input{
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -7526,8 +7563,8 @@ class Renderer::Impl {
         static_cast<std::uint32_t>(bindings.size());
     vertex_input.pVertexBindingDescriptions = bindings.data();
     vertex_input.vertexAttributeDescriptionCount = id_pass
-        ? static_cast<std::uint32_t>(attributes.size())
-        : static_cast<std::uint32_t>(attributes.size() - 2U);
+                                                       ? static_cast<std::uint32_t>(attributes.size())
+                                                       : static_cast<std::uint32_t>(attributes.size() - 2U);
     vertex_input.pVertexAttributeDescriptions = attributes.data();
     VkPipelineInputAssemblyStateCreateInfo input_assembly{
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -7552,9 +7589,9 @@ class Renderer::Impl {
     depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     VkPipelineColorBlendAttachmentState attachment{};
     attachment.colorWriteMask = id_pass
-        ? VK_COLOR_COMPONENT_R_BIT
-        : VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                                    ? VK_COLOR_COMPONENT_R_BIT
+                                    : VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     if (!id_pass) {
       attachment.blendEnable = VK_TRUE;
       attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -7592,9 +7629,9 @@ class Renderer::Impl {
     pipeline_info.renderPass = active_target_->render_pass;
     pipeline_info.subpass = id_pass ? 2U : 1U;
     Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
-                                    &pipeline_info, nullptr,
-                                    &cached),
-          "create Gaussian graphics pipeline");
+              &pipeline_info, nullptr,
+              &cached),
+        "create Gaussian graphics pipeline");
     return cached;
   }
 
@@ -7766,17 +7803,17 @@ class Renderer::Impl {
   VkSurfaceFormatKHR SelectSurfaceFormat() const {
     std::uint32_t count{};
     Check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_,
-                                               &count, nullptr),
-          "query presentation surface formats");
+              &count, nullptr),
+        "query presentation surface formats");
     if (count == 0) {
       throw RendererError(RendererErrorCode::Unsupported,
-                          "create Vulkan swapchain",
-                          "presentation surface exposes no formats");
+          "create Vulkan swapchain",
+          "presentation surface exposes no formats");
     }
     std::vector<VkSurfaceFormatKHR> formats(count);
     Check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_,
-                                               &count, formats.data()),
-          "query presentation surface formats");
+              &count, formats.data()),
+        "query presentation surface formats");
     const std::array<VkFormat, 4> preferred{
         VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM,
         VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8A8_SRGB};
@@ -7796,15 +7833,15 @@ class Renderer::Impl {
   VkPresentModeKHR SelectPresentMode() const {
     std::uint32_t count{};
     Check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device_, surface_,
-                                                    &count, nullptr),
-          "query Vulkan present modes");
+              &count, nullptr),
+        "query Vulkan present modes");
     std::vector<VkPresentModeKHR> modes(count);
     Check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device_, surface_,
-                                                    &count, modes.data()),
-          "query Vulkan present modes");
+              &count, modes.data()),
+        "query Vulkan present modes");
     if (!presentation_vsync_) {
       for (const auto preferred : {VK_PRESENT_MODE_IMMEDIATE_KHR,
-                                   VK_PRESENT_MODE_MAILBOX_KHR}) {
+               VK_PRESENT_MODE_MAILBOX_KHR}) {
         if (std::find(modes.begin(), modes.end(), preferred) != modes.end()) {
           return preferred;
         }
@@ -7814,11 +7851,11 @@ class Renderer::Impl {
   }
 
   void CreateSwapchain(std::uint32_t requested_width,
-                       std::uint32_t requested_height) {
+      std::uint32_t requested_height) {
     VkSurfaceCapabilitiesKHR surface_capabilities{};
     Check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
               physical_device_, surface_, &surface_capabilities),
-          "query presentation surface capabilities");
+        "query presentation surface capabilities");
     VkImageUsageFlags image_usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if (presentation_overlay_ != nullptr) {
       image_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -7836,17 +7873,17 @@ class Renderer::Impl {
     VkFormatProperties source_properties{};
     VkFormatProperties destination_properties{};
     vkGetPhysicalDeviceFormatProperties(physical_device_, kColorFormat,
-                                        &source_properties);
+        &source_properties);
     vkGetPhysicalDeviceFormatProperties(physical_device_,
-                                        surface_format.format,
-                                        &destination_properties);
+        surface_format.format,
+        &destination_properties);
     if ((source_properties.optimalTilingFeatures &
-         VK_FORMAT_FEATURE_BLIT_SRC_BIT) == 0U ||
+            VK_FORMAT_FEATURE_BLIT_SRC_BIT) == 0U ||
         (destination_properties.optimalTilingFeatures &
-         VK_FORMAT_FEATURE_BLIT_DST_BIT) == 0U) {
+            VK_FORMAT_FEATURE_BLIT_DST_BIT) == 0U) {
       throw RendererError(RendererErrorCode::Unsupported,
-                          "create Vulkan swapchain",
-                          "offscreen-to-presentation GPU blit is unsupported");
+          "create Vulkan swapchain",
+          "offscreen-to-presentation GPU blit is unsupported");
     }
 
     VkExtent2D extent{};
@@ -7855,22 +7892,22 @@ class Renderer::Impl {
       extent = surface_capabilities.currentExtent;
     } else {
       extent.width = std::clamp(requested_width,
-                                surface_capabilities.minImageExtent.width,
-                                surface_capabilities.maxImageExtent.width);
+          surface_capabilities.minImageExtent.width,
+          surface_capabilities.maxImageExtent.width);
       extent.height = std::clamp(requested_height,
-                                 surface_capabilities.minImageExtent.height,
-                                 surface_capabilities.maxImageExtent.height);
+          surface_capabilities.minImageExtent.height,
+          surface_capabilities.maxImageExtent.height);
     }
     if (extent.width == 0 || extent.height == 0) {
       throw RendererError(RendererErrorCode::ResourceBusy,
-                          "create Vulkan swapchain",
-                          "presentation surface is minimized");
+          "create Vulkan swapchain",
+          "presentation surface is minimized");
     }
 
     std::uint32_t image_count = surface_capabilities.minImageCount + 1U;
     if (surface_capabilities.maxImageCount != 0) {
       image_count = std::min(image_count,
-                             surface_capabilities.maxImageCount);
+          surface_capabilities.maxImageCount);
     }
     VkCompositeAlphaFlagBitsKHR composite_alpha =
         VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -7886,8 +7923,8 @@ class Renderer::Impl {
           });
       if (found == alternatives.end()) {
         throw RendererError(RendererErrorCode::Unsupported,
-                            "create Vulkan swapchain",
-                            "presentation surface exposes no composite alpha mode");
+            "create Vulkan swapchain",
+            "presentation surface exposes no composite alpha mode");
       }
       composite_alpha = *found;
     }
@@ -7909,14 +7946,14 @@ class Renderer::Impl {
 
     VkSwapchainKHR replacement{};
     Check(vkCreateSwapchainKHR(device_, &info, nullptr, &replacement),
-          "create Vulkan swapchain");
+        "create Vulkan swapchain");
     std::uint32_t actual_count{};
     Check(vkGetSwapchainImagesKHR(device_, replacement, &actual_count, nullptr),
-          "query Vulkan swapchain images");
+        "query Vulkan swapchain images");
     std::vector<VkImage> images(actual_count);
     Check(vkGetSwapchainImagesKHR(device_, replacement, &actual_count,
-                                  images.data()),
-          "query Vulkan swapchain images");
+              images.data()),
+        "query Vulkan swapchain images");
     std::vector<VkImageView> image_views;
     std::vector<VkFramebuffer> overlay_framebuffers;
     VkRenderPass overlay_render_pass{};
@@ -7933,8 +7970,8 @@ class Renderer::Impl {
         view_info.subresourceRange.levelCount = 1;
         view_info.subresourceRange.layerCount = 1;
         Check(vkCreateImageView(device_, &view_info, nullptr,
-                                &image_views[index]),
-              "create presentation image view");
+                  &image_views[index]),
+            "create presentation image view");
       }
       if (presentation_overlay_ != nullptr) {
         VkAttachmentDescription attachment{};
@@ -7959,8 +7996,8 @@ class Renderer::Impl {
         render_pass_info.subpassCount = 1;
         render_pass_info.pSubpasses = &subpass;
         Check(vkCreateRenderPass(device_, &render_pass_info, nullptr,
-                                 &overlay_render_pass),
-              "create presentation overlay render pass");
+                  &overlay_render_pass),
+            "create presentation overlay render pass");
 
         overlay_framebuffers.resize(actual_count);
         for (std::uint32_t index = 0; index < actual_count; ++index) {
@@ -7973,15 +8010,15 @@ class Renderer::Impl {
           framebuffer_info.height = extent.height;
           framebuffer_info.layers = 1;
           Check(vkCreateFramebuffer(device_, &framebuffer_info, nullptr,
-                                    &overlay_framebuffers[index]),
-                "create presentation overlay framebuffer");
+                    &overlay_framebuffers[index]),
+              "create presentation overlay framebuffer");
         }
       }
       VkSemaphoreCreateInfo semaphore_info{
           VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       for (auto& semaphore : render_finished) {
         Check(vkCreateSemaphore(device_, &semaphore_info, nullptr, &semaphore),
-              "create per-image presentation completion semaphore");
+            "create per-image presentation completion semaphore");
       }
     } catch (...) {
       for (const auto framebuffer : overlay_framebuffers) {
@@ -8054,7 +8091,7 @@ class Renderer::Impl {
   }
 
   void PreparePresentation(FrameContext& frame, std::uint32_t width,
-                           std::uint32_t height) {
+      std::uint32_t height) {
     EnsureSwapchain(width, height);
     auto result = vkAcquireNextImageKHR(
         device_, swapchain_.handle,
@@ -8078,7 +8115,7 @@ class Renderer::Impl {
   }
 
   void RecordPresentation(VkCommandBuffer command,
-                          const FrameContext& frame) {
+      const FrameContext& frame) {
     const auto image = swapchain_.images.at(frame.present_image_index);
     VkImageMemoryBarrier to_transfer{
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
@@ -8096,22 +8133,22 @@ class Renderer::Impl {
     to_transfer.subresourceRange.levelCount = 1;
     to_transfer.subresourceRange.layerCount = 1;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &to_transfer);
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+        nullptr, 1, &to_transfer);
 
     VkImageBlit blit{};
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.srcSubresource.layerCount = 1;
     blit.srcOffsets[1] = {static_cast<std::int32_t>(active_target_->width),
-                          static_cast<std::int32_t>(active_target_->height), 1};
+        static_cast<std::int32_t>(active_target_->height), 1};
     blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit.dstSubresource.layerCount = 1;
     blit.dstOffsets[1] = {static_cast<std::int32_t>(swapchain_.extent.width),
-                          static_cast<std::int32_t>(swapchain_.extent.height), 1};
+        static_cast<std::int32_t>(swapchain_.extent.height), 1};
     vkCmdBlitImage(command, active_target_->color,
-                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
-                   VK_FILTER_NEAREST);
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+        VK_FILTER_NEAREST);
 
     if (presentation_overlay_ != nullptr) {
       VkImageMemoryBarrier to_overlay = to_transfer;
@@ -8121,8 +8158,8 @@ class Renderer::Impl {
       to_overlay.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
       to_overlay.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
       vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                           VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0,
-                           nullptr, 0, nullptr, 1, &to_overlay);
+          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0,
+          nullptr, 0, nullptr, 1, &to_overlay);
 
       VkRenderPassBeginInfo begin_info{
           VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
@@ -8134,7 +8171,7 @@ class Renderer::Impl {
       presentation_overlay_(
           presentation_overlay_user_data_,
           MakePresentationOverlayContext(PresentationOverlayPhase::Render,
-                                         command));
+              command));
       vkCmdEndRenderPass(command);
     } else {
       VkImageMemoryBarrier to_present = to_transfer;
@@ -8143,8 +8180,8 @@ class Renderer::Impl {
       to_present.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
       to_present.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
       vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                           VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
-                           0, nullptr, 1, &to_present);
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
+          0, nullptr, 1, &to_present);
     }
     frame_counters_.present_count = 1;
     frame_counters_.presentation_copy_bytes =
@@ -8247,7 +8284,7 @@ class Renderer::Impl {
       const auto variant = MakeDrawPipelineVariant(draw, snapshot);
       try {
         (void)EnsureGeneratedPipeline(active_target_->shaders, *artifact,
-                                      variant.variant_key);
+            variant.variant_key);
       } catch (const RendererError& error) {
         if (error.code() == RendererErrorCode::DeviceLost ||
             error.code() == RendererErrorCode::ResourceExhausted ||
@@ -8264,35 +8301,35 @@ class Renderer::Impl {
   }
 
   void RecordGaussianGpuPreparation(VkCommandBuffer command,
-                                    const FrameContext& frame) {
+      const FrameContext& frame) {
     const auto& resources = frame.gaussian_gpu_preparation;
     if (!resources.selected) {
       return;
     }
     for (const auto& batch : resources.batches) {
       vkCmdFillBuffer(command, resources.dispatch_counters.handle,
-                      batch.counter_offset,
-                      sizeof(shader_abi::GaussianPrepareDispatchCounters),
-                      0U);
+          batch.counter_offset,
+          sizeof(shader_abi::GaussianPrepareDispatchCounters),
+          0U);
     }
     VkMemoryBarrier counter_clear_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     counter_clear_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     counter_clear_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
                                           VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                         &counter_clear_barrier, 0, nullptr, 0, nullptr);
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+        &counter_clear_barrier, 0, nullptr, 0, nullptr);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                      resources.compute_pipeline);
+        resources.compute_pipeline);
     for (const auto& batch : resources.batches) {
       vkCmdBindDescriptorSets(
           command, VK_PIPELINE_BIND_POINT_COMPUTE,
           gaussian_prepare_pipeline_layout_, 3, 1, &batch.descriptor_set, 0,
           nullptr);
       vkCmdDispatch(command,
-                    shader_abi::GaussianPrepareWorkgroupCount(
-                        batch.particle_count),
-                    1, 1);
+          shader_abi::GaussianPrepareWorkgroupCount(
+              batch.particle_count),
+          1, 1);
       ++frame_counters_.gaussian_gpu_preparation_dispatch_count;
       frame_counters_.gaussian_gpu_preparation_candidate_count +=
           batch.particle_count;
@@ -8301,26 +8338,26 @@ class Renderer::Impl {
     output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     output_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
-                         &output_barrier, 0, nullptr, 0, nullptr);
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
+        &output_barrier, 0, nullptr, 0, nullptr);
     for (const auto& batch : resources.batches) {
       const VkBufferCopy copy{
           batch.counter_offset, batch.counter_offset,
           sizeof(shader_abi::GaussianPrepareDispatchCounters)};
       vkCmdCopyBuffer(command, resources.dispatch_counters.handle,
-                      resources.counter_readback.handle, 1, &copy);
+          resources.counter_readback.handle, 1, &copy);
     }
   }
 
   void RecordGaussianGpuSort(VkCommandBuffer command,
-                             const FrameContext& frame) {
+      const FrameContext& frame) {
     const auto& resources = frame.gaussian_gpu_sort;
     if (!resources.selected) {
       return;
     }
     const auto& prepared = frame.gaussian_gpu_preparation;
     vkCmdFillBuffer(command, resources.scan.handle, 0,
-                    sizeof(shader_abi::GaussianSortVerification), 0U);
+        sizeof(shader_abi::GaussianSortVerification), 0U);
     vkCmdCopyBuffer(
         command, prepared.dispatch_counters.handle, resources.scan.handle,
         static_cast<std::uint32_t>(resources.visible_count_copies.size()),
@@ -8333,30 +8370,30 @@ class Renderer::Impl {
     input_barrier.dstAccessMask =
         VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(command,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                         &input_barrier, 0, nullptr, 0, nullptr);
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+        &input_barrier, 0, nullptr, 0, nullptr);
     const auto compute_barrier = [&] {
       VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
       barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
       barrier.dstAccessMask =
           VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
       vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                           &barrier, 0, nullptr, 0, nullptr);
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+          &barrier, 0, nullptr, 0, nullptr);
     };
     const auto dispatch = [&](GaussianSortKernel kernel, std::size_t set,
                               const shader_abi::GaussianSortConstants& values,
                               std::uint32_t workgroups) {
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        resources.pipelines[kernel]);
+          resources.pipelines[kernel]);
       vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                              gaussian_sort_pipeline_layout_, 0, 1,
-                              &resources.descriptor_sets[set], 0, nullptr);
+          gaussian_sort_pipeline_layout_, 0, 1,
+          &resources.descriptor_sets[set], 0, nullptr);
       vkCmdPushConstants(command, gaussian_sort_pipeline_layout_,
-                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(values),
-                         &values);
+          VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(values),
+          &values);
       vkCmdDispatch(command, workgroups, 1, 1);
       ++frame_counters_.gaussian_gpu_sort_dispatch_count;
     };
@@ -8384,7 +8421,7 @@ class Renderer::Impl {
         values.scan_count = level.count;
         values.scan_sums_offset = level.sums_offset;
         dispatch(kGaussianSortScanBlocks, set, values,
-                 shader_abi::GaussianSortScanWorkgroupCount(level.count));
+            shader_abi::GaussianSortScanWorkgroupCount(level.count));
         compute_barrier();
       }
       // The top level fits one workgroup, so its scan is already global.
@@ -8393,7 +8430,7 @@ class Renderer::Impl {
         values.scan_count = level->count;
         values.scan_sums_offset = level->sums_offset;
         dispatch(kGaussianSortScanAdd, set, values,
-                 shader_abi::GaussianSortScanWorkgroupCount(level->count));
+            shader_abi::GaussianSortScanWorkgroupCount(level->count));
         compute_barrier();
       }
       values.scan_offset = levels.front().offset;
@@ -8405,7 +8442,7 @@ class Renderer::Impl {
     shader_abi::GaussianSortConstants verify;
     verify.element_count = resources.key_count;
     dispatch(kGaussianSortVerify, resources.pass_count % 2U, verify,
-             resources.block_count);
+        resources.block_count);
     frame_counters_.gaussian_gpu_sort_pass_count += resources.pass_count;
     frame_counters_.gaussian_gpu_sort_key_count += resources.key_count;
 
@@ -8413,37 +8450,37 @@ class Renderer::Impl {
     output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     output_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
-                         &output_barrier, 0, nullptr, 0, nullptr);
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
+        &output_barrier, 0, nullptr, 0, nullptr);
     const VkBufferCopy copy{0, 0,
-                            sizeof(shader_abi::GaussianSortVerification)};
+        sizeof(shader_abi::GaussianSortVerification)};
     vkCmdCopyBuffer(command, resources.scan.handle,
-                    resources.verification_readback.handle, 1, &copy);
+        resources.verification_readback.handle, 1, &copy);
   }
 
   void RecordGpuDrivenDispatch(VkCommandBuffer command,
-                               const FrameContext& frame,
-                               const extraction::FrameSnapshot& snapshot,
-                               const GpuDrivenIndexedRequest& request) {
+      const FrameContext& frame,
+      const extraction::FrameSnapshot& snapshot,
+      const GpuDrivenIndexedRequest& request) {
     if (!frame.gpu_driven.selected) {
       return;
     }
     for (const auto& batch : frame.gpu_driven.batches) {
       vkCmdFillBuffer(command, frame.gpu_driven.dispatch_counters.handle,
-                      batch.counter_offset,
-                      sizeof(shader_abi::GpuDrivenIndexedDispatchCounters),
-                      0U);
+          batch.counter_offset,
+          sizeof(shader_abi::GpuDrivenIndexedDispatchCounters),
+          0U);
     }
     VkMemoryBarrier counter_clear_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     counter_clear_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     counter_clear_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
                                           VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                         &counter_clear_barrier, 0, nullptr, 0, nullptr);
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+        &counter_clear_barrier, 0, nullptr, 0, nullptr);
     for (const auto& batch : frame.gpu_driven.batches) {
       vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        batch.compute_pipeline);
+          batch.compute_pipeline);
       const std::array descriptor_sets{
           bindless_descriptor_set_, frame.bindless_material_descriptor_set,
           batch.descriptor_set};
@@ -8465,8 +8502,8 @@ class Renderer::Impl {
         constants.flags |= shader_abi::kGpuDrivenFrustumCulling;
       }
       vkCmdPushConstants(command, gpu_driven_pipeline_layout_,
-                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
-                         &constants);
+          VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
+          &constants);
       const auto workgroup_count =
           shader_abi::GpuDrivenIndexedWorkgroupCount(batch.candidate_count);
       vkCmdDispatch(command, workgroup_count, 1, 1);
@@ -8486,10 +8523,10 @@ class Renderer::Impl {
   }
 
   void RecordFrame(VkCommandBuffer command,
-                   const FrameContext& frame,
-                   const extraction::FrameSnapshot& snapshot,
-                   const Vec4& clear_color,
-                   const std::vector<Aov>& cpu_readback_aovs) {
+      const FrameContext& frame,
+      const extraction::FrameSnapshot& snapshot,
+      const Vec4& clear_color,
+      const std::vector<Aov>& cpu_readback_aovs) {
     std::array<VkClearValue, 4> clear{};
     clear[0].color = {
         {clear_color.x, clear_color.y, clear_color.z, clear_color.w}};
@@ -8504,7 +8541,7 @@ class Renderer::Impl {
     pass.pClearValues = clear.data();
     vkCmdBeginRenderPass(command, &pass, VK_SUBPASS_CONTENTS_INLINE);
     const VkViewport viewport{0.0F, 0.0F, static_cast<float>(active_target_->width),
-                              static_cast<float>(active_target_->height), 0.0F, 1.0F};
+        static_cast<float>(active_target_->height), 0.0F, 1.0F};
     const VkRect2D scissor{{0, 0}, {active_target_->width, active_target_->height}};
     vkCmdSetViewport(command, 0, 1, &viewport);
     vkCmdSetScissor(command, 0, 1, &scissor);
@@ -8513,10 +8550,10 @@ class Renderer::Impl {
         gpu_scene_buffers_.pending_update
             ? gpu_scene_buffers_.pending_draw_slot_indices
             : (gpu_scene_buffers_.has_resident_update &&
-                       gpu_scene_buffers_.source_id == snapshot.source_id &&
-                       gpu_scene_buffers_.revision == snapshot.revision
-                   ? gpu_scene_buffers_.draw_slot_indices
-                   : nullptr);
+                          gpu_scene_buffers_.source_id == snapshot.source_id &&
+                          gpu_scene_buffers_.revision == snapshot.revision
+                      ? gpu_scene_buffers_.draw_slot_indices
+                      : nullptr);
     const bool gpu_scene_ready =
         bindless_texture_table_ && gpu_scene_draw_slots &&
         gpu_scene_draw_slots->size() == draw_records_.size();
@@ -8531,15 +8568,15 @@ class Renderer::Impl {
           descriptor_sets.data(), 1, &dynamic_offset);
       const shader_abi::GpuDrivenForwardConstants push{view_projection};
       vkCmdPushConstants(command, active_target_->pipeline_layout,
-                         VK_SHADER_STAGE_VERTEX_BIT |
-                             VK_SHADER_STAGE_FRAGMENT_BIT,
-                         0, sizeof(push), &push);
+          VK_SHADER_STAGE_VERTEX_BIT |
+              VK_SHADER_STAGE_FRAGMENT_BIT,
+          0, sizeof(push), &push);
       for (const auto& batch : frame.gpu_driven.batches) {
         const auto vertex_buffer = vertex_arena_.buffer(batch.vertex_block);
         constexpr VkDeviceSize zero_offset{};
         vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer, &zero_offset);
         vkCmdBindIndexBuffer(command, index_arena_.buffer(batch.index_block), 0,
-                             VK_INDEX_TYPE_UINT32);
+            VK_INDEX_TYPE_UINT32);
         const auto pipeline = EnsureGpuDrivenGraphicsPipeline(
             active_target_->shaders, batch.pipeline_variant);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -8549,133 +8586,133 @@ class Renderer::Impl {
             frame.gpu_driven.dispatch_counters.handle,
             batch.counter_offset +
                 offsetof(shader_abi::GpuDrivenIndexedDispatchCounters,
-                         visible_count),
+                    visible_count),
             batch.candidate_count,
             sizeof(render::GpuIndexedIndirectCommand));
         ++frame_counters_.gpu_driven_indirect_draw_count;
       }
     } else {
       for (std::size_t i = 0; i < draw_records_.size(); ++i) {
-      const auto& draw = draw_records_[i];
-      const auto& geometry = geometry_records_[draw.geometry_index];
-      const auto& slot = geometry_slots_.at(geometry.mesh);
-      const auto vertex_buffer = vertex_arena_.buffer(slot.vertices.block);
-      vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer,
-                             &slot.vertices.offset);
-      vkCmdBindIndexBuffer(command, index_arena_.buffer(slot.indices.block),
-                           slot.indices.offset, VK_INDEX_TYPE_UINT32);
-      const auto& instance = instance_records_[draw.instance_index];
-      const auto& material = material_records_[draw.material_index];
-      const auto variant = MakeDrawPipelineVariant(draw, snapshot);
-      auto feature_mask = variant.feature_mask;
-      const auto* generated_artifact =
-          selected_material_artifacts_[draw.material_index];
-      const bool use_gpu_scene =
-          gpu_scene_ready && generated_artifact == nullptr;
-      if (generated_artifact != nullptr) {
-        ++frame_counters_.generated_material_draw_count;
-      } else if (material.module) {
-        ++frame_counters_.generated_material_fallback_count;
-      }
-      const auto pipeline =
-          generated_artifact != nullptr
-              ? EnsureGeneratedPipeline(active_target_->shaders,
-                                        *generated_artifact,
-                                        variant.variant_key)
-              : EnsurePipeline(active_target_->shaders,
-                               variant.variant_key |
-                                   (use_gpu_scene
-                                        ? kGpuScenePipelineFlag
-                                        : 0U));
-      const auto pipeline_layout =
-          generated_artifact != nullptr
-              ? active_target_->generated_pipeline_layouts.at(
-                    generated_artifact->module_key)
-              : active_target_->pipeline_layout;
-      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-      if (bindless_texture_table_) {
-        const auto dynamic_offset_value =
-            frame.material_uniform_stride * draw.material_index;
-        if (dynamic_offset_value >
-            std::numeric_limits<std::uint32_t>::max()) {
-          throw RendererError(RendererErrorCode::Unsupported,
-                              "record bindless material",
-                              "dynamic material offset exceeds uint32 range");
+        const auto& draw = draw_records_[i];
+        const auto& geometry = geometry_records_[draw.geometry_index];
+        const auto& slot = geometry_slots_.at(geometry.mesh);
+        const auto vertex_buffer = vertex_arena_.buffer(slot.vertices.block);
+        vkCmdBindVertexBuffers(command, 0, 1, &vertex_buffer,
+            &slot.vertices.offset);
+        vkCmdBindIndexBuffer(command, index_arena_.buffer(slot.indices.block),
+            slot.indices.offset, VK_INDEX_TYPE_UINT32);
+        const auto& instance = instance_records_[draw.instance_index];
+        const auto& material = material_records_[draw.material_index];
+        const auto variant = MakeDrawPipelineVariant(draw, snapshot);
+        auto feature_mask = variant.feature_mask;
+        const auto* generated_artifact =
+            selected_material_artifacts_[draw.material_index];
+        const bool use_gpu_scene =
+            gpu_scene_ready && generated_artifact == nullptr;
+        if (generated_artifact != nullptr) {
+          ++frame_counters_.generated_material_draw_count;
+        } else if (material.module) {
+          ++frame_counters_.generated_material_fallback_count;
         }
-        const auto dynamic_offset =
-            static_cast<std::uint32_t>(dynamic_offset_value);
-        std::array<VkDescriptorSet, 2> descriptor_sets{};
-        descriptor_sets[shader_abi::kBindlessTextures.set] =
-            bindless_descriptor_set_;
-        descriptor_sets[shader_abi::kBindlessMaterialConstants.set] =
-            frame.bindless_material_descriptor_set;
-        vkCmdBindDescriptorSets(
-            command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pipeline_layout, 0,
-            static_cast<std::uint32_t>(descriptor_sets.size()),
-            descriptor_sets.data(), 1, &dynamic_offset);
-      } else {
-        const auto descriptor_set =
-            frame.material_descriptor_sets[draw.material_index];
-        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipeline_layout, 0, 1,
-                                &descriptor_set, 0, nullptr);
-      }
-      if (use_gpu_scene) {
-        shader_abi::GpuSceneDrawConstants push;
-        push.view_projection = view_projection;
-        push.draw_slot = (*gpu_scene_draw_slots)[i];
-        vkCmdPushConstants(command, pipeline_layout,
-                           VK_SHADER_STAGE_VERTEX_BIT |
-                               VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(push), &push);
-        ++frame_counters_.gpu_scene_draw_count;
-      } else {
-        PushConstants push;
-        push.model_view_projection =
-            Multiply(view_projection, instance.transform);
-        const auto normal_matrix = NormalMatrix(instance.transform);
-        push.normal_matrix_column0 = normal_matrix[0];
-        push.normal_matrix_column1 = normal_matrix[1];
-        push.normal_matrix_column2 = normal_matrix[2];
-        push.feature_mask = feature_mask;
-        if (material.alpha_mode == AlphaMode::Masked) {
-          push.feature_mask |= kMaskedAlphaFlag;
-        }
-        if (bindless_texture_table_ && material.base_color_texture) {
-          const auto texture_handle =
-              texture_records_[material.base_color_texture->texture_index]
-                  .texture;
-          const auto sampler_handle =
-              sampler_records_[material.base_color_texture->sampler_index]
-                  .sampler;
-          const auto texture_slot =
-              texture_slots_.at(texture_handle).bindless_slot;
-          const auto sampler_slot =
-              sampler_slots_.at(sampler_handle).bindless_slot;
-          if (sampler_slot.index > kSamplerIndexMask) {
-            throw RendererError(
-                RendererErrorCode::Unsupported,
+        const auto pipeline =
+            generated_artifact != nullptr
+                ? EnsureGeneratedPipeline(active_target_->shaders,
+                      *generated_artifact,
+                      variant.variant_key)
+                : EnsurePipeline(active_target_->shaders,
+                      variant.variant_key |
+                          (use_gpu_scene
+                                  ? kGpuScenePipelineFlag
+                                  : 0U));
+        const auto pipeline_layout =
+            generated_artifact != nullptr
+                ? active_target_->generated_pipeline_layouts.at(
+                      generated_artifact->module_key)
+                : active_target_->pipeline_layout;
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        if (bindless_texture_table_) {
+          const auto dynamic_offset_value =
+              frame.material_uniform_stride * draw.material_index;
+          if (dynamic_offset_value >
+              std::numeric_limits<std::uint32_t>::max()) {
+            throw RendererError(RendererErrorCode::Unsupported,
                 "record bindless material",
-                "bindless sampler index exceeds shader encoding");
+                "dynamic material offset exceeds uint32 range");
           }
-          push.texture_index = texture_slot.index;
-          push.feature_mask |= sampler_slot.index << kSamplerIndexShift;
+          const auto dynamic_offset =
+              static_cast<std::uint32_t>(dynamic_offset_value);
+          std::array<VkDescriptorSet, 2> descriptor_sets{};
+          descriptor_sets[shader_abi::kBindlessTextures.set] =
+              bindless_descriptor_set_;
+          descriptor_sets[shader_abi::kBindlessMaterialConstants.set] =
+              frame.bindless_material_descriptor_set;
+          vkCmdBindDescriptorSets(
+              command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+              pipeline_layout, 0,
+              static_cast<std::uint32_t>(descriptor_sets.size()),
+              descriptor_sets.data(), 1, &dynamic_offset);
+        } else {
+          const auto descriptor_set =
+              frame.material_descriptor_sets[draw.material_index];
+          vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+              pipeline_layout, 0, 1,
+              &descriptor_set, 0, nullptr);
         }
-        push.prim_id = static_cast<std::uint32_t>(geometry.mesh);
-        push.instance_id = static_cast<std::uint32_t>(instance.instance);
-        vkCmdPushConstants(command, pipeline_layout,
-                           VK_SHADER_STAGE_VERTEX_BIT |
-                               VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(push), &push);
-      }
+        if (use_gpu_scene) {
+          shader_abi::GpuSceneDrawConstants push;
+          push.view_projection = view_projection;
+          push.draw_slot = (*gpu_scene_draw_slots)[i];
+          vkCmdPushConstants(command, pipeline_layout,
+              VK_SHADER_STAGE_VERTEX_BIT |
+                  VK_SHADER_STAGE_FRAGMENT_BIT,
+              0, sizeof(push), &push);
+          ++frame_counters_.gpu_scene_draw_count;
+        } else {
+          PushConstants push;
+          push.model_view_projection =
+              Multiply(view_projection, instance.transform);
+          const auto normal_matrix = NormalMatrix(instance.transform);
+          push.normal_matrix_column0 = normal_matrix[0];
+          push.normal_matrix_column1 = normal_matrix[1];
+          push.normal_matrix_column2 = normal_matrix[2];
+          push.feature_mask = feature_mask;
+          if (material.alpha_mode == AlphaMode::Masked) {
+            push.feature_mask |= kMaskedAlphaFlag;
+          }
+          if (bindless_texture_table_ && material.base_color_texture) {
+            const auto texture_handle =
+                texture_records_[material.base_color_texture->texture_index]
+                    .texture;
+            const auto sampler_handle =
+                sampler_records_[material.base_color_texture->sampler_index]
+                    .sampler;
+            const auto texture_slot =
+                texture_slots_.at(texture_handle).bindless_slot;
+            const auto sampler_slot =
+                sampler_slots_.at(sampler_handle).bindless_slot;
+            if (sampler_slot.index > kSamplerIndexMask) {
+              throw RendererError(
+                  RendererErrorCode::Unsupported,
+                  "record bindless material",
+                  "bindless sampler index exceeds shader encoding");
+            }
+            push.texture_index = texture_slot.index;
+            push.feature_mask |= sampler_slot.index << kSamplerIndexShift;
+          }
+          push.prim_id = static_cast<std::uint32_t>(geometry.mesh);
+          push.instance_id = static_cast<std::uint32_t>(instance.instance);
+          vkCmdPushConstants(command, pipeline_layout,
+              VK_SHADER_STAGE_VERTEX_BIT |
+                  VK_SHADER_STAGE_FRAGMENT_BIT,
+              0, sizeof(push), &push);
+        }
         vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
       }
     }
     vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
       vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-                          frame.timestamp_pool, 2);
+          frame.timestamp_pool, 2);
     }
     if (frame.gaussian_instance_count != 0) {
       const auto pipeline = EnsureGaussianPipeline(active_target_->shaders);
@@ -8684,16 +8721,16 @@ class Renderer::Impl {
           gaussian_corner_vertices_.handle, frame.gaussian_instances.handle};
       const std::array<VkDeviceSize, 2> offsets{};
       vkCmdBindVertexBuffers(command, 0,
-                             static_cast<std::uint32_t>(vertex_buffers.size()),
-                             vertex_buffers.data(), offsets.data());
+          static_cast<std::uint32_t>(vertex_buffers.size()),
+          vertex_buffers.data(), offsets.data());
       const GaussianPushConstants push{{
           1.0F / static_cast<float>(active_target_->width),
           1.0F / static_cast<float>(active_target_->height),
       }};
       vkCmdPushConstants(command, active_target_->pipeline_layout,
-                         VK_SHADER_STAGE_VERTEX_BIT |
-                             VK_SHADER_STAGE_FRAGMENT_BIT,
-                         0, sizeof(push), &push);
+          VK_SHADER_STAGE_VERTEX_BIT |
+              VK_SHADER_STAGE_FRAGMENT_BIT,
+          0, sizeof(push), &push);
       vkCmdDraw(command, 6, frame.gaussian_instance_count, 0, 0);
       ++frame_counters_.gaussian_draw_count;
     }
@@ -8706,22 +8743,22 @@ class Renderer::Impl {
           gaussian_corner_vertices_.handle, frame.gaussian_instances.handle};
       const std::array<VkDeviceSize, 2> offsets{};
       vkCmdBindVertexBuffers(command, 0,
-                             static_cast<std::uint32_t>(vertex_buffers.size()),
-                             vertex_buffers.data(), offsets.data());
+          static_cast<std::uint32_t>(vertex_buffers.size()),
+          vertex_buffers.data(), offsets.data());
       const GaussianPushConstants push{{
           1.0F / static_cast<float>(active_target_->width),
           1.0F / static_cast<float>(active_target_->height),
       }};
       vkCmdPushConstants(command, active_target_->pipeline_layout,
-                         VK_SHADER_STAGE_VERTEX_BIT |
-                             VK_SHADER_STAGE_FRAGMENT_BIT,
-                         0, sizeof(push), &push);
+          VK_SHADER_STAGE_VERTEX_BIT |
+              VK_SHADER_STAGE_FRAGMENT_BIT,
+          0, sizeof(push), &push);
       vkCmdDraw(command, 6, frame.gaussian_instance_count, 0, 0);
       ++frame_counters_.gaussian_draw_count;
     }
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
       vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-                          frame.timestamp_pool, 3);
+          frame.timestamp_pool, 3);
     }
     vkCmdEndRenderPass(command);
 
@@ -8731,9 +8768,9 @@ class Renderer::Impl {
             batch.counter_offset, batch.counter_offset,
             sizeof(shader_abi::GpuDrivenIndexedDispatchCounters)};
         vkCmdCopyBuffer(command,
-                        frame.gpu_driven.dispatch_counters.handle,
-                        frame.gpu_driven.counter_readback.handle, 1,
-                        &batch_copy);
+            frame.gpu_driven.dispatch_counters.handle,
+            frame.gpu_driven.counter_readback.handle, 1,
+            &batch_copy);
       }
     }
 
@@ -8743,8 +8780,8 @@ class Renderer::Impl {
       copy.imageSubresource.layerCount = 1;
       copy.imageExtent = {active_target_->width, active_target_->height, 1};
       vkCmdCopyImageToBuffer(command, active_target_->color,
-                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                             active_target_->color_readback.handle, 1, &copy);
+          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+          active_target_->color_readback.handle, 1, &copy);
     }
     if (HasAov(cpu_readback_aovs, Aov::Depth)) {
       VkBufferImageCopy copy{};
@@ -8752,8 +8789,8 @@ class Renderer::Impl {
       copy.imageSubresource.layerCount = 1;
       copy.imageExtent = {active_target_->width, active_target_->height, 1};
       vkCmdCopyImageToBuffer(command, active_target_->depth,
-                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                             active_target_->depth_readback.handle, 1, &copy);
+          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+          active_target_->depth_readback.handle, 1, &copy);
     }
     VkBufferImageCopy id_copy{};
     id_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -8761,15 +8798,15 @@ class Renderer::Impl {
     id_copy.imageExtent = {active_target_->width, active_target_->height, 1};
     if (HasAov(cpu_readback_aovs, Aov::PrimId)) {
       vkCmdCopyImageToBuffer(command, active_target_->prim_id,
-                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                             active_target_->prim_id_readback.handle, 1,
-                             &id_copy);
+          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+          active_target_->prim_id_readback.handle, 1,
+          &id_copy);
     }
     if (HasAov(cpu_readback_aovs, Aov::InstanceId)) {
       vkCmdCopyImageToBuffer(command, active_target_->instance_id,
-                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                             active_target_->instance_id_readback.handle, 1,
-                             &id_copy);
+          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+          active_target_->instance_id_readback.handle, 1,
+          &id_copy);
     }
     if (frame.present_pending) {
       RecordPresentation(command, frame);
@@ -8789,7 +8826,7 @@ class Renderer::Impl {
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &transfer_timeline_semaphore_;
     Check(vkQueueSubmit(transfer_queue_, 1, &submit, VK_NULL_HANDLE),
-          "submit asynchronous resource uploads");
+        "submit asynchronous resource uploads");
     ++frame_counters_.transfer_submission_count;
     ++transfer_submission_count_;
     transfer_uploaded_bytes_ += frame_counters_.upload_bytes;
@@ -8799,7 +8836,7 @@ class Renderer::Impl {
   }
 
   std::uint64_t SubmitFrame(FrameContext& frame,
-                            std::uint64_t transfer_completion) {
+      std::uint64_t transfer_completion) {
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &frame.command_buffer;
@@ -8852,7 +8889,7 @@ class Renderer::Impl {
       submit.signalSemaphoreCount = signal_count;
       submit.pSignalSemaphores = signal_semaphores.data();
       Check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE),
-            "submit extracted scene frame");
+          "submit extracted scene frame");
     } else {
       completion = ++timeline_value_;
       if (frame.present_pending) {
@@ -8862,7 +8899,7 @@ class Renderer::Impl {
         submit.pSignalSemaphores = signal_semaphores.data();
       }
       Check(vkQueueSubmit(queue_, 1, &submit, frame.fence),
-            "submit extracted scene frame");
+          "submit extracted scene frame");
     }
     frame.completion_value = completion;
     return completion;
@@ -8878,10 +8915,10 @@ class Renderer::Impl {
       wait_info.pSemaphores = &timeline_semaphore_;
       wait_info.pValues = &frame.completion_value;
       Check(vkWaitSemaphores(device_, &wait_info, timeout_ns),
-            "wait for render completion");
+          "wait for render completion");
     } else {
       Check(vkWaitForFences(device_, 1, &frame.fence, VK_TRUE, timeout_ns),
-            "wait for render completion");
+          "wait for render completion");
     }
   }
 
@@ -8896,14 +8933,15 @@ class Renderer::Impl {
     }
     std::array<std::uint64_t, 2> timestamps{};
     Check(vkGetQueryPoolResults(device_, frame.timestamp_pool, first,
-                                static_cast<std::uint32_t>(timestamps.size()),
-                                sizeof(timestamps), timestamps.data(),
-                                sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT),
-          "read frame timestamp queries");
+              static_cast<std::uint32_t>(timestamps.size()),
+              sizeof(timestamps), timestamps.data(),
+              sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT),
+        "read frame timestamp queries");
     const std::uint64_t mask = selected_timestamp_valid_bits_ >= 64U
                                    ? std::numeric_limits<std::uint64_t>::max()
                                    : (std::uint64_t{1}
-                                      << selected_timestamp_valid_bits_) - 1U;
+                                         << selected_timestamp_valid_bits_) -
+                                         1U;
     const auto ticks = (timestamps[1] - timestamps[0]) & mask;
     return static_cast<std::uint64_t>(
         static_cast<long double>(ticks) * timestamp_period_ns_);
@@ -8936,8 +8974,8 @@ class Renderer::Impl {
     void* mapped{};
     ++frame_counters_.map_count;
     Check(vkMapMemory(device_, active_target_->color_readback.memory, 0,
-                      active_target_->color_readback.size, 0, &mapped),
-          "map color readback");
+              active_target_->color_readback.size, 0, &mapped),
+        "map color readback");
     std::memcpy(result.pixels.data(), mapped, result.pixels.size());
     vkUnmapMemory(device_, active_target_->color_readback.memory);
     return result;
@@ -8953,16 +8991,16 @@ class Renderer::Impl {
     void* mapped{};
     ++frame_counters_.map_count;
     Check(vkMapMemory(device_, active_target_->depth_readback.memory, 0,
-                      active_target_->depth_readback.size, 0, &mapped),
-          "map depth readback");
+              active_target_->depth_readback.size, 0, &mapped),
+        "map depth readback");
     std::memcpy(result.pixels.data(), mapped,
-                result.pixels.size() * sizeof(float));
+        result.pixels.size() * sizeof(float));
     vkUnmapMemory(device_, active_target_->depth_readback.memory);
     return result;
   }
 
   ImageUint32 ReadId(std::uint32_t width, std::uint32_t height, Aov aov,
-                     const Buffer& readback) {
+      const Buffer& readback) {
     frame_counters_.readback_bytes +=
         static_cast<std::uint64_t>(width) * height * sizeof(std::uint32_t);
     ImageUint32 result;
@@ -8972,9 +9010,9 @@ class Renderer::Impl {
     void* mapped{};
     ++frame_counters_.map_count;
     Check(vkMapMemory(device_, readback.memory, 0, readback.size, 0, &mapped),
-          "map id readback");
+        "map id readback");
     std::memcpy(result.pixels.data(), mapped,
-                result.pixels.size() * sizeof(std::uint32_t));
+        result.pixels.size() * sizeof(std::uint32_t));
     vkUnmapMemory(device_, readback.memory);
     return result;
   }
@@ -8991,14 +9029,14 @@ class Renderer::Impl {
     std::uint64_t invalid_culled_count{};
     void* mapped{};
     Check(vkMapMemory(device_, resources.counter_readback.memory, 0,
-                      resources.counter_readback.size, 0, &mapped),
-          "map Gaussian preparation counters");
+              resources.counter_readback.size, 0, &mapped),
+        "map Gaussian preparation counters");
     for (const auto& batch : resources.batches) {
       shader_abi::GaussianPrepareDispatchCounters counters;
       std::memcpy(&counters,
-                  static_cast<const std::byte*>(mapped) +
-                      batch.counter_offset,
-                  sizeof(counters));
+          static_cast<const std::byte*>(mapped) +
+              batch.counter_offset,
+          sizeof(counters));
       if (counters.candidate_count != batch.particle_count ||
           static_cast<std::uint64_t>(counters.visible_count) +
                   counters.opacity_culled_count +
@@ -9021,8 +9059,8 @@ class Renderer::Impl {
     if (candidate_count !=
         frame_counters_.gaussian_gpu_preparation_candidate_count) {
       throw RendererError(RendererErrorCode::BackendFailure,
-                          "resolve Gaussian preparation counters",
-                          "resource candidate counts do not match the frame");
+          "resolve Gaussian preparation counters",
+          "resource candidate counts do not match the frame");
     }
     frame_counters_.gaussian_gpu_preparation_visible_count = visible_count;
     frame_counters_.gaussian_gpu_preparation_opacity_culled_count =
@@ -9041,8 +9079,8 @@ class Renderer::Impl {
     shader_abi::GaussianSortVerification verification;
     void* mapped{};
     Check(vkMapMemory(device_, resources.verification_readback.memory, 0,
-                      sizeof(verification), 0, &mapped),
-          "map Gaussian sort verification");
+              sizeof(verification), 0, &mapped),
+        "map Gaussian sort verification");
     std::memcpy(&verification, mapped, sizeof(verification));
     vkUnmapMemory(device_, resources.verification_readback.memory);
     if (verification.order_violation_count != 0U ||
@@ -9056,9 +9094,9 @@ class Renderer::Impl {
     if (verification.sorted_count !=
         frame_counters_.gaussian_gpu_preparation_visible_count) {
       throw RendererError(RendererErrorCode::BackendFailure,
-                          "resolve Gaussian sort verification",
-                          "the sort did not retain every visible prepared "
-                          "record exactly once");
+          "resolve Gaussian sort verification",
+          "the sort did not retain every visible prepared "
+          "record exactly once");
     }
     frame_counters_.gaussian_gpu_sorted_count = verification.sorted_count;
     if (verification.identity_checksum != resources.reference_checksum) {
@@ -9078,13 +9116,13 @@ class Renderer::Impl {
         frame.gpu_driven.batches.size());
     void* mapped{};
     Check(vkMapMemory(device_, frame.gpu_driven.counter_readback.memory, 0,
-                      frame.gpu_driven.counter_readback.size, 0, &mapped),
-          "map GPU-driven dispatch counters");
+              frame.gpu_driven.counter_readback.size, 0, &mapped),
+        "map GPU-driven dispatch counters");
     for (std::size_t i = 0; i < frame.gpu_driven.batches.size(); ++i) {
       std::memcpy(&batch_counters[i],
-                  static_cast<const std::byte*>(mapped) +
-                      frame.gpu_driven.batches[i].counter_offset,
-                  sizeof(batch_counters[i]));
+          static_cast<const std::byte*>(mapped) +
+              frame.gpu_driven.batches[i].counter_offset,
+          sizeof(batch_counters[i]));
     }
     vkUnmapMemory(device_, frame.gpu_driven.counter_readback.memory);
     for (std::size_t i = 0; i < frame.gpu_driven.batches.size(); ++i) {
@@ -9108,8 +9146,8 @@ class Renderer::Impl {
     }
     if (candidate_count != frame.gpu_driven.candidate_count) {
       throw RendererError(RendererErrorCode::BackendFailure,
-                          "resolve GPU-driven dispatch counters",
-                          "batch candidate counts do not match the frame");
+          "resolve GPU-driven dispatch counters",
+          "batch candidate counts do not match the frame");
     }
     frame_counters_.gpu_driven_visible_draw_count = visible_count;
     frame_counters_.gpu_driven_visibility_mask_culled_count =
@@ -9134,7 +9172,7 @@ class Renderer::Impl {
     // stderr but are not counted as renderer validation failures.
     const bool renderer_signal =
         (type & (VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)) != 0U;
+                    VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)) != 0U;
     if (renderer_signal) {
       self->validation_messages_.fetch_add(1, std::memory_order_relaxed);
       std::cerr << "Merlin Vulkan validation: " << message << '\n';
@@ -9296,7 +9334,8 @@ class Renderer::Impl {
 };
 
 Renderer::Renderer(RendererOptions options)
-    : impl_(std::make_unique<Impl>(options)) {}
+    : impl_(std::make_unique<Impl>(options)) {
+}
 Renderer::~Renderer() = default;
 Renderer::Renderer(Renderer&&) noexcept = default;
 Renderer& Renderer::operator=(Renderer&&) noexcept = default;
@@ -9422,7 +9461,7 @@ void ValidateRenderResult(const RenderResult& result) {
   };
   if (HasCpuReadback(result, Aov::Color)) {
     validate_metadata(result.color.product, Aov::Color,
-                      result.color.row_pitch_bytes);
+        result.color.row_pitch_bytes);
     const auto bytes = static_cast<std::uint64_t>(result.color.row_pitch_bytes) *
                        result.color.product.height;
     if (bytes != result.color.pixels.size()) {
@@ -9431,17 +9470,17 @@ void ValidateRenderResult(const RenderResult& result) {
   }
   if (HasCpuReadback(result, Aov::Depth)) {
     validate_metadata(result.depth.product, Aov::Depth,
-                      result.depth.row_pitch_bytes);
+        result.depth.row_pitch_bytes);
     const auto values = static_cast<std::uint64_t>(result.depth.product.width) *
                         result.depth.product.height;
     if (values != result.depth.pixels.size()) {
       throw std::invalid_argument("depth render product payload size is invalid");
     }
     if (std::any_of(result.depth.pixels.begin(), result.depth.pixels.end(),
-                    [](float value) {
-                      return !std::isfinite(value) || value < 0.0F ||
-                             value > 1.0F;
-                    })) {
+            [](float value) {
+              return !std::isfinite(value) || value < 0.0F ||
+                     value > 1.0F;
+            })) {
       throw std::invalid_argument(
           "depth render product contains invalid values");
     }
@@ -9472,8 +9511,8 @@ CompletionToken Renderer::Submit(const RenderRequest& request) {
 bool Renderer::IsComplete(CompletionToken token) const {
   if (!token || token.owner_ != impl_->owner_id_) {
     throw RendererError(RendererErrorCode::InvalidToken,
-                        "query completion token",
-                        "token belongs to a different renderer");
+        "query completion token",
+        "token belongs to a different renderer");
   }
   return impl_->IsComplete(token.value_);
 }
@@ -9481,8 +9520,8 @@ bool Renderer::IsComplete(CompletionToken token) const {
 AovImageExport Renderer::AcquireAovImage(CompletionToken token, Aov aov) {
   if (!token || token.owner_ != impl_->owner_id_) {
     throw RendererError(RendererErrorCode::InvalidToken,
-                        "acquire AOV image",
-                        "token belongs to another renderer");
+        "acquire AOV image",
+        "token belongs to another renderer");
   }
   auto result = impl_->AcquireAovImage(token.value_, aov);
   result.lease.owner_ = impl_->owner_id_;
@@ -9494,8 +9533,8 @@ AovImageExport Renderer::AcquireAovImage(CompletionToken token, Aov aov) {
 void Renderer::ReleaseAovImage(AovImageLease&& lease) {
   if (!lease || lease.owner_ != impl_->owner_id_) {
     throw RendererError(RendererErrorCode::InvalidToken,
-                        "release AOV image",
-                        "lease belongs to another renderer");
+        "release AOV image",
+        "lease belongs to another renderer");
   }
   impl_->ReleaseAovImage(lease.completion_, lease.aov_);
   lease.owner_ = 0;
@@ -9503,16 +9542,16 @@ void Renderer::ReleaseAovImage(AovImageLease&& lease) {
 }
 
 RenderResult Renderer::Resolve(CompletionToken token,
-                               std::chrono::nanoseconds timeout) {
+    std::chrono::nanoseconds timeout) {
   if (!token || token.owner_ != impl_->owner_id_) {
     throw RendererError(RendererErrorCode::InvalidToken,
-                        "resolve completion token",
-                        "token belongs to a different renderer");
+        "resolve completion token",
+        "token belongs to a different renderer");
   }
   if (timeout < std::chrono::nanoseconds::zero()) {
     throw RendererError(RendererErrorCode::InvalidRequest,
-                        "resolve completion token",
-                        "timeout must not be negative");
+        "resolve completion token",
+        "timeout must not be negative");
   }
   auto result = impl_->Resolve(token.value_, timeout);
   ValidateRenderResult(result);
@@ -9520,8 +9559,8 @@ RenderResult Renderer::Resolve(CompletionToken token,
 }
 
 RenderResult Renderer::Render(const extraction::FrameSnapshot& snapshot,
-                              std::uint32_t width, std::uint32_t height,
-                              const ShaderPaths& shaders) {
+    std::uint32_t width, std::uint32_t height,
+    const ShaderPaths& shaders) {
   RenderRequest request;
   // Submit consumes all snapshot CPU storage before returning. An empty-owner
   // alias keeps the synchronous compatibility path allocation-free without
@@ -9532,8 +9571,8 @@ RenderResult Renderer::Render(const extraction::FrameSnapshot& snapshot,
   request.height = height;
   request.shaders = shaders;
   request.products = {{Aov::Color, true}, {Aov::Depth, true},
-                      {Aov::PrimId, true}, {Aov::InstanceId, true}};
+      {Aov::PrimId, true}, {Aov::InstanceId, true}};
   return Resolve(Submit(request));
 }
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

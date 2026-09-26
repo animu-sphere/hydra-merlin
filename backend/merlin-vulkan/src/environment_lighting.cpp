@@ -17,13 +17,13 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 
 [[noreturn]] void Fail(const std::filesystem::path& path,
-                       const std::string& detail) {
+    const std::string& detail) {
   throw RendererError(RendererErrorCode::InvalidRequest,
-                      "load environment HDR", path.string() + ": " + detail);
+      "load environment HDR", path.string() + ": " + detail);
 }
 
 std::uint8_t ReadByte(std::istream& stream,
-                      const std::filesystem::path& path) {
+    const std::filesystem::path& path) {
   char value{};
   if (!stream.get(value)) {
     Fail(path, "unexpected end of file");
@@ -32,9 +32,9 @@ std::uint8_t ReadByte(std::istream& stream,
 }
 
 void ReadBytes(std::istream& stream, std::uint8_t* destination,
-               std::size_t count, const std::filesystem::path& path) {
+    std::size_t count, const std::filesystem::path& path) {
   stream.read(reinterpret_cast<char*>(destination),
-              static_cast<std::streamsize>(count));
+      static_cast<std::streamsize>(count));
   if (stream.gcount() != static_cast<std::streamsize>(count)) {
     Fail(path, "unexpected end of scanline");
   }
@@ -60,11 +60,11 @@ Vec3 DecodeRgbe(const std::uint8_t* rgbe) {
   }
   const auto scale = std::ldexp(1.0F, static_cast<int>(rgbe[3]) - 136);
   return {static_cast<float>(rgbe[0]) * scale,
-          static_cast<float>(rgbe[1]) * scale,
-          static_cast<float>(rgbe[2]) * scale};
+      static_cast<float>(rgbe[1]) * scale,
+      static_cast<float>(rgbe[2]) * scale};
 }
 
-}  // namespace
+} // namespace
 
 DiffuseEnvironment LoadDiffuseEnvironment(
     const std::filesystem::path& path) {
@@ -92,7 +92,7 @@ DiffuseEnvironment LoadDiffuseEnvironment(
   std::string x_orientation;
   DiffuseEnvironment result;
   if (!(resolution >> y_orientation >> result.height >> x_orientation >>
-        result.width) ||
+          result.width) ||
       y_orientation != "-Y" || x_orientation != "+X" ||
       result.width < 8 || result.width > 32767 || result.height == 0) {
     Fail(path, "only -Y height +X width Radiance images are supported");
@@ -123,7 +123,7 @@ DiffuseEnvironment LoadDiffuseEnvironment(
           }
           const auto value = ReadByte(stream, path);
           std::fill_n(scanline.begin() + channel * result.width + column,
-                      count, value);
+              count, value);
           column += count;
         } else {
           const auto count = static_cast<std::uint32_t>(code);
@@ -131,8 +131,8 @@ DiffuseEnvironment LoadDiffuseEnvironment(
             Fail(path, "invalid RLE literal");
           }
           ReadBytes(stream,
-                    scanline.data() + channel * result.width + column, count,
-                    path);
+              scanline.data() + channel * result.width + column, count,
+              path);
           column += count;
         }
       }
@@ -155,7 +155,7 @@ DiffuseEnvironment LoadDiffuseEnvironment(
       const auto radiance = DecodeRgbe(rgbe.data());
       const auto basis = ShBasis(x, y, z);
       for (std::size_t coefficient = 0; coefficient < basis.size();
-           ++coefficient) {
+          ++coefficient) {
         const auto weight = basis[coefficient] * solid_angle;
         projection[coefficient][0] += radiance.x * weight;
         projection[coefficient][1] += radiance.y * weight;
@@ -170,7 +170,7 @@ DiffuseEnvironment LoadDiffuseEnvironment(
       1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0,
       0.25, 0.25, 0.25, 0.25, 0.25};
   for (std::size_t coefficient = 0; coefficient < projection.size();
-       ++coefficient) {
+      ++coefficient) {
     result.coefficients[coefficient] = {
         static_cast<float>(projection[coefficient][0] *
                            lambert[coefficient]),
@@ -184,17 +184,17 @@ DiffuseEnvironment LoadDiffuseEnvironment(
 }
 
 Vec3 EvaluateDiffuseEnvironment(const DiffuseEnvironment& environment,
-                                const Vec3& normal) {
+    const Vec3& normal) {
   const auto length = std::sqrt(normal.x * normal.x + normal.y * normal.y +
                                 normal.z * normal.z);
   if (length <= 0.0F) {
     return {};
   }
   const auto basis = ShBasis(normal.x / length, normal.y / length,
-                             normal.z / length);
+      normal.z / length);
   Vec3 result;
   for (std::size_t coefficient = 0; coefficient < basis.size();
-       ++coefficient) {
+      ++coefficient) {
     result.x += static_cast<float>(basis[coefficient]) *
                 environment.coefficients[coefficient].x;
     result.y += static_cast<float>(basis[coefficient]) *
@@ -205,4 +205,4 @@ Vec3 EvaluateDiffuseEnvironment(const DiffuseEnvironment& environment,
   return result;
 }
 
-}  // namespace merlin::vulkan::detail
+} // namespace merlin::vulkan::detail

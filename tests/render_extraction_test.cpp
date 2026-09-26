@@ -19,13 +19,13 @@ void CheckPersistentTable() {
                                                       (expected.size() + 1U));
     table.insert(table.begin() + static_cast<std::ptrdiff_t>(index), value);
     expected.insert(expected.begin() + static_cast<std::ptrdiff_t>(index),
-                    value);
+        value);
   }
   assert(std::equal(table.begin(), table.end(), expected.begin(),
-                    expected.end()));
+      expected.end()));
   auto reverse = table.end();
   for (auto expected_value = expected.rbegin();
-       expected_value != expected.rend(); ++expected_value) {
+      expected_value != expected.rend(); ++expected_value) {
     --reverse;
     assert(*reverse == *expected_value);
   }
@@ -57,7 +57,7 @@ void CheckPersistentTable() {
     expected.erase(expected.begin() + static_cast<std::ptrdiff_t>(index));
   }
   assert(std::equal(table.begin(), table.end(), expected.begin(),
-                    expected.end()));
+      expected.end()));
 
   const auto before_unordered_erase = table;
   const auto displaced_identity = table.record_identity(table.size() - 1U);
@@ -73,7 +73,7 @@ void CheckPersistentTable() {
 
 template <typename Table, typename HandleOf>
 std::size_t FindRecord(const Table& table, std::uint64_t handle,
-                       HandleOf handle_of) {
+    HandleOf handle_of) {
   for (std::size_t index = 0; index < table.size(); ++index) {
     if (handle_of(table[index]) == handle) {
       return index;
@@ -86,15 +86,15 @@ std::size_t FindDraw(
     const merlin::extraction::FrameSnapshot& snapshot,
     merlin::InstanceHandle instance) {
   return FindRecord(snapshot.draws, instance.value(),
-                    [](const merlin::extraction::DrawRecord& draw) {
-                      return draw.instance;
-                    });
+      [](const merlin::extraction::DrawRecord& draw) {
+        return draw.instance;
+      });
 }
 
 merlin::MeshDescriptor Triangle() {
   merlin::MeshDescriptor mesh;
   mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},
-                    {0.0F, 0.5F, 0.0F}};
+      {0.0F, 0.5F, 0.0F}};
   mesh.indices = {0, 1, 2};
   return mesh;
 }
@@ -270,7 +270,7 @@ void CheckLocalizedBindingInvalidation() {
   const auto texture_removed = extractor.snapshot();
   assert(texture_removed->delta->materials.upserts ==
          std::vector<std::uint64_t>({material_b.value(),
-                                     material_c.value()}));
+             material_c.value()}));
   assert(texture_removed->delta->materials.upsert_indices ==
          std::vector<std::uint32_t>({1, 2}));
   assert(texture_removed->delta->textures.upserts ==
@@ -295,7 +295,7 @@ void CheckLocalizedBindingInvalidation() {
         return material.material;
       });
   assert(!texture_removed->materials[material_b_index]
-              .base_color_texture.has_value());
+          .base_color_texture.has_value());
   assert(texture_removed->materials[material_c_index]
              .base_color_texture->texture_index == 1);
   assert(initial->materials[material_c_index]
@@ -306,7 +306,7 @@ void CheckLocalizedBindingInvalidation() {
   const auto sampler_removed = extractor.snapshot();
   assert(sampler_removed->delta->materials.upserts ==
          std::vector<std::uint64_t>({material_b.value(),
-                                     material_c.value()}));
+             material_c.value()}));
   assert(sampler_removed->delta->samplers.upserts ==
          std::vector<std::uint64_t>{sampler_c.value()});
   assert(sampler_removed->delta->samplers.upsert_indices ==
@@ -364,7 +364,7 @@ void CheckStableDrawIdentity() {
   // A binding edit replaces the payload while retaining the logical ID.
   descriptor.material = material_b;
   world.UpdateInstance(instance, descriptor,
-                       merlin::ChangeAspect::MaterialBinding);
+      merlin::ChangeAspect::MaterialBinding);
   extractor.Apply(world, world.Commit());
   const auto rebound = extractor.snapshot();
   assert(rebound->draws.front().draw == draw);
@@ -377,7 +377,7 @@ void CheckStableDrawIdentity() {
 
   descriptor.visible = false;
   world.UpdateInstance(instance, descriptor,
-                       merlin::ChangeAspect::Visibility);
+      merlin::ChangeAspect::Visibility);
   extractor.Apply(world, world.Commit());
   const auto hidden = extractor.snapshot();
   assert(hidden->draws.empty());
@@ -389,7 +389,7 @@ void CheckStableDrawIdentity() {
   // content upserts the same draw ID rather than allocating a new identity.
   descriptor.visible = true;
   world.UpdateInstance(instance, descriptor,
-                       merlin::ChangeAspect::Visibility);
+      merlin::ChangeAspect::Visibility);
   extractor.Apply(world, world.Commit());
   const auto visible = extractor.snapshot();
   assert(visible->draws.front().draw == draw);
@@ -419,7 +419,7 @@ void CheckStableDrawIdentity() {
          std::vector<std::uint32_t>{0});
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   CheckPersistentTable();
@@ -429,12 +429,12 @@ int main() {
   merlin::RenderWorld world;
   merlin::MeshDescriptor mesh;
   mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},
-                    {0.0F, 0.5F, 0.0F}};
+      {0.0F, 0.5F, 0.0F}};
   mesh.indices = {0, 1, 2};
   mesh.normals = {{0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, 1.0F},
-                  {0.0F, 0.0F, 1.0F}};
+      {0.0F, 0.0F, 1.0F}};
   mesh.colors = {{1.0F, 0.0F, 0.0F, 0.5F}, {0.0F, 1.0F, 0.0F, 0.75F},
-                 {0.0F, 0.0F, 1.0F, 1.0F}};
+      {0.0F, 0.0F, 1.0F, 1.0F}};
   mesh.texcoords = {{0.0F, 0.0F}, {1.0F, 0.0F}, {0.5F, 1.0F}};
   const auto mesh_handle = world.CreateMesh(mesh);
   merlin::MaterialDescriptor material;
@@ -498,7 +498,7 @@ int main() {
   // shares the same immutable vertex/index arrays.
   instance.transform.values[12] = 0.5F;
   world.UpdateInstance(second_instance_handle, instance,
-                       merlin::ChangeAspect::Transform);
+      merlin::ChangeAspect::Transform);
   extractor.Apply(world, world.Commit());
   const auto transformed = extractor.snapshot();
   assert(transformed->build_counters.visited_records == 1);
@@ -545,7 +545,7 @@ int main() {
   // Points-only mesh edit refreshes the vertex payload but shares topology.
   mesh.positions[0].x = -0.75F;
   world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points,
-                   std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   const auto moved = extractor.snapshot();
   assert(moved->build_counters.visited_records == 1);
@@ -585,7 +585,7 @@ int main() {
   // topology and position values.
   mesh.colors[0].x = 0.25F;
   world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Primvars,
-                   std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   const auto recolored = extractor.snapshot();
   assert(recolored->geometries.front().vertices !=
@@ -601,7 +601,7 @@ int main() {
   // A known-empty topology range advances the authored topology revision but
   // preserves the unchanged derived index payload and its backend revision.
   world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Topology,
-                   std::nullopt, std::vector<merlin::ElementRange>{});
+      std::nullopt, std::vector<merlin::ElementRange>{});
   extractor.Apply(world, world.Commit());
   const auto topology_metadata = extractor.snapshot();
   assert(topology_metadata->build_counters.rebuilt_draws == 0);
@@ -617,7 +617,7 @@ int main() {
          recolored->geometries.front().indices);
 
   world.UpdateMesh(mesh_handle, mesh,
-                   merlin::ChangeAspect::MaterialPartition);
+      merlin::ChangeAspect::MaterialPartition);
   extractor.Apply(world, world.Commit());
   const auto partitioned = extractor.snapshot();
   assert(partitioned->geometries.front().material_partition_revision >
@@ -629,8 +629,8 @@ int main() {
   instance.transform.values[12] = 0.25F;
   instance.visible = false;
   world.UpdateInstance(instance_handle, instance,
-                       merlin::ChangeAspect::Visibility |
-                           merlin::ChangeAspect::Transform);
+      merlin::ChangeAspect::Visibility |
+          merlin::ChangeAspect::Transform);
   extractor.Apply(world, world.Commit());
   const auto hidden = extractor.snapshot();
   assert(hidden->build_counters.visited_records == 1);
@@ -703,7 +703,7 @@ int main() {
       {"base_color", merlin::MaterialValueType::Float3, 1});
   generated_module.resources.entries.push_back(
       {"base_color_image",
-       merlin::MaterialValueType::CombinedTextureSampler, 1});
+          merlin::MaterialValueType::CombinedTextureSampler, 1});
   generated_module.requirements.inputs =
       merlin::MaterialInputRequirement::Texcoord0;
   generated_module.requirements.results =
@@ -712,12 +712,12 @@ int main() {
   blended.generated_parameters.key = "sha256:test-material-instance";
   blended.generated_parameters.entries.push_back(
       {"base_color", merlin::MaterialValueType::Float3,
-       {merlin::Vec3{0.8F, 0.25F, 0.1F}}});
+          {merlin::Vec3{0.8F, 0.25F, 0.1F}}});
   blended.generated_resources.key = "sha256:test-material-resources";
   blended.generated_resources.entries.push_back(
       {"base_color_image",
-       merlin::MaterialValueType::CombinedTextureSampler,
-       {{texture_handle, sampler_handle}}});
+          merlin::MaterialValueType::CombinedTextureSampler,
+          {{texture_handle, sampler_handle}}});
   const auto blended_handle = material_world.CreateMaterial(blended);
   merlin::LightDescriptor light;
   const auto light_handle = material_world.CreateLight(light);
@@ -751,7 +751,7 @@ int main() {
 
   blended.parameters.roughness = 0.25F;
   material_world.UpdateMaterial(blended_handle, blended,
-                                merlin::ChangeAspect::MaterialParameters);
+      merlin::ChangeAspect::MaterialParameters);
   material_extractor.Apply(material_world, material_world.Commit());
   const auto parameter_snapshot = material_extractor.snapshot();
   assert(parameter_snapshot->delta->materials.upserts ==
@@ -768,7 +768,7 @@ int main() {
   generated_module.revision = 2;
   blended.module = generated_module;
   material_world.UpdateMaterial(blended_handle, blended,
-                                merlin::ChangeAspect::MaterialModule);
+      merlin::ChangeAspect::MaterialModule);
   material_extractor.Apply(material_world, material_world.Commit());
   const auto module_snapshot = material_extractor.snapshot();
   assert(module_snapshot->materials.front().parameter_revision == 2);
@@ -780,7 +780,7 @@ int main() {
   blended.generated_resources.key =
       "sha256:test-material-resources-replacement";
   material_world.UpdateMaterial(blended_handle, blended,
-                                merlin::ChangeAspect::MaterialResources);
+      merlin::ChangeAspect::MaterialResources);
   material_extractor.Apply(material_world, material_world.Commit());
   const auto resource_snapshot = material_extractor.snapshot();
   assert(resource_snapshot->materials.front().parameter_revision == 2);

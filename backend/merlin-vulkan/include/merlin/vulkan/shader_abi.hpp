@@ -284,9 +284,9 @@ static_assert(alignof(GpuDrivenIndexedDispatchCounters) == 16);
 static_assert(offsetof(GpuDrivenIndexedDispatchCounters, candidate_count) == 0);
 static_assert(offsetof(GpuDrivenIndexedDispatchCounters, visible_count) == 4);
 static_assert(offsetof(GpuDrivenIndexedDispatchCounters,
-                       visibility_mask_culled_count) == 8);
+                  visibility_mask_culled_count) == 8);
 static_assert(offsetof(GpuDrivenIndexedDispatchCounters,
-                       frustum_culled_count) == 12);
+                  frustum_culled_count) == 12);
 static_assert(sizeof(GpuDrivenForwardConstants) == 64);
 static_assert(alignof(GpuDrivenForwardConstants) == 16);
 static_assert(offsetof(GpuDrivenForwardConstants, view_projection) == 0);
@@ -299,7 +299,7 @@ static_assert(offsetof(GaussianPrepareConstants, sigma_extent) == 136);
 static_assert(offsetof(GaussianPrepareConstants, resource_id_low) == 144);
 static_assert(offsetof(GaussianPrepareConstants, particle_count) == 152);
 static_assert(offsetof(GaussianPrepareConstants,
-                       spherical_harmonics_degree) == 160);
+                  spherical_harmonics_degree) == 160);
 static_assert(offsetof(GaussianPrepareConstants, sorting_mode) == 168);
 static_assert(sizeof(GaussianPreparedRecord) == 64);
 static_assert(alignof(GaussianPreparedRecord) == 16);
@@ -403,4 +403,4 @@ inline constexpr ShaderCapability kBindlessCapabilities =
     kConventionalCapabilities | ShaderCapability::BindlessResources |
     ShaderCapability::NonUniformResourceIndexing;
 
-}  // namespace merlin::vulkan::shader_abi
+} // namespace merlin::vulkan::shader_abi
