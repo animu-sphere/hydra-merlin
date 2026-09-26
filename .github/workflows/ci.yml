@@ -56,6 +56,14 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
+      - name: Install MaterialX package dependencies (Linux)
+        if: runner.os == 'Linux'
+        # The pinned MaterialXConfig.cmake requires X11/Xt on Linux even when
+        # the MaterialX render modules are disabled. No display is needed.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libx11-dev libxt-dev
+
       # FetchContent uses the authoritative MaterialXGenSlang commit in CMake.
       # An empty slangc cache entry keeps this gate independent of GPU SDKs;
       # SPIR-V/Metal target compilation belongs to a separate evidence gate.

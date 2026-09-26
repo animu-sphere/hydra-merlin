@@ -76,6 +76,8 @@ are uploaded as `materialx-generation-<os>-<configuration>` artifacts.
 To reproduce the Linux configuration (CMake 3.26 or newer for the source build):
 
 ```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends -y libx11-dev libxt-dev
 cmake -S . -B build-materialx -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=OFF \
@@ -85,6 +87,11 @@ cmake --build build-materialx --parallel 4
 ctest --test-dir build-materialx --output-on-failure --no-tests=error \
   --output-junit materialx-tests.xml
 ```
+
+The pinned MaterialX package configuration requires X11 and Xt development
+files on Linux even with its render modules disabled. They are needed for
+installed package discovery; this generation gate does not need a display
+server or GPU.
 
 On Windows, use `-G "Visual Studio 17 2022" -A x64` and pass `--config Debug`
 to the build and `-C Debug` to CTest. The explicitly empty compiler cache entry
