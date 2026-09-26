@@ -85,9 +85,27 @@ uniform descriptor rather than exceeding Vulkan's guaranteed push-constant
 limit. Reusable frame contexts own the output, uniform, descriptor, and
 counter-readback resources; completion validates candidate and rejection
 partitions and publishes native telemetry. Prepared records retain a sort key
-and stable resource/particle tie-break identity. The sort/tile/raster stages
-remain follow-up, and the CPU-sorted path is still the selected image reference
-and fallback.
+and stable resource/particle tie-break identity.
+
+The second slice sorts every prepared record of the frame once, before tile
+pairing. The 64-bit key is the order-inverted authored sort key in the high
+word and a frame-global candidate index in the low word. Resources receive
+their index ranges in ascending identity, so the result reproduces the CPU
+reference's back-to-front, resource, particle order and never depends on
+atomic compaction order. Padding sentinels sort last. The sort is a portable
+8-bit LSD radix sort: a digit-major histogram whose single exclusive scan
+yields every workgroup's scatter base, a multi-level block scan, and a stable
+scatter that ranks equal digits within its workgroup. It uses no subgroup
+operations, bindless resources, or forward-progress assumptions, and stays
+within four storage-buffer bindings. Passes are skipped only for low-word
+bytes the frame's candidate count cannot occupy. A verification kernel checks
+strict key order and each key against its record, and accumulates an
+order-sensitive identity checksum compared with the CPU reference.
+
+Tile pairing sorts only by tile identity with a stable sort, which preserves
+the verified depth order within every tile without widening the key. The
+tile/raster stages remain follow-up, and the CPU-sorted path is still the
+selected image reference and fallback.
 
 ### v0.17.0 — Contribution-aware culling and adaptive bounds
 

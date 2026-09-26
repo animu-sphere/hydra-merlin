@@ -18,6 +18,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -1214,6 +1215,7 @@ class Renderer::Impl {
         DestroyGpuDrivenFrameResources(frame.gpu_driven);
         DestroyGaussianGpuPreparationFrameResources(
             frame.gaussian_gpu_preparation);
+        DestroyGaussianGpuSortFrameResources(frame.gaussian_gpu_sort);
         if (frame.image_available != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, frame.image_available, nullptr);
         }
@@ -1287,6 +1289,19 @@ class Renderer::Impl {
       if (gaussian_prepare_empty_descriptor_set_layout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(
             device_, gaussian_prepare_empty_descriptor_set_layout_, nullptr);
+      }
+      for (const auto& [path, pipeline] : gaussian_sort_compute_pipelines_) {
+        (void)path;
+        vkDestroyPipeline(device_, pipeline, nullptr);
+      }
+      gaussian_sort_compute_pipelines_.clear();
+      if (gaussian_sort_pipeline_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device_, gaussian_sort_pipeline_layout_,
+                                nullptr);
+      }
+      if (gaussian_sort_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(
+            device_, gaussian_sort_descriptor_set_layout_, nullptr);
       }
       if (timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
@@ -1457,7 +1472,9 @@ class Renderer::Impl {
     SyncGaussianAttributes(*request.snapshot, resource_sync_mode);
     gaussian_attribute_upload_ns =
         ElapsedNanoseconds(gaussian_attribute_upload_start);
-    PrepareGaussianGpuPreparation(frame, *request.snapshot, request);
+    const auto gaussian_gpu_preparation =
+        PrepareGaussianGpuPreparation(frame, *request.snapshot, request);
+    PrepareGaussianGpuSort(frame, request, gaussian_gpu_preparation);
     const auto gaussian_prepared_upload_start = CpuClock::now();
     PrepareGaussianInstances(frame);
     gaussian_prepared_upload_ns =
@@ -1504,6 +1521,7 @@ class Renderer::Impl {
       RecordUploads(frame.command_buffer, false);
     }
     RecordGaussianGpuPreparation(frame.command_buffer, frame);
+    RecordGaussianGpuSort(frame.command_buffer, frame);
     RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
                             request.gpu_driven_indexed);
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
@@ -1743,6 +1761,7 @@ class Renderer::Impl {
     const auto wait_ns = ElapsedNanoseconds(wait_start);
     frame_counters_ = frame.counters;
     ResolveGaussianGpuPreparationCounters(frame);
+    ResolveGaussianGpuSortVerification(frame);
     ResolveGpuDrivenCounters(frame);
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
@@ -1997,6 +2016,60 @@ class Renderer::Impl {
     bool selected{};
   };
 
+  enum class GaussianGpuStageSelection {
+    NotRequested,
+    NoWork,
+    Selected,
+    Unavailable,
+  };
+
+  enum GaussianSortKernel : std::size_t {
+    kGaussianSortKeys,
+    kGaussianSortHistogram,
+    kGaussianSortScanBlocks,
+    kGaussianSortScanAdd,
+    kGaussianSortScatter,
+    kGaussianSortVerify,
+    kGaussianSortKernelCount,
+  };
+
+  // One exclusive-scan level inside the scan/control buffer, in uint words.
+  // Each level's workgroup totals become the next level's input.
+  struct GaussianGpuSortScanLevel {
+    std::uint32_t offset{};
+    std::uint32_t count{};
+    std::uint32_t sums_offset{};
+  };
+
+  struct GaussianGpuSortKeyBatch {
+    shader_abi::GaussianSortConstants constants;
+    std::uint32_t workgroup_count{};
+  };
+
+  // Keys ping-pong between the two element buffers. Descriptor set 0 reads
+  // keys[0] and writes keys[1]; set 1 is the reverse, so pass p uses set
+  // p % 2 and the verified result lives in keys[pass_count % 2].
+  struct GaussianGpuSortFrameResources {
+    std::array<Buffer, 2> keys;
+    Buffer scan;
+    Buffer verification_readback;
+    VkDescriptorPool descriptor_pool{};
+    std::array<VkDescriptorSet, 2> descriptor_sets{};
+    VkDeviceSize key_capacity_bytes{};
+    VkDeviceSize scan_capacity_bytes{};
+    std::array<VkPipeline, kGaussianSortKernelCount> pipelines{};
+    std::vector<GaussianGpuSortKeyBatch> key_batches;
+    std::vector<VkBufferCopy> visible_count_copies;
+    std::vector<GaussianGpuSortScanLevel> scan_levels;
+    std::uint32_t key_count{};
+    std::uint32_t block_count{};
+    std::uint32_t low_word_pass_count{};
+    std::uint32_t pass_count{};
+    // Order-sensitive identity checksum of this frame's CPU reference stream.
+    std::uint32_t reference_checksum{};
+    bool selected{};
+  };
+
   struct FrameContext {
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
@@ -2035,6 +2108,7 @@ class Renderer::Impl {
     std::vector<MaterialDiagnostic> material_diagnostics;
     GpuDrivenFrameResources gpu_driven;
     GaussianGpuPreparationFrameResources gaussian_gpu_preparation;
+    GaussianGpuSortFrameResources gaussian_gpu_sort;
   };
 
   struct SwapchainState {
@@ -2858,6 +2932,19 @@ class Renderer::Impl {
     resources = {};
   }
 
+  void DestroyGaussianGpuSortFrameResources(
+      GaussianGpuSortFrameResources& resources) noexcept {
+    for (auto& keys : resources.keys) {
+      DestroyBuffer(keys);
+    }
+    DestroyBuffer(resources.scan);
+    DestroyBuffer(resources.verification_readback);
+    if (resources.descriptor_pool != VK_NULL_HANDLE) {
+      vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
+    }
+    resources = {};
+  }
+
   template <typename Record>
   void ValidateGpuSceneTableUpdate(
       const render::GpuScenePackedUpdate<Record>& packed,
@@ -3343,16 +3430,18 @@ class Renderer::Impl {
     resources.selected = true;
   }
 
-  void PrepareGaussianGpuPreparation(
+  GaussianGpuStageSelection PrepareGaussianGpuPreparation(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot,
       const RenderRequest& request) {
     auto& resources = frame.gaussian_gpu_preparation;
     resources.selected = false;
     resources.batches.clear();
+    if (snapshot.gaussians.empty()) {
+      return GaussianGpuStageSelection::NoWork;
+    }
     if (request.gpu_driven_gaussian_preparation ==
-            GpuDrivenGaussianPreparationMode::Disabled ||
-        snapshot.gaussians.empty()) {
-      return;
+        GpuDrivenGaussianPreparationMode::Disabled) {
+      return GaussianGpuStageSelection::NotRequested;
     }
     const auto unavailable = [&](std::string detail) {
       if (request.gpu_driven_gaussian_preparation ==
@@ -3365,7 +3454,7 @@ class Renderer::Impl {
     };
     if (!capabilities_.compute_queue) {
       unavailable("the selected graphics queue does not support compute");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     // Creating the pipeline layout below is a valid-usage violation, not a
     // recoverable error, on a device that guarantees only the Vulkan minimum
@@ -3378,7 +3467,7 @@ class Renderer::Impl {
       unavailable("the Gaussian preparation layout exceeds "
                   "maxPerStageDescriptorStorageBuffers or "
                   "maxDescriptorSetStorageBuffers");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
 
     struct Selection {
@@ -3401,7 +3490,7 @@ class Renderer::Impl {
       if (record.positions->size() >
           std::numeric_limits<std::uint32_t>::max()) {
         unavailable("a Gaussian resource exceeds the uint32 particle limit");
-        return;
+        return GaussianGpuStageSelection::Unavailable;
       }
       const auto particle_count =
           static_cast<std::uint32_t>(record.positions->size());
@@ -3409,7 +3498,7 @@ class Renderer::Impl {
           max_compute_work_group_count_x_) {
         unavailable(
             "a Gaussian resource exceeds maxComputeWorkGroupCount[0]");
-        return;
+        return GaussianGpuStageSelection::Unavailable;
       }
       const auto slot = gaussian_attribute_slots_.find(record.gaussian);
       if (slot == gaussian_attribute_slots_.end() ||
@@ -3418,7 +3507,7 @@ class Renderer::Impl {
           !slot->second.opacities.valid() ||
           !slot->second.radiance.valid()) {
         unavailable("persistent Gaussian attributes are unavailable");
-        return;
+        return GaussianGpuStageSelection::Unavailable;
       }
       const auto resource_candidate_bytes =
           static_cast<VkDeviceSize>(particle_count) * sizeof(std::uint32_t);
@@ -3433,7 +3522,7 @@ class Renderer::Impl {
           resource_prepared_bytes > max_storage_buffer_range_) {
         unavailable("a Gaussian preparation binding exceeds "
                     "maxStorageBufferRange");
-        return;
+        return GaussianGpuStageSelection::Unavailable;
       }
       candidate_bytes =
           AlignUp(candidate_bytes, storage_buffer_alignment_);
@@ -3448,7 +3537,7 @@ class Renderer::Impl {
       constants_bytes += sizeof(shader_abi::GaussianPrepareConstants);
     }
     if (selections.empty()) {
-      return;
+      return GaussianGpuStageSelection::NoWork;
     }
 
     VkPipeline compute_pipeline{};
@@ -3463,7 +3552,7 @@ class Renderer::Impl {
         throw;
       }
       unavailable("the packaged Gaussian preparation artifact is unavailable");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     EnsureGaussianGpuPreparationFrameResources(
         resources, candidate_bytes, prepared_bytes, counter_bytes,
@@ -3525,6 +3614,7 @@ class Renderer::Impl {
     vkUnmapMemory(device_, resources.constants.memory);
     UpdateGaussianGpuPreparationDescriptors(resources);
     resources.selected = true;
+    return GaussianGpuStageSelection::Selected;
   }
 
   static void CommitGpuDrivenCandidates(FrameContext& frame) noexcept {
@@ -4399,8 +4489,8 @@ class Renderer::Impl {
           "create Gaussian preparation pipeline layout");
   }
 
-  VkPipeline EnsureGaussianPrepareComputePipeline(const ShaderPaths& shaders) {
-    EnsureGaussianPrepareDescriptorAndPipelineLayouts();
+  static std::filesystem::path GaussianPrepareComputePath(
+      const ShaderPaths& shaders) {
     // gaussian_vertex is itself optional and then resolves beside the base
     // vertex artifact; an empty parent_path() would look in the working
     // directory instead of the packaged shader directory.
@@ -4408,10 +4498,14 @@ class Renderer::Impl {
         shaders.gaussian_vertex.empty()
             ? shaders.vertex.parent_path()
             : shaders.gaussian_vertex.parent_path();
-    const auto path =
-        shaders.gaussian_prepare_compute.empty()
-            ? gaussian_vertex_directory / "gaussian-prepare.comp.spv"
-            : shaders.gaussian_prepare_compute;
+    return shaders.gaussian_prepare_compute.empty()
+               ? gaussian_vertex_directory / "gaussian-prepare.comp.spv"
+               : shaders.gaussian_prepare_compute;
+  }
+
+  VkPipeline EnsureGaussianPrepareComputePipeline(const ShaderPaths& shaders) {
+    EnsureGaussianPrepareDescriptorAndPipelineLayouts();
+    const auto path = GaussianPrepareComputePath(shaders);
     const auto found = gaussian_prepare_compute_pipelines_.find(path);
     if (found != gaussian_prepare_compute_pipelines_.end()) {
       ++frame_counters_.pipeline_cache_hits;
@@ -4434,6 +4528,362 @@ class Renderer::Impl {
     ++frame_counters_.pipeline_creation_count;
     ++frame_counters_.pipeline_cache_misses;
     return pipeline;
+  }
+
+  // Every sort kernel shares one layout of four storage buffers, the Vulkan
+  // guaranteed per-stage minimum, so selection needs no descriptor-limit
+  // preflight.
+  static constexpr std::uint32_t kGaussianSortStorageBufferCount{4U};
+
+  void EnsureGaussianSortDescriptorAndPipelineLayouts() {
+    if (gaussian_sort_descriptor_set_layout_ != VK_NULL_HANDLE) {
+      return;
+    }
+    static constexpr std::array bindings_in_set{
+        shader_abi::kGaussianSortSource.binding,
+        shader_abi::kGaussianSortDestination.binding,
+        shader_abi::kGaussianSortScan.binding,
+        shader_abi::kGaussianSortPreparedRecords.binding,
+    };
+    static_assert(bindings_in_set.size() == kGaussianSortStorageBufferCount);
+    std::array<VkDescriptorSetLayoutBinding, kGaussianSortStorageBufferCount>
+        bindings{};
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
+      bindings[i].binding = bindings_in_set[i];
+      bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      bindings[i].descriptorCount = 1;
+      bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    layout_info.pBindings = bindings.data();
+    Check(vkCreateDescriptorSetLayout(device_, &layout_info, nullptr,
+                                      &gaussian_sort_descriptor_set_layout_),
+          "create Gaussian sort descriptor layout");
+    ++frame_counters_.descriptor_layout_cache_misses;
+
+    VkPushConstantRange push_constants{};
+    push_constants.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constants.size = sizeof(shader_abi::GaussianSortConstants);
+    VkPipelineLayoutCreateInfo pipeline_layout_info{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pipeline_layout_info.setLayoutCount = 1;
+    pipeline_layout_info.pSetLayouts = &gaussian_sort_descriptor_set_layout_;
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_constants;
+    Check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr,
+                                 &gaussian_sort_pipeline_layout_),
+          "create Gaussian sort pipeline layout");
+  }
+
+  std::array<VkPipeline, kGaussianSortKernelCount>
+  EnsureGaussianSortComputePipelines(const ShaderPaths& shaders) {
+    EnsureGaussianSortDescriptorAndPipelineLayouts();
+    static constexpr std::array<const char*, kGaussianSortKernelCount>
+        artifacts{
+            "gaussian-sort-keys.comp.spv",
+            "gaussian-sort-histogram.comp.spv",
+            "gaussian-sort-scan.comp.spv",
+            "gaussian-sort-scan-add.comp.spv",
+            "gaussian-sort-scatter.comp.spv",
+            "gaussian-sort-verify.comp.spv",
+        };
+    const auto directory =
+        shaders.gaussian_sort_directory.empty()
+            ? GaussianPrepareComputePath(shaders).parent_path()
+            : shaders.gaussian_sort_directory;
+    std::array<VkPipeline, kGaussianSortKernelCount> pipelines{};
+    for (std::size_t kernel = 0; kernel < artifacts.size(); ++kernel) {
+      const auto path = directory / artifacts[kernel];
+      const auto found = gaussian_sort_compute_pipelines_.find(path);
+      if (found != gaussian_sort_compute_pipelines_.end()) {
+        ++frame_counters_.pipeline_cache_hits;
+        pipelines[kernel] = found->second;
+        continue;
+      }
+      VkPipelineShaderStageCreateInfo stage{
+          VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+      stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+      stage.module = GetShaderModule(path);
+      stage.pName = "main";
+      VkComputePipelineCreateInfo info{
+          VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+      info.stage = stage;
+      info.layout = gaussian_sort_pipeline_layout_;
+      VkPipeline pipeline{};
+      Check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &info,
+                                     nullptr, &pipeline),
+            "create Gaussian sort compute pipeline");
+      gaussian_sort_compute_pipelines_.emplace(path, pipeline);
+      ++frame_counters_.pipeline_creation_count;
+      ++frame_counters_.pipeline_cache_misses;
+      pipelines[kernel] = pipeline;
+    }
+    return pipelines;
+  }
+
+  void EnsureGaussianGpuSortFrameResources(
+      GaussianGpuSortFrameResources& resources, VkDeviceSize key_bytes,
+      VkDeviceSize scan_bytes) {
+    if (resources.key_capacity_bytes >= key_bytes &&
+        resources.scan_capacity_bytes >= scan_bytes &&
+        resources.descriptor_pool != VK_NULL_HANDLE) {
+      return;
+    }
+    DestroyGaussianGpuSortFrameResources(resources);
+    resources.key_capacity_bytes = key_bytes;
+    resources.scan_capacity_bytes = scan_bytes;
+    for (auto& keys : resources.keys) {
+      keys = CreateBuffer(key_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    }
+    resources.scan = CreateBuffer(
+        scan_bytes,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.verification_readback = CreateBuffer(
+        sizeof(shader_abi::GaussianSortVerification),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    constexpr std::uint32_t kSetCount = 2;
+    const VkDescriptorPoolSize pool_size{
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        kSetCount * kGaussianSortStorageBufferCount};
+    VkDescriptorPoolCreateInfo pool_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.maxSets = kSetCount;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &pool_size;
+    Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
+                                 &resources.descriptor_pool),
+          "create Gaussian sort descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+    const std::array layouts{gaussian_sort_descriptor_set_layout_,
+                             gaussian_sort_descriptor_set_layout_};
+    VkDescriptorSetAllocateInfo allocate{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocate.descriptorPool = resources.descriptor_pool;
+    allocate.descriptorSetCount = kSetCount;
+    allocate.pSetLayouts = layouts.data();
+    Check(vkAllocateDescriptorSets(device_, &allocate,
+                                   resources.descriptor_sets.data()),
+          "allocate Gaussian sort descriptor sets");
+    frame_counters_.descriptor_allocation_count += kSetCount;
+  }
+
+  // Rewritten every selected frame, like the preparation descriptors: a
+  // recreated prepared-record buffer may reuse a destroyed handle's value.
+  void UpdateGaussianGpuSortDescriptors(
+      const GaussianGpuSortFrameResources& resources,
+      VkBuffer prepared_records) {
+    std::array<VkDescriptorBufferInfo,
+               2 * kGaussianSortStorageBufferCount>
+        buffer_infos{};
+    std::array<VkWriteDescriptorSet, buffer_infos.size()> writes{};
+    for (std::size_t set = 0; set < resources.descriptor_sets.size(); ++set) {
+      const std::array<VkBuffer, kGaussianSortStorageBufferCount> buffers{
+          resources.keys[set].handle,
+          resources.keys[1U - set].handle,
+          resources.scan.handle,
+          prepared_records,
+      };
+      const std::array<std::uint32_t, kGaussianSortStorageBufferCount>
+          bindings{
+              shader_abi::kGaussianSortSource.binding,
+              shader_abi::kGaussianSortDestination.binding,
+              shader_abi::kGaussianSortScan.binding,
+              shader_abi::kGaussianSortPreparedRecords.binding,
+          };
+      for (std::size_t binding = 0; binding < buffers.size(); ++binding) {
+        const auto index = set * kGaussianSortStorageBufferCount + binding;
+        buffer_infos[index] = {buffers[binding], 0, VK_WHOLE_SIZE};
+        writes[index] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[index].dstSet = resources.descriptor_sets[set];
+        writes[index].dstBinding = bindings[binding];
+        writes[index].descriptorCount = 1;
+        writes[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[index].pBufferInfo = &buffer_infos[index];
+      }
+    }
+    vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
+    frame_counters_.descriptor_update_count += writes.size();
+  }
+
+  void PrepareGaussianGpuSort(FrameContext& frame, const RenderRequest& request,
+                              GaussianGpuStageSelection preparation) {
+    auto& resources = frame.gaussian_gpu_sort;
+    resources.selected = false;
+    if (request.gpu_driven_gaussian_sort ==
+            GpuDrivenGaussianSortMode::Disabled ||
+        preparation == GaussianGpuStageSelection::NoWork) {
+      return;
+    }
+    const auto unavailable = [&](std::string detail) {
+      if (request.gpu_driven_gaussian_sort ==
+          GpuDrivenGaussianSortMode::Require) {
+        throw RendererError(RendererErrorCode::Unsupported,
+                            "select GPU-driven Gaussian sorting",
+                            std::move(detail));
+      }
+      ++frame_counters_.gaussian_gpu_sort_fallback_count;
+    };
+    if (preparation == GaussianGpuStageSelection::NotRequested) {
+      unavailable("GPU-driven Gaussian sorting consumes GPU-prepared records "
+                  "and requires GPU-driven Gaussian preparation");
+      return;
+    }
+    if (preparation == GaussianGpuStageSelection::Unavailable) {
+      unavailable("GPU-driven Gaussian preparation is unavailable");
+      return;
+    }
+    const auto& prepared = frame.gaussian_gpu_preparation;
+
+    // Candidate indices and segment bases follow ascending resource identity,
+    // matching the CPU reference tie break, independent of table order.
+    std::vector<std::size_t> order(prepared.batches.size());
+    std::iota(order.begin(), order.end(), std::size_t{});
+    std::sort(order.begin(), order.end(),
+              [&](std::size_t lhs, std::size_t rhs) {
+                return prepared.batches[lhs].resource <
+                       prepared.batches[rhs].resource;
+              });
+    std::uint64_t candidate_count{};
+    for (const auto& batch : prepared.batches) {
+      candidate_count += batch.particle_count;
+    }
+    // Keys pad to whole workgroups, and a real low word must stay below the
+    // all-ones sentinel.
+    if (candidate_count >
+        std::numeric_limits<std::uint32_t>::max() -
+            shader_abi::kGaussianSortWorkgroupSize) {
+      unavailable("the frame exceeds the uint32 Gaussian sort key range");
+      return;
+    }
+    const auto key_count = static_cast<std::uint32_t>(
+        AlignUp(candidate_count, shader_abi::kGaussianSortWorkgroupSize));
+    const auto block_count = shader_abi::GaussianSortWorkgroupCount(key_count);
+    if (block_count > max_compute_work_group_count_x_) {
+      unavailable("the Gaussian sort exceeds maxComputeWorkGroupCount[0]");
+      return;
+    }
+
+    // Scan/control words: verification, one visible count per resource,
+    // then the digit-major histogram and each scan level's block totals.
+    std::vector<GaussianGpuSortScanLevel> levels;
+    std::uint64_t level_offset =
+        shader_abi::kGaussianSortControlWordCount + prepared.batches.size();
+    std::uint64_t level_count = key_count;
+    while (true) {
+      const auto workgroups = shader_abi::GaussianSortScanWorkgroupCount(
+          static_cast<std::uint32_t>(level_count));
+      const auto sums_offset = level_offset + level_count;
+      if (sums_offset + workgroups > std::numeric_limits<std::uint32_t>::max()) {
+        unavailable("the Gaussian sort scan exceeds uint32 addressing");
+        return;
+      }
+      levels.push_back({static_cast<std::uint32_t>(level_offset),
+                        static_cast<std::uint32_t>(level_count),
+                        static_cast<std::uint32_t>(sums_offset)});
+      if (workgroups == 1U) {
+        break;
+      }
+      level_offset = sums_offset;
+      level_count = workgroups;
+    }
+    const auto scan_bytes =
+        (static_cast<VkDeviceSize>(levels.back().sums_offset) + 1U) *
+        sizeof(std::uint32_t);
+    const auto key_bytes = static_cast<VkDeviceSize>(key_count) *
+                           sizeof(shader_abi::GaussianSortElement);
+    if (key_bytes > max_storage_buffer_range_ ||
+        scan_bytes > max_storage_buffer_range_ ||
+        prepared.prepared_records.size > max_storage_buffer_range_) {
+      unavailable("a Gaussian sort binding exceeds maxStorageBufferRange");
+      return;
+    }
+
+    std::vector<GaussianGpuSortKeyBatch> key_batches;
+    key_batches.reserve(order.size());
+    std::uint32_t candidate_base{};
+    for (std::size_t rank = 0; rank < order.size(); ++rank) {
+      const auto batch_index = order[rank];
+      const auto& batch = prepared.batches[batch_index];
+      // The last segment also writes the sentinel padding.
+      const auto element_count =
+          rank + 1U == order.size() ? key_count - candidate_base
+                                    : batch.particle_count;
+      GaussianGpuSortKeyBatch key_batch;
+      key_batch.constants.element_count = element_count;
+      key_batch.constants.candidate_base = candidate_base;
+      key_batch.constants.prepared_base = static_cast<std::uint32_t>(
+          batch.prepared_offset / sizeof(shader_abi::GaussianPreparedRecord));
+      key_batch.constants.visible_count_offset = static_cast<std::uint32_t>(
+          shader_abi::kGaussianSortControlWordCount + batch_index);
+      key_batch.workgroup_count =
+          shader_abi::GaussianSortWorkgroupCount(element_count);
+      if (key_batch.workgroup_count > max_compute_work_group_count_x_) {
+        unavailable("a Gaussian sort key segment exceeds "
+                    "maxComputeWorkGroupCount[0]");
+        return;
+      }
+      key_batches.push_back(key_batch);
+      candidate_base += batch.particle_count;
+    }
+
+    std::array<VkPipeline, kGaussianSortKernelCount> pipelines{};
+    try {
+      pipelines = EnsureGaussianSortComputePipelines(request.shaders);
+    } catch (const RendererError& error) {
+      if (request.gpu_driven_gaussian_sort ==
+              GpuDrivenGaussianSortMode::Require ||
+          error.code() == RendererErrorCode::DeviceLost ||
+          error.code() == RendererErrorCode::ResourceExhausted ||
+          error.code() == RendererErrorCode::Timeout) {
+        throw;
+      }
+      unavailable("the packaged Gaussian sort artifacts are unavailable");
+      return;
+    }
+    EnsureGaussianGpuSortFrameResources(resources, key_bytes, scan_bytes);
+    UpdateGaussianGpuSortDescriptors(resources,
+                                     prepared.prepared_records.handle);
+    resources.pipelines = pipelines;
+    resources.key_batches = std::move(key_batches);
+    resources.scan_levels = std::move(levels);
+    resources.visible_count_copies.clear();
+    for (std::size_t i = 0; i < prepared.batches.size(); ++i) {
+      resources.visible_count_copies.push_back(
+          {prepared.batches[i].counter_offset +
+               offsetof(shader_abi::GaussianPrepareDispatchCounters,
+                        visible_count),
+           (shader_abi::kGaussianSortControlWordCount + i) *
+               sizeof(std::uint32_t),
+           sizeof(std::uint32_t)});
+    }
+    resources.key_count = key_count;
+    resources.block_count = block_count;
+    resources.low_word_pass_count =
+        shader_abi::GaussianSortLowWordPassCount(candidate_count);
+    resources.pass_count = resources.low_word_pass_count +
+                           32U / shader_abi::kGaussianSortRadixBits;
+    // The GPU checksum weights each sorted record by its position, so it
+    // matches only when both streams hold the same records in the same order.
+    std::uint32_t checksum{};
+    for (std::size_t i = 0; i < prepared_gaussians_.gaussians.size(); ++i) {
+      const auto& gaussian = prepared_gaussians_.gaussians[i];
+      checksum += static_cast<std::uint32_t>(i + 1U) *
+                  shader_abi::GaussianSortIdentityHash(
+                      static_cast<std::uint32_t>(gaussian.resource),
+                      static_cast<std::uint32_t>(gaussian.resource >> 32U),
+                      gaussian.particle);
+    }
+    resources.reference_checksum = checksum;
+    resources.selected = true;
   }
 
   void EnsureGaussianGpuPreparationFrameResources(
@@ -7848,6 +8298,115 @@ class Renderer::Impl {
     }
   }
 
+  void RecordGaussianGpuSort(VkCommandBuffer command,
+                             const FrameContext& frame) {
+    const auto& resources = frame.gaussian_gpu_sort;
+    if (!resources.selected) {
+      return;
+    }
+    const auto& prepared = frame.gaussian_gpu_preparation;
+    vkCmdFillBuffer(command, resources.scan.handle, 0,
+                    sizeof(shader_abi::GaussianSortVerification), 0U);
+    vkCmdCopyBuffer(
+        command, prepared.dispatch_counters.handle, resources.scan.handle,
+        static_cast<std::uint32_t>(resources.visible_count_copies.size()),
+        resources.visible_count_copies.data());
+    // Prepared records come from the preparation dispatch; the control words
+    // from the clear and visible-count copies above.
+    VkMemoryBarrier input_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    input_barrier.srcAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    input_barrier.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(command,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &input_barrier, 0, nullptr, 0, nullptr);
+    const auto compute_barrier = [&] {
+      VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      barrier.dstAccessMask =
+          VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                           &barrier, 0, nullptr, 0, nullptr);
+    };
+    const auto dispatch = [&](GaussianSortKernel kernel, std::size_t set,
+                              const shader_abi::GaussianSortConstants& values,
+                              std::uint32_t workgroups) {
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        resources.pipelines[kernel]);
+      vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              gaussian_sort_pipeline_layout_, 0, 1,
+                              &resources.descriptor_sets[set], 0, nullptr);
+      vkCmdPushConstants(command, gaussian_sort_pipeline_layout_,
+                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(values),
+                         &values);
+      vkCmdDispatch(command, workgroups, 1, 1);
+      ++frame_counters_.gaussian_gpu_sort_dispatch_count;
+    };
+
+    // Set 1 writes keys[0], where the first radix pass reads.
+    for (const auto& batch : resources.key_batches) {
+      dispatch(kGaussianSortKeys, 1, batch.constants, batch.workgroup_count);
+    }
+    compute_barrier();
+    const auto& levels = resources.scan_levels;
+    for (std::uint32_t pass = 0; pass < resources.pass_count; ++pass) {
+      const bool low_word = pass < resources.low_word_pass_count;
+      const auto digit = low_word ? pass : pass - resources.low_word_pass_count;
+      const std::size_t set = pass % 2U;
+      shader_abi::GaussianSortConstants values;
+      values.element_count = resources.key_count;
+      values.block_count = resources.block_count;
+      values.digit_shift = digit * shader_abi::kGaussianSortRadixBits;
+      values.digit_word = low_word ? 0U : 1U;
+      values.scan_offset = levels.front().offset;
+      dispatch(kGaussianSortHistogram, set, values, resources.block_count);
+      compute_barrier();
+      for (const auto& level : levels) {
+        values.scan_offset = level.offset;
+        values.scan_count = level.count;
+        values.scan_sums_offset = level.sums_offset;
+        dispatch(kGaussianSortScanBlocks, set, values,
+                 shader_abi::GaussianSortScanWorkgroupCount(level.count));
+        compute_barrier();
+      }
+      // The top level fits one workgroup, so its scan is already global.
+      for (auto level = levels.rbegin() + 1; level != levels.rend(); ++level) {
+        values.scan_offset = level->offset;
+        values.scan_count = level->count;
+        values.scan_sums_offset = level->sums_offset;
+        dispatch(kGaussianSortScanAdd, set, values,
+                 shader_abi::GaussianSortScanWorkgroupCount(level->count));
+        compute_barrier();
+      }
+      values.scan_offset = levels.front().offset;
+      values.scan_count = 0;
+      values.scan_sums_offset = 0;
+      dispatch(kGaussianSortScatter, set, values, resources.block_count);
+      compute_barrier();
+    }
+    shader_abi::GaussianSortConstants verify;
+    verify.element_count = resources.key_count;
+    dispatch(kGaussianSortVerify, resources.pass_count % 2U, verify,
+             resources.block_count);
+    frame_counters_.gaussian_gpu_sort_pass_count += resources.pass_count;
+    frame_counters_.gaussian_gpu_sort_key_count += resources.key_count;
+
+    VkMemoryBarrier output_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    output_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
+                         &output_barrier, 0, nullptr, 0, nullptr);
+    const VkBufferCopy copy{0, 0,
+                            sizeof(shader_abi::GaussianSortVerification)};
+    vkCmdCopyBuffer(command, resources.scan.handle,
+                    resources.verification_readback.handle, 1, &copy);
+  }
+
   void RecordGpuDrivenDispatch(VkCommandBuffer command,
                                const FrameContext& frame,
                                const extraction::FrameSnapshot& snapshot,
@@ -8453,6 +9012,39 @@ class Renderer::Impl {
         invalid_culled_count;
   }
 
+  void ResolveGaussianGpuSortVerification(FrameContext& frame) {
+    const auto& resources = frame.gaussian_gpu_sort;
+    if (!resources.selected) {
+      return;
+    }
+    shader_abi::GaussianSortVerification verification;
+    void* mapped{};
+    Check(vkMapMemory(device_, resources.verification_readback.memory, 0,
+                      sizeof(verification), 0, &mapped),
+          "map Gaussian sort verification");
+    std::memcpy(&verification, mapped, sizeof(verification));
+    vkUnmapMemory(device_, resources.verification_readback.memory);
+    if (verification.order_violation_count != 0U ||
+        verification.key_mismatch_count != 0U) {
+      throw RendererError(
+          RendererErrorCode::BackendFailure,
+          "resolve Gaussian sort verification",
+          "sorted keys are out of order or disagree with their prepared "
+          "records");
+    }
+    if (verification.sorted_count !=
+        frame_counters_.gaussian_gpu_preparation_visible_count) {
+      throw RendererError(RendererErrorCode::BackendFailure,
+                          "resolve Gaussian sort verification",
+                          "the sort did not retain every visible prepared "
+                          "record exactly once");
+    }
+    frame_counters_.gaussian_gpu_sorted_count = verification.sorted_count;
+    if (verification.identity_checksum != resources.reference_checksum) {
+      ++frame_counters_.gaussian_gpu_sort_reference_divergence_count;
+    }
+  }
+
   void ResolveGpuDrivenCounters(FrameContext& frame) {
     if (!frame.gpu_driven.selected) {
       return;
@@ -8653,6 +9245,10 @@ class Renderer::Impl {
   VkPipelineLayout gaussian_prepare_pipeline_layout_{};
   std::map<std::filesystem::path, VkPipeline>
       gaussian_prepare_compute_pipelines_;
+  VkDescriptorSetLayout gaussian_sort_descriptor_set_layout_{};
+  VkPipelineLayout gaussian_sort_pipeline_layout_{};
+  std::map<std::filesystem::path, VkPipeline>
+      gaussian_sort_compute_pipelines_;
   VkDescriptorPool bindless_descriptor_pool_{};
   VkDescriptorSet bindless_descriptor_set_{};
   TextureSlot fallback_texture_;
