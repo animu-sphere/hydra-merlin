@@ -1051,6 +1051,12 @@ public:
     gpu_driven_indexed_ = settings;
   }
 
+  void SetGpuDrivenGaussianSettings(
+      merlin::render::GpuDrivenGaussianSettings settings) {
+    std::scoped_lock lock(mutex_);
+    gpu_driven_gaussian_ = settings;
+  }
+
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const {
     std::scoped_lock lock(mutex_);
     auto result = latest_viewport_frame_;
@@ -1552,6 +1558,7 @@ public:
     merlin::render::RenderRequest request;
     request.snapshot = snapshot;
     request.gpu_driven_indexed = gpu_driven_indexed_;
+    request.gpu_driven_gaussian = gpu_driven_gaussian_;
     request.width = width;
     request.height = height;
     request.clear_color = clear_color;
@@ -2159,6 +2166,7 @@ private:
       merlin::FrontFaceWinding::Clockwise};
   bool reflect_hgi_projection_y_{};
   merlin::render::GpuDrivenIndexedSettings gpu_driven_indexed_;
+  merlin::render::GpuDrivenGaussianSettings gpu_driven_gaussian_;
   merlin::extraction::SceneExtractor extractor_;
   std::shared_ptr<merlin::render::Backend> renderer_;
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
@@ -4034,6 +4042,11 @@ void HdMerlinRenderDelegate::SetHgiProjectionYReflection(bool reflect) {
 void HdMerlinRenderDelegate::SetGpuDrivenIndexedSettings(
     merlin::render::GpuDrivenIndexedSettings settings) {
   impl_->bridge->SetGpuDrivenIndexedSettings(settings);
+}
+
+void HdMerlinRenderDelegate::SetGpuDrivenGaussianSettings(
+    merlin::render::GpuDrivenGaussianSettings settings) {
+  impl_->bridge->SetGpuDrivenGaussianSettings(settings);
 }
 
 HdMerlinViewportFrame

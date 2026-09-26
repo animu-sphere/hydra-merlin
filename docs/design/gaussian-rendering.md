@@ -45,7 +45,13 @@ plus CPU sort, GPU-sorted stream raster, and conservative flat tiling remain
 diagnostic fallbacks.
 Validation requires reference-tolerance parity, timestamp ranges and observable
 candidate/visible/rejected/sorted/pair counts, with no CPU full traversal or
-sort during camera movement.
+sort during camera movement. A frame drawn from the GPU-sorted stream prepares
+the CPU reference only when validation is requested: the GPU stages verify
+their own order, keys, pairs, and ranges on the device, the CPU stream adds
+only the divergence comparison, and the particle counters come from the GPU
+preparation's partition. Frames that draw the CPU-sorted stream always
+prepare it, and a stream left stale by skipped frames is prepared again
+rather than reused.
 
 Projection/compaction reads the tightly packed attribute ranges, evaluates
 the selected projection and radiance, and retains a sort key with stable
@@ -98,7 +104,34 @@ or less, keeps every pair offset within uint32. Verification checks strict
 range membership, and an order-sensitive checksum is compared with a CPU
 replay of the same binning and truncation. The CPU-sorted path remains the
 image reference, and sorted-stream raster the GPU fallback, when tile stages
-are unavailable; binning does not yet change the image. Delivery and support status live in the
+are unavailable.
+
+Tile raster runs in compute after the render pass, one 16x16 workgroup per
+tile and one thread per pixel, compositing the tile's range front to back:
+`C + T * destination` equals the back-to-front "over" blend, and the first
+contributing record is the nearest one, which the ID AOVs keep. Batches of
+up to 256 records are staged in workgroup memory, within the guaranteed
+16 KiB, from the front of the range, and a tile stops once every pixel's
+transmittance falls below 1/1024, so what remains changes color by less
+than a quarter step. Each record is evaluated with the procedural fragment
+stage's cutoffs and the fixed-function state around it: the conservative
+square, the three-sigma ellipse, the one-UNorm-step alpha floor, clamping
+to [0, 1] before blending, and the LESS_OR_EQUAL Mesh depth test with
+clipping to [0, 1]. The color and ID targets become storage images and
+depth a sampled image only for requests that may select tile raster.
+
+A lost pair would drop a splat from the image, so a single-thread selection
+kernel decides on the device after binning: when every requested pair was
+stored and no record was clamped, it zeroes the sorted-stream draw's
+instance count and publishes the frame for tile raster; otherwise the draws
+rasterize the whole sorted stream and the raster dispatch exits. Resolve
+fails the frame if that choice disagrees with the binning counts, and
+counts overflow fallbacks. Reference parity is a tolerance, not bit
+equality: blending once in float instead of once per UNorm draw moves color
+by a few rounding steps, and the procedural quads interpolate offsets from
+subpixel-snapped corners while compute evaluates the exact offset, so rare
+pixels on a splat's cutoff rim may keep a depth-tied neighbor's particle
+index. Depth and primId stay exact. Delivery and support status live in the
 [current milestone](../roadmap/current.md) and
 [support matrix](../reference/support-matrix.md).
 

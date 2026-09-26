@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 9;
+inline constexpr std::uint32_t kVersion = 10;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -281,9 +281,10 @@ inline constexpr std::uint32_t kGaussianTileDefaultPairsPerRecord = 8U;
 inline constexpr std::uint32_t kGaussianTileMinimumPairCapacity = 65536U;
 // Control words at the start of the tile control buffer; the per-record pair
 // offsets, the pair histogram levels, and the tile ranges follow.
-inline constexpr std::uint32_t kGaussianTileControlWordCount = 10U;
+inline constexpr std::uint32_t kGaussianTileControlWordCount = 11U;
 inline constexpr std::uint32_t kGaussianTileRecordCountWord = 0U;
 inline constexpr std::uint32_t kGaussianTileRequestedPairCountWord = 1U;
+inline constexpr std::uint32_t kGaussianTileRasterSelectedWord = 10U;
 
 [[nodiscard]] constexpr std::uint32_t GaussianTileGridSize(
     std::uint32_t pixels) noexcept {
@@ -368,6 +369,30 @@ struct GaussianTileVerification {
   std::uint32_t occupied_tile_count{};
   std::uint32_t max_tile_pair_count{};
   std::uint32_t identity_checksum{};
+  // Written by the tile raster selection kernel: one when every requested
+  // pair was stored and no record was clamped, so tile raster replaces the
+  // sorted-stream draws; zero keeps the draws.
+  std::uint32_t raster_selected{};
+};
+
+// Tile raster composites each tile's pairs front to back in compute, one
+// workgroup per tile and one thread per pixel. Its kernels bind their own set
+// layout: the grouped pairs, the tile control buffer, the gathered records,
+// the sorted-stream draw arguments, the color and ID targets as storage
+// images, and Mesh depth as a sampled image. Storage buffers and storage
+// images each stay within the Vulkan guaranteed per-stage minimum of four.
+inline constexpr std::uint32_t kGaussianTileRasterWorkgroupSize =
+    kGaussianTileSize * kGaussianTileSize;
+
+struct alignas(16) GaussianTileRasterConstants {
+  std::uint32_t tile_count_x{};
+  std::uint32_t tile_count_y{};
+  std::uint32_t viewport_width{};
+  std::uint32_t viewport_height{};
+  // Word offset of the tile ranges inside the control buffer.
+  std::uint32_t ranges_offset{};
+  std::uint32_t pair_capacity{};
+  std::uint32_t padding[2]{};
 };
 
 static_assert(sizeof(DrawConstants) == 128);
@@ -460,7 +485,14 @@ static_assert(sizeof(GaussianTileVerification) ==
               kGaussianTileControlWordCount * sizeof(std::uint32_t));
 static_assert(offsetof(GaussianTileVerification, requested_pair_count) ==
               kGaussianTileRequestedPairCountWord * sizeof(std::uint32_t));
+static_assert(offsetof(GaussianTileVerification, raster_selected) ==
+              kGaussianTileRasterSelectedWord * sizeof(std::uint32_t));
 static_assert(kGaussianTileWorkgroupSize == kGaussianSortWorkgroupSize);
+static_assert(sizeof(GaussianTileRasterConstants) == 32);
+static_assert(alignof(GaussianTileRasterConstants) == 16);
+static_assert(offsetof(GaussianTileRasterConstants, viewport_width) == 8);
+static_assert(offsetof(GaussianTileRasterConstants, ranges_offset) == 16);
+static_assert(offsetof(GaussianTileRasterConstants, pair_capacity) == 20);
 static_assert(kGaussianSortRadixBins == 1U << kGaussianSortRadixBits);
 static_assert(kGaussianSortWorkgroupSize == kGaussianSortRadixBins);
 static_assert(sizeof(render::GpuIndexedIndirectCommand) == 20);
@@ -471,6 +503,7 @@ enum class ResourceClass {
   SampledImage,
   UniformBuffer,
   StorageBuffer,
+  StorageImage,
 };
 
 struct ResourceBinding {
@@ -552,6 +585,24 @@ inline constexpr ResourceBinding kGaussianTileControl{
     0, 2, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGaussianTileRecords{
     0, 3, ResourceClass::StorageBuffer};
+// Tile raster set: four storage buffers, three storage images, and one
+// sampled image.
+inline constexpr ResourceBinding kGaussianTileRasterPairs{
+    0, 0, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianTileRasterControl{
+    0, 1, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianTileRasterRecords{
+    0, 2, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianTileRasterDraw{
+    0, 3, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianTileRasterColor{
+    0, 4, ResourceClass::StorageImage};
+inline constexpr ResourceBinding kGaussianTileRasterPrimId{
+    0, 5, ResourceClass::StorageImage};
+inline constexpr ResourceBinding kGaussianTileRasterInstanceId{
+    0, 6, ResourceClass::StorageImage};
+inline constexpr ResourceBinding kGaussianTileRasterDepth{
+    0, 7, ResourceClass::SampledImage};
 
 inline constexpr ShaderCapability kConventionalCapabilities =
     ShaderCapability::MaterialConstants |

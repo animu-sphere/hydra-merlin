@@ -338,6 +338,65 @@ int main(int argc, char** argv) {
   assert(!backend_export.lease);
   assert(backend->statistics().active_aov_image_leases == 0);
 
+  // One host-neutral Gaussian policy selects the whole GPU chain. Invalid
+  // values are rejected; the raster path chooses between the GPU-sorted
+  // draws and compute tile raster.
+  assert(backend->capabilities().gpu_driven_gaussian);
+  {
+    merlin::RenderWorld gaussian_world;
+    merlin::GaussianDescriptor splat;
+    splat.positions = {{0.0F, 0.0F, 0.5F}};
+    splat.covariances = {{0.01F, 0.0F, 0.0F, 0.01F, 0.0F, 0.0001F}};
+    splat.opacities = {0.9F};
+    splat.spherical_harmonics_coefficients = {{1.0F, 0.0F, 0.0F}};
+    (void)gaussian_world.CreateGaussian(std::move(splat));
+    merlin::extraction::SceneExtractor gaussian_extractor;
+    gaussian_extractor.Apply(gaussian_world, gaussian_world.Commit());
+    merlin::render::RenderRequest gaussian_request;
+    gaussian_request.snapshot = gaussian_extractor.snapshot();
+    gaussian_request.width = 64;
+    gaussian_request.height = 64;
+    gaussian_request.products = {{merlin::Aov::Color, true}};
+    gaussian_request.gpu_driven_gaussian.mode =
+        static_cast<merlin::render::GpuDrivenGaussianMode>(999);
+    bool invalid_gaussian_mode_rejected{};
+    try {
+      (void)backend->Submit(gaussian_request);
+    } catch (const merlin::render::RendererError& error) {
+      invalid_gaussian_mode_rejected =
+          error.code() == merlin::render::RendererErrorCode::InvalidRequest;
+    }
+    assert(invalid_gaussian_mode_rejected);
+
+    gaussian_request.gpu_driven_gaussian.mode =
+        merlin::render::GpuDrivenGaussianMode::Require;
+    gaussian_request.gpu_driven_gaussian.raster =
+        merlin::render::GaussianRasterPath::Tiled;
+    const auto tiled =
+        backend->Resolve(backend->Submit(gaussian_request));
+    assert(tiled.telemetry.gaussian_gpu_sorted_count == 1);
+    assert(tiled.telemetry.gaussian_gpu_raster_instance_count == 1);
+    assert(tiled.telemetry.gaussian_gpu_tile_raster_frame_count == 1);
+    assert(tiled.telemetry.gaussian_gpu_fallback_count == 0);
+    assert(tiled.telemetry.gaussian_upload_bytes == 0);
+
+    gaussian_request.gpu_driven_gaussian.raster =
+        merlin::render::GaussianRasterPath::SortedStream;
+    const auto sorted =
+        backend->Resolve(backend->Submit(gaussian_request));
+    assert(sorted.telemetry.gaussian_gpu_raster_instance_count == 1);
+    assert(sorted.telemetry.gaussian_gpu_tile_raster_frame_count == 0);
+    assert(sorted.telemetry.gaussian_gpu_fallback_count == 0);
+
+    gaussian_request.gpu_driven_gaussian.mode =
+        merlin::render::GpuDrivenGaussianMode::Disabled;
+    const auto reference =
+        backend->Resolve(backend->Submit(gaussian_request));
+    assert(reference.telemetry.gaussian_gpu_sorted_count == 0);
+    assert(reference.telemetry.gaussian_sorted_count == 1);
+    assert(reference.color.pixels == sorted.color.pixels);
+  }
+
   bool consumed{};
   try {
     (void)renderer->Resolve(first_token);

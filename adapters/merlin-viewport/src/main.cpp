@@ -50,6 +50,7 @@ struct Arguments {
   std::uint64_t metal_heap_capacity_bytes{kDefaultMetalHeapBytes};
   merlin::render::BackendRequest backend{
       merlin::render::BackendRequest::Automatic};
+  merlin::render::GpuDrivenGaussianSettings gpu_driven_gaussian;
   bool validation{};
   bool vsync{true};
   bool visible{true};
@@ -104,6 +105,29 @@ merlin::render::BackendRequest ReadBackend(std::string_view value) {
       "--backend must be automatic, vulkan, or metal");
 }
 
+merlin::render::GpuDrivenGaussianMode ReadGaussianMode(std::string_view value) {
+  for (const auto mode : {merlin::render::GpuDrivenGaussianMode::Disabled,
+           merlin::render::GpuDrivenGaussianMode::Prefer,
+           merlin::render::GpuDrivenGaussianMode::Require}) {
+    if (value == merlin::render::GpuDrivenGaussianModeName(mode)) {
+      return mode;
+    }
+  }
+  throw std::invalid_argument(
+      "--gaussian-gpu must be disabled, prefer, or require");
+}
+
+merlin::render::GaussianRasterPath ReadGaussianRaster(std::string_view value) {
+  for (const auto path : {merlin::render::GaussianRasterPath::SortedStream,
+           merlin::render::GaussianRasterPath::Tiled}) {
+    if (value == merlin::render::GaussianRasterPathName(path)) {
+      return path;
+    }
+  }
+  throw std::invalid_argument(
+      "--gaussian-raster must be sorted-stream or tiled");
+}
+
 Arguments ParseArguments(int argc, char** argv) {
   Arguments result;
   for (int index = 1; index < argc; ++index) {
@@ -132,6 +156,10 @@ Arguments ParseArguments(int argc, char** argv) {
       result.metal_heap_capacity_bytes = capacity_mib * bytes_per_mib;
     } else if (option == "--backend") {
       result.backend = ReadBackend(next());
+    } else if (option == "--gaussian-gpu") {
+      result.gpu_driven_gaussian.mode = ReadGaussianMode(next());
+    } else if (option == "--gaussian-raster") {
+      result.gpu_driven_gaussian.raster = ReadGaussianRaster(next());
     } else if (option == "--validate") {
       result.validation = true;
     } else if (option == "--vsync") {
@@ -160,6 +188,8 @@ Arguments ParseArguments(int argc, char** argv) {
              "  --backend automatic|vulkan|metal\n"
              "  --width N --height N --vsync on|off --validate\n"
              "  --metal-heap-mib N (default 64)\n"
+             "  --gaussian-gpu disabled|prefer|require\n"
+             "  --gaussian-raster sorted-stream|tiled\n"
              "  --frames N --benchmark report.json --screenshot image.ppm\n"
              "  --usd scene.usd --hidden --reference-check --resize-test\n"
              "  --allow-unavailable (capability-test skip)\n"
@@ -268,6 +298,7 @@ merlin::viewport::HydraViewportOptions MakeHydraViewportOptions(
   options.frame_limit = arguments.frame_limit;
   options.metal_heap_capacity_bytes = arguments.metal_heap_capacity_bytes;
   options.backend = arguments.backend;
+  options.gpu_driven_gaussian = arguments.gpu_driven_gaussian;
   options.validation = arguments.validation;
   options.vsync = arguments.vsync;
   options.visible = arguments.visible;
@@ -485,6 +516,12 @@ int main(int argc, char** argv) {
         merlin::render::PresentationMode::Native;
     renderer_settings.contract.validation =
         backend->capabilities().validation_enabled;
+    renderer_settings.contract.gpu_driven_gaussian =
+        arguments.gpu_driven_gaussian;
+    if (const auto error = merlin::render::ValidateRendererSettings(
+            renderer_settings.contract, &backend->capabilities())) {
+      throw std::invalid_argument(error->message);
+    }
     merlin::viewport::DeveloperUiSettingsFeedback settings_feedback;
     merlin::viewport::DeveloperUiAovPreview aov_preview;
     std::optional<merlin::viewport::DeveloperUiBenchmark> saved_benchmark;
@@ -663,6 +700,8 @@ int main(int argc, char** argv) {
       request.snapshot = scene_snapshot;
       request.gpu_driven_indexed =
           renderer_settings.contract.gpu_driven_indexed;
+      request.gpu_driven_gaussian =
+          renderer_settings.contract.gpu_driven_gaussian;
       request.width = width;
       request.height = height;
       request.presentation = *presentation;

@@ -1,21 +1,22 @@
 # Versioned renderer settings
 
-**Last reviewed:** 2026-08-22
+**Last reviewed:** 2026-09-27
 
 `merlin::render::RendererSettings` is the configuration vocabulary shared by
 native viewport, Hydra/DCC adapters, headless tools, and renderer backends. It
 defines renderer meanings only: no OpenUSD token, DCC setting object, Vulkan
 enum, Metal object, or UI widget crosses this boundary.
 
-## v2 fields
+## v3 fields
 
-| Field | v2 meaning | Default |
+| Field | v3 meaning | Default |
 | --- | --- | --- |
-| `schema_version` | Exact settings ABI version | `2` |
+| `schema_version` | Exact settings ABI version | `3` |
 | `backend` | Automatic, Vulkan, or Metal selection request | `automatic` |
 | `presentation_mode` | Automatic, offscreen, native-window, or host delivery | `automatic` |
 | `render_path` | Conventional Forward or independently gated experimental Visibility | `forward` |
 | `gpu_driven_indexed` | Forward indexed submission policy, visibility mask, and independent visibility-mask/frustum culling controls | `disabled`, all bits visible, both culling stages enabled |
+| `gpu_driven_gaussian` | Gaussian execution policy: GPU preparation, sorting, and raster instead of the CPU-sorted stream, and a raster path that draws the sorted stream or composites screen tiles in compute | `disabled`, `sorted-stream` |
 | `aov` | Selected renderer output | `color` |
 | `lighting_mode` | Diagnostic, environment, or authored-light policy | `diagnostic` |
 | `exposure_ev` | Exposure compensation in EV, bounded to `[-32, 32]` | `0` |
@@ -33,6 +34,14 @@ request cannot select the accelerated path. `require` is accepted only when
 the selected backend reports the device features and configured persistent GPU
 Scene boundary needed by that path. The visibility mask and culling switches
 are forwarded unchanged when GPU-driven execution is selected.
+
+Version 3 adds GPU-driven Gaussian execution as one policy over the whole
+Gaussian chain rather than per-stage backend switches. `prefer` records an
+explicit fallback count for every stage the backend cannot select and keeps
+the CPU-sorted stream; `require` is accepted only when the selected backend
+reports `gpu_driven_gaussian`. The `tiled` raster path may still fall back per
+frame, to the GPU-sorted draws, when the device cannot use the targets as
+storage images or when tile binning overflows.
 
 Every current backend still rejects experimental Visibility until a selectable
 capability is added to `RendererCapabilities`. The same rule applies to values
@@ -57,9 +66,9 @@ unchanged. The development viewport uses this common validator before its
 viewport-specific clear-color, continuous-readback, and AOV-inspection checks;
 the same feedback enters the host-neutral diagnostic history.
 
-Settings versioning does not silently coerce an unknown schema to v2. Schema v2
-adds the GPU-driven indexed submission policy and bumps the backend capability
-contract to version 2. Adapters may translate a host's own configuration into
-v2, but must preserve an
-explicit rejected/fallback result for values that cannot be represented or
+Settings versioning does not silently coerce an unknown schema to v3. Schema v2
+added the GPU-driven indexed submission policy and schema v3 the GPU-driven
+Gaussian execution policy; each bumped the backend capability contract, now
+version 3. Adapters may translate a host's own configuration into v3, but
+must preserve an explicit rejected/fallback result for values that cannot be represented or
 executed.

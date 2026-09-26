@@ -29,3 +29,4 @@
 *.ppm
 !/adapters/merlin-hydra2/tests/checker.ppm
 CMakeUserPresets.json
+/strata.openstrata-*.lock

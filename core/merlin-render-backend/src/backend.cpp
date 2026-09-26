@@ -37,6 +37,16 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
     return invalid("renderer-settings.invalid-gpu-driven-indexed-mode",
         "GPU-driven indexed submission mode is invalid.");
   }
+  if (GpuDrivenGaussianModeName(settings.gpu_driven_gaussian.mode) ==
+      "unknown") {
+    return invalid("renderer-settings.invalid-gpu-driven-gaussian-mode",
+        "GPU-driven Gaussian execution mode is invalid.");
+  }
+  if (GaussianRasterPathName(settings.gpu_driven_gaussian.raster) ==
+      "unknown") {
+    return invalid("renderer-settings.invalid-gaussian-raster-path",
+        "Gaussian raster path is invalid.");
+  }
   if (AovName(settings.aov) == "unknown") {
     return invalid("renderer-settings.invalid-aov",
         "Renderer AOV selection is invalid.");
@@ -102,6 +112,12 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
     return invalid("renderer-settings.gpu-driven-indexed-unsupported",
         "The selected backend cannot provide required GPU-driven "
         "indexed Forward execution.");
+  }
+  if (settings.gpu_driven_gaussian.mode == GpuDrivenGaussianMode::Require &&
+      !capabilities->gpu_driven_gaussian) {
+    return invalid("renderer-settings.gpu-driven-gaussian-unsupported",
+        "The selected backend cannot provide required GPU-driven "
+        "Gaussian execution.");
   }
   if (settings.aov != Aov::Color) {
     return invalid("renderer-settings.aov-unsupported",

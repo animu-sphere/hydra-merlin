@@ -60,6 +60,7 @@ public:
         source.compute_queue &&
         source.draw_indirect_first_instance && source.draw_indirect_count &&
         source.shader_draw_parameters;
+    capabilities_.gpu_driven_gaussian = source.compute_queue;
     capabilities_.cpu_readback = true;
     capabilities_.validation_enabled = source.validation_enabled;
     capabilities_.limits.max_image_dimension_2d =
@@ -208,6 +209,50 @@ public:
         request.gpu_driven_indexed.enable_visibility_mask_culling;
     native.gpu_driven_indexed.enable_frustum_culling =
         request.gpu_driven_indexed.enable_frustum_culling;
+    // One host-neutral policy selects the whole GPU Gaussian chain; each
+    // stage keeps its own fallback accounting.
+    const auto gaussian = request.gpu_driven_gaussian;
+    const auto gaussian_stage = [&](auto disabled, auto prefer,
+                                    auto require) {
+      switch (gaussian.mode) {
+      case render::GpuDrivenGaussianMode::Disabled:
+        return disabled;
+      case render::GpuDrivenGaussianMode::Prefer:
+        return prefer;
+      case render::GpuDrivenGaussianMode::Require:
+        return require;
+      }
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+          "submit Vulkan frame",
+          "GPU-driven Gaussian execution mode is invalid");
+    };
+    if (render::GaussianRasterPathName(gaussian.raster) == "unknown") {
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+          "submit Vulkan frame", "Gaussian raster path is invalid");
+    }
+    const bool tiled = gaussian.raster == render::GaussianRasterPath::Tiled;
+    native.gpu_driven_gaussian_preparation =
+        gaussian_stage(GpuDrivenGaussianPreparationMode::Disabled,
+            GpuDrivenGaussianPreparationMode::Prefer,
+            GpuDrivenGaussianPreparationMode::Require);
+    native.gpu_driven_gaussian_sort =
+        gaussian_stage(GpuDrivenGaussianSortMode::Disabled,
+            GpuDrivenGaussianSortMode::Prefer,
+            GpuDrivenGaussianSortMode::Require);
+    native.gpu_driven_gaussian_raster =
+        gaussian_stage(GpuDrivenGaussianRasterMode::Disabled,
+            GpuDrivenGaussianRasterMode::Prefer,
+            GpuDrivenGaussianRasterMode::Require);
+    if (tiled) {
+      native.gpu_driven_gaussian_tiles =
+          gaussian_stage(GpuDrivenGaussianTileMode::Disabled,
+              GpuDrivenGaussianTileMode::Prefer,
+              GpuDrivenGaussianTileMode::Require);
+      native.gpu_driven_gaussian_tile_raster =
+          gaussian_stage(GpuDrivenGaussianTileRasterMode::Disabled,
+              GpuDrivenGaussianTileRasterMode::Prefer,
+              GpuDrivenGaussianTileRasterMode::Require);
+    }
     native.width = request.width;
     native.height = request.height;
     native.shaders = shaders_;
@@ -336,6 +381,20 @@ public:
         native.counters.gaussian_attribute_generation_count;
     result.telemetry.gaussian_upload_bytes =
         native.counters.gaussian_upload_bytes;
+    result.telemetry.gaussian_gpu_sorted_count =
+        native.counters.gaussian_gpu_sorted_count;
+    result.telemetry.gaussian_gpu_raster_instance_count =
+        native.counters.gaussian_gpu_raster_instance_count;
+    result.telemetry.gaussian_gpu_tile_raster_frame_count =
+        native.counters.gaussian_gpu_tile_raster_frame_count;
+    result.telemetry.gaussian_gpu_tile_raster_overflow_fallback_count =
+        native.counters.gaussian_gpu_tile_raster_overflow_fallback_count;
+    result.telemetry.gaussian_gpu_fallback_count =
+        native.counters.gaussian_gpu_preparation_fallback_count +
+        native.counters.gaussian_gpu_sort_fallback_count +
+        native.counters.gaussian_gpu_raster_fallback_count +
+        native.counters.gaussian_gpu_tile_fallback_count +
+        native.counters.gaussian_gpu_tile_raster_fallback_count;
     result.telemetry.gpu_scene_upload_bytes =
         native.counters.gpu_scene_upload_bytes;
     result.telemetry.gpu_scene_copy_range_count =

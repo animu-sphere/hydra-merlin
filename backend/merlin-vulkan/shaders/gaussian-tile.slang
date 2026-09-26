@@ -28,6 +28,7 @@ static const uint kGaussianTileRangeViolationCount = 6u;
 static const uint kGaussianTileOccupiedTileCount = 7u;
 static const uint kGaussianTileMaxTilePairCount = 8u;
 static const uint kGaussianTileIdentityChecksum = 9u;
+// Word 10 is written by gaussian-tile-raster.slang's selection kernel.
 
 struct GaussianTileConstants
 {

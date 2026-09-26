@@ -165,8 +165,9 @@ constexpr std::uint32_t kMinimumBorrowedVulkanApiVersion = VK_API_VERSION_1_3;
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kIdFormat = VK_FORMAT_R32_UINT;
-// Frame timestamp pairs: 0/1 graphics submission, 2/3 Gaussian raster,
-// 4/5 Gaussian GPU sort, and 6/7 Gaussian tile binning.
+// Frame timestamp pairs: 0/1 graphics submission, 2/3 Gaussian raster
+// (the Gaussian subpasses and any compute tile raster), 4/5 Gaussian GPU
+// sort, and 6/7 Gaussian tile binning.
 constexpr std::uint32_t kFrameTimestampQueryCount = 8;
 
 void Check(VkResult result, const char* operation) {
@@ -1242,6 +1243,8 @@ public:
         DestroyGaussianGpuSortFrameResources(frame.gaussian_gpu_sort);
         DestroyGaussianGpuRasterFrameResources(frame.gaussian_gpu_raster);
         DestroyGaussianGpuTileFrameResources(frame.gaussian_gpu_tiles);
+        DestroyGaussianGpuTileRasterFrameResources(
+            frame.gaussian_gpu_tile_raster);
         if (frame.image_available != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, frame.image_available, nullptr);
         }
@@ -1329,6 +1332,20 @@ public:
         vkDestroyDescriptorSetLayout(
             device_, gaussian_sort_descriptor_set_layout_, nullptr);
       }
+      for (const auto& [path, pipeline] :
+          gaussian_tile_raster_compute_pipelines_) {
+        (void)path;
+        vkDestroyPipeline(device_, pipeline, nullptr);
+      }
+      gaussian_tile_raster_compute_pipelines_.clear();
+      if (gaussian_tile_raster_pipeline_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device_, gaussian_tile_raster_pipeline_layout_,
+            nullptr);
+      }
+      if (gaussian_tile_raster_descriptor_set_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(
+            device_, gaussian_tile_raster_descriptor_set_layout_, nullptr);
+      }
       if (timeline_semaphore_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
       }
@@ -1387,8 +1404,14 @@ public:
       EnsureDescriptorSetLayout();
       EnsureGeneratedDescriptorSetLayouts();
     }
+    // Storage and sampled target usage is paid only by requests that may
+    // select tile raster.
+    const bool gaussian_tile_raster_images =
+        request.gpu_driven_gaussian_tile_raster !=
+            GpuDrivenGaussianTileRasterMode::Disabled &&
+        GaussianTileRasterFormatsSupported();
     auto& frame = AcquireFrame(request.width, request.height, request.shaders,
-        cpu_readback_aovs);
+        cpu_readback_aovs, gaussian_tile_raster_images);
     frame.scene_revision = request.snapshot->revision;
     frame.rendered_aovs = std::move(rendered_aovs);
     frame.cpu_readback_aovs = std::move(cpu_readback_aovs);
@@ -1400,7 +1423,7 @@ public:
       }
     } reset_active_target{active_target_};
     EnsureTarget(frame.target, request.width, request.height, request.shaders,
-        frame.cpu_readback_aovs);
+        frame.cpu_readback_aovs, gaussian_tile_raster_images);
     if (request.present) {
       PreparePresentation(frame, request.width, request.height);
     } else {
@@ -1429,53 +1452,6 @@ public:
     material_records_.Sync(request.snapshot->materials);
     instance_records_.Sync(request.snapshot->instances);
     draw_records_.Sync(request.snapshot->draws);
-    const bool gaussian_preparation_cache_hit =
-        gaussian_preparation_cache_valid_ &&
-        gaussian_preparation_source_.table_identity() ==
-            request.snapshot->gaussians.table_identity() &&
-        gaussian_preparation_view_.values == request.snapshot->view.values &&
-        gaussian_preparation_projection_.values ==
-            request.snapshot->projection.values &&
-        gaussian_preparation_width_ == request.width &&
-        gaussian_preparation_height_ == request.height;
-    if (gaussian_preparation_cache_hit) {
-      ++frame_counters_.gaussian_preparation_cache_hits;
-    } else {
-      const auto gaussian_preparation_start = CpuClock::now();
-      prepared_gaussians_ = detail::PrepareGaussianFrame(
-          *request.snapshot, {request.width, request.height});
-      gaussian_preparation_ns = ElapsedNanoseconds(gaussian_preparation_start);
-      gaussian_preparation_source_ = request.snapshot->gaussians;
-      gaussian_preparation_view_ = request.snapshot->view;
-      gaussian_preparation_projection_ = request.snapshot->projection;
-      gaussian_preparation_width_ = request.width;
-      gaussian_preparation_height_ = request.height;
-      gaussian_preparation_cache_valid_ = true;
-      ++gaussian_preparation_generation_;
-      if (gaussian_preparation_generation_ == 0) {
-        ++gaussian_preparation_generation_;
-        for (auto& candidate_frame : frames_) {
-          candidate_frame.gaussian_preparation_generation = 0;
-        }
-      }
-      ++frame_counters_.gaussian_preparation_cache_misses;
-    }
-    frame_counters_.gaussian_candidate_count =
-        prepared_gaussians_.counters.candidate_count;
-    frame_counters_.gaussian_visible_count =
-        prepared_gaussians_.counters.visible_count;
-    frame_counters_.gaussian_hidden_count =
-        prepared_gaussians_.counters.hidden_count;
-    frame_counters_.gaussian_opacity_culled_count =
-        prepared_gaussians_.counters.opacity_culled_count;
-    frame_counters_.gaussian_frustum_culled_count =
-        prepared_gaussians_.counters.frustum_culled_count;
-    frame_counters_.gaussian_invalid_culled_count =
-        prepared_gaussians_.counters.invalid_culled_count;
-    frame_counters_.gaussian_sorted_count =
-        prepared_gaussians_.counters.sorted_count;
-    frame_counters_.gaussian_sorting_policy_fallback_count =
-        prepared_gaussians_.counters.sorting_policy_fallback_count;
     SelectGeneratedMaterials();
     PreflightGeneratedMaterialPipelines(*request.snapshot);
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
@@ -1506,7 +1482,20 @@ public:
         PrepareGaussianGpuSort(frame, request, gaussian_gpu_preparation);
     const auto gaussian_gpu_raster =
         PrepareGaussianGpuRaster(frame, request, gaussian_gpu_sort);
-    PrepareGaussianGpuTiles(frame, request, gaussian_gpu_raster);
+    const auto gaussian_gpu_tiles =
+        PrepareGaussianGpuTiles(frame, request, gaussian_gpu_raster);
+    PrepareGaussianGpuTileRaster(frame, request, gaussian_gpu_tiles);
+    // Only the CPU-sorted draws and requested validation need the CPU
+    // reference stream; GPU-sorted frames otherwise skip it entirely.
+    frame.gaussian_cpu_reference =
+        !frame.gaussian_gpu_raster.selected ||
+        request.gaussian_cpu_reference_validation;
+    gaussian_preparation_ns =
+        PrepareGaussianCpuReference(request, frame.gaussian_cpu_reference);
+    if (frame.gaussian_cpu_reference) {
+      ComputeGaussianSortReference(frame.gaussian_gpu_sort);
+      ComputeGaussianTileReference(frame.gaussian_gpu_tiles);
+    }
     const auto gaussian_prepared_upload_start = CpuClock::now();
     // Sorted-stream raster draws the device-written order, so the frame
     // uploads no CPU-prepared stream.
@@ -1720,36 +1709,28 @@ public:
     VkImage image{};
     VkFormat format{VK_FORMAT_UNDEFINED};
     VkImageAspectFlags aspect{};
-    VkImageUsageFlags usage{};
+    const auto usage =
+        TargetImageUsage(aov, frame.target.gaussian_tile_raster_images);
     switch (aov) {
     case Aov::Color:
       image = frame.target.color;
       format = kColorFormat;
       aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-      usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-              VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-              VK_IMAGE_USAGE_SAMPLED_BIT;
       break;
     case Aov::Depth:
       image = frame.target.depth;
       format = kDepthFormat;
       aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-      usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-              VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
       break;
     case Aov::PrimId:
       image = frame.target.prim_id;
       format = kIdFormat;
       aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-      usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-              VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
       break;
     case Aov::InstanceId:
       image = frame.target.instance_id;
       format = kIdFormat;
       aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-      usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-              VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
       break;
     default:
       throw RendererError(RendererErrorCode::Unsupported,
@@ -2015,6 +1996,9 @@ public:
     // Same shaders reading the 64-byte GPU-prepared records in sorted order.
     VkPipeline gaussian_sorted_pipeline{};
     VkPipeline gaussian_sorted_id_pipeline{};
+    // Color and IDs are also storage images and depth is also sampled, so
+    // compute tile raster can composite into them after the render pass.
+    bool gaussian_tile_raster_images{};
     Buffer color_readback;
     Buffer depth_readback;
     Buffer prim_id_readback;
@@ -2139,8 +2123,10 @@ public:
     std::uint32_t block_count{};
     std::uint32_t low_word_pass_count{};
     std::uint32_t pass_count{};
-    // Order-sensitive identity checksum of this frame's CPU reference stream.
+    // Order-sensitive identity checksum of this frame's CPU reference stream,
+    // valid only when the frame prepared that stream.
     std::uint32_t reference_checksum{};
+    bool reference_valid{};
     bool selected{};
   };
 
@@ -2195,10 +2181,27 @@ public:
     // per-record limit, and capacity truncation.
     std::uint32_t reference_requested_pair_count{};
     std::uint32_t reference_checksum{};
+    bool reference_valid{};
+    bool selected{};
+  };
+
+  // Compute tile raster over the verified tile ranges. Its descriptor set
+  // binds the grouped pairs, the tile control buffer, the gathered records,
+  // the sorted-stream draw arguments, and this frame's color, ID, and depth
+  // targets, so it is rewritten every selected frame.
+  struct GaussianGpuTileRasterFrameResources {
+    shader_abi::GaussianTileRasterConstants constants;
+    VkDescriptorPool descriptor_pool{};
+    VkDescriptorSet descriptor_set{};
+    VkPipeline select_pipeline{};
+    VkPipeline raster_pipeline{};
     bool selected{};
   };
 
   struct FrameContext {
+    // True when this frame prepared the CPU reference stream, to draw it or
+    // to validate the GPU-sorted stream against it.
+    bool gaussian_cpu_reference{};
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
     VkCommandPool transfer_command_pool{};
@@ -2239,6 +2242,7 @@ public:
     GaussianGpuSortFrameResources gaussian_gpu_sort;
     GaussianGpuRasterFrameResources gaussian_gpu_raster;
     GaussianGpuTileFrameResources gaussian_gpu_tiles;
+    GaussianGpuTileRasterFrameResources gaussian_gpu_tile_raster;
   };
 
   struct SwapchainState {
@@ -2449,6 +2453,8 @@ public:
         properties.properties.limits.maxStorageBufferRange;
     max_compute_work_group_count_x_ =
         properties.properties.limits.maxComputeWorkGroupCount[0];
+    max_compute_work_group_count_y_ =
+        properties.properties.limits.maxComputeWorkGroupCount[1];
     max_per_stage_descriptor_storage_buffers_ =
         properties.properties.limits.maxPerStageDescriptorStorageBuffers;
     max_descriptor_set_storage_buffers_ =
@@ -2741,6 +2747,8 @@ public:
         properties.properties.limits.maxStorageBufferRange;
     max_compute_work_group_count_x_ =
         properties.properties.limits.maxComputeWorkGroupCount[0];
+    max_compute_work_group_count_y_ =
+        properties.properties.limits.maxComputeWorkGroupCount[1];
     max_per_stage_descriptor_storage_buffers_ =
         properties.properties.limits.maxPerStageDescriptorStorageBuffers;
     max_descriptor_set_storage_buffers_ =
@@ -3093,6 +3101,14 @@ public:
     }
     DestroyBuffer(resources.control);
     DestroyBuffer(resources.verification_readback);
+    if (resources.descriptor_pool != VK_NULL_HANDLE) {
+      vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
+    }
+    resources = {};
+  }
+
+  void DestroyGaussianGpuTileRasterFrameResources(
+      GaussianGpuTileRasterFrameResources& resources) noexcept {
     if (resources.descriptor_pool != VK_NULL_HANDLE) {
       vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
     }
@@ -5062,8 +5078,17 @@ public:
         shader_abi::GaussianSortLowWordPassCount(candidate_count);
     resources.pass_count = resources.low_word_pass_count +
                            32U / shader_abi::kGaussianSortRadixBits;
-    // The GPU checksum weights each sorted record by its position, so it
-    // matches only when both streams hold the same records in the same order.
+    resources.reference_valid = false;
+    resources.selected = true;
+    return GaussianGpuStageSelection::Selected;
+  }
+
+  // The GPU checksum weights each sorted record by its position, so it
+  // matches only when both streams hold the same records in the same order.
+  void ComputeGaussianSortReference(GaussianGpuSortFrameResources& resources) {
+    if (!resources.selected) {
+      return;
+    }
     std::uint32_t checksum{};
     for (std::size_t i = 0; i < prepared_gaussians_.gaussians.size(); ++i) {
       const auto& gaussian = prepared_gaussians_.gaussians[i];
@@ -5074,8 +5099,82 @@ public:
                       gaussian.particle);
     }
     resources.reference_checksum = checksum;
-    resources.selected = true;
-    return GaussianGpuStageSelection::Selected;
+    resources.reference_valid = true;
+  }
+
+  // Prepares and sorts the CPU reference stream, reusing it while the
+  // Gaussian table, camera, and viewport are unchanged. A frame drawn from
+  // the GPU-sorted stream without validation does no per-Gaussian CPU work:
+  // it counts only per-resource totals, and resolve fills the per-particle
+  // counters from the GPU preparation. Returns the preparation time.
+  std::uint64_t PrepareGaussianCpuReference(const RenderRequest& request,
+      bool required) {
+    std::uint64_t preparation_ns{};
+    if (!required) {
+      // The retained stream no longer matches this frame's inputs, so a later
+      // CPU-sorted frame prepares again instead of reusing it.
+      gaussian_preparation_cache_valid_ = false;
+      ++frame_counters_.gaussian_cpu_preparation_skipped_count;
+      std::uint64_t hidden_count{};
+      for (const auto& record : request.snapshot->gaussians) {
+        if (!record.visible && record.positions) {
+          hidden_count += record.positions->size();
+        }
+      }
+      frame_counters_.gaussian_hidden_count = hidden_count;
+      frame_counters_.gaussian_sorting_policy_fallback_count =
+          detail::SelectGaussianSortingPolicy(*request.snapshot)
+              .fallback_resource_count;
+      return preparation_ns;
+    }
+    const bool gaussian_preparation_cache_hit =
+        gaussian_preparation_cache_valid_ &&
+        gaussian_preparation_source_.table_identity() ==
+            request.snapshot->gaussians.table_identity() &&
+        gaussian_preparation_view_.values == request.snapshot->view.values &&
+        gaussian_preparation_projection_.values ==
+            request.snapshot->projection.values &&
+        gaussian_preparation_width_ == request.width &&
+        gaussian_preparation_height_ == request.height;
+    if (gaussian_preparation_cache_hit) {
+      ++frame_counters_.gaussian_preparation_cache_hits;
+    } else {
+      const auto gaussian_preparation_start = CpuClock::now();
+      prepared_gaussians_ = detail::PrepareGaussianFrame(
+          *request.snapshot, {request.width, request.height});
+      preparation_ns = ElapsedNanoseconds(gaussian_preparation_start);
+      gaussian_preparation_source_ = request.snapshot->gaussians;
+      gaussian_preparation_view_ = request.snapshot->view;
+      gaussian_preparation_projection_ = request.snapshot->projection;
+      gaussian_preparation_width_ = request.width;
+      gaussian_preparation_height_ = request.height;
+      gaussian_preparation_cache_valid_ = true;
+      ++gaussian_preparation_generation_;
+      if (gaussian_preparation_generation_ == 0) {
+        ++gaussian_preparation_generation_;
+        for (auto& candidate_frame : frames_) {
+          candidate_frame.gaussian_preparation_generation = 0;
+        }
+      }
+      ++frame_counters_.gaussian_preparation_cache_misses;
+    }
+    frame_counters_.gaussian_candidate_count =
+        prepared_gaussians_.counters.candidate_count;
+    frame_counters_.gaussian_visible_count =
+        prepared_gaussians_.counters.visible_count;
+    frame_counters_.gaussian_hidden_count =
+        prepared_gaussians_.counters.hidden_count;
+    frame_counters_.gaussian_opacity_culled_count =
+        prepared_gaussians_.counters.opacity_culled_count;
+    frame_counters_.gaussian_frustum_culled_count =
+        prepared_gaussians_.counters.frustum_culled_count;
+    frame_counters_.gaussian_invalid_culled_count =
+        prepared_gaussians_.counters.invalid_culled_count;
+    frame_counters_.gaussian_sorted_count =
+        prepared_gaussians_.counters.sorted_count;
+    frame_counters_.gaussian_sorting_policy_fallback_count =
+        prepared_gaussians_.counters.sorting_policy_fallback_count;
+    return preparation_ns;
   }
 
   void EnsureGaussianGpuRasterFrameResources(
@@ -5343,6 +5442,9 @@ public:
   // bounds, per-record limit, capacity truncation, and stable tile grouping,
   // so matching streams produce the GPU verification checksum.
   void ComputeGaussianTileReference(GaussianGpuTileFrameResources& resources) {
+    if (!resources.selected) {
+      return;
+    }
     const auto& constants = resources.constants;
     std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs;
     std::uint64_t requested{};
@@ -5379,20 +5481,23 @@ public:
     resources.reference_requested_pair_count =
         static_cast<std::uint32_t>(requested);
     resources.reference_checksum = checksum;
+    resources.reference_valid = true;
   }
 
   // Tile binning consumes the gathered raster-order records and the draw
   // arguments' instance count, so it depends on sorted-stream raster for the
   // same frame. Its dispatch plan is fixed by the padded record count, the
   // pair capacity, and the tile grid.
-  void PrepareGaussianGpuTiles(FrameContext& frame,
+  GaussianGpuStageSelection PrepareGaussianGpuTiles(FrameContext& frame,
       const RenderRequest& request, GaussianGpuStageSelection raster) {
     auto& resources = frame.gaussian_gpu_tiles;
     resources.selected = false;
-    if (raster == GaussianGpuStageSelection::NoWork ||
-        request.gpu_driven_gaussian_tiles ==
-            GpuDrivenGaussianTileMode::Disabled) {
-      return;
+    if (raster == GaussianGpuStageSelection::NoWork) {
+      return GaussianGpuStageSelection::NoWork;
+    }
+    if (request.gpu_driven_gaussian_tiles ==
+        GpuDrivenGaussianTileMode::Disabled) {
+      return GaussianGpuStageSelection::NotRequested;
     }
     const auto unavailable = [&](std::string detail) {
       if (request.gpu_driven_gaussian_tiles ==
@@ -5406,11 +5511,11 @@ public:
     if (raster == GaussianGpuStageSelection::NotRequested) {
       unavailable("GPU-driven Gaussian tile binning consumes the gathered "
                   "sorted stream and requires GPU-driven Gaussian raster");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     if (raster == GaussianGpuStageSelection::Unavailable) {
       unavailable("GPU-driven Gaussian raster is unavailable");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     const auto& sorted = frame.gaussian_gpu_sort;
     const auto tile_count_x = shader_abi::GaussianTileGridSize(request.width);
@@ -5434,7 +5539,7 @@ public:
       if (pair_capacity > device_pairs) {
         unavailable("the Gaussian tile pair capacity exceeds "
                     "maxStorageBufferRange");
-        return;
+        return GaussianGpuStageSelection::Unavailable;
       }
     } else {
       pair_capacity = std::min(device_pairs,
@@ -5447,7 +5552,7 @@ public:
                              shader_abi::kGaussianTileWorkgroupSize;
     if (pair_blocks == 0U || pair_blocks > max_compute_work_group_count_x_) {
       unavailable("the Gaussian tile pairs exceed maxComputeWorkGroupCount[0]");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
 
     // Control words, per-record offsets, the pair histogram (one entry per
@@ -5466,14 +5571,14 @@ public:
         *ranges_offset + 2U * tile_count >
             std::numeric_limits<std::uint32_t>::max()) {
       unavailable("the Gaussian tile control words exceed uint32 addressing");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     const auto control_bytes =
         (*ranges_offset + 2U * tile_count) * sizeof(std::uint32_t);
     const auto pair_bytes = pair_capacity * kPairBytes;
     if (control_bytes > max_storage_buffer_range_) {
       unavailable("a Gaussian tile binding exceeds maxStorageBufferRange");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
 
     std::array<VkPipeline, kGaussianTileKernelCount> pipelines{};
@@ -5488,7 +5593,7 @@ public:
         throw;
       }
       unavailable("the packaged Gaussian tile artifacts are unavailable");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     EnsureGaussianGpuTileFrameResources(resources, pair_bytes, control_bytes);
     UpdateGaussianGpuTileDescriptors(resources,
@@ -5521,9 +5626,272 @@ public:
             : (static_cast<std::uint32_t>(std::bit_width(tile_count - 1U)) +
                   shader_abi::kGaussianSortRadixBits - 1U) /
                   shader_abi::kGaussianSortRadixBits;
-    ComputeGaussianTileReference(resources);
+    resources.reference_valid = false;
     frame_counters_.gaussian_gpu_tile_count = tile_count;
     frame_counters_.gaussian_gpu_tile_pair_capacity = pair_capacity;
+    resources.selected = true;
+    return GaussianGpuStageSelection::Selected;
+  }
+
+  static std::filesystem::path GaussianTileRasterDirectory(
+      const ShaderPaths& shaders) {
+    return shaders.gaussian_tile_raster_directory.empty()
+               ? GaussianTileDirectory(shaders)
+               : shaders.gaussian_tile_raster_directory;
+  }
+
+  static constexpr std::uint32_t kGaussianTileRasterStorageBufferCount{4U};
+  static constexpr std::uint32_t kGaussianTileRasterStorageImageCount{3U};
+
+  void EnsureGaussianTileRasterDescriptorAndPipelineLayouts() {
+    if (gaussian_tile_raster_descriptor_set_layout_ != VK_NULL_HANDLE) {
+      return;
+    }
+    static constexpr std::array bindings_in_set{
+        shader_abi::kGaussianTileRasterPairs,
+        shader_abi::kGaussianTileRasterControl,
+        shader_abi::kGaussianTileRasterRecords,
+        shader_abi::kGaussianTileRasterDraw,
+        shader_abi::kGaussianTileRasterColor,
+        shader_abi::kGaussianTileRasterPrimId,
+        shader_abi::kGaussianTileRasterInstanceId,
+        shader_abi::kGaussianTileRasterDepth,
+    };
+    std::array<VkDescriptorSetLayoutBinding, bindings_in_set.size()>
+        bindings{};
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
+      bindings[i].binding = bindings_in_set[i].binding;
+      switch (bindings_in_set[i].resource_class) {
+      case shader_abi::ResourceClass::StorageImage:
+        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        break;
+      case shader_abi::ResourceClass::SampledImage:
+        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        break;
+      default:
+        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        break;
+      }
+      bindings[i].descriptorCount = 1;
+      bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo layout_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    layout_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    layout_info.pBindings = bindings.data();
+    Check(vkCreateDescriptorSetLayout(device_, &layout_info, nullptr,
+              &gaussian_tile_raster_descriptor_set_layout_),
+        "create Gaussian tile raster descriptor layout");
+    ++frame_counters_.descriptor_layout_cache_misses;
+
+    VkPushConstantRange push_constants{};
+    push_constants.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constants.size = sizeof(shader_abi::GaussianTileRasterConstants);
+    VkPipelineLayoutCreateInfo pipeline_layout_info{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pipeline_layout_info.setLayoutCount = 1;
+    pipeline_layout_info.pSetLayouts =
+        &gaussian_tile_raster_descriptor_set_layout_;
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_constants;
+    Check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr,
+              &gaussian_tile_raster_pipeline_layout_),
+        "create Gaussian tile raster pipeline layout");
+  }
+
+  VkPipeline EnsureGaussianTileRasterPipeline(
+      const std::filesystem::path& path) {
+    EnsureGaussianTileRasterDescriptorAndPipelineLayouts();
+    const auto found = gaussian_tile_raster_compute_pipelines_.find(path);
+    if (found != gaussian_tile_raster_compute_pipelines_.end()) {
+      ++frame_counters_.pipeline_cache_hits;
+      return found->second;
+    }
+    VkPipelineShaderStageCreateInfo stage{
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = GetShaderModule(path);
+    stage.pName = "main";
+    VkComputePipelineCreateInfo info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    info.stage = stage;
+    info.layout = gaussian_tile_raster_pipeline_layout_;
+    VkPipeline pipeline{};
+    Check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &info,
+              nullptr, &pipeline),
+        "create Gaussian tile raster compute pipeline");
+    gaussian_tile_raster_compute_pipelines_.emplace(path, pipeline);
+    ++frame_counters_.pipeline_creation_count;
+    ++frame_counters_.pipeline_cache_misses;
+    return pipeline;
+  }
+
+  void EnsureGaussianGpuTileRasterFrameResources(
+      GaussianGpuTileRasterFrameResources& resources) {
+    if (resources.descriptor_pool != VK_NULL_HANDLE) {
+      return;
+    }
+    const std::array<VkDescriptorPoolSize, 3> pool_sizes{{
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            kGaussianTileRasterStorageBufferCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            kGaussianTileRasterStorageImageCount},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1U},
+    }};
+    VkDescriptorPoolCreateInfo pool_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.maxSets = 1;
+    pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
+    pool_info.pPoolSizes = pool_sizes.data();
+    Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
+              &resources.descriptor_pool),
+        "create Gaussian tile raster descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+    VkDescriptorSetAllocateInfo allocate{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocate.descriptorPool = resources.descriptor_pool;
+    allocate.descriptorSetCount = 1;
+    allocate.pSetLayouts = &gaussian_tile_raster_descriptor_set_layout_;
+    Check(vkAllocateDescriptorSets(device_, &allocate,
+              &resources.descriptor_set),
+        "allocate Gaussian tile raster descriptor set");
+    ++frame_counters_.descriptor_allocation_count;
+  }
+
+  // Rewritten every selected frame: the grouped pair buffer follows the
+  // frame's pass count, and recreated buffers or targets may reuse a
+  // destroyed handle's value. The images are bound in the layouts the
+  // raster dispatch transitions them to.
+  void UpdateGaussianGpuTileRasterDescriptors(const FrameContext& frame) {
+    const auto& tiles = frame.gaussian_gpu_tiles;
+    const std::array<VkDescriptorBufferInfo,
+        kGaussianTileRasterStorageBufferCount>
+        buffers{{
+            {tiles.pairs[tiles.sort_pass_count % 2U].handle, 0, VK_WHOLE_SIZE},
+            {tiles.control.handle, 0, VK_WHOLE_SIZE},
+            {frame.gaussian_gpu_raster.records.handle, 0, VK_WHOLE_SIZE},
+            {frame.gaussian_gpu_raster.draw_arguments.handle, 0,
+                VK_WHOLE_SIZE},
+        }};
+    const std::array<VkDescriptorImageInfo, 4> images{{
+        {VK_NULL_HANDLE, active_target_->color_view, VK_IMAGE_LAYOUT_GENERAL},
+        {VK_NULL_HANDLE, active_target_->prim_id_view,
+            VK_IMAGE_LAYOUT_GENERAL},
+        {VK_NULL_HANDLE, active_target_->instance_id_view,
+            VK_IMAGE_LAYOUT_GENERAL},
+        {VK_NULL_HANDLE, active_target_->depth_view,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+    }};
+    static constexpr std::array buffer_bindings{
+        shader_abi::kGaussianTileRasterPairs.binding,
+        shader_abi::kGaussianTileRasterControl.binding,
+        shader_abi::kGaussianTileRasterRecords.binding,
+        shader_abi::kGaussianTileRasterDraw.binding,
+    };
+    static constexpr std::array image_bindings{
+        shader_abi::kGaussianTileRasterColor.binding,
+        shader_abi::kGaussianTileRasterPrimId.binding,
+        shader_abi::kGaussianTileRasterInstanceId.binding,
+        shader_abi::kGaussianTileRasterDepth.binding,
+    };
+    std::array<VkWriteDescriptorSet, buffers.size() + images.size()> writes{};
+    for (std::size_t i = 0; i < buffers.size(); ++i) {
+      writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[i].dstSet = frame.gaussian_gpu_tile_raster.descriptor_set;
+      writes[i].dstBinding = buffer_bindings[i];
+      writes[i].descriptorCount = 1;
+      writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[i].pBufferInfo = &buffers[i];
+    }
+    for (std::size_t i = 0; i < images.size(); ++i) {
+      auto& write = writes[buffers.size() + i];
+      write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      write.dstSet = frame.gaussian_gpu_tile_raster.descriptor_set;
+      write.dstBinding = image_bindings[i];
+      write.descriptorCount = 1;
+      write.descriptorType = i + 1U == images.size()
+                                 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                                 : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      write.pImageInfo = &images[i];
+    }
+    vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+        writes.data(), 0, nullptr);
+    frame_counters_.descriptor_update_count += writes.size();
+  }
+
+  // Tile raster composites the verified tile ranges, so it depends on tile
+  // binning for the same frame and on a target created with storage color
+  // and ID images and a sampled depth image. Its dispatch plan is one
+  // selection thread and one workgroup per tile.
+  void PrepareGaussianGpuTileRaster(FrameContext& frame,
+      const RenderRequest& request, GaussianGpuStageSelection tiles) {
+    auto& resources = frame.gaussian_gpu_tile_raster;
+    resources.selected = false;
+    if (tiles == GaussianGpuStageSelection::NoWork ||
+        request.gpu_driven_gaussian_tile_raster ==
+            GpuDrivenGaussianTileRasterMode::Disabled) {
+      return;
+    }
+    const auto unavailable = [&](std::string detail) {
+      if (request.gpu_driven_gaussian_tile_raster ==
+          GpuDrivenGaussianTileRasterMode::Require) {
+        throw RendererError(RendererErrorCode::Unsupported,
+            "select GPU-driven Gaussian tile raster", std::move(detail));
+      }
+      ++frame_counters_.gaussian_gpu_tile_raster_fallback_count;
+    };
+    if (tiles == GaussianGpuStageSelection::NotRequested) {
+      unavailable("GPU-driven Gaussian tile raster composites the tile "
+                  "ranges and requires GPU-driven Gaussian tile binning");
+      return;
+    }
+    if (tiles == GaussianGpuStageSelection::Unavailable) {
+      unavailable("GPU-driven Gaussian tile binning is unavailable");
+      return;
+    }
+    if (!active_target_->gaussian_tile_raster_images) {
+      unavailable("the color and ID formats are not storage images or the "
+                  "depth format is not sampled on this device");
+      return;
+    }
+    const auto& binning = frame.gaussian_gpu_tiles.constants;
+    if (binning.tile_count_x > max_compute_work_group_count_x_ ||
+        binning.tile_count_y > max_compute_work_group_count_y_) {
+      unavailable("the Gaussian tile grid exceeds maxComputeWorkGroupCount");
+      return;
+    }
+    VkPipeline select_pipeline{};
+    VkPipeline raster_pipeline{};
+    try {
+      const auto directory = GaussianTileRasterDirectory(request.shaders);
+      select_pipeline = EnsureGaussianTileRasterPipeline(
+          directory / "gaussian-tile-raster-select.comp.spv");
+      raster_pipeline = EnsureGaussianTileRasterPipeline(
+          directory / "gaussian-tile-raster.comp.spv");
+    } catch (const RendererError& error) {
+      if (request.gpu_driven_gaussian_tile_raster ==
+              GpuDrivenGaussianTileRasterMode::Require ||
+          error.code() == RendererErrorCode::DeviceLost ||
+          error.code() == RendererErrorCode::ResourceExhausted ||
+          error.code() == RendererErrorCode::Timeout) {
+        throw;
+      }
+      unavailable("the packaged Gaussian tile raster artifacts are "
+                  "unavailable");
+      return;
+    }
+    EnsureGaussianGpuTileRasterFrameResources(resources);
+    UpdateGaussianGpuTileRasterDescriptors(frame);
+    resources.select_pipeline = select_pipeline;
+    resources.raster_pipeline = raster_pipeline;
+    auto& constants = resources.constants;
+    constants = {};
+    constants.tile_count_x = binning.tile_count_x;
+    constants.tile_count_y = binning.tile_count_y;
+    constants.viewport_width = binning.viewport_width;
+    constants.viewport_height = binning.viewport_height;
+    constants.ranges_offset = binning.ranges_offset;
+    constants.pair_capacity = binning.pair_capacity;
     resources.selected = true;
   }
 
@@ -7554,13 +7922,16 @@ public:
 
   FrameContext& AcquireFrame(std::uint32_t width, std::uint32_t height,
       const ShaderPaths& shaders,
-      const std::vector<Aov>& cpu_readback_aovs) {
+      const std::vector<Aov>& cpu_readback_aovs,
+      bool gaussian_tile_raster_images) {
     auto reusable = [&](FrameContext& frame) {
       return !frame.outstanding && frame.exported_aov_mask == 0 &&
              frame.target.width == width &&
              frame.target.height == height &&
              frame.target.shaders == shaders &&
-             frame.target.cpu_readback_aovs == cpu_readback_aovs;
+             frame.target.cpu_readback_aovs == cpu_readback_aovs &&
+             frame.target.gaussian_tile_raster_images ==
+                 gaussian_tile_raster_images;
     };
     auto found = std::find_if(frames_.begin(), frames_.end(), reusable);
     if (found == frames_.end()) {
@@ -7663,51 +8034,92 @@ public:
   void EnsureTarget(RenderTarget& target, std::uint32_t width,
       std::uint32_t height,
       const ShaderPaths& shaders,
-      const std::vector<Aov>& cpu_readback_aovs) {
+      const std::vector<Aov>& cpu_readback_aovs,
+      bool gaussian_tile_raster_images) {
     if (target.width == width && target.height == height &&
         target.shaders == shaders &&
-        target.cpu_readback_aovs == cpu_readback_aovs) {
+        target.cpu_readback_aovs == cpu_readback_aovs &&
+        target.gaussian_tile_raster_images == gaussian_tile_raster_images) {
       ++frame_counters_.pipeline_cache_hits;
       return;
     }
     ++frame_counters_.pipeline_cache_misses;
     DestroyTarget(target);
-    CreateTarget(width, height, shaders, cpu_readback_aovs);
+    CreateTarget(width, height, shaders, cpu_readback_aovs,
+        gaussian_tile_raster_images);
+  }
+
+  bool GaussianTileRasterFormatsSupported() {
+    if (!gaussian_tile_raster_formats_supported_) {
+      const auto supports = [&](VkFormat format,
+                                VkFormatFeatureFlags features) {
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(physical_device_, format,
+            &properties);
+        return (properties.optimalTilingFeatures & features) == features;
+      };
+      gaussian_tile_raster_formats_supported_ =
+          supports(kColorFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) &&
+          supports(kIdFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) &&
+          supports(kDepthFormat, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
+    }
+    return *gaussian_tile_raster_formats_supported_;
+  }
+
+  static VkImageUsageFlags TargetImageUsage(Aov aov,
+      bool gaussian_tile_raster_images) {
+    const VkImageUsageFlags tile_raster_usage =
+        gaussian_tile_raster_images
+            ? (aov == Aov::Depth ? VK_IMAGE_USAGE_SAMPLED_BIT
+                                 : VK_IMAGE_USAGE_STORAGE_BIT)
+            : 0U;
+    switch (aov) {
+    case Aov::Color:
+      return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+             tile_raster_usage;
+    case Aov::Depth:
+      return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | tile_raster_usage;
+    default:
+      return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | tile_raster_usage;
+    }
   }
 
   void CreateTarget(std::uint32_t width, std::uint32_t height,
       const ShaderPaths& shaders,
-      const std::vector<Aov>& cpu_readback_aovs) {
+      const std::vector<Aov>& cpu_readback_aovs,
+      bool gaussian_tile_raster_images) {
     active_target_->width = width;
     active_target_->height = height;
     active_target_->shaders = shaders;
     active_target_->cpu_readback_aovs = cpu_readback_aovs;
+    active_target_->gaussian_tile_raster_images = gaussian_tile_raster_images;
     try {
       active_target_->color = CreateImage(
           width, height, kColorFormat,
-          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-              VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+          TargetImageUsage(Aov::Color, gaussian_tile_raster_images),
           active_target_->color_memory);
       active_target_->color_view =
           CreateImageView(active_target_->color, kColorFormat,
               VK_IMAGE_ASPECT_COLOR_BIT);
       active_target_->depth = CreateImage(
           width, height, kDepthFormat,
-          VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-              VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+          TargetImageUsage(Aov::Depth, gaussian_tile_raster_images),
           active_target_->depth_memory);
       active_target_->depth_view =
           CreateImageView(active_target_->depth, kDepthFormat,
               VK_IMAGE_ASPECT_DEPTH_BIT);
       active_target_->prim_id = CreateImage(
           width, height, kIdFormat,
-          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+          TargetImageUsage(Aov::PrimId, gaussian_tile_raster_images),
           active_target_->prim_id_memory);
       active_target_->prim_id_view = CreateImageView(
           active_target_->prim_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
       active_target_->instance_id = CreateImage(
           width, height, kIdFormat,
-          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+          TargetImageUsage(Aov::InstanceId, gaussian_tile_raster_images),
           active_target_->instance_id_memory);
       active_target_->instance_id_view = CreateImageView(
           active_target_->instance_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -9268,16 +9680,123 @@ public:
     frame_counters_.gaussian_gpu_tile_sort_pass_count +=
         resources.sort_pass_count;
 
+    // Tile raster decides on the device, from the binning's final counts,
+    // whether it replaces the sorted-stream draws; its later raster dispatch
+    // reads the decision, the ranges, and the grouped pairs.
+    const auto& tile_raster = frame.gaussian_gpu_tile_raster;
+    VkPipelineStageFlags output_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkAccessFlags output_access = VK_ACCESS_TRANSFER_READ_BIT;
+    if (tile_raster.selected) {
+      compute_barrier();
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+          tile_raster.select_pipeline);
+      vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+          gaussian_tile_raster_pipeline_layout_, 0, 1,
+          &tile_raster.descriptor_set, 0, nullptr);
+      vkCmdPushConstants(command, gaussian_tile_raster_pipeline_layout_,
+          VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(tile_raster.constants),
+          &tile_raster.constants);
+      vkCmdDispatch(command, 1, 1, 1);
+      ++frame_counters_.gaussian_gpu_tile_raster_dispatch_count;
+      output_stages |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+      output_access |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+                       VK_ACCESS_SHADER_READ_BIT;
+    }
+
     VkMemoryBarrier output_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    output_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    output_barrier.dstAccessMask = output_access;
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
-        &output_barrier, 0, nullptr, 0, nullptr);
+        output_stages, 0, 1, &output_barrier, 0, nullptr, 0, nullptr);
     const VkBufferCopy copy{0, 0,
         sizeof(shader_abi::GaussianTileVerification)};
     vkCmdCopyBuffer(command, resources.control.handle,
         resources.verification_readback.handle, 1, &copy);
+  }
+
+  // Runs after the render pass, whose final layouts leave every attachment
+  // ready for transfer reads. Color and IDs move to GENERAL for storage
+  // access and depth to read-only for sampling; all return to the transfer-
+  // source layout that readback, presentation, and AOV export expect.
+  void RecordGaussianGpuTileRaster(VkCommandBuffer command,
+      const FrameContext& frame) {
+    const auto& resources = frame.gaussian_gpu_tile_raster;
+    const auto image_barrier = [](VkImage image, VkImageAspectFlags aspect,
+                                   VkImageLayout old_layout,
+                                   VkImageLayout new_layout,
+                                   VkAccessFlags src_access,
+                                   VkAccessFlags dst_access) {
+      VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+      barrier.srcAccessMask = src_access;
+      barrier.dstAccessMask = dst_access;
+      barrier.oldLayout = old_layout;
+      barrier.newLayout = new_layout;
+      barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.image = image;
+      barrier.subresourceRange.aspectMask = aspect;
+      barrier.subresourceRange.levelCount = 1;
+      barrier.subresourceRange.layerCount = 1;
+      return barrier;
+    };
+    constexpr auto kTransferSource = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    constexpr auto kDepthReadOnly =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    const std::array to_compute{
+        image_barrier(active_target_->color, VK_IMAGE_ASPECT_COLOR_BIT,
+            kTransferSource, VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+        image_barrier(active_target_->prim_id, VK_IMAGE_ASPECT_COLOR_BIT,
+            kTransferSource, VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT),
+        image_barrier(active_target_->instance_id, VK_IMAGE_ASPECT_COLOR_BIT,
+            kTransferSource, VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT),
+        image_barrier(active_target_->depth, VK_IMAGE_ASPECT_DEPTH_BIT,
+            kTransferSource, kDepthReadOnly,
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT),
+    };
+    // The transfer stage chains through the render pass's external
+    // dependency, which orders its final layout transitions.
+    vkCmdPipelineBarrier(command,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
+        static_cast<std::uint32_t>(to_compute.size()), to_compute.data());
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+        resources.raster_pipeline);
+    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+        gaussian_tile_raster_pipeline_layout_, 0, 1,
+        &resources.descriptor_set, 0, nullptr);
+    vkCmdPushConstants(command, gaussian_tile_raster_pipeline_layout_,
+        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(resources.constants),
+        &resources.constants);
+    vkCmdDispatch(command, resources.constants.tile_count_x,
+        resources.constants.tile_count_y, 1);
+    ++frame_counters_.gaussian_gpu_tile_raster_dispatch_count;
+    const std::array to_transfer{
+        image_barrier(active_target_->color, VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_IMAGE_LAYOUT_GENERAL, kTransferSource,
+            VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT),
+        image_barrier(active_target_->prim_id, VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_IMAGE_LAYOUT_GENERAL, kTransferSource,
+            VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT),
+        image_barrier(active_target_->instance_id, VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_IMAGE_LAYOUT_GENERAL, kTransferSource,
+            VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT),
+        image_barrier(active_target_->depth, VK_IMAGE_ASPECT_DEPTH_BIT,
+            kDepthReadOnly, kTransferSource, 0, VK_ACCESS_TRANSFER_READ_BIT),
+    };
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
+        static_cast<std::uint32_t>(to_transfer.size()), to_transfer.data());
   }
 
   void RecordGpuDrivenDispatch(VkCommandBuffer command,
@@ -9538,7 +10057,8 @@ public:
     }
     // The color and ID subpasses consume one stream in one order: either the
     // CPU-sorted upload or the GPU-sorted records with a device-written
-    // instance count.
+    // instance count. When tile raster replaces the draws on the device, that
+    // count is zero and compute composites the tiles after the render pass.
     const auto& sorted_raster = frame.gaussian_gpu_raster;
     const auto record_gaussian_draw = [&](bool id_pass) {
       if (!sorted_raster.selected && frame.gaussian_instance_count == 0) {
@@ -9576,11 +10096,19 @@ public:
     record_gaussian_draw(false);
     vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
     record_gaussian_draw(true);
-    if (frame.timestamp_pool != VK_NULL_HANDLE) {
+    const bool tile_raster = frame.gaussian_gpu_tile_raster.selected;
+    if (frame.timestamp_pool != VK_NULL_HANDLE && !tile_raster) {
       vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
           frame.timestamp_pool, 3);
     }
     vkCmdEndRenderPass(command);
+    if (tile_raster) {
+      RecordGaussianGpuTileRaster(command, frame);
+      if (frame.timestamp_pool != VK_NULL_HANDLE) {
+        vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            frame.timestamp_pool, 3);
+      }
+    }
 
     if (frame.gpu_driven.selected) {
       for (const auto& batch : frame.gpu_driven.batches) {
@@ -9896,6 +10424,17 @@ public:
         frustum_culled_count;
     frame_counters_.gaussian_gpu_preparation_invalid_culled_count =
         invalid_culled_count;
+    // Without the CPU reference the frame's particle counters come from the
+    // GPU partition; hidden resources are not dispatched, so their particles
+    // join the candidates here.
+    if (!frame.gaussian_cpu_reference) {
+      frame_counters_.gaussian_candidate_count =
+          candidate_count + frame_counters_.gaussian_hidden_count;
+      frame_counters_.gaussian_visible_count = visible_count;
+      frame_counters_.gaussian_opacity_culled_count = opacity_culled_count;
+      frame_counters_.gaussian_frustum_culled_count = frustum_culled_count;
+      frame_counters_.gaussian_invalid_culled_count = invalid_culled_count;
+    }
   }
 
   void ResolveGaussianGpuSortVerification(FrameContext& frame) {
@@ -9926,7 +10465,11 @@ public:
           "record exactly once");
     }
     frame_counters_.gaussian_gpu_sorted_count = verification.sorted_count;
-    if (verification.identity_checksum != resources.reference_checksum) {
+    if (!frame.gaussian_cpu_reference) {
+      frame_counters_.gaussian_sorted_count = verification.sorted_count;
+    }
+    if (resources.reference_valid &&
+        verification.identity_checksum != resources.reference_checksum) {
       ++frame_counters_.gaussian_gpu_sort_reference_divergence_count;
     }
   }
@@ -9999,10 +10542,31 @@ public:
         verification.occupied_tile_count;
     frame_counters_.gaussian_gpu_tile_max_pair_count =
         verification.max_tile_pair_count;
-    if (verification.requested_pair_count !=
-            resources.reference_requested_pair_count ||
-        verification.identity_checksum != resources.reference_checksum) {
+    if (resources.reference_valid &&
+        (verification.requested_pair_count !=
+                resources.reference_requested_pair_count ||
+            verification.identity_checksum != resources.reference_checksum)) {
       ++frame_counters_.gaussian_gpu_tile_reference_divergence_count;
+    }
+    if (!frame.gaussian_gpu_tile_raster.selected) {
+      return;
+    }
+    // The device keeps the sorted-stream draws whenever a pair was lost to
+    // the capacity or the per-record limit, so the image never drops one.
+    const bool complete =
+        verification.requested_pair_count <=
+            resources.constants.pair_capacity &&
+        verification.clamped_record_count == 0U;
+    if (verification.raster_selected != (complete ? 1U : 0U)) {
+      throw RendererError(RendererErrorCode::BackendFailure,
+          "resolve Gaussian tile raster selection",
+          "the device tile raster selection disagrees with the binning's "
+          "stored and clamped pair counts");
+    }
+    if (complete) {
+      ++frame_counters_.gaussian_gpu_tile_raster_frame_count;
+    } else {
+      ++frame_counters_.gaussian_gpu_tile_raster_overflow_fallback_count;
     }
   }
 
@@ -10138,6 +10702,10 @@ public:
   VkDeviceSize max_storage_buffer_range_{};
   std::uint32_t max_draw_indirect_count_{};
   std::uint32_t max_compute_work_group_count_x_{};
+  std::uint32_t max_compute_work_group_count_y_{};
+  // Lazily queried storage-image support of the color and ID formats and
+  // sampled support of the depth format, which tile raster needs.
+  std::optional<bool> gaussian_tile_raster_formats_supported_;
   std::uint32_t max_per_stage_descriptor_storage_buffers_{};
   std::uint32_t max_descriptor_set_storage_buffers_{};
   bool owns_vulkan_context_{true};
@@ -10210,6 +10778,10 @@ public:
   VkPipelineLayout gaussian_sort_pipeline_layout_{};
   std::map<std::filesystem::path, VkPipeline>
       gaussian_sort_compute_pipelines_;
+  VkDescriptorSetLayout gaussian_tile_raster_descriptor_set_layout_{};
+  VkPipelineLayout gaussian_tile_raster_pipeline_layout_{};
+  std::map<std::filesystem::path, VkPipeline>
+      gaussian_tile_raster_compute_pipelines_;
   VkDescriptorPool bindless_descriptor_pool_{};
   VkDescriptorSet bindless_descriptor_set_{};
   TextureSlot fallback_texture_;

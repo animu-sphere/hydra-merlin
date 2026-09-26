@@ -17,6 +17,8 @@ struct HydraViewportOptions {
   std::uint64_t frame_limit{};
   std::uint64_t metal_heap_capacity_bytes{64ULL * 1024ULL * 1024ULL};
   render::BackendRequest backend{render::BackendRequest::Automatic};
+  // Initial Gaussian execution policy; the developer UI can change it.
+  render::GpuDrivenGaussianSettings gpu_driven_gaussian;
   bool validation{};
   bool vsync{true};
   bool visible{true};

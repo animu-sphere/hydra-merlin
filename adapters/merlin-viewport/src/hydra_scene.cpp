@@ -564,6 +564,13 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       render::PresentationMode::Native;
   renderer_settings.contract.validation =
       backend->capabilities().validation_enabled;
+  renderer_settings.contract.gpu_driven_gaussian = options.gpu_driven_gaussian;
+  if (const auto error = render::ValidateRendererSettings(
+          renderer_settings.contract, &backend->capabilities())) {
+    throw std::invalid_argument(error->message);
+  }
+  render_delegate.SetGpuDrivenGaussianSettings(
+      renderer_settings.contract.gpu_driven_gaussian);
   DeveloperUiSettingsFeedback settings_feedback;
   DeveloperUiAovPreview aov_preview;
   std::optional<DeveloperUiBenchmark> saved_benchmark;
@@ -765,6 +772,8 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
               renderer_settings, settings_feedback)) {
         render_delegate.SetGpuDrivenIndexedSettings(
             renderer_settings.contract.gpu_driven_indexed);
+        render_delegate.SetGpuDrivenGaussianSettings(
+            renderer_settings.contract.gpu_driven_gaussian);
         readback_requested =
             readback_requested || renderer_settings.continuous_color_readback ||
             renderer_settings.aov_inspection_enabled;
