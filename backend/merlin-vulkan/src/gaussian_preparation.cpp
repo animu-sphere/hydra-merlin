@@ -10,6 +10,10 @@ namespace merlin::vulkan::detail {
 namespace {
 
 constexpr float kProjectionEpsilon = 1.0e-6F;
+// The 3DGS reference rasterizer's guard band: the perspective Jacobian is
+// evaluated with the center clamped to 1.3x the view, so close off-axis
+// kernels do not stretch into screen-crossing streaks.
+constexpr float kJacobianGuardBand = 1.3F;
 
 struct Matrix3 {
   std::array<float, 9> values{};
@@ -180,7 +184,9 @@ std::array<Vec3, 2> PerspectiveJacobian(const Mat4& projection,
   const Vec3 row_w{projection.values[3], projection.values[7],
       projection.values[11]};
   const auto inverse_w_squared = 1.0F / (clip_w * clip_w);
+  const auto guard = kJacobianGuardBand * clip_w;
   const auto quotient_row = [&](Vec3 numerator_row, float numerator) {
+    numerator = std::clamp(numerator, -guard, guard);
     return Vec3{
         (numerator_row.x * clip_w - numerator * row_w.x) *
             inverse_w_squared,
@@ -442,8 +448,13 @@ GaussianPreparationResult PrepareGaussianFrame(
       }
       const auto projected = ProjectPoint(
           local_to_camera, snapshot.projection, (*record.positions)[particle]);
+      // A kernel centered in front of the near plane is clipped like Mesh
+      // geometry. Its footprint cannot be evaluated at the center: the
+      // Jacobian grows as 1/w, so kernels between the eye and the near plane
+      // would cover the whole view.
       if (projected.clip_w <= kProjectionEpsilon ||
-          !IsFinite(projected.camera) || !IsFinite(projected.ndc)) {
+          !IsFinite(projected.camera) || !IsFinite(projected.ndc) ||
+          projected.ndc.z < 0.0F) {
         ++result.counters.frustum_culled_count;
         continue;
       }
@@ -459,8 +470,7 @@ GaussianPreparationResult PrepareGaussianFrame(
         ++result.counters.invalid_culled_count;
         continue;
       }
-      if (projected.ndc.z + depth_radius < 0.0F ||
-          projected.ndc.z - depth_radius > 1.0F) {
+      if (projected.ndc.z - depth_radius > 1.0F) {
         ++result.counters.frustum_culled_count;
         continue;
       }

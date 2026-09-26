@@ -126,17 +126,55 @@ int main() {
   assert(Near(orthographic.gaussians[0].radius_pixels,
       orthographic.gaussians[1].radius_pixels));
 
-  // Three-sigma depth bounds conservatively retain a kernel crossing the
-  // near plane, while rejecting one whose complete bound remains outside.
+  // Kernels are clipped by their center against the near plane, like Mesh
+  // geometry, even when their three-sigma bound crosses into the frustum.
+  // Far-plane bounds stay conservative.
   merlin::extraction::FrameSnapshot depth_boundary_snapshot;
   depth_boundary_snapshot.gaussians.push_back(MakeRecord(
-      13, {{0.0F, 0.0F, -0.01F}, {0.0F, 0.0F, -0.04F}}, {1.0F, 1.0F}));
+      13, {{0.0F, 0.0F, -0.01F}, {0.0F, 0.0F, -0.04F},
+              {0.0F, 0.0F, 1.01F}},
+      {1.0F, 1.0F, 1.0F}));
   const auto depth_boundary =
       PrepareGaussianFrame(depth_boundary_snapshot, {100, 100});
   assert(depth_boundary.gaussians.size() == 1);
-  assert(depth_boundary.gaussians[0].particle == 0);
-  assert(depth_boundary.gaussians[0].depth == 0.0F);
-  assert(depth_boundary.counters.frustum_culled_count == 1);
+  assert(depth_boundary.gaussians[0].particle == 2);
+  assert(depth_boundary.gaussians[0].depth == 1.0F);
+  assert(depth_boundary.counters.frustum_culled_count == 2);
+
+  // Under perspective, a kernel between the eye and the near plane would
+  // project to a view-filling footprint, so it is culled rather than drawn.
+  // Vulkan-depth perspective looking down -Z: unit focal length, near 0.1,
+  // far 100, column-major.
+  merlin::extraction::FrameSnapshot perspective_snapshot;
+  constexpr float kNear = 0.1F;
+  constexpr float kFar = 100.0F;
+  perspective_snapshot.projection.values = {
+      1.0F, 0.0F, 0.0F, 0.0F,
+      0.0F, 1.0F, 0.0F, 0.0F,
+      0.0F, 0.0F, kFar / (kNear - kFar), -1.0F,
+      0.0F, 0.0F, kNear * kFar / (kNear - kFar), 0.0F};
+  perspective_snapshot.gaussians.push_back(MakeRecord(
+      14, {{0.0F, 0.0F, -0.05F}, {0.0F, 0.0F, -1.0F}}, {1.0F, 1.0F}));
+  const auto perspective =
+      PrepareGaussianFrame(perspective_snapshot, {100, 100});
+  assert(perspective.gaussians.size() == 1);
+  assert(perspective.gaussians[0].particle == 1);
+  assert(perspective.counters.frustum_culled_count == 1);
+
+  // Off-axis kernels beyond the 1.3x guard band share one clamped Jacobian,
+  // so moving further off axis no longer stretches their footprint.
+  auto guard_band = MakeRecord(
+      15, {{2.0F, 0.0F, -1.0F}, {3.0F, 0.0F, -1.0F}}, {1.0F, 1.0F});
+  guard_band.covariances =
+      std::make_shared<const std::vector<merlin::Covariance3>>(
+          2, merlin::Covariance3{1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F});
+  merlin::extraction::FrameSnapshot guard_band_snapshot;
+  guard_band_snapshot.projection = perspective_snapshot.projection;
+  guard_band_snapshot.gaussians.push_back(std::move(guard_band));
+  const auto guarded = PrepareGaussianFrame(guard_band_snapshot, {100, 100});
+  assert(guarded.gaussians.size() == 2);
+  assert(Near(guarded.gaussians[0].radius_pixels,
+      guarded.gaussians[1].radius_pixels));
 
   // Per-resource Z-depth and camera-distance values are incomparable. Mixed
   // policy frames use one diagnosed Z-depth fallback for global composition.
