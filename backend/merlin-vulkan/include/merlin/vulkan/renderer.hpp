@@ -383,8 +383,7 @@ struct FrameCounters {
   // tile. requested pairs follow any per-record limit; pair_count is the
   // verified stored prefix, min(requested, capacity), and overflow is the
   // difference. clamped_record_count counts records whose coverage exceeded
-  // the per-record limit that keeps pair offsets within uint32. The stage
-  // does not change the image yet; the sorted-stream draws still raster.
+  // the per-record limit that keeps pair offsets within uint32.
   std::uint64_t gaussian_gpu_tile_dispatch_count{};
   std::uint64_t gaussian_gpu_tile_sort_pass_count{};
   std::uint64_t gaussian_gpu_tile_count{};
@@ -397,6 +396,16 @@ struct FrameCounters {
   std::uint64_t gaussian_gpu_tile_clamped_record_count{};
   std::uint64_t gaussian_gpu_tile_reference_divergence_count{};
   std::uint64_t gaussian_gpu_tile_fallback_count{};
+  // Tile raster composites every tile's pairs front to back in compute and
+  // replaces the sorted-stream draws. A frame whose binning overflowed or
+  // clamped a record keeps the sorted-stream draws on the device instead, so
+  // no pair is lost from the image; overflow_fallback_count counts those
+  // frames. fallback_count counts frames where tile raster could not be
+  // selected.
+  std::uint64_t gaussian_gpu_tile_raster_dispatch_count{};
+  std::uint64_t gaussian_gpu_tile_raster_frame_count{};
+  std::uint64_t gaussian_gpu_tile_raster_overflow_fallback_count{};
+  std::uint64_t gaussian_gpu_tile_raster_fallback_count{};
   std::uint64_t gaussian_draw_count{};
   std::uint64_t gaussian_attribute_upload_bytes{};
   std::uint64_t gaussian_attribute_copy_range_count{};
@@ -533,6 +542,9 @@ struct ShaderPaths {
   // Directory holding the packaged gaussian-tile-*.comp.spv kernels. Empty
   // resolves to the effective sort directory.
   std::filesystem::path gaussian_tile_directory;
+  // Directory holding the packaged gaussian-tile-raster*.comp.spv kernels.
+  // Empty resolves to the effective tile directory.
+  std::filesystem::path gaussian_tile_raster_directory;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
@@ -562,6 +574,12 @@ enum class GpuDrivenGaussianRasterMode {
 };
 
 enum class GpuDrivenGaussianTileMode {
+  Disabled,
+  Prefer,
+  Require,
+};
+
+enum class GpuDrivenGaussianTileRasterMode {
   Disabled,
   Prefer,
   Require,
@@ -621,16 +639,16 @@ struct RenderRequest {
       GpuDrivenGaussianSortMode::Disabled};
   // Sorted-stream raster draws the verified GPU sort output through indirect
   // procedural color and ID draws instead of the CPU-sorted upload, so it
-  // requires the sort to be selected for the same frame. Tile binning remains
-  // a follow-up stage. Prefer retains the CPU-sorted raster path when it
-  // cannot run; Require reports an actionable Unsupported error.
+  // requires the sort to be selected for the same frame. Prefer retains the
+  // CPU-sorted raster path when it cannot run; Require reports an actionable
+  // Unsupported error.
   GpuDrivenGaussianRasterMode gpu_driven_gaussian_raster{
       GpuDrivenGaussianRasterMode::Disabled};
   // Tile binning groups the gathered sorted stream into per-tile pair ranges
-  // and verifies them; the sorted-stream draws still produce the image. It
-  // consumes the gather, so it requires sorted-stream raster for the same
-  // frame. Prefer counts a fallback when it cannot run; Require reports an
-  // actionable Unsupported error.
+  // and verifies them; without tile raster the sorted-stream draws still
+  // produce the image. It consumes the gather, so it requires sorted-stream
+  // raster for the same frame. Prefer counts a fallback when it cannot run;
+  // Require reports an actionable Unsupported error.
   GpuDrivenGaussianTileMode gpu_driven_gaussian_tiles{
       GpuDrivenGaussianTileMode::Disabled};
   // Maximum stored (tile, record) pairs. Zero selects
@@ -638,6 +656,14 @@ struct RenderRequest {
   // kGaussianTileMinimumPairCapacity. Pairs past the capacity are dropped and
   // reported as overflow; the frame still succeeds.
   std::uint32_t gaussian_tile_pair_capacity{};
+  // Tile raster composites the binned pairs of every tile front to back in
+  // compute, with early termination, instead of the sorted-stream draws. It
+  // consumes the tile ranges, so it requires tile binning for the same frame.
+  // A frame whose binning overflowed keeps the sorted-stream draws on the
+  // device. Prefer counts a fallback when it cannot run; Require reports an
+  // actionable Unsupported error.
+  GpuDrivenGaussianTileRasterMode gpu_driven_gaussian_tile_raster{
+      GpuDrivenGaussianTileRasterMode::Disabled};
 };
 
 enum class RendererErrorCode {

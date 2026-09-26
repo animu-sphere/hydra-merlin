@@ -143,7 +143,7 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 29) {
+    if (argc != 31) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
           "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
@@ -154,7 +154,9 @@ int main(int argc, char** argv) {
           "gaussian-sort-scatter.comp.json gaussian-sort-verify.comp.json "
           "gaussian-raster-gather.comp.json gaussian-tile-count.comp.json "
           "gaussian-tile-emit.comp.json gaussian-tile-ranges.comp.json "
-          "gaussian-tile-verify.comp.json gaussian.vert.json "
+          "gaussian-tile-verify.comp.json "
+          "gaussian-tile-raster-select.comp.json "
+          "gaussian-tile-raster.comp.json gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -194,13 +196,22 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < gaussian_tile.size(); ++i) {
       gaussian_tile[i] = CompactJson(Read(argv[18 + i]));
     }
-    const auto gaussian_vertex = CompactJson(Read(argv[22]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[23]));
-    const auto gaussian_fragment = CompactJson(Read(argv[24]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[25]));
-    const auto metal_vertex = CompactJson(Read(argv[26]));
-    const auto metal_fragment = CompactJson(Read(argv[27]));
-    const auto manifest = CompactJson(Read(argv[28]));
+    const std::array<const char*, 2> gaussian_tile_raster_entries{
+        "gaussian_tile_raster_select",
+        "gaussian_tile_raster",
+    };
+    std::array<std::string, gaussian_tile_raster_entries.size()>
+        gaussian_tile_raster;
+    for (std::size_t i = 0; i < gaussian_tile_raster.size(); ++i) {
+      gaussian_tile_raster[i] = CompactJson(Read(argv[22 + i]));
+    }
+    const auto gaussian_vertex = CompactJson(Read(argv[24]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[25]));
+    const auto gaussian_fragment = CompactJson(Read(argv[26]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[27]));
+    const auto metal_vertex = CompactJson(Read(argv[28]));
+    const auto metal_fragment = CompactJson(Read(argv[29]));
+    const auto manifest = CompactJson(Read(argv[30]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -443,6 +454,49 @@ int main(int argc, char** argv) {
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
     RequireBinding(gaussian_tile[3], "gaussian_tile_records",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
+    // Both tile raster kernels share one set layout, so each reflects every
+    // binding the layout declares.
+    static constexpr std::array<const char*, 8> gaussian_tile_raster_bindings{
+        "gaussian_tile_raster_pairs",
+        "gaussian_tile_raster_control",
+        "gaussian_tile_raster_records",
+        "gaussian_tile_raster_draw",
+        "gaussian_tile_raster_color",
+        "gaussian_tile_raster_prim_id",
+        "gaussian_tile_raster_instance_id",
+        "gaussian_tile_raster_depth",
+    };
+    for (std::size_t i = 0; i < gaussian_tile_raster.size(); ++i) {
+      const auto& raster = gaussian_tile_raster[i];
+      RequireContains(raster,
+          "\"name\":\"" + std::string(gaussian_tile_raster_entries[i]) +
+              "\",\"stage\":\"compute\"",
+          "Gaussian tile raster compute entry point mismatch");
+      RequireBinding(raster, "gaussian_tile_raster_constants",
+          "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}");
+      RequireContains(raster, "\"name\":\"GaussianTileRasterConstants\"",
+          "Gaussian tile raster constants are absent from reflection");
+      RequireField(raster, "tile_count_x", 0, 4);
+      RequireField(raster, "viewport_width", 8, 4);
+      RequireField(raster, "ranges_offset", 16, 4);
+      RequireField(raster, "pair_capacity", 20, 4);
+      for (std::size_t binding = 0;
+          binding < gaussian_tile_raster_bindings.size(); ++binding) {
+        RequireBinding(raster, gaussian_tile_raster_bindings[binding],
+            "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":" +
+                std::to_string(binding) + "}");
+      }
+      // Pairs use the sort element layout and records the preparation's.
+      RequireContains(raster, "\"name\":\"GaussianSortElement\"",
+          "Gaussian tile raster pairs do not use the sort element layout");
+      RequireField(raster, "value", 8, 4);
+      RequireField(raster, "center_pixels", 0, 8);
+      RequireField(raster, "particle_id", 56, 4);
+    }
+    RequireContains(gaussian_tile_raster[0], "\"threadGroupSize\":[1,1,1]",
+        "Gaussian tile raster selection is not a single thread");
+    RequireContains(gaussian_tile_raster[1], "\"threadGroupSize\":[16,16,1]",
+        "Gaussian tile raster workgroup is not one 16x16 tile");
     RequireContains(gaussian_raster_gather,
         "\"name\":\"gaussian_raster_gather\",\"stage\":\"compute\"",
         "Gaussian raster gather entry point mismatch");
@@ -503,7 +557,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
         "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":9",
+    RequireContains(manifest, "\"shader_abi_version\":10",
         "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
         "Slang toolchain series is not pinned");
@@ -519,14 +573,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 27,
+                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 29,
         "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 9);
+    static_assert(kVersion == 10);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -576,6 +630,27 @@ int main(int argc, char** argv) {
     static_assert(kGaussianTileControl.binding == kGaussianSortScan.binding);
     static_assert(kGaussianTileRecords.binding ==
                   kGaussianSortPreparedRecords.binding);
+    // Tile raster binds its own set: four storage buffers, three storage
+    // images, and one sampled image.
+    static_assert(kGaussianTileRasterPairs.binding == 0);
+    static_assert(kGaussianTileRasterControl.binding == 1);
+    static_assert(kGaussianTileRasterRecords.binding == 2);
+    static_assert(kGaussianTileRasterDraw.binding == 3);
+    static_assert(kGaussianTileRasterColor.binding == 4 &&
+                  kGaussianTileRasterColor.resource_class ==
+                      ResourceClass::StorageImage);
+    static_assert(kGaussianTileRasterPrimId.binding == 5 &&
+                  kGaussianTileRasterPrimId.resource_class ==
+                      ResourceClass::StorageImage);
+    static_assert(kGaussianTileRasterInstanceId.binding == 6 &&
+                  kGaussianTileRasterInstanceId.resource_class ==
+                      ResourceClass::StorageImage);
+    static_assert(kGaussianTileRasterDepth.binding == 7 &&
+                  kGaussianTileRasterDepth.resource_class ==
+                      ResourceClass::SampledImage);
+    static_assert(kGaussianTileRasterWorkgroupSize == 256);
+    static_assert(kGaussianTileRasterSelectedWord + 1U ==
+                  kGaussianTileControlWordCount);
     static_assert(GaussianTileGridSize(0) == 0);
     static_assert(GaussianTileGridSize(1) == 1);
     static_assert(GaussianTileGridSize(16) == 1);

@@ -696,6 +696,17 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       count.gaussian_gpu_tile_reference_divergence_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_fallback_count",
       count.gaussian_gpu_tile_fallback_count);
+  WriteCounter(stream, counter_indent,
+      "gaussian_gpu_tile_raster_dispatch_count",
+      count.gaussian_gpu_tile_raster_dispatch_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_raster_frame_count",
+      count.gaussian_gpu_tile_raster_frame_count);
+  WriteCounter(stream, counter_indent,
+      "gaussian_gpu_tile_raster_overflow_fallback_count",
+      count.gaussian_gpu_tile_raster_overflow_fallback_count);
+  WriteCounter(stream, counter_indent,
+      "gaussian_gpu_tile_raster_fallback_count",
+      count.gaussian_gpu_tile_raster_fallback_count);
   WriteCounter(stream, counter_indent, "gaussian_draw_count",
       count.gaussian_draw_count);
   WriteCounter(stream, counter_indent, "gaussian_attribute_upload_bytes",

@@ -330,17 +330,17 @@ int main(int argc, char** argv) {
       position = object_end;
     }
 
-    Require(verified == 27,
-        "manifest does not describe twenty-seven artifacts");
+    Require(verified == 29,
+        "manifest does not describe twenty-nine artifacts");
     Require(artifact_keys.size() == verified,
         "two artifacts share an artifact key");
     // Conventional SPIR-V and Metal share one Forward module, bindless and
     // table-backed Forward, GPU-driven compute, GPU-driven Forward, and
-    // Gaussian preparation, sorting, raster gather, tile binning, and raster
-    // own one each. Fewer identities than artifacts is the expected,
-    // load-bearing result.
-    Require(module_identities.size() == 10U,
-        "module identities do not follow the ten shader modules");
+    // Gaussian preparation, sorting, raster gather, tile binning, tile
+    // raster, and raster own one each. Fewer identities than artifacts is the
+    // expected, load-bearing result.
+    Require(module_identities.size() == 11U,
+        "module identities do not follow the eleven shader modules");
   } catch (const std::exception& error) {
     std::cerr << "shader artifact key test failed: " << error.what() << '\n';
     return 1;

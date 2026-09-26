@@ -10,6 +10,36 @@ after its public API and release process are established.
 
 ### Added
 
+- Vulkan GPU tile raster composites the verified tile ranges front to back in
+  compute, one 16x16 workgroup per tile and one thread per pixel, instead of
+  the sorted-stream draws. Each batch of up to 256 records is staged in
+  workgroup memory from the front of the tile's back-to-front range, and a
+  tile stops once every pixel's transmittance falls below 1/1024. Records are
+  evaluated with the procedural fragment stage's cutoffs and fixed-function
+  state: the three-sigma square and ellipse, the one-UNorm-step alpha floor,
+  clamping before blending, and the LESS_OR_EQUAL Mesh depth test with
+  clipping. The first contributing record writes the ID AOVs. A single-thread
+  selection kernel runs after binning and, when every requested pair was
+  stored and no record was clamped, zeroes the sorted-stream draw's instance
+  count; otherwise the device keeps the draws, so an overflowing frame never
+  loses a splat and reports `gaussian_gpu_tile_raster_overflow_fallback_count`.
+  Resolve fails the frame if the device's choice disagrees with the binning
+  counts. Tile raster is selected through
+  `RenderRequest::gpu_driven_gaussian_tile_raster` and requires tile binning
+  for the same frame; Prefer falls back and Require rejects explicitly, and a
+  missing artifact falls back independently of the binning. Requesting it
+  creates the color and ID targets with storage usage and depth with sampled
+  usage, when the device supports those formats; AOV export reports the added
+  usage. Against the CPU-sorted reference, depth and primId are exact; color
+  moves by a few rounding steps because it blends once in float instead of
+  once per UNorm draw, and rare pixels on a splat's cutoff rim may keep a
+  depth-tied neighbor's instanceId because the procedural quads interpolate
+  from subpixel-snapped corners. Vulkan timestamps include the compute
+  raster in `gaussian_raster_ns`, and the benchmark JSON reports dispatch,
+  frame, overflow-fallback, and fallback counters. Shader ABI v10
+  reflection-checks and packages the two tile raster kernels, adds a
+  device-written selection word to the tile control buffer, and adds a
+  storage-image resource class.
 - Vulkan GPU tile binning groups the gathered sorted Gaussian stream into
   16x16-pixel tiles. A count kernel sizes each record's conservative square in
   tiles, the sort's block scan turns the counts into pair offsets, and an emit

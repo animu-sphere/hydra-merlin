@@ -17,12 +17,6 @@ ownership, dependency, and fallback contracts.
 
 ### Work
 
-- 🚧 Connect GPU-sorted Gaussian records to tile pairing/ranges and tile
-  raster without losing stable IDs, deterministic order, or bounded overflow
-  behavior. Validate against CPU-sorted reference images. The verified sorted
-  stream already draws through indirect raster with exact reference parity,
-  and verified tile pairing and ranges with bounded overflow match the CPU
-  replay; tile raster remains.
 - ⬜ Make CPU Gaussian preparation and sorting a validation-only reference when
   the GPU path is selected, so camera motion no longer traverses every
   Gaussian on the CPU.

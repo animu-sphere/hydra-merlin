@@ -523,6 +523,8 @@ if(TARGET Merlin::Vulkan)
       "${MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV}.reflection.json"
+      "${MERLIN_GAUSSIAN_TILE_RASTER_SELECT_COMPUTE_SPV}.reflection.json"
+      "${MERLIN_GAUSSIAN_TILE_RASTER_COMPUTE_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
