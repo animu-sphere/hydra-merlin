@@ -41,6 +41,20 @@ ost renderer viewport --intent viewport-usd --profile usd -- `
 The `viewport-usd` intent is declared in `openstrata.toml`; use a real `usd`
 runtime when the scene needs OpenUSD and its dependencies.
 
+Omit `--frames` and `--hidden` to explore the stage interactively. For
+Gaussian scenes, `--gaussian-gpu` selects GPU preparation, sorting, and raster
+(`disabled`, `prefer`, `require`), and `--gaussian-raster` selects the
+sorted-stream or compute tile raster (`sorted-stream`, `tiled`):
+
+```powershell
+ost renderer viewport --intent viewport-usd --profile usd -- `
+  --usd C:/path/to/gaussians.usd --gaussian-gpu prefer --gaussian-raster tiled
+```
+
+`prefer` falls back per stage when a GPU stage is unavailable, and the
+developer UI's Gaussian counters show the selected path. `require` is rejected
+when GPU Gaussian execution is unavailable.
+
 See the [OpenStrata project layout](docs/design/openstrata-project.md) for the
 composition mapping and adoption decisions.
 
