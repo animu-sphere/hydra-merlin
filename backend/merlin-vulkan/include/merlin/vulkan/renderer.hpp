@@ -379,6 +379,9 @@ struct FrameCounters {
   std::uint64_t gaussian_gpu_raster_instance_count{};
   std::uint64_t gaussian_gpu_raster_indirect_draw_count{};
   std::uint64_t gaussian_gpu_raster_fallback_count{};
+  // One when the GPU-sorted stream drew the frame without the CPU reference
+  // preparation and sort, so no per-Gaussian CPU work ran.
+  std::uint64_t gaussian_cpu_preparation_skipped_count{};
   // Tile binning groups the gathered sorted stream by 16x16-pixel screen
   // tile. requested pairs follow any per-record limit; pair_count is the
   // verified stored prefix, min(requested, capacity), and overflow is the
@@ -664,6 +667,12 @@ struct RenderRequest {
   // actionable Unsupported error.
   GpuDrivenGaussianTileRasterMode gpu_driven_gaussian_tile_raster{
       GpuDrivenGaussianTileRasterMode::Disabled};
+  // When the GPU-sorted stream draws the frame, the CPU preparation and sort
+  // run only if this is set, to validate the GPU order and tile binning
+  // against the CPU reference and count divergence. Otherwise camera motion
+  // does no per-Gaussian CPU work; frames that draw the CPU-sorted stream
+  // always prepare it.
+  bool gaussian_cpu_reference_validation{};
 };
 
 enum class RendererErrorCode {

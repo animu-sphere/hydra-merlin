@@ -21,9 +21,6 @@ ownership, dependency, and fallback contracts.
   such as usdview through render setting descriptors, so GPU preparation,
   sorting, and tile raster can be selected without the development viewport,
   and measure the host-presentation cost on the GPU-sorted path.
-- ⬜ Make CPU Gaussian preparation and sorting a validation-only reference when
-  the GPU path is selected, so camera motion no longer traverses every
-  Gaussian on the CPU.
 - ⬜ Remove per-draw CPU preparation from the steady-state Mesh submission path
   while preserving the indexed Forward image and fallback contracts.
 - ⬜ Capture controlled hardware evidence for Mesh command-recording and

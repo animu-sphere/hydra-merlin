@@ -10,6 +10,21 @@ after its public API and release process are established.
 
 ### Added
 
+- Vulkan frames drawn from the GPU-sorted Gaussian stream no longer run the
+  CPU reference preparation and sort unless
+  `RenderRequest::gaussian_cpu_reference_validation` asks to compare the GPU
+  order and tile binning with it, so camera motion does no per-Gaussian CPU
+  work. Particle counters then come from the GPU preparation, hidden and
+  sorting-policy totals are counted per resource, divergence counters are
+  evaluated only against a prepared reference, and
+  `gaussian_cpu_preparation_skipped_count` reports the skip. A later
+  CPU-sorted frame prepares again instead of reusing a stale stream. The
+  Gaussian scale benchmarks add `camera-motion-cpu`,
+  `camera-motion-gpu-sorted-stream`, and `camera-motion-gpu-tiled` baselines
+  that move the camera every frame; on the development GPU the one-million
+  fixture's median frame falls from 147 ms on the CPU path to 29 ms and 26 ms
+  on the GPU sorted-stream and tiled paths, including 15 ms of full AOV
+  readback.
 - Renderer settings schema v3 and backend contract v3 add
   `gpu_driven_gaussian`: one host-neutral policy (`disabled`, `prefer`,
   `require`) that selects GPU Gaussian preparation, sorting, and raster, and

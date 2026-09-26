@@ -220,6 +220,9 @@ int main(int argc, char** argv) {
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
     request.gpu_driven_gaussian_sort =
         merlin::vulkan::GpuDrivenGaussianSortMode::Require;
+    // These checks compare the GPU stages with the CPU reference, so the
+    // GPU-sorted frames keep preparing it for validation.
+    request.gaussian_cpu_reference_validation = true;
 
     const auto first = renderer->Resolve(renderer->Submit(request));
     Require(first.counters.gaussian_visible_count == 2,
@@ -339,6 +342,42 @@ int main(int argc, char** argv) {
                 steady_difference.prim_id_pixels == 0 &&
                 steady_difference.instance_id_pixels == 0,
         "static GPU Gaussian raster frames are not deterministic");
+
+    // Without validation a GPU-sorted frame skips the CPU reference
+    // preparation and sort entirely and takes its counters from the GPU.
+    request.gaussian_cpu_reference_validation = false;
+    const auto unvalidated = renderer->Resolve(renderer->Submit(request));
+    Require(unvalidated.counters.gaussian_cpu_preparation_skipped_count ==
+                    1 &&
+                unvalidated.counters.gaussian_preparation_cache_hits == 0 &&
+                unvalidated.counters.gaussian_preparation_cache_misses == 0 &&
+                unvalidated.cpu_timings.gaussian_preparation_ns == 0,
+        "unvalidated GPU-sorted frame ran the CPU reference preparation");
+    Require(unvalidated.counters.gaussian_candidate_count == 2 &&
+                unvalidated.counters.gaussian_visible_count == 2 &&
+                unvalidated.counters.gaussian_sorted_count == 2 &&
+                unvalidated.counters.gaussian_gpu_sorted_count == 2 &&
+                unvalidated.counters.gaussian_gpu_sort_reference_divergence_count ==
+                    0,
+        "unvalidated GPU-sorted frame lost its GPU particle counters");
+    const auto unvalidated_difference = Compare(gpu_raster, unvalidated);
+    Require(unvalidated_difference.color_pixels == 0 &&
+                unvalidated_difference.prim_id_pixels == 0 &&
+                unvalidated_difference.instance_id_pixels == 0,
+        "skipping the CPU reference changed the GPU-sorted image");
+    // A later CPU-sorted frame prepares again instead of reusing the stream
+    // that the skipped frames left stale.
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Disabled;
+    const auto cpu_again = renderer->Resolve(renderer->Submit(request));
+    Require(cpu_again.counters.gaussian_preparation_cache_misses == 1 &&
+                cpu_again.counters.gaussian_cpu_preparation_skipped_count == 0,
+        "CPU-sorted frame reused a stale CPU reference stream");
+    Require(Compare(first, cpu_again).color_pixels == 0,
+        "CPU-sorted frame after skipped frames changed the reference image");
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
+    request.gaussian_cpu_reference_validation = true;
 
     // Tile binning groups the gathered stream into 16x16-pixel tiles and
     // verifies the grouping on the device. The sorted-stream draws still

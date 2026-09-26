@@ -1452,53 +1452,6 @@ public:
     material_records_.Sync(request.snapshot->materials);
     instance_records_.Sync(request.snapshot->instances);
     draw_records_.Sync(request.snapshot->draws);
-    const bool gaussian_preparation_cache_hit =
-        gaussian_preparation_cache_valid_ &&
-        gaussian_preparation_source_.table_identity() ==
-            request.snapshot->gaussians.table_identity() &&
-        gaussian_preparation_view_.values == request.snapshot->view.values &&
-        gaussian_preparation_projection_.values ==
-            request.snapshot->projection.values &&
-        gaussian_preparation_width_ == request.width &&
-        gaussian_preparation_height_ == request.height;
-    if (gaussian_preparation_cache_hit) {
-      ++frame_counters_.gaussian_preparation_cache_hits;
-    } else {
-      const auto gaussian_preparation_start = CpuClock::now();
-      prepared_gaussians_ = detail::PrepareGaussianFrame(
-          *request.snapshot, {request.width, request.height});
-      gaussian_preparation_ns = ElapsedNanoseconds(gaussian_preparation_start);
-      gaussian_preparation_source_ = request.snapshot->gaussians;
-      gaussian_preparation_view_ = request.snapshot->view;
-      gaussian_preparation_projection_ = request.snapshot->projection;
-      gaussian_preparation_width_ = request.width;
-      gaussian_preparation_height_ = request.height;
-      gaussian_preparation_cache_valid_ = true;
-      ++gaussian_preparation_generation_;
-      if (gaussian_preparation_generation_ == 0) {
-        ++gaussian_preparation_generation_;
-        for (auto& candidate_frame : frames_) {
-          candidate_frame.gaussian_preparation_generation = 0;
-        }
-      }
-      ++frame_counters_.gaussian_preparation_cache_misses;
-    }
-    frame_counters_.gaussian_candidate_count =
-        prepared_gaussians_.counters.candidate_count;
-    frame_counters_.gaussian_visible_count =
-        prepared_gaussians_.counters.visible_count;
-    frame_counters_.gaussian_hidden_count =
-        prepared_gaussians_.counters.hidden_count;
-    frame_counters_.gaussian_opacity_culled_count =
-        prepared_gaussians_.counters.opacity_culled_count;
-    frame_counters_.gaussian_frustum_culled_count =
-        prepared_gaussians_.counters.frustum_culled_count;
-    frame_counters_.gaussian_invalid_culled_count =
-        prepared_gaussians_.counters.invalid_culled_count;
-    frame_counters_.gaussian_sorted_count =
-        prepared_gaussians_.counters.sorted_count;
-    frame_counters_.gaussian_sorting_policy_fallback_count =
-        prepared_gaussians_.counters.sorting_policy_fallback_count;
     SelectGeneratedMaterials();
     PreflightGeneratedMaterialPipelines(*request.snapshot);
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
@@ -1532,6 +1485,17 @@ public:
     const auto gaussian_gpu_tiles =
         PrepareGaussianGpuTiles(frame, request, gaussian_gpu_raster);
     PrepareGaussianGpuTileRaster(frame, request, gaussian_gpu_tiles);
+    // Only the CPU-sorted draws and requested validation need the CPU
+    // reference stream; GPU-sorted frames otherwise skip it entirely.
+    frame.gaussian_cpu_reference =
+        !frame.gaussian_gpu_raster.selected ||
+        request.gaussian_cpu_reference_validation;
+    gaussian_preparation_ns =
+        PrepareGaussianCpuReference(request, frame.gaussian_cpu_reference);
+    if (frame.gaussian_cpu_reference) {
+      ComputeGaussianSortReference(frame.gaussian_gpu_sort);
+      ComputeGaussianTileReference(frame.gaussian_gpu_tiles);
+    }
     const auto gaussian_prepared_upload_start = CpuClock::now();
     // Sorted-stream raster draws the device-written order, so the frame
     // uploads no CPU-prepared stream.
@@ -2159,8 +2123,10 @@ public:
     std::uint32_t block_count{};
     std::uint32_t low_word_pass_count{};
     std::uint32_t pass_count{};
-    // Order-sensitive identity checksum of this frame's CPU reference stream.
+    // Order-sensitive identity checksum of this frame's CPU reference stream,
+    // valid only when the frame prepared that stream.
     std::uint32_t reference_checksum{};
+    bool reference_valid{};
     bool selected{};
   };
 
@@ -2215,6 +2181,7 @@ public:
     // per-record limit, and capacity truncation.
     std::uint32_t reference_requested_pair_count{};
     std::uint32_t reference_checksum{};
+    bool reference_valid{};
     bool selected{};
   };
 
@@ -2232,6 +2199,9 @@ public:
   };
 
   struct FrameContext {
+    // True when this frame prepared the CPU reference stream, to draw it or
+    // to validate the GPU-sorted stream against it.
+    bool gaussian_cpu_reference{};
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
     VkCommandPool transfer_command_pool{};
@@ -5108,8 +5078,17 @@ public:
         shader_abi::GaussianSortLowWordPassCount(candidate_count);
     resources.pass_count = resources.low_word_pass_count +
                            32U / shader_abi::kGaussianSortRadixBits;
-    // The GPU checksum weights each sorted record by its position, so it
-    // matches only when both streams hold the same records in the same order.
+    resources.reference_valid = false;
+    resources.selected = true;
+    return GaussianGpuStageSelection::Selected;
+  }
+
+  // The GPU checksum weights each sorted record by its position, so it
+  // matches only when both streams hold the same records in the same order.
+  void ComputeGaussianSortReference(GaussianGpuSortFrameResources& resources) {
+    if (!resources.selected) {
+      return;
+    }
     std::uint32_t checksum{};
     for (std::size_t i = 0; i < prepared_gaussians_.gaussians.size(); ++i) {
       const auto& gaussian = prepared_gaussians_.gaussians[i];
@@ -5120,8 +5099,82 @@ public:
                       gaussian.particle);
     }
     resources.reference_checksum = checksum;
-    resources.selected = true;
-    return GaussianGpuStageSelection::Selected;
+    resources.reference_valid = true;
+  }
+
+  // Prepares and sorts the CPU reference stream, reusing it while the
+  // Gaussian table, camera, and viewport are unchanged. A frame drawn from
+  // the GPU-sorted stream without validation does no per-Gaussian CPU work:
+  // it counts only per-resource totals, and resolve fills the per-particle
+  // counters from the GPU preparation. Returns the preparation time.
+  std::uint64_t PrepareGaussianCpuReference(const RenderRequest& request,
+      bool required) {
+    std::uint64_t preparation_ns{};
+    if (!required) {
+      // The retained stream no longer matches this frame's inputs, so a later
+      // CPU-sorted frame prepares again instead of reusing it.
+      gaussian_preparation_cache_valid_ = false;
+      ++frame_counters_.gaussian_cpu_preparation_skipped_count;
+      std::uint64_t hidden_count{};
+      for (const auto& record : request.snapshot->gaussians) {
+        if (!record.visible && record.positions) {
+          hidden_count += record.positions->size();
+        }
+      }
+      frame_counters_.gaussian_hidden_count = hidden_count;
+      frame_counters_.gaussian_sorting_policy_fallback_count =
+          detail::SelectGaussianSortingPolicy(*request.snapshot)
+              .fallback_resource_count;
+      return preparation_ns;
+    }
+    const bool gaussian_preparation_cache_hit =
+        gaussian_preparation_cache_valid_ &&
+        gaussian_preparation_source_.table_identity() ==
+            request.snapshot->gaussians.table_identity() &&
+        gaussian_preparation_view_.values == request.snapshot->view.values &&
+        gaussian_preparation_projection_.values ==
+            request.snapshot->projection.values &&
+        gaussian_preparation_width_ == request.width &&
+        gaussian_preparation_height_ == request.height;
+    if (gaussian_preparation_cache_hit) {
+      ++frame_counters_.gaussian_preparation_cache_hits;
+    } else {
+      const auto gaussian_preparation_start = CpuClock::now();
+      prepared_gaussians_ = detail::PrepareGaussianFrame(
+          *request.snapshot, {request.width, request.height});
+      preparation_ns = ElapsedNanoseconds(gaussian_preparation_start);
+      gaussian_preparation_source_ = request.snapshot->gaussians;
+      gaussian_preparation_view_ = request.snapshot->view;
+      gaussian_preparation_projection_ = request.snapshot->projection;
+      gaussian_preparation_width_ = request.width;
+      gaussian_preparation_height_ = request.height;
+      gaussian_preparation_cache_valid_ = true;
+      ++gaussian_preparation_generation_;
+      if (gaussian_preparation_generation_ == 0) {
+        ++gaussian_preparation_generation_;
+        for (auto& candidate_frame : frames_) {
+          candidate_frame.gaussian_preparation_generation = 0;
+        }
+      }
+      ++frame_counters_.gaussian_preparation_cache_misses;
+    }
+    frame_counters_.gaussian_candidate_count =
+        prepared_gaussians_.counters.candidate_count;
+    frame_counters_.gaussian_visible_count =
+        prepared_gaussians_.counters.visible_count;
+    frame_counters_.gaussian_hidden_count =
+        prepared_gaussians_.counters.hidden_count;
+    frame_counters_.gaussian_opacity_culled_count =
+        prepared_gaussians_.counters.opacity_culled_count;
+    frame_counters_.gaussian_frustum_culled_count =
+        prepared_gaussians_.counters.frustum_culled_count;
+    frame_counters_.gaussian_invalid_culled_count =
+        prepared_gaussians_.counters.invalid_culled_count;
+    frame_counters_.gaussian_sorted_count =
+        prepared_gaussians_.counters.sorted_count;
+    frame_counters_.gaussian_sorting_policy_fallback_count =
+        prepared_gaussians_.counters.sorting_policy_fallback_count;
+    return preparation_ns;
   }
 
   void EnsureGaussianGpuRasterFrameResources(
@@ -5389,6 +5442,9 @@ public:
   // bounds, per-record limit, capacity truncation, and stable tile grouping,
   // so matching streams produce the GPU verification checksum.
   void ComputeGaussianTileReference(GaussianGpuTileFrameResources& resources) {
+    if (!resources.selected) {
+      return;
+    }
     const auto& constants = resources.constants;
     std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs;
     std::uint64_t requested{};
@@ -5425,6 +5481,7 @@ public:
     resources.reference_requested_pair_count =
         static_cast<std::uint32_t>(requested);
     resources.reference_checksum = checksum;
+    resources.reference_valid = true;
   }
 
   // Tile binning consumes the gathered raster-order records and the draw
@@ -5569,7 +5626,7 @@ public:
             : (static_cast<std::uint32_t>(std::bit_width(tile_count - 1U)) +
                   shader_abi::kGaussianSortRadixBits - 1U) /
                   shader_abi::kGaussianSortRadixBits;
-    ComputeGaussianTileReference(resources);
+    resources.reference_valid = false;
     frame_counters_.gaussian_gpu_tile_count = tile_count;
     frame_counters_.gaussian_gpu_tile_pair_capacity = pair_capacity;
     resources.selected = true;
@@ -10367,6 +10424,17 @@ public:
         frustum_culled_count;
     frame_counters_.gaussian_gpu_preparation_invalid_culled_count =
         invalid_culled_count;
+    // Without the CPU reference the frame's particle counters come from the
+    // GPU partition; hidden resources are not dispatched, so their particles
+    // join the candidates here.
+    if (!frame.gaussian_cpu_reference) {
+      frame_counters_.gaussian_candidate_count =
+          candidate_count + frame_counters_.gaussian_hidden_count;
+      frame_counters_.gaussian_visible_count = visible_count;
+      frame_counters_.gaussian_opacity_culled_count = opacity_culled_count;
+      frame_counters_.gaussian_frustum_culled_count = frustum_culled_count;
+      frame_counters_.gaussian_invalid_culled_count = invalid_culled_count;
+    }
   }
 
   void ResolveGaussianGpuSortVerification(FrameContext& frame) {
@@ -10397,7 +10465,11 @@ public:
           "record exactly once");
     }
     frame_counters_.gaussian_gpu_sorted_count = verification.sorted_count;
-    if (verification.identity_checksum != resources.reference_checksum) {
+    if (!frame.gaussian_cpu_reference) {
+      frame_counters_.gaussian_sorted_count = verification.sorted_count;
+    }
+    if (resources.reference_valid &&
+        verification.identity_checksum != resources.reference_checksum) {
       ++frame_counters_.gaussian_gpu_sort_reference_divergence_count;
     }
   }
@@ -10470,9 +10542,10 @@ public:
         verification.occupied_tile_count;
     frame_counters_.gaussian_gpu_tile_max_pair_count =
         verification.max_tile_pair_count;
-    if (verification.requested_pair_count !=
-            resources.reference_requested_pair_count ||
-        verification.identity_checksum != resources.reference_checksum) {
+    if (resources.reference_valid &&
+        (verification.requested_pair_count !=
+                resources.reference_requested_pair_count ||
+            verification.identity_checksum != resources.reference_checksum)) {
       ++frame_counters_.gaussian_gpu_tile_reference_divergence_count;
     }
     if (!frame.gaussian_gpu_tile_raster.selected) {

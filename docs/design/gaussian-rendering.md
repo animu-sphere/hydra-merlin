@@ -45,7 +45,13 @@ plus CPU sort, GPU-sorted stream raster, and conservative flat tiling remain
 diagnostic fallbacks.
 Validation requires reference-tolerance parity, timestamp ranges and observable
 candidate/visible/rejected/sorted/pair counts, with no CPU full traversal or
-sort during camera movement.
+sort during camera movement. A frame drawn from the GPU-sorted stream prepares
+the CPU reference only when validation is requested: the GPU stages verify
+their own order, keys, pairs, and ranges on the device, the CPU stream adds
+only the divergence comparison, and the particle counters come from the GPU
+preparation's partition. Frames that draw the CPU-sorted stream always
+prepare it, and a stream left stale by skipped frames is prepared again
+rather than reused.
 
 Projection/compaction reads the tightly packed attribute ranges, evaluates
 the selected projection and radiance, and retains a sort key with stable

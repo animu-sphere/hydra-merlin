@@ -9,6 +9,7 @@
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -101,7 +102,29 @@ struct ScaleFixture {
   std::vector<merlin::MeshHandle> meshes;
   std::vector<merlin::InstanceHandle> instances;
   std::vector<merlin::GaussianHandle> gaussians;
+  merlin::CameraHandle camera;
 };
+
+// Gaussian execution measured under camera motion: the CPU-sorted reference
+// stream, or GPU preparation and sorting with the sorted-stream draws or
+// compute tile raster.
+enum class GaussianExecution {
+  Cpu,
+  GpuSortedStream,
+  GpuTiled,
+};
+
+std::string_view GaussianExecutionName(GaussianExecution execution) {
+  switch (execution) {
+  case GaussianExecution::Cpu:
+    return "cpu";
+  case GaussianExecution::GpuSortedStream:
+    return "gpu-sorted-stream";
+  case GaussianExecution::GpuTiled:
+    return "gpu-tiled";
+  }
+  return "unknown";
+}
 
 std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
   return static_cast<std::uint64_t>(
@@ -697,6 +720,9 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_fallback_count",
       count.gaussian_gpu_tile_fallback_count);
   WriteCounter(stream, counter_indent,
+      "gaussian_cpu_preparation_skipped_count",
+      count.gaussian_cpu_preparation_skipped_count);
+  WriteCounter(stream, counter_indent,
       "gaussian_gpu_tile_raster_dispatch_count",
       count.gaussian_gpu_tile_raster_dispatch_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_raster_frame_count",
@@ -1064,7 +1090,8 @@ merlin::vulkan::RenderResult Render(
     std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate>
         gpu_scene_update = {},
     merlin::vulkan::GpuDrivenIndexedMode gpu_driven_mode =
-        merlin::vulkan::GpuDrivenIndexedMode::Disabled) {
+        merlin::vulkan::GpuDrivenIndexedMode::Disabled,
+    GaussianExecution gaussian_execution = GaussianExecution::Cpu) {
   merlin::vulkan::RenderRequest request;
   request.snapshot = extractor.snapshot();
   request.width = arguments.width;
@@ -1073,6 +1100,20 @@ merlin::vulkan::RenderResult Render(
   request.products = products;
   request.gpu_scene_update = std::move(gpu_scene_update);
   request.gpu_driven_indexed.mode = gpu_driven_mode;
+  if (gaussian_execution != GaussianExecution::Cpu) {
+    request.gpu_driven_gaussian_preparation =
+        merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
+    request.gpu_driven_gaussian_sort =
+        merlin::vulkan::GpuDrivenGaussianSortMode::Require;
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
+  }
+  if (gaussian_execution == GaussianExecution::GpuTiled) {
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Require;
+    request.gpu_driven_gaussian_tile_raster =
+        merlin::vulkan::GpuDrivenGaussianTileRasterMode::Require;
+  }
   return renderer.Resolve(renderer.Submit(request));
 }
 
@@ -1178,6 +1219,7 @@ int main(int argc, char** argv) {
     std::vector<merlin::render::GpuMaterialBinding> gpu_material_bindings;
     std::uint64_t last_completion_value{};
     auto gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Disabled;
+    auto gaussian_execution = GaussianExecution::Cpu;
     if (gpu_driven_fixture) {
       gpu_scene_packing =
           std::make_unique<merlin::render::GpuScenePackingState>(
@@ -1200,7 +1242,7 @@ int main(int argc, char** argv) {
                         gpu_material_bindings}));
       }
       auto result = Render(renderer, extractor, shaders, arguments, products,
-          std::move(update), gpu_driven_mode);
+          std::move(update), gpu_driven_mode, gaussian_execution);
       last_completion_value = result.completion_value;
       return result;
     };
@@ -1403,6 +1445,53 @@ int main(int argc, char** argv) {
             PopulateScaleFixture(arguments.fixture, fixture);
       });
       steady("steady-state");
+      if (fixture_summary.gaussian_particle_count != 0) {
+        // Every frame moves the camera, so no frame can reuse the previous
+        // projection or order. One warm-up frame per path absorbs its
+        // pipeline and resource creation before sampling.
+        merlin::CameraDescriptor camera;
+        camera.label = "gaussian-motion-camera";
+        fixture.camera = fixture.world.CreateCamera(std::move(camera));
+        extractor.Apply(fixture.world, fixture.world.Commit());
+        extractor.SetActiveCamera(fixture.camera);
+        std::uint32_t motion_step{};
+        const auto move_camera = [&] {
+          auto descriptor = fixture.world.Get(fixture.camera);
+          descriptor.view.values[12] =
+              0.05F * std::sin(0.1F * static_cast<float>(++motion_step));
+          fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
+              merlin::ChangeAspect::Camera);
+          const auto changes = fixture.world.Commit();
+          extractor.Apply(fixture.world, changes);
+        };
+        for (const auto execution : {GaussianExecution::Cpu,
+                 GaussianExecution::GpuSortedStream,
+                 GaussianExecution::GpuTiled}) {
+          gaussian_execution = execution;
+          move_camera();
+          (void)render();
+          std::vector<FrameTimings> samples;
+          samples.reserve(arguments.steady_frames);
+          merlin::vulkan::RenderResult last_result;
+          for (std::uint32_t frame = 0; frame < arguments.steady_frames;
+              ++frame) {
+            const auto start = CpuClock::now();
+            const auto extraction_start = CpuClock::now();
+            move_camera();
+            const auto extraction_ns = ElapsedNanoseconds(extraction_start);
+            last_result = render();
+            auto timing = FromBackend(last_result.cpu_timings);
+            timing.extraction_ns = extraction_ns;
+            timing.total_frame_ns = ElapsedNanoseconds(start);
+            samples.push_back(timing);
+          }
+          baselines.push_back({"camera-motion-" +
+                                   std::string(GaussianExecutionName(execution)),
+              std::move(samples), last_result.counters,
+              extractor.snapshot()->build_counters});
+        }
+        gaussian_execution = GaussianExecution::Cpu;
+      }
     }
 
     if (arguments.output.empty()) {
