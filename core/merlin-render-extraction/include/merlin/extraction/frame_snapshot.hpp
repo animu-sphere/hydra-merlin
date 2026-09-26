@@ -238,4 +238,4 @@ struct FrameSnapshot {
   FrontFaceWinding front_face{FrontFaceWinding::Clockwise};
 };
 
-}  // namespace merlin::extraction
+} // namespace merlin::extraction

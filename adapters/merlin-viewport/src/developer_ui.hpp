@@ -24,7 +24,8 @@ namespace merlin::viewport {
 class Window;
 struct DeveloperUiSettingsFeedback;
 
-enum class DeveloperUiDiagnosticOrigin { Host, Backend };
+enum class DeveloperUiDiagnosticOrigin { Host,
+  Backend };
 
 struct DeveloperUiDiagnosticEntry {
   std::uint64_t sequence{};
@@ -39,17 +40,17 @@ struct DeveloperUiDiagnosticEntry {
 // Backend Report entry point uses Backend origin and the most recently set
 // frame; hosts can record their own events with an explicit origin/frame.
 class DeveloperUiDiagnosticHistory final : public DiagnosticSink {
- public:
+public:
   explicit DeveloperUiDiagnosticHistory(std::size_t capacity = 256);
 
   void Report(const Diagnostic& diagnostic) override;
   void SetFrameIndex(std::uint64_t frame_index) noexcept;
   void Record(DeveloperUiDiagnosticOrigin origin, std::uint64_t frame_index,
-              const Diagnostic& diagnostic);
+      const Diagnostic& diagnostic);
   [[nodiscard]] std::vector<DeveloperUiDiagnosticEntry> Snapshot() const;
   void Clear();
 
- private:
+private:
   std::size_t capacity_;
   mutable std::mutex mutex_;
   std::vector<DeveloperUiDiagnosticEntry> entries_;
@@ -153,7 +154,9 @@ struct DeveloperUiAovPreview {
   std::vector<DeveloperUiAovPreviewPixel> pixels;
 };
 
-enum class DeveloperUiSettingsStatus { None, Applied, Rejected };
+enum class DeveloperUiSettingsStatus { None,
+  Applied,
+  Rejected };
 
 struct DeveloperUiSettingsFeedback {
   DeveloperUiSettingsStatus status{DeveloperUiSettingsStatus::None};
@@ -221,7 +224,7 @@ void AddDeveloperUiAovInspectionProduct(
 // The viewport talks only to this small host surface. Dear ImGui and its
 // platform/renderer backends stay private to developer_ui.cpp.
 class DeveloperUi {
- public:
+public:
   static std::unique_ptr<DeveloperUi> Create(Window& window);
   virtual ~DeveloperUi() = default;
 
@@ -239,4 +242,4 @@ class DeveloperUi {
   [[nodiscard]] virtual bool WantsMouse() const noexcept = 0;
 };
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

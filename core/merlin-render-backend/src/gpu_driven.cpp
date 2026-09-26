@@ -14,7 +14,7 @@ namespace merlin::render {
 namespace {
 
 [[noreturn]] void Throw(GpuDrivenIndexedErrorCode code,
-                        std::string_view message) {
+    std::string_view message) {
   throw GpuDrivenIndexedError(code, std::string(message));
 }
 
@@ -46,14 +46,14 @@ Vec4 Transform(const Mat4& matrix, const Vec4& value) noexcept {
 }
 
 bool OutsideFrustum(const GpuGeometry& geometry,
-                    const GpuInstance& instance,
-                    const Mat4& view_projection) noexcept {
+    const GpuInstance& instance,
+    const Mat4& view_projection) noexcept {
   const std::array<float, 2> xs{geometry.bounds_min.x,
-                                geometry.bounds_max.x};
+      geometry.bounds_max.x};
   const std::array<float, 2> ys{geometry.bounds_min.y,
-                                geometry.bounds_max.y};
+      geometry.bounds_max.y};
   const std::array<float, 2> zs{geometry.bounds_min.z,
-                                geometry.bounds_max.z};
+      geometry.bounds_max.z};
   std::array<Vec4, 8> clip_corners;
   std::size_t corner_index{};
   for (const auto z : zs) {
@@ -85,17 +85,17 @@ bool OutsideFrustum(const GpuGeometry& geometry,
 }
 
 void ValidateRecord(const GpuGeometry& geometry,
-                    const GpuInstance& instance,
-                    const GpuDraw& draw) {
+    const GpuInstance& instance,
+    const GpuDraw& draw) {
   if (geometry.index_type != kGpuGeometryIndexTypeUint32) {
     Throw(GpuDrivenIndexedErrorCode::InvalidRecord,
-          "GPU-driven indexed geometry is not uint32 indexed");
+        "GPU-driven indexed geometry is not uint32 indexed");
   }
   if (geometry.vertex_count == 0 || geometry.index_count == 0 ||
       geometry.index_count % 3U != 0U || draw.primitive_count == 0 ||
       GpuDrawIdentity(draw) == 0) {
     Throw(GpuDrivenIndexedErrorCode::InvalidRecord,
-          "GPU-driven indexed candidate has an invalid count or identity");
+        "GPU-driven indexed candidate has an invalid count or identity");
   }
   if (!IsFinite(geometry.bounds_min) || !IsFinite(geometry.bounds_max) ||
       geometry.bounds_min.w != 0.0F || geometry.bounds_max.w != 0.0F ||
@@ -104,7 +104,7 @@ void ValidateRecord(const GpuGeometry& geometry,
       geometry.bounds_min.z > geometry.bounds_max.z ||
       !IsFinite(instance.transform)) {
     Throw(GpuDrivenIndexedErrorCode::InvalidRecord,
-          "GPU-driven indexed candidate has invalid bounds or transform");
+        "GPU-driven indexed candidate has invalid bounds or transform");
   }
 
   constexpr auto addressable_bytes =
@@ -117,7 +117,7 @@ void ValidateRecord(const GpuGeometry& geometry,
                              sizeof(std::uint32_t);
   if (vertex_end > addressable_bytes || index_end > addressable_bytes) {
     Throw(GpuDrivenIndexedErrorCode::UnrepresentableGeometry,
-          "GPU-driven geometry range exceeds the ABI v1 address space");
+        "GPU-driven geometry range exceeds the ABI v1 address space");
   }
 
   const auto first_index =
@@ -126,13 +126,13 @@ void ValidateRecord(const GpuGeometry& geometry,
       static_cast<std::uint64_t>(draw.primitive_count) * 3U;
   if (first_index + index_count > geometry.index_count) {
     Throw(GpuDrivenIndexedErrorCode::InvalidRecord,
-          "GPU-driven indexed draw range exceeds its geometry");
+        "GPU-driven indexed draw range exceeds its geometry");
   }
 }
 
 GpuIndexedIndirectCommand MakeCommand(const GpuGeometry& geometry,
-                                      const GpuDraw& draw,
-                                      std::uint32_t draw_slot) {
+    const GpuDraw& draw,
+    std::uint32_t draw_slot) {
   constexpr auto vertex_stride =
       static_cast<std::uint32_t>(sizeof(extraction::DrawVertex));
   constexpr auto index_stride =
@@ -140,7 +140,7 @@ GpuIndexedIndirectCommand MakeCommand(const GpuGeometry& geometry,
   if (geometry.vertex_offset % vertex_stride != 0U ||
       geometry.index_offset % index_stride != 0U) {
     Throw(GpuDrivenIndexedErrorCode::UnrepresentableGeometry,
-          "GPU-driven geometry arena offsets are not element aligned");
+        "GPU-driven geometry arena offsets are not element aligned");
   }
   const auto vertex_offset = geometry.vertex_offset / vertex_stride;
   const auto first_index = geometry.index_offset / index_stride +
@@ -149,17 +149,18 @@ GpuIndexedIndirectCommand MakeCommand(const GpuGeometry& geometry,
   if (vertex_offset >
       static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())) {
     Throw(GpuDrivenIndexedErrorCode::UnrepresentableGeometry,
-          "GPU-driven vertex offset exceeds the indirect command ABI");
+        "GPU-driven vertex offset exceeds the indirect command ABI");
   }
   return {index_count, 1U, first_index,
-          static_cast<std::int32_t>(vertex_offset), draw_slot};
+      static_cast<std::int32_t>(vertex_offset), draw_slot};
 }
 
-}  // namespace
+} // namespace
 
 GpuDrivenIndexedError::GpuDrivenIndexedError(
     GpuDrivenIndexedErrorCode code, std::string message)
-    : std::runtime_error(std::move(message)), code_(code) {}
+    : std::runtime_error(std::move(message)), code_(code) {
+}
 
 GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
     std::span<const std::uint32_t> candidate_draw_slots,
@@ -171,16 +172,16 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
     const GpuDrivenIndexedConfig& config) {
   if (!IsFinite(config.view_projection)) {
     Throw(GpuDrivenIndexedErrorCode::InvalidConfiguration,
-          "GPU-driven view-projection matrix is not finite");
+        "GPU-driven view-projection matrix is not finite");
   }
   if (candidate_draw_slots.size() >
       std::numeric_limits<std::uint32_t>::max()) {
     Throw(GpuDrivenIndexedErrorCode::InvalidConfiguration,
-          "GPU-driven candidate count exceeds the command-count ABI");
+        "GPU-driven candidate count exceeds the command-count ABI");
   }
   if (geometry_bindings.size() != geometries.size()) {
     Throw(GpuDrivenIndexedErrorCode::InvalidConfiguration,
-          "GPU-driven geometry binding count does not match the table");
+        "GPU-driven geometry binding count does not match the table");
   }
 
   GpuDrivenIndexedPlan result;
@@ -191,11 +192,11 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
   for (const auto draw_slot : candidate_draw_slots) {
     if (draw_slot >= draws.size()) {
       Throw(GpuDrivenIndexedErrorCode::MissingResidency,
-            "GPU-driven candidate names a missing draw slot");
+          "GPU-driven candidate names a missing draw slot");
     }
     if (seen_draw_slots[draw_slot]) {
       Throw(GpuDrivenIndexedErrorCode::InvalidCandidate,
-            "GPU-driven candidate draw slot is duplicated");
+          "GPU-driven candidate draw slot is duplicated");
     }
     seen_draw_slots[draw_slot] = true;
 
@@ -204,7 +205,7 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
         draw.material_index >= materials.size() ||
         draw.instance_index >= instances.size()) {
       Throw(GpuDrivenIndexedErrorCode::MissingResidency,
-            "GPU-driven draw references a missing GPU Scene record");
+          "GPU-driven draw references a missing GPU Scene record");
     }
     const auto& geometry = geometries[draw.geometry_index];
     const auto& binding = geometry_bindings[draw.geometry_index];
@@ -212,7 +213,7 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
     if (binding.vertex_arena_block == kInvalidGpuSceneTableIndex ||
         binding.index_arena_block == kInvalidGpuSceneTableIndex) {
       Throw(GpuDrivenIndexedErrorCode::MissingResidency,
-            "GPU-driven geometry has no native arena block binding");
+          "GPU-driven geometry has no native arena block binding");
     }
     ValidateRecord(geometry, instance, draw);
 
@@ -243,4 +244,4 @@ GpuDrivenIndexedPlan BuildGpuDrivenIndexedPlan(
   return result;
 }
 
-}  // namespace merlin::render
+} // namespace merlin::render

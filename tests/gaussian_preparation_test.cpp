@@ -41,7 +41,7 @@ merlin::extraction::GaussianRecord MakeRecord(
   return record;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   using merlin::vulkan::detail::EvaluateGaussianRadiance;
@@ -70,8 +70,7 @@ int main() {
 
   merlin::extraction::FrameSnapshot snapshot;
   snapshot.gaussians.push_back(MakeRecord(
-      7, {{0.0F, 0.0F, 0.2F}, {0.0F, 0.0F, 0.8F},
-          {0.0F, 0.0F, 0.5F}, {4.0F, 0.0F, 0.5F}},
+      7, {{0.0F, 0.0F, 0.2F}, {0.0F, 0.0F, 0.8F}, {0.0F, 0.0F, 0.5F}, {4.0F, 0.0F, 0.5F}},
       {1.0F, 1.0F, 0.0F, 1.0F}));
   const auto prepared = PrepareGaussianFrame(snapshot, {100, 80});
   assert(prepared.counters.candidate_count == 4);
@@ -125,7 +124,7 @@ int main() {
       PrepareGaussianFrame(orthographic_snapshot, {100, 100});
   assert(orthographic.gaussians.size() == 2);
   assert(Near(orthographic.gaussians[0].radius_pixels,
-              orthographic.gaussians[1].radius_pixels));
+      orthographic.gaussians[1].radius_pixels));
 
   // Three-sigma depth bounds conservatively retain a kernel crossing the
   // near plane, while rejecting one whose complete bound remains outside.

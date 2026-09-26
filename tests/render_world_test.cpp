@@ -10,7 +10,7 @@
 namespace {
 
 class CollectingDiagnosticSink final : public merlin::DiagnosticSink {
- public:
+public:
   void Report(const merlin::Diagnostic& diagnostic) override {
     last = diagnostic;
     ++count;
@@ -20,15 +20,15 @@ class CollectingDiagnosticSink final : public merlin::DiagnosticSink {
   std::size_t count{};
 };
 
-}  // namespace
+} // namespace
 
 int main() {
   CollectingDiagnosticSink diagnostic_sink;
   diagnostic_sink.Report(
       {merlin::kDiagnosticSchemaVersion, "test.unsupported",
-       merlin::DiagnosticSeverity::Warning,
-       merlin::DiagnosticDisposition::Fallback, "/test",
-       "unsupported test input", "constant-fallback"});
+          merlin::DiagnosticSeverity::Warning,
+          merlin::DiagnosticDisposition::Fallback, "/test",
+          "unsupported test input", "constant-fallback"});
   assert(diagnostic_sink.count == 1);
   assert(diagnostic_sink.last.schema_version ==
          merlin::kDiagnosticSchemaVersion);
@@ -39,7 +39,7 @@ int main() {
   merlin::MeshDescriptor mesh;
   mesh.label = "triangle";
   mesh.positions = {{0.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F},
-                    {0.0F, 1.0F, 0.0F}};
+      {0.0F, 1.0F, 0.0F}};
   mesh.indices = {0, 1, 2};
   const auto mesh_handle = world.CreateMesh(mesh);
 
@@ -94,7 +94,7 @@ int main() {
 
   instance.visible = false;
   world.UpdateInstance(instance_handle, instance,
-                       merlin::ChangeAspect::Visibility);
+      merlin::ChangeAspect::Visibility);
   changes = world.Commit();
   assert(changes.revision == 2);
   assert(changes.changes.size() == 1);
@@ -108,7 +108,7 @@ int main() {
   bool bad_range_rejected = false;
   try {
     world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Points,
-                     std::vector<merlin::ElementRange>{{3, 1}});
+        std::vector<merlin::ElementRange>{{3, 1}});
   } catch (const std::invalid_argument&) {
     bad_range_rejected = true;
   }
@@ -117,10 +117,10 @@ int main() {
 
   instance.transform.values[12] = 0.25F;
   world.UpdateInstance(instance_handle, instance,
-                       merlin::ChangeAspect::Transform);
+      merlin::ChangeAspect::Transform);
   instance.visible = true;
   world.UpdateInstance(instance_handle, instance,
-                       merlin::ChangeAspect::Visibility);
+      merlin::ChangeAspect::Visibility);
   changes = world.Commit();
   assert(changes.revision == 3);
   assert(changes.changes.size() == 1);
@@ -171,10 +171,10 @@ int main() {
   (void)range_world.Commit();
   mesh.positions[0].x = 0.25F;
   range_world.UpdateMesh(range_mesh, mesh, merlin::ChangeAspect::Points,
-                         std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   mesh.positions[2].y = 0.75F;
   range_world.UpdateMesh(range_mesh, mesh, merlin::ChangeAspect::Points,
-                         std::vector<merlin::ElementRange>{{2, 1}});
+      std::vector<merlin::ElementRange>{{2, 1}});
   const auto ranged_changes = range_world.Commit();
   assert(ranged_changes.changes.size() == 1);
   assert(ranged_changes.changes.front().vertex_ranges_known);
@@ -296,12 +296,12 @@ int main() {
       "sha256:render-world-instance";
   generated_material.generated_parameters.entries.push_back(
       {"tint", merlin::MaterialValueType::Float3,
-       {merlin::Vec3{0.2F, 0.4F, 0.6F}}});
+          {merlin::Vec3{0.2F, 0.4F, 0.6F}}});
   generated_material.generated_resources.key =
       "sha256:render-world-resources";
   generated_material.generated_resources.entries.push_back(
       {"image", merlin::MaterialValueType::CombinedTextureSampler,
-       {{texture_handle, sampler_handle}}});
+          {{texture_handle, sampler_handle}}});
   const auto generated_material_handle =
       material_world.CreateMaterial(generated_material);
   const auto generated_changes = material_world.Commit();

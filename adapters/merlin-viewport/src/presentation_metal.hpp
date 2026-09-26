@@ -9,4 +9,4 @@ class Window;
 [[nodiscard]] metal::PresentationOptions MakeGlfwMetalPresentation(
     Window& window, bool vsync);
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

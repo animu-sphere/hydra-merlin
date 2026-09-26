@@ -9,8 +9,12 @@ namespace merlin {
 inline constexpr std::string_view kDiagnosticSchema = "merlin-diagnostic/v1";
 inline constexpr std::uint32_t kDiagnosticSchemaVersion = 1;
 
-enum class DiagnosticSeverity { Info, Warning, Error };
-enum class DiagnosticDisposition { Fallback, Rejected, Ignored };
+enum class DiagnosticSeverity { Info,
+  Warning,
+  Error };
+enum class DiagnosticDisposition { Fallback,
+  Rejected,
+  Ignored };
 
 // Host-neutral, versioned diagnostic passed from ingestion or backend
 // boundaries to a host-provided sink. `recovery` names the exact fallback or
@@ -26,9 +30,9 @@ struct Diagnostic {
 };
 
 class DiagnosticSink {
- public:
+public:
   virtual ~DiagnosticSink() = default;
   virtual void Report(const Diagnostic& diagnostic) = 0;
 };
 
-}  // namespace merlin
+} // namespace merlin

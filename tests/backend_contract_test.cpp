@@ -10,9 +10,9 @@
 namespace {
 
 class FakeBackend final : public merlin::render::Backend {
- public:
+public:
   explicit FakeBackend(merlin::render::BackendKind kind,
-                       bool presentation = false)
+      bool presentation = false)
       : owner_(kind == merlin::render::BackendKind::Vulkan ? 41U : 42U) {
     capabilities_.backend = kind;
     capabilities_.backend_name =
@@ -39,8 +39,8 @@ class FakeBackend final : public merlin::render::Backend {
   }
 
   void ResizePresentationTarget(merlin::render::PresentationTarget target,
-                                std::uint32_t width,
-                                std::uint32_t height) override {
+      std::uint32_t width,
+      std::uint32_t height) override {
     if (!presentation_ || target != *presentation_ || width == 0 ||
         height == 0) {
       throw merlin::render::RendererError(
@@ -88,7 +88,7 @@ class FakeBackend final : public merlin::render::Backend {
     return result;
   }
 
- private:
+private:
   void Validate(merlin::render::CompletionToken token) const {
     if (token.owner() != owner_ || token.value() == 0 ||
         token.value() > completion_) {
@@ -109,12 +109,15 @@ class FakeBackend final : public merlin::render::Backend {
 };
 
 class FakeFactory final : public merlin::render::BackendFactory {
- public:
+public:
   FakeFactory(merlin::render::BackendKind kind, bool available,
-              bool presentation = false)
-      : kind_(kind), available_(available), presentation_(presentation) {}
+      bool presentation = false)
+      : kind_(kind), available_(available), presentation_(presentation) {
+  }
 
-  merlin::render::BackendKind kind() const noexcept override { return kind_; }
+  merlin::render::BackendKind kind() const noexcept override {
+    return kind_;
+  }
 
   merlin::render::BackendAvailability availability() const override {
     return {available_, available_ ? "" : "test-disabled"};
@@ -125,13 +128,13 @@ class FakeFactory final : public merlin::render::BackendFactory {
     return std::make_unique<FakeBackend>(kind_, presentation_);
   }
 
- private:
+private:
   merlin::render::BackendKind kind_;
   bool available_{};
   bool presentation_{};
 };
 
-}  // namespace
+} // namespace
 
 int main() {
   using namespace merlin::render;
@@ -234,19 +237,19 @@ int main() {
   settings = {};
   settings.tone_mapping = ToneMapping::Aces;
   require_unsupported(settings,
-                      "renderer-settings.tone-mapping-unsupported");
+      "renderer-settings.tone-mapping-unsupported");
   settings = {};
   settings.alpha_policy = AlphaPolicy::Blend;
   require_unsupported(settings,
-                      "renderer-settings.alpha-policy-unsupported");
+      "renderer-settings.alpha-policy-unsupported");
   settings = {};
   settings.debug_view = DebugView::Normal;
   require_unsupported(settings,
-                      "renderer-settings.debug-view-unsupported");
+      "renderer-settings.debug-view-unsupported");
   settings = {};
   settings.telemetry = TelemetryMode::Detailed;
   require_unsupported(settings,
-                      "renderer-settings.telemetry-unsupported");
+      "renderer-settings.telemetry-unsupported");
   settings = {};
   auto validation_capabilities = backend->capabilities();
   validation_capabilities.validation_enabled = true;

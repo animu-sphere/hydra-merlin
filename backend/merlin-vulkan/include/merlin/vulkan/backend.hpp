@@ -11,7 +11,7 @@ namespace merlin::vulkan {
 // Host adapters discover it with dynamic_cast without adding native resource
 // handles to the backend-neutral Core contract.
 class AovImageExporter {
- public:
+public:
   virtual ~AovImageExporter() = default;
   [[nodiscard]] virtual AovImageExport AcquireAovImage(
       render::CompletionToken token, Aov aov) = 0;
@@ -27,7 +27,7 @@ struct BackendFactoryOptions {
 // contract. Native presentation configuration remains in RendererOptions and
 // never enters Core.
 class BackendFactory final : public render::BackendFactory {
- public:
+public:
   explicit BackendFactory(BackendFactoryOptions options);
   ~BackendFactory() override;
 
@@ -41,9 +41,9 @@ class BackendFactory final : public render::BackendFactory {
   [[nodiscard]] std::unique_ptr<render::Backend> Create(
       const render::BackendCreateInfo& info) const override;
 
- private:
+private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

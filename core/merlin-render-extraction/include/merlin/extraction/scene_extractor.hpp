@@ -13,7 +13,7 @@ class RenderWorld;
 namespace merlin::extraction {
 
 class SceneExtractor {
- public:
+public:
   SceneExtractor();
   ~SceneExtractor();
 
@@ -29,9 +29,9 @@ class SceneExtractor {
   // calls; unchanged geometry payloads are shared with later snapshots.
   [[nodiscard]] std::shared_ptr<const FrameSnapshot> snapshot() const noexcept;
 
- private:
+private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace merlin::extraction
+} // namespace merlin::extraction

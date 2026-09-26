@@ -53,12 +53,12 @@ Quaternion Normalize(Quaternion value) {
 }
 
 void Report(GaussianNormalizationResult& result, DiagnosticSink* sink,
-            std::string code, DiagnosticSeverity severity,
-            DiagnosticDisposition disposition, const std::string& source,
-            std::string message, std::string recovery) {
+    std::string code, DiagnosticSeverity severity,
+    DiagnosticDisposition disposition, const std::string& source,
+    std::string message, std::string recovery) {
   Diagnostic diagnostic{kDiagnosticSchemaVersion, std::move(code), severity,
-                        disposition, source, std::move(message),
-                        std::move(recovery)};
+      disposition, source, std::move(message),
+      std::move(recovery)};
   if (sink != nullptr) {
     sink->Report(diagnostic);
   }
@@ -72,28 +72,28 @@ bool HasCompleteArray(const std::vector<Value>& values, std::size_t count) {
 
 template <typename Value>
 void ReportArrayPolicy(GaussianNormalizationResult& result,
-                       DiagnosticSink* sink, const GaussianSourceData& source,
-                       const std::vector<Value>& values, std::size_t count,
-                       const char* semantic, const char* fallback) {
+    DiagnosticSink* sink, const GaussianSourceData& source,
+    const std::vector<Value>& values, std::size_t count,
+    const char* semantic, const char* fallback) {
   if (values.size() > count) {
     Report(result, sink, std::string("gaussian.") + semantic + ".truncated",
-           DiagnosticSeverity::Warning, DiagnosticDisposition::Ignored,
-           source.source,
-           std::string(semantic) + " array is longer than positions",
-           "truncate-to-particle-count");
+        DiagnosticSeverity::Warning, DiagnosticDisposition::Ignored,
+        source.source,
+        std::string(semantic) + " array is longer than positions",
+        "truncate-to-particle-count");
   } else if (values.size() < count) {
     Report(result, sink, std::string("gaussian.") + semantic + ".fallback",
-           DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
-           source.source,
-           std::string(semantic) + " array is shorter than positions",
-           fallback);
+        DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
+        source.source,
+        std::string(semantic) + " array is shorter than positions",
+        fallback);
   }
 }
 
-}  // namespace
+} // namespace
 
 Covariance3 EvaluateGaussianCovariance(Quaternion orientation,
-                                       Vec3 linear_scale) {
+    Vec3 linear_scale) {
   const auto q = Normalize(orientation);
   const float w = q.real;
   const float x = q.imaginary.x;
@@ -101,11 +101,11 @@ Covariance3 EvaluateGaussianCovariance(Quaternion orientation,
   const float z = q.imaginary.z;
   const std::array<std::array<float, 3>, 3> rotation{{
       {{1.0F - 2.0F * (y * y + z * z), 2.0F * (x * y - z * w),
-        2.0F * (x * z + y * w)}},
+          2.0F * (x * z + y * w)}},
       {{2.0F * (x * y + z * w), 1.0F - 2.0F * (x * x + z * z),
-        2.0F * (y * z - x * w)}},
+          2.0F * (y * z - x * w)}},
       {{2.0F * (x * z - y * w), 2.0F * (y * z + x * w),
-        1.0F - 2.0F * (x * x + y * y)}},
+          1.0F - 2.0F * (x * x + y * y)}},
   }};
   const std::array<double, 3> variance{
       static_cast<double>(linear_scale.x) * linear_scale.x,
@@ -120,7 +120,7 @@ Covariance3 EvaluateGaussianCovariance(Quaternion orientation,
     return static_cast<float>(value);
   };
   return {element(0, 0), element(0, 1), element(0, 2),
-          element(1, 1), element(1, 2), element(2, 2)};
+      element(1, 1), element(1, 2), element(2, 2)};
 }
 
 GaussianNormalizationResult NormalizeGaussianSource(
@@ -128,26 +128,26 @@ GaussianNormalizationResult NormalizeGaussianSource(
   GaussianNormalizationResult result;
   const auto reject = [&](std::string code, std::string message) {
     Report(result, sink, std::move(code), DiagnosticSeverity::Error,
-           DiagnosticDisposition::Rejected, source.source, std::move(message),
-           "reject-particle-field");
+        DiagnosticDisposition::Rejected, source.source, std::move(message),
+        "reject-particle-field");
   };
 
   if (std::any_of(source.positions.begin(), source.positions.end(),
-                  [](Vec3 value) { return !IsFinite(value); })) {
+          [](Vec3 value) { return !IsFinite(value); })) {
     reject("gaussian.positions.non-finite",
-           "positions contain a non-finite value");
+        "positions contain a non-finite value");
     return result;
   }
 
   if (source.positions.empty()) {
     reject("gaussian.positions.empty",
-           "particle field contains no positions");
+        "particle field contains no positions");
     return result;
   }
   if (source.spherical_harmonics_degree >
       kMaxGaussianSphericalHarmonicsDegree) {
     reject("gaussian.radiance.unsupported-degree",
-           "spherical-harmonic degree exceeds the supported MVP range");
+        "spherical-harmonic degree exceeds the supported MVP range");
     return result;
   }
 
@@ -157,27 +157,27 @@ GaussianNormalizationResult NormalizeGaussianSource(
   if (degree_plus_one >
       std::numeric_limits<std::size_t>::max() / degree_plus_one) {
     reject("gaussian.radiance.layout-overflow",
-           "spherical-harmonic degree overflows its element layout");
+        "spherical-harmonic degree overflows its element layout");
     return result;
   }
   const auto coefficients_per_particle = degree_plus_one * degree_plus_one;
   if (count != 0U && coefficients_per_particle >
                          std::numeric_limits<std::size_t>::max() / count) {
     reject("gaussian.radiance.layout-overflow",
-           "spherical-harmonic layout overflows the particle payload");
+        "spherical-harmonic layout overflows the particle payload");
     return result;
   }
   const auto expected_coefficients = count * coefficients_per_particle;
 
   ReportArrayPolicy(result, sink, source, source.orientations, count,
-                    "orientation", "identity-orientation");
+      "orientation", "identity-orientation");
   ReportArrayPolicy(result, sink, source, source.scales, count, "scale",
-                    "unit-linear-scale");
+      "unit-linear-scale");
   ReportArrayPolicy(result, sink, source, source.opacities, count, "opacity",
-                    "opaque");
+      "opaque");
   ReportArrayPolicy(result, sink, source,
-                    source.spherical_harmonics_coefficients,
-                    expected_coefficients, "radiance", "constant-rgb-0.5");
+      source.spherical_harmonics_coefficients,
+      expected_coefficients, "radiance", "constant-rgb-0.5");
 
   const bool use_orientations = HasCompleteArray(source.orientations, count);
   const bool use_scales = HasCompleteArray(source.scales, count);
@@ -187,27 +187,27 @@ GaussianNormalizationResult NormalizeGaussianSource(
 
   if (use_orientations &&
       std::any_of(source.orientations.begin(),
-                  source.orientations.begin() + count,
-                  [](Quaternion value) { return !IsFinite(value); })) {
+          source.orientations.begin() + count,
+          [](Quaternion value) { return !IsFinite(value); })) {
     reject("gaussian.orientation.non-finite",
-           "orientations contain a non-finite value");
+        "orientations contain a non-finite value");
     return result;
   }
   if (use_scales &&
       std::any_of(source.scales.begin(), source.scales.begin() + count,
-                  [](Vec3 value) {
-                    return !IsFinite(value) || value.x <= 0.0F ||
-                           value.y <= 0.0F || value.z <= 0.0F;
-                  })) {
+          [](Vec3 value) {
+            return !IsFinite(value) || value.x <= 0.0F ||
+                   value.y <= 0.0F || value.z <= 0.0F;
+          })) {
     reject("gaussian.scale.invalid",
-           "scales must be finite and strictly positive");
+        "scales must be finite and strictly positive");
     return result;
   }
   if (use_opacities &&
       std::any_of(source.opacities.begin(), source.opacities.begin() + count,
-                  [](float value) { return !std::isfinite(value); })) {
+          [](float value) { return !std::isfinite(value); })) {
     reject("gaussian.opacity.non-finite",
-           "opacities contain a non-finite value");
+        "opacities contain a non-finite value");
     return result;
   }
   if (use_radiance && std::any_of(
@@ -216,31 +216,31 @@ GaussianNormalizationResult NormalizeGaussianSource(
                               expected_coefficients,
                           [](Vec3 value) { return !IsFinite(value); })) {
     reject("gaussian.radiance.non-finite",
-           "spherical-harmonic coefficients contain a non-finite value");
+        "spherical-harmonic coefficients contain a non-finite value");
     return result;
   }
 
   if (use_orientations &&
       std::any_of(source.orientations.begin(),
-                  source.orientations.begin() + count,
-                  [](Quaternion value) {
-                    return LengthSquared(value) <=
-                           static_cast<double>(
-                               std::numeric_limits<float>::min());
-                  })) {
+          source.orientations.begin() + count,
+          [](Quaternion value) {
+            return LengthSquared(value) <=
+                   static_cast<double>(
+                       std::numeric_limits<float>::min());
+          })) {
     Report(result, sink, "gaussian.orientation.zero-length",
-           DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
-           source.source,
-           "zero-length orientations use the identity quaternion",
-           "identity-orientation");
+        DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
+        source.source,
+        "zero-length orientations use the identity quaternion",
+        "identity-orientation");
   }
   if (use_opacities &&
       std::any_of(source.opacities.begin(), source.opacities.begin() + count,
-                  [](float value) { return value < 0.0F || value > 1.0F; })) {
+          [](float value) { return value < 0.0F || value > 1.0F; })) {
     Report(result, sink, "gaussian.opacity.clamped",
-           DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
-           source.source, "opacities outside [0, 1] were clamped",
-           "clamp-linear-opacity");
+        DiagnosticSeverity::Warning, DiagnosticDisposition::Fallback,
+        source.source, "opacities outside [0, 1] were clamped",
+        "clamp-linear-opacity");
   }
 
   GaussianDescriptor normalized;
@@ -258,7 +258,7 @@ GaussianNormalizationResult NormalizeGaussianSource(
     const auto covariance = EvaluateGaussianCovariance(orientation, scale);
     if (!IsFinite(covariance)) {
       reject("gaussian.covariance.non-finite",
-             "orientation and scale produce a non-finite covariance");
+          "orientation and scale produce a non-finite covariance");
       return result;
     }
     normalized.covariances.push_back(covariance);
@@ -283,4 +283,4 @@ GaussianNormalizationResult NormalizeGaussianSource(
   return result;
 }
 
-}  // namespace merlin
+} // namespace merlin

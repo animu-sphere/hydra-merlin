@@ -11,34 +11,34 @@ std::atomic<std::uint64_t> g_backend_owner{1};
 
 render::RendererErrorCode ConvertErrorCode(RendererErrorCode code) noexcept {
   switch (code) {
-    case RendererErrorCode::InvalidRequest:
-      return render::RendererErrorCode::InvalidRequest;
-    case RendererErrorCode::InvalidToken:
-      return render::RendererErrorCode::InvalidToken;
-    case RendererErrorCode::ResourceBusy:
-      return render::RendererErrorCode::ResourceBusy;
-    case RendererErrorCode::Timeout:
-      return render::RendererErrorCode::Timeout;
-    case RendererErrorCode::DeviceLost:
-      return render::RendererErrorCode::DeviceLost;
-    case RendererErrorCode::Unsupported:
-      return render::RendererErrorCode::Unsupported;
-    case RendererErrorCode::BackendFailure:
-      return render::RendererErrorCode::BackendFailure;
-    case RendererErrorCode::ResourceExhausted:
-      return render::RendererErrorCode::ResourceExhausted;
+  case RendererErrorCode::InvalidRequest:
+    return render::RendererErrorCode::InvalidRequest;
+  case RendererErrorCode::InvalidToken:
+    return render::RendererErrorCode::InvalidToken;
+  case RendererErrorCode::ResourceBusy:
+    return render::RendererErrorCode::ResourceBusy;
+  case RendererErrorCode::Timeout:
+    return render::RendererErrorCode::Timeout;
+  case RendererErrorCode::DeviceLost:
+    return render::RendererErrorCode::DeviceLost;
+  case RendererErrorCode::Unsupported:
+    return render::RendererErrorCode::Unsupported;
+  case RendererErrorCode::BackendFailure:
+    return render::RendererErrorCode::BackendFailure;
+  case RendererErrorCode::ResourceExhausted:
+    return render::RendererErrorCode::ResourceExhausted;
   }
   return render::RendererErrorCode::BackendFailure;
 }
 
 [[noreturn]] void Rethrow(const RendererError& error) {
   throw render::RendererError(ConvertErrorCode(error.code()),
-                              error.operation(), error.detail(),
-                              error.native_code());
+      error.operation(), error.detail(),
+      error.native_code());
 }
 
 class VulkanBackend final : public render::Backend, public AovImageExporter {
- public:
+public:
   VulkanBackend(RendererOptions options, ShaderPaths shaders)
       : renderer_(std::move(options)),
         shaders_(std::move(shaders)),
@@ -166,15 +166,15 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
   // Validation only: the Vulkan swapchain recreates lazily from the extent of
   // the next presented RenderRequest, so hosts must submit the new size.
   void ResizePresentationTarget(render::PresentationTarget target,
-                                std::uint32_t width,
-                                std::uint32_t height) override {
+      std::uint32_t width,
+      std::uint32_t height) override {
     ValidatePresentation(target);
     if (width == 0 || height == 0 ||
         width > capabilities_.limits.max_image_dimension_2d ||
         height > capabilities_.limits.max_image_dimension_2d) {
       throw render::RendererError(render::RendererErrorCode::Unsupported,
-                                  "resize presentation target",
-                                  "requested extent is unsupported");
+          "resize presentation target",
+          "requested extent is unsupported");
     }
   }
 
@@ -187,20 +187,20 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     native.snapshot = request.snapshot;
     native.gpu_scene_update = request.gpu_scene_update;
     switch (request.gpu_driven_indexed.mode) {
-      case render::GpuDrivenIndexedMode::Disabled:
-        native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Disabled;
-        break;
-      case render::GpuDrivenIndexedMode::Prefer:
-        native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Prefer;
-        break;
-      case render::GpuDrivenIndexedMode::Require:
-        native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Require;
-        break;
-      default:
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest,
-            "submit Vulkan frame",
-            "GPU-driven indexed submission mode is invalid");
+    case render::GpuDrivenIndexedMode::Disabled:
+      native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Disabled;
+      break;
+    case render::GpuDrivenIndexedMode::Prefer:
+      native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Prefer;
+      break;
+    case render::GpuDrivenIndexedMode::Require:
+      native.gpu_driven_indexed.mode = GpuDrivenIndexedMode::Require;
+      break;
+    default:
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest,
+          "submit Vulkan frame",
+          "GPU-driven indexed submission mode is invalid");
     }
     native.gpu_driven_indexed.visibility_mask =
         request.gpu_driven_indexed.visibility_mask;
@@ -236,7 +236,7 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
   }
 
   AovImageExport AcquireAovImage(render::CompletionToken token,
-                                 Aov aov) override {
+      Aov aov) override {
     try {
       return renderer_.AcquireAovImage(FindToken(token), aov);
     } catch (const RendererError& error) {
@@ -266,15 +266,15 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
 
     render::RenderResult result;
     result.color = {native.color.product, native.color.row_pitch_bytes,
-                    std::move(native.color.pixels)};
+        std::move(native.color.pixels)};
     result.depth = {native.depth.product, native.depth.row_pitch_bytes,
-                    std::move(native.depth.pixels)};
+        std::move(native.depth.pixels)};
     result.prim_id = {native.prim_id.product,
-                      native.prim_id.row_pitch_bytes,
-                      std::move(native.prim_id.pixels)};
+        native.prim_id.row_pitch_bytes,
+        std::move(native.prim_id.pixels)};
     result.instance_id = {native.instance_id.product,
-                          native.instance_id.row_pitch_bytes,
-                          std::move(native.instance_id.pixels)};
+        native.instance_id.row_pitch_bytes,
+        std::move(native.instance_id.pixels)};
     result.rendered_aovs = std::move(native.rendered_aovs);
     result.cpu_readback_aovs = std::move(native.cpu_readback_aovs);
     result.scene_revision = native.scene_revision;
@@ -415,7 +415,7 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
     return result;
   }
 
- private:
+private:
   using TokenMap = std::map<std::uint64_t, CompletionToken>;
 
   void ValidatePresentation(render::PresentationTarget target) const {
@@ -430,14 +430,14 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
   TokenMap::iterator FindTokenIterator(render::CompletionToken token) {
     if (token.owner() != owner_ || !token) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  "resolve completion token",
-                                  "token belongs to another backend");
+          "resolve completion token",
+          "token belongs to another backend");
     }
     const auto found = tokens_.find(token.value());
     if (found == tokens_.end()) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  "resolve completion token",
-                                  "token is unknown or already resolved");
+          "resolve completion token",
+          "token is unknown or already resolved");
     }
     return found;
   }
@@ -445,14 +445,14 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
   CompletionToken FindToken(render::CompletionToken token) const {
     if (token.owner() != owner_ || !token) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  "query completion token",
-                                  "token belongs to another backend");
+          "query completion token",
+          "token belongs to another backend");
     }
     const auto found = tokens_.find(token.value());
     if (found == tokens_.end()) {
       throw render::RendererError(render::RendererErrorCode::InvalidToken,
-                                  "query completion token",
-                                  "token is unknown or already resolved");
+          "query completion token",
+          "token is unknown or already resolved");
     }
     return found->second;
   }
@@ -467,16 +467,18 @@ class VulkanBackend final : public render::Backend, public AovImageExporter {
   TokenMap tokens_;
 };
 
-}  // namespace
+} // namespace
 
 class BackendFactory::Impl {
- public:
-  explicit Impl(BackendFactoryOptions value) : options(std::move(value)) {}
+public:
+  explicit Impl(BackendFactoryOptions value) : options(std::move(value)) {
+  }
   BackendFactoryOptions options;
 };
 
 BackendFactory::BackendFactory(BackendFactoryOptions options)
-    : impl_(std::make_unique<Impl>(std::move(options))) {}
+    : impl_(std::make_unique<Impl>(std::move(options))) {
+}
 BackendFactory::~BackendFactory() = default;
 BackendFactory::BackendFactory(BackendFactory&&) noexcept = default;
 BackendFactory& BackendFactory::operator=(BackendFactory&&) noexcept = default;
@@ -510,4 +512,4 @@ std::unique_ptr<render::Backend> BackendFactory::Create(
   }
 }
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

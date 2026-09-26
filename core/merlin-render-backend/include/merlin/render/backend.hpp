@@ -21,22 +21,46 @@ struct GpuScenePackedFrameUpdate;
 inline constexpr std::uint32_t kBackendContractVersion = 2;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 2;
 
-enum class BackendKind { Vulkan, Metal };
-enum class BackendRequest { Automatic, Vulkan, Metal };
-enum class PresentationMode { Automatic, Offscreen, Native, Host };
-enum class RenderPath { Forward, ExperimentalVisibility };
-enum class GpuDrivenIndexedMode { Disabled, Prefer, Require };
-enum class LightingMode { Diagnostic, Environment, Authored };
-enum class ToneMapping { None, Reinhard, Aces };
-enum class AlphaPolicy { Opaque, Mask, Blend };
-enum class DebugView { None, Color, Depth, PrimId, InstanceId, Normal };
-enum class TelemetryMode { Off, Basic, Detailed };
+enum class BackendKind { Vulkan,
+  Metal };
+enum class BackendRequest { Automatic,
+  Vulkan,
+  Metal };
+enum class PresentationMode { Automatic,
+  Offscreen,
+  Native,
+  Host };
+enum class RenderPath { Forward,
+  ExperimentalVisibility };
+enum class GpuDrivenIndexedMode { Disabled,
+  Prefer,
+  Require };
+enum class LightingMode { Diagnostic,
+  Environment,
+  Authored };
+enum class ToneMapping { None,
+  Reinhard,
+  Aces };
+enum class AlphaPolicy { Opaque,
+  Mask,
+  Blend };
+enum class DebugView { None,
+  Color,
+  Depth,
+  PrimId,
+  InstanceId,
+  Normal };
+enum class TelemetryMode { Off,
+  Basic,
+  Detailed };
 
 [[nodiscard]] constexpr std::string_view BackendKindName(
     BackendKind kind) noexcept {
   switch (kind) {
-    case BackendKind::Vulkan: return "vulkan";
-    case BackendKind::Metal: return "metal";
+  case BackendKind::Vulkan:
+    return "vulkan";
+  case BackendKind::Metal:
+    return "metal";
   }
   return "unknown";
 }
@@ -44,9 +68,12 @@ enum class TelemetryMode { Off, Basic, Detailed };
 [[nodiscard]] constexpr std::string_view BackendRequestName(
     BackendRequest request) noexcept {
   switch (request) {
-    case BackendRequest::Automatic: return "automatic";
-    case BackendRequest::Vulkan: return "vulkan";
-    case BackendRequest::Metal: return "metal";
+  case BackendRequest::Automatic:
+    return "automatic";
+  case BackendRequest::Vulkan:
+    return "vulkan";
+  case BackendRequest::Metal:
+    return "metal";
   }
   return "unknown";
 }
@@ -54,10 +81,14 @@ enum class TelemetryMode { Off, Basic, Detailed };
 [[nodiscard]] constexpr std::string_view PresentationModeName(
     PresentationMode mode) noexcept {
   switch (mode) {
-    case PresentationMode::Automatic: return "automatic";
-    case PresentationMode::Offscreen: return "offscreen";
-    case PresentationMode::Native: return "native";
-    case PresentationMode::Host: return "host";
+  case PresentationMode::Automatic:
+    return "automatic";
+  case PresentationMode::Offscreen:
+    return "offscreen";
+  case PresentationMode::Native:
+    return "native";
+  case PresentationMode::Host:
+    return "host";
   }
   return "unknown";
 }
@@ -65,8 +96,10 @@ enum class TelemetryMode { Off, Basic, Detailed };
 [[nodiscard]] constexpr std::string_view RenderPathName(
     RenderPath path) noexcept {
   switch (path) {
-    case RenderPath::Forward: return "forward";
-    case RenderPath::ExperimentalVisibility: return "experimental-visibility";
+  case RenderPath::Forward:
+    return "forward";
+  case RenderPath::ExperimentalVisibility:
+    return "experimental-visibility";
   }
   return "unknown";
 }
@@ -74,9 +107,12 @@ enum class TelemetryMode { Off, Basic, Detailed };
 [[nodiscard]] constexpr std::string_view GpuDrivenIndexedModeName(
     GpuDrivenIndexedMode mode) noexcept {
   switch (mode) {
-    case GpuDrivenIndexedMode::Disabled: return "disabled";
-    case GpuDrivenIndexedMode::Prefer: return "prefer";
-    case GpuDrivenIndexedMode::Require: return "require";
+  case GpuDrivenIndexedMode::Disabled:
+    return "disabled";
+  case GpuDrivenIndexedMode::Prefer:
+    return "prefer";
+  case GpuDrivenIndexedMode::Require:
+    return "require";
   }
   return "unknown";
 }
@@ -88,15 +124,18 @@ struct GpuDrivenIndexedSettings {
   bool enable_frustum_culling{true};
 
   friend constexpr bool operator==(const GpuDrivenIndexedSettings&,
-                                   const GpuDrivenIndexedSettings&) = default;
+      const GpuDrivenIndexedSettings&) = default;
 };
 
 [[nodiscard]] constexpr std::string_view LightingModeName(
     LightingMode mode) noexcept {
   switch (mode) {
-    case LightingMode::Diagnostic: return "diagnostic";
-    case LightingMode::Environment: return "environment";
-    case LightingMode::Authored: return "authored";
+  case LightingMode::Diagnostic:
+    return "diagnostic";
+  case LightingMode::Environment:
+    return "environment";
+  case LightingMode::Authored:
+    return "authored";
   }
   return "unknown";
 }
@@ -104,9 +143,12 @@ struct GpuDrivenIndexedSettings {
 [[nodiscard]] constexpr std::string_view ToneMappingName(
     ToneMapping mode) noexcept {
   switch (mode) {
-    case ToneMapping::None: return "none";
-    case ToneMapping::Reinhard: return "reinhard";
-    case ToneMapping::Aces: return "aces";
+  case ToneMapping::None:
+    return "none";
+  case ToneMapping::Reinhard:
+    return "reinhard";
+  case ToneMapping::Aces:
+    return "aces";
   }
   return "unknown";
 }
@@ -114,9 +156,12 @@ struct GpuDrivenIndexedSettings {
 [[nodiscard]] constexpr std::string_view AlphaPolicyName(
     AlphaPolicy policy) noexcept {
   switch (policy) {
-    case AlphaPolicy::Opaque: return "opaque";
-    case AlphaPolicy::Mask: return "mask";
-    case AlphaPolicy::Blend: return "blend";
+  case AlphaPolicy::Opaque:
+    return "opaque";
+  case AlphaPolicy::Mask:
+    return "mask";
+  case AlphaPolicy::Blend:
+    return "blend";
   }
   return "unknown";
 }
@@ -124,12 +169,18 @@ struct GpuDrivenIndexedSettings {
 [[nodiscard]] constexpr std::string_view DebugViewName(
     DebugView view) noexcept {
   switch (view) {
-    case DebugView::None: return "none";
-    case DebugView::Color: return "color";
-    case DebugView::Depth: return "depth";
-    case DebugView::PrimId: return "prim-id";
-    case DebugView::InstanceId: return "instance-id";
-    case DebugView::Normal: return "normal";
+  case DebugView::None:
+    return "none";
+  case DebugView::Color:
+    return "color";
+  case DebugView::Depth:
+    return "depth";
+  case DebugView::PrimId:
+    return "prim-id";
+  case DebugView::InstanceId:
+    return "instance-id";
+  case DebugView::Normal:
+    return "normal";
   }
   return "unknown";
 }
@@ -137,9 +188,12 @@ struct GpuDrivenIndexedSettings {
 [[nodiscard]] constexpr std::string_view TelemetryModeName(
     TelemetryMode mode) noexcept {
   switch (mode) {
-    case TelemetryMode::Off: return "off";
-    case TelemetryMode::Basic: return "basic";
-    case TelemetryMode::Detailed: return "detailed";
+  case TelemetryMode::Off:
+    return "off";
+  case TelemetryMode::Basic:
+    return "basic";
+  case TelemetryMode::Detailed:
+    return "detailed";
   }
   return "unknown";
 }
@@ -163,7 +217,7 @@ struct RendererSettings {
   TelemetryMode telemetry{TelemetryMode::Basic};
 
   friend constexpr bool operator==(const RendererSettings&,
-                                   const RendererSettings&) = default;
+      const RendererSettings&) = default;
 };
 
 struct RendererSettingsValidationError {
@@ -353,41 +407,55 @@ struct RenderProductRequest {
   bool cpu_readback{true};
 
   friend constexpr bool operator==(const RenderProductRequest&,
-                                   const RenderProductRequest&) = default;
+      const RenderProductRequest&) = default;
 };
 
 class PresentationTarget {
- public:
+public:
   PresentationTarget() = default;
   PresentationTarget(std::uint64_t owner, std::uint64_t value) noexcept
-      : owner_(owner), value_(value) {}
+      : owner_(owner), value_(value) {
+  }
 
-  [[nodiscard]] explicit operator bool() const noexcept { return value_ != 0; }
-  [[nodiscard]] std::uint64_t owner() const noexcept { return owner_; }
-  [[nodiscard]] std::uint64_t value() const noexcept { return value_; }
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return value_ != 0;
+  }
+  [[nodiscard]] std::uint64_t owner() const noexcept {
+    return owner_;
+  }
+  [[nodiscard]] std::uint64_t value() const noexcept {
+    return value_;
+  }
 
   friend constexpr bool operator==(const PresentationTarget&,
-                                   const PresentationTarget&) = default;
+      const PresentationTarget&) = default;
 
- private:
+private:
   std::uint64_t owner_{};
   std::uint64_t value_{};
 };
 
 class CompletionToken {
- public:
+public:
   CompletionToken() = default;
   CompletionToken(std::uint64_t owner, std::uint64_t value) noexcept
-      : owner_(owner), value_(value) {}
+      : owner_(owner), value_(value) {
+  }
 
-  [[nodiscard]] explicit operator bool() const noexcept { return value_ != 0; }
-  [[nodiscard]] std::uint64_t owner() const noexcept { return owner_; }
-  [[nodiscard]] std::uint64_t value() const noexcept { return value_; }
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return value_ != 0;
+  }
+  [[nodiscard]] std::uint64_t owner() const noexcept {
+    return owner_;
+  }
+  [[nodiscard]] std::uint64_t value() const noexcept {
+    return value_;
+  }
 
   friend constexpr bool operator==(const CompletionToken&,
-                                   const CompletionToken&) = default;
+      const CompletionToken&) = default;
 
- private:
+private:
   std::uint64_t owner_{};
   std::uint64_t value_{};
 };
@@ -457,20 +525,24 @@ enum class RendererErrorCode {
     RendererErrorCode code) noexcept;
 
 class RendererError : public std::runtime_error {
- public:
+public:
   RendererError(RendererErrorCode code, std::string operation,
-                std::string detail, std::int32_t native_code = 0);
+      std::string detail, std::int32_t native_code = 0);
 
-  [[nodiscard]] RendererErrorCode code() const noexcept { return code_; }
+  [[nodiscard]] RendererErrorCode code() const noexcept {
+    return code_;
+  }
   [[nodiscard]] const std::string& operation() const noexcept {
     return operation_;
   }
-  [[nodiscard]] const std::string& detail() const noexcept { return detail_; }
+  [[nodiscard]] const std::string& detail() const noexcept {
+    return detail_;
+  }
   [[nodiscard]] std::int32_t native_code() const noexcept {
     return native_code_;
   }
 
- private:
+private:
   RendererErrorCode code_;
   std::string operation_;
   std::string detail_;
@@ -478,7 +550,7 @@ class RendererError : public std::runtime_error {
 };
 
 class Backend {
- public:
+public:
   virtual ~Backend() = default;
 
   [[nodiscard]] virtual const RendererCapabilities& capabilities()
@@ -490,8 +562,8 @@ class Backend {
   // native resize until the next presented RenderRequest, whose width/height
   // remain the authoritative extent for that frame.
   virtual void ResizePresentationTarget(PresentationTarget target,
-                                        std::uint32_t width,
-                                        std::uint32_t height) = 0;
+      std::uint32_t width,
+      std::uint32_t height) = 0;
   [[nodiscard]] virtual CompletionToken Submit(const RenderRequest& request) = 0;
   [[nodiscard]] virtual bool IsComplete(CompletionToken token) const = 0;
   [[nodiscard]] virtual RenderResult Resolve(
@@ -516,7 +588,7 @@ struct BackendAvailability {
 };
 
 class BackendFactory {
- public:
+public:
   virtual ~BackendFactory() = default;
   [[nodiscard]] virtual BackendKind kind() const noexcept = 0;
   [[nodiscard]] virtual BackendAvailability availability() const = 0;
@@ -530,4 +602,4 @@ class BackendFactory {
     const BackendCreateInfo& info, std::span<BackendFactory* const> factories,
     BackendSelection* selection = nullptr);
 
-}  // namespace merlin::render
+} // namespace merlin::render

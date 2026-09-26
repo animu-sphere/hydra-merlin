@@ -26,7 +26,7 @@ using Clock = std::chrono::steady_clock;
 std::uint64_t ElapsedNanoseconds(Clock::time_point start) {
   return static_cast<std::uint64_t>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
-                                                            start)
+                                                           start)
           .count());
 }
 
@@ -38,13 +38,15 @@ constexpr bool IsValidatedOpenUsd(
   return true;
 #endif
 }
-}  // namespace
+} // namespace
 
 std::string_view HdMerlinHgiMetalTransferModeName(
     HdMerlinHgiMetalTransferMode mode) noexcept {
   switch (mode) {
-  case HdMerlinHgiMetalTransferMode::CpuReadback: return "cpu-readback";
-  case HdMerlinHgiMetalTransferMode::GpuCopy: return "gpu-copy";
+  case HdMerlinHgiMetalTransferMode::CpuReadback:
+    return "cpu-readback";
+  case HdMerlinHgiMetalTransferMode::GpuCopy:
+    return "gpu-copy";
   case HdMerlinHgiMetalTransferMode::DirectSharedResource:
     return "direct-shared-resource";
   }
@@ -54,8 +56,10 @@ std::string_view HdMerlinHgiMetalTransferModeName(
 std::string_view HdMerlinHgiMetalDirectShareRejectionName(
     HdMerlinHgiMetalDirectShareRejection reason) noexcept {
   switch (reason) {
-  case HdMerlinHgiMetalDirectShareRejection::None: return "none";
-  case HdMerlinHgiMetalDirectShareRejection::NotEvaluated: return "not-evaluated";
+  case HdMerlinHgiMetalDirectShareRejection::None:
+    return "none";
+  case HdMerlinHgiMetalDirectShareRejection::NotEvaluated:
+    return "not-evaluated";
   case HdMerlinHgiMetalDirectShareRejection::DeviceMismatch:
     return "device-mismatch";
   case HdMerlinHgiMetalDirectShareRejection::TextureStorageMismatch:
@@ -81,8 +85,10 @@ std::string_view HdMerlinHgiMetalDirectShareRejectionName(
 std::string_view HdMerlinHgiMetalFallbackReasonName(
     HdMerlinHgiMetalFallbackReason reason) noexcept {
   switch (reason) {
-  case HdMerlinHgiMetalFallbackReason::None: return "none";
-  case HdMerlinHgiMetalFallbackReason::BridgeDisabled: return "bridge-disabled";
+  case HdMerlinHgiMetalFallbackReason::None:
+    return "none";
+  case HdMerlinHgiMetalFallbackReason::BridgeDisabled:
+    return "bridge-disabled";
   case HdMerlinHgiMetalFallbackReason::MissingRenderDriver:
     return "missing-render-driver";
   case HdMerlinHgiMetalFallbackReason::NonMetalRenderDriver:
@@ -93,15 +99,18 @@ std::string_view HdMerlinHgiMetalFallbackReasonName(
     return "gpu-copy-unavailable";
   case HdMerlinHgiMetalFallbackReason::DriverSwapRejected:
     return "driver-swap-rejected";
-  case HdMerlinHgiMetalFallbackReason::InvalidTarget: return "invalid-target";
+  case HdMerlinHgiMetalFallbackReason::InvalidTarget:
+    return "invalid-target";
   case HdMerlinHgiMetalFallbackReason::TargetCreationFailed:
     return "target-creation-failed";
   case HdMerlinHgiMetalFallbackReason::TargetUploadFailed:
     return "target-upload-failed";
   case HdMerlinHgiMetalFallbackReason::NativeContextUnavailable:
     return "native-context-unavailable";
-  case HdMerlinHgiMetalFallbackReason::SourceMismatch: return "source-mismatch";
-  case HdMerlinHgiMetalFallbackReason::GpuCopyFailed: return "gpu-copy-failed";
+  case HdMerlinHgiMetalFallbackReason::SourceMismatch:
+    return "source-mismatch";
+  case HdMerlinHgiMetalFallbackReason::GpuCopyFailed:
+    return "gpu-copy-failed";
   }
   return "unknown";
 }
@@ -132,31 +141,45 @@ HdMerlinHgiMetalBridgeStatus HdMerlinEvaluateHgiMetalBridgeSupport(
 HdMerlinHgiMetalDirectShareSupport HdMerlinEvaluateHgiMetalDirectShare(
     const HdMerlinHgiMetalDirectShareRequirements& r) noexcept {
   using Rejection = HdMerlinHgiMetalDirectShareRejection;
-  if (!r.device_identity) return {false, Rejection::DeviceMismatch};
-  if (!r.texture_storage_compatible) return {false, Rejection::TextureStorageMismatch};
-  if (!r.texture_usage_compatible) return {false, Rejection::TextureUsageMismatch};
-  if (!r.pixel_format_compatible) return {false, Rejection::PixelFormatMismatch};
-  if (!r.command_queue_compatible) return {false, Rejection::CommandQueueMismatch};
-  if (!r.completion_retention_available) return {false, Rejection::CompletionRetentionUnavailable};
-  if (!r.resize_retirement_safe) return {false, Rejection::ResizeRetirementUnsafe};
-  if (!r.public_texture_import_available) return {false, Rejection::PublicTextureImportUnavailable};
-  if (!r.direct_path_available) return {false, Rejection::DirectPathUnavailable};
+  if (!r.device_identity)
+    return {false, Rejection::DeviceMismatch};
+  if (!r.texture_storage_compatible)
+    return {false, Rejection::TextureStorageMismatch};
+  if (!r.texture_usage_compatible)
+    return {false, Rejection::TextureUsageMismatch};
+  if (!r.pixel_format_compatible)
+    return {false, Rejection::PixelFormatMismatch};
+  if (!r.command_queue_compatible)
+    return {false, Rejection::CommandQueueMismatch};
+  if (!r.completion_retention_available)
+    return {false, Rejection::CompletionRetentionUnavailable};
+  if (!r.resize_retirement_safe)
+    return {false, Rejection::ResizeRetirementUnsafe};
+  if (!r.public_texture_import_available)
+    return {false, Rejection::PublicTextureImportUnavailable};
+  if (!r.direct_path_available)
+    return {false, Rejection::DirectPathUnavailable};
   return {true, Rejection::None};
 }
 
 HgiFormat HdMerlinHgiMetalFormatForRenderBuffer(HdFormat format) noexcept {
   switch (format) {
-  case HdFormatUNorm8Vec4: return HgiFormatUNorm8Vec4;
-  case HdFormatFloat32: return HgiFormatFloat32;
-  case HdFormatInt32: return HgiFormatInt32;
-  default: return HgiFormatInvalid;
+  case HdFormatUNorm8Vec4:
+    return HgiFormatUNorm8Vec4;
+  case HdFormatFloat32:
+    return HgiFormatFloat32;
+  case HdFormatInt32:
+    return HgiFormatInt32;
+  default:
+    return HgiFormatInvalid;
   }
 }
 
 HdMerlinHgiMetalBridge::HdMerlinHgiMetalBridge(bool enabled)
     : enabled_(enabled),
       status_(HdMerlinEvaluateHgiMetalBridgeSupport(
-          enabled, PXR_VERSION, false, false)) {}
+          enabled, PXR_VERSION, false, false)) {
+}
 
 HdMerlinHgiMetalBridge::~HdMerlinHgiMetalBridge() = default;
 
@@ -209,8 +232,8 @@ void HdMerlinHgiMetalBridge::SetDrivers(const HdDriverVector& drivers) {
   status_.direct_shared_resource = direct.supported;
   status_.direct_share_rejection = direct.rejection;
   status_.selected_mode = direct.supported
-      ? HdMerlinHgiMetalTransferMode::DirectSharedResource
-      : HdMerlinHgiMetalTransferMode::GpuCopy;
+                              ? HdMerlinHgiMetalTransferMode::DirectSharedResource
+                              : HdMerlinHgiMetalTransferMode::GpuCopy;
   status_.fallback_reason = HdMerlinHgiMetalFallbackReason::None;
 #endif
 }
@@ -230,7 +253,8 @@ HgiTextureHandle HdMerlinHgiMetalBridge::CreateTarget(
   Hgi* hgi = nullptr;
   {
     std::scoped_lock lock(mutex_);
-    if (hgi_ == nullptr || !status_.hgi_owned_targets) return {};
+    if (hgi_ == nullptr || !status_.hgi_owned_targets)
+      return {};
     hgi = hgi_;
   }
   if (descriptor.format == HgiFormatInvalid ||
@@ -243,7 +267,8 @@ HgiTextureHandle HdMerlinHgiMetalBridge::CreateTarget(
   }
   try {
     auto target = hgi->CreateTexture(descriptor);
-    if (!target) throw std::runtime_error("CreateTexture returned nil");
+    if (!target)
+      throw std::runtime_error("CreateTexture returned nil");
     std::scoped_lock lock(mutex_);
     ++outstanding_targets_;
     ++telemetry_.target_generation;
@@ -259,7 +284,8 @@ HgiTextureHandle HdMerlinHgiMetalBridge::CreateTarget(
 }
 
 void HdMerlinHgiMetalBridge::DestroyTarget(HgiTextureHandle* target) {
-  if (target == nullptr || !*target) return;
+  if (target == nullptr || !*target)
+    return;
   Hgi* hgi = nullptr;
   {
     std::scoped_lock lock(mutex_);
@@ -269,7 +295,8 @@ void HdMerlinHgiMetalBridge::DestroyTarget(HgiTextureHandle* target) {
     hgi->DestroyTexture(target);
     std::scoped_lock lock(mutex_);
     ++telemetry_.target_retirements;
-    if (outstanding_targets_ != 0) --outstanding_targets_;
+    if (outstanding_targets_ != 0)
+      --outstanding_targets_;
   } else {
     *target = {};
     std::scoped_lock lock(mutex_);
@@ -278,7 +305,7 @@ void HdMerlinHgiMetalBridge::DestroyTarget(HgiTextureHandle* target) {
 }
 
 bool HdMerlinHgiMetalBridge::Upload(HgiTextureHandle target, const void* data,
-                                    std::size_t byte_size) {
+    std::size_t byte_size) {
   TRACE_SCOPE("HdMerlinHgiMetalBridge::Upload");
   Hgi* hgi = nullptr;
   {
@@ -293,7 +320,8 @@ bool HdMerlinHgiMetalBridge::Upload(HgiTextureHandle target, const void* data,
   const auto start = Clock::now();
   try {
     auto commands = hgi->CreateBlitCmds();
-    if (!commands) throw std::runtime_error("CreateBlitCmds returned nil");
+    if (!commands)
+      throw std::runtime_error("CreateBlitCmds returned nil");
     HgiTextureCpuToGpuOp upload;
     upload.cpuSourceBuffer = data;
     upload.bufferByteSize = byte_size;
@@ -319,13 +347,17 @@ bool HdMerlinHgiMetalBridge::Copy(
   TRACE_SCOPE("HdMerlinHgiMetalBridge::Copy");
 #if defined(MERLIN_HYDRA2_HAVE_HGI_METAL_NATIVE)
   auto* exporter = backend == nullptr
-      ? nullptr
-      : dynamic_cast<merlin::metal::AovImageExporter*>(backend.get());
+                       ? nullptr
+                       : dynamic_cast<merlin::metal::AovImageExporter*>(backend.get());
   auto lease = std::make_shared<merlin::metal::AovImageLease>(
       std::move(source.lease));
   const auto release_lease = [&]() noexcept {
-    if (exporter == nullptr || !*lease) return;
-    try { exporter->ReleaseAovImage(std::move(*lease)); } catch (...) {}
+    if (exporter == nullptr || !*lease)
+      return;
+    try {
+      exporter->ReleaseAovImage(std::move(*lease));
+    } catch (...) {
+    }
   };
   Hgi* hgi = nullptr;
   {
@@ -342,27 +374,28 @@ bool HdMerlinHgiMetalBridge::Copy(
   auto* hgi_metal = dynamic_cast<HgiMetal*>(hgi);
   auto* destination = dynamic_cast<HgiMetalTexture*>(target.Get());
   id<MTLTexture> src = source.texture == 0
-      ? nil : (__bridge id<MTLTexture>)(reinterpret_cast<void*>(source.texture));
+                           ? nil
+                           : (__bridge id<MTLTexture>)(reinterpret_cast<void*>(source.texture));
   id<MTLDevice> device = hgi_metal == nullptr ? nil : hgi_metal->GetPrimaryDevice();
   const auto* desc = destination == nullptr ? nullptr
-                                             : &destination->GetDescriptor();
+                                            : &destination->GetDescriptor();
   const bool valid = hgi_metal != nullptr && destination != nullptr &&
-      device != nil && hgi_metal->GetQueue() != nil && src != nil &&
-      destination->GetTextureId() != nil &&
-      destination->GetTextureId().device == device &&
-      source.product.aov == merlin::Aov::Color &&
-      source.product.width == static_cast<std::uint32_t>(desc->dimensions[0]) &&
-      source.product.height == static_cast<std::uint32_t>(desc->dimensions[1]) &&
-      source.device == reinterpret_cast<std::uintptr_t>((__bridge void*)device) &&
-      source.command_queue != 0 &&
-      source.native_format == static_cast<std::uint32_t>(MTLPixelFormatRGBA8Unorm) &&
-      (source.native_usage & static_cast<std::uint32_t>(
-          MTLTextureUsageRenderTarget)) != 0 &&
-      source.native_storage_mode == static_cast<std::uint32_t>(
-          src.storageMode) &&
-      source.completion_event != 0 &&
-      source.renderer_completion == lease->completion_value() &&
-      desc->format == HgiFormatUNorm8Vec4 && desc->sampleCount == HgiSampleCount1;
+                     device != nil && hgi_metal->GetQueue() != nil && src != nil &&
+                     destination->GetTextureId() != nil &&
+                     destination->GetTextureId().device == device &&
+                     source.product.aov == merlin::Aov::Color &&
+                     source.product.width == static_cast<std::uint32_t>(desc->dimensions[0]) &&
+                     source.product.height == static_cast<std::uint32_t>(desc->dimensions[1]) &&
+                     source.device == reinterpret_cast<std::uintptr_t>((__bridge void*)device) &&
+                     source.command_queue != 0 &&
+                     source.native_format == static_cast<std::uint32_t>(MTLPixelFormatRGBA8Unorm) &&
+                     (source.native_usage & static_cast<std::uint32_t>(
+                                                MTLTextureUsageRenderTarget)) != 0 &&
+                     source.native_storage_mode == static_cast<std::uint32_t>(
+                                                       src.storageMode) &&
+                     source.completion_event != 0 &&
+                     source.renderer_completion == lease->completion_value() &&
+                     desc->format == HgiFormatUNorm8Vec4 && desc->sampleCount == HgiSampleCount1;
   if (!valid) {
     release_lease();
     std::scoped_lock lock(mutex_);
@@ -372,33 +405,42 @@ bool HdMerlinHgiMetalBridge::Copy(
   const auto start = Clock::now();
   try {
     id<MTLCommandBuffer> command = hgi_metal->GetPrimaryCommandBuffer();
-    if (command == nil) throw std::runtime_error("no HgiMetal command buffer");
-    id<MTLSharedEvent> completion_event = (__bridge id<MTLSharedEvent>)(
-        reinterpret_cast<void*>(source.completion_event));
+    if (command == nil)
+      throw std::runtime_error("no HgiMetal command buffer");
+    id<MTLSharedEvent> completion_event = (__bridge id<MTLSharedEvent>)(reinterpret_cast<void*>(source.completion_event));
     [command encodeWaitForEvent:completion_event
-                           value:source.renderer_completion];
+                          value:source.renderer_completion];
     id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
-    if (blit == nil) throw std::runtime_error("no Metal blit encoder");
+    if (blit == nil)
+      throw std::runtime_error("no Metal blit encoder");
     const MTLSize size{source.product.width, source.product.height, 1};
-    [blit copyFromTexture:src sourceSlice:0 sourceLevel:0
-             sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:size
-               toTexture:destination->GetTextureId() destinationSlice:0
-          destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit copyFromTexture:src
+              sourceSlice:0
+              sourceLevel:0
+             sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:size
+                toTexture:destination->GetTextureId()
+         destinationSlice:0
+         destinationLevel:0
+        destinationOrigin:MTLOriginMake(0, 0, 0)];
     [blit endEncoding];
     [command addCompletedHandler:
-        [backend = std::move(backend), lease,
-         weak_bridge = weak_from_this()](id<MTLCommandBuffer>) {
-      if (auto* done = dynamic_cast<merlin::metal::AovImageExporter*>(backend.get());
-          done != nullptr && *lease) {
-        try { done->ReleaseAovImage(std::move(*lease)); } catch (...) {}
-      }
-      if (auto bridge = weak_bridge.lock()) {
-        std::scoped_lock completion_lock(bridge->mutex_);
-        ++bridge->telemetry_.gpu_copy_completion_count;
-        if (bridge->telemetry_.gpu_copy_pending_count != 0)
-          --bridge->telemetry_.gpu_copy_pending_count;
-      }
-    }];
+            [backend = std::move(backend), lease,
+                weak_bridge = weak_from_this()](id<MTLCommandBuffer>) {
+              if (auto* done = dynamic_cast<merlin::metal::AovImageExporter*>(backend.get());
+                  done != nullptr && *lease) {
+                try {
+                  done->ReleaseAovImage(std::move(*lease));
+                } catch (...) {
+                }
+              }
+              if (auto bridge = weak_bridge.lock()) {
+                std::scoped_lock completion_lock(bridge->mutex_);
+                ++bridge->telemetry_.gpu_copy_completion_count;
+                if (bridge->telemetry_.gpu_copy_pending_count != 0)
+                  --bridge->telemetry_.gpu_copy_pending_count;
+              }
+            }];
     hgi_metal->SetHasWork();
     hgi_metal->CommitPrimaryCommandBuffer(
         HgiMetal::CommitCommandBuffer_NoWait, true);
@@ -412,11 +454,14 @@ bool HdMerlinHgiMetalBridge::Copy(
   ++telemetry_.gpu_copy_count;
   ++telemetry_.gpu_copy_pending_count;
   telemetry_.gpu_copy_bytes += static_cast<std::uint64_t>(
-      source.product.width) * source.product.height * 4U;
+                                   source.product.width) *
+                               source.product.height * 4U;
   telemetry_.gpu_copy_encode_ns += ElapsedNanoseconds(start);
   return true;
 #else
-  (void)target; (void)source; (void)backend;
+  (void)target;
+  (void)source;
+  (void)backend;
   std::scoped_lock lock(mutex_);
   SetOperationalFallbackLocked(HdMerlinHgiMetalFallbackReason::GpuCopyUnavailable);
   return false;

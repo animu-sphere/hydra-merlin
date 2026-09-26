@@ -80,4 +80,4 @@ struct ShaderArtifactKeyInputs {
 [[nodiscard]] std::string MakeShaderArtifactKey(
     const ShaderArtifactKeyInputs& inputs);
 
-}  // namespace merlin
+} // namespace merlin

@@ -76,8 +76,8 @@ void VerifyCodesAreStableAndDistinct() {
 
   std::set<std::string_view> names;
   for (const auto fallback :
-       {MaterialFallback::None, MaterialFallback::Simplification,
-        MaterialFallback::BasicMaterial, MaterialFallback::ErrorMaterial}) {
+      {MaterialFallback::None, MaterialFallback::Simplification,
+          MaterialFallback::BasicMaterial, MaterialFallback::ErrorMaterial}) {
     assert(names.insert(merlin::MaterialFallbackName(fallback)).second);
   }
   assert(names.size() == 4U);
@@ -89,8 +89,8 @@ void VerifyFallbackLadder() {
   for (const auto category : kAllCategories) {
     const auto selected = merlin::SelectMaterialFallback(category);
     assert(selected == (IsSimplifiable(category)
-                            ? MaterialFallback::Simplification
-                            : MaterialFallback::BasicMaterial));
+                               ? MaterialFallback::Simplification
+                               : MaterialFallback::BasicMaterial));
   }
 
   // A host that refuses approximated materials still keeps drawing, one rung
@@ -159,10 +159,10 @@ void VerifyBridgeToDiagnosticV1() {
   const auto& message = bridged.message;
   assert(message.starts_with(material.message));
   for (const std::string_view field :
-       {"material=sha256:abc", "element=NG_prototype/noise",
-        "node=noise2d", "input=amplitude",
-        "document=materials/prototype.mtlx", "target=spirv",
-        "generator=MaterialXGenSlang/1.0", "compiler=slangc-2025.10"}) {
+      {"material=sha256:abc", "element=NG_prototype/noise",
+          "node=noise2d", "input=amplitude",
+          "document=materials/prototype.mtlx", "target=spirv",
+          "generator=MaterialXGenSlang/1.0", "compiler=slangc-2025.10"}) {
     assert(message.find(field) != std::string::npos);
   }
   assert(message.find("material=") < message.find("element="));
@@ -262,7 +262,7 @@ void VerifyEvidence() {
   assert(merlin::MakeMaterialFallbackEvidenceRecord(replayed) == record);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   VerifyCodesAreStableAndDistinct();

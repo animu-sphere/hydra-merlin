@@ -15,8 +15,8 @@
 
 namespace {
 
-std::uint8_t CenterChannel(const merlin::render::RenderResult &result,
-                           std::uint32_t channel) {
+std::uint8_t CenterChannel(const merlin::render::RenderResult& result,
+    std::uint32_t channel) {
   const auto x = result.color.product.width / 2U;
   const auto y = result.color.product.height / 2U;
   return result.color
@@ -25,10 +25,10 @@ std::uint8_t CenterChannel(const merlin::render::RenderResult &result,
 }
 
 merlin::render::RenderResult
-Render(merlin::render::Backend &backend,
-       std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
-       std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate>
-           gpu_scene_update = {}) {
+Render(merlin::render::Backend& backend,
+    std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
+    std::shared_ptr<const merlin::render::GpuScenePackedFrameUpdate>
+        gpu_scene_update = {}) {
   merlin::render::RenderRequest request;
   request.snapshot = std::move(snapshot);
   request.gpu_scene_update = std::move(gpu_scene_update);
@@ -73,7 +73,7 @@ int main() {
   merlin::render::BackendCreateInfo create_info;
   create_info.enable_validation = true;
   create_info.frames_in_flight = 3;
-  std::array<merlin::render::BackendFactory *, 1> factories{&factory};
+  std::array<merlin::render::BackendFactory*, 1> factories{&factory};
   merlin::render::BackendSelection selection;
   auto backend =
       merlin::render::CreateBackend(create_info, factories, &selection);
@@ -88,9 +88,9 @@ int main() {
   merlin::MeshDescriptor mesh;
   mesh.label = "metal-quad";
   mesh.positions = {{-0.8F, -0.8F, 0.2F},
-                    {0.8F, -0.8F, 0.2F},
-                    {0.8F, 0.8F, 0.2F},
-                    {-0.8F, 0.8F, 0.2F}};
+      {0.8F, -0.8F, 0.2F},
+      {0.8F, 0.8F, 0.2F},
+      {-0.8F, 0.8F, 0.2F}};
   mesh.normals.assign(4, {0.0F, 0.0F, 1.0F});
   mesh.texcoords = {{0.0F, 1.0F}, {1.0F, 1.0F}, {1.0F, 0.0F}, {0.0F, 0.0F}};
   mesh.indices = {0, 1, 2, 0, 2, 3};
@@ -154,9 +154,9 @@ int main() {
   auto first_gpu_scene_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
           gpu_scene_packing.Apply(*extractor.snapshot(),
-                                  result.completion_value,
-                                  result.completion_value,
-                                  gpu_scene_inputs));
+              result.completion_value,
+              result.completion_value,
+              gpu_scene_inputs));
   const auto expected_gpu_scene_bytes =
       sizeof(merlin::render::GpuGeometry) +
       sizeof(merlin::render::GpuInstance) +
@@ -173,7 +173,7 @@ int main() {
   bool invalid_gpu_scene_rejected{};
   try {
     (void)Render(*backend, extractor.snapshot(), invalid_gpu_scene_update);
-  } catch (const merlin::render::RendererError &error) {
+  } catch (const merlin::render::RendererError& error) {
     invalid_gpu_scene_rejected =
         error.code() == merlin::render::RendererErrorCode::InvalidRequest &&
         error.operation() == "upload Metal GPU Scene";
@@ -189,7 +189,7 @@ int main() {
   bool invalid_gpu_scene_draw_map_rejected{};
   try {
     (void)Render(*backend, extractor.snapshot(),
-                 invalid_gpu_scene_draw_map);
+        invalid_gpu_scene_draw_map);
   } catch (const merlin::render::RendererError& error) {
     invalid_gpu_scene_draw_map_rejected =
         error.code() == merlin::render::RendererErrorCode::InvalidRequest;
@@ -219,7 +219,7 @@ int main() {
          expected_gpu_scene_bytes);
   assert(first_gpu_scene.telemetry.gpu_scene_staging_growth_count == 1);
   const auto gpu_scene_statistics =
-      dynamic_cast<merlin::metal::Backend &>(*backend).metal_statistics();
+      dynamic_cast<merlin::metal::Backend&>(*backend).metal_statistics();
   assert(gpu_scene_statistics.gpu_scene_buffers);
   assert(gpu_scene_statistics.gpu_scene_capacity_bytes ==
          gpu_scene_capacities.geometries *
@@ -240,8 +240,8 @@ int main() {
   auto static_gpu_scene_update =
       std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
           gpu_scene_packing.Apply(*extractor.snapshot(),
-                                  first_gpu_scene.completion_value,
-                                  first_gpu_scene.completion_value, {}));
+              first_gpu_scene.completion_value,
+              first_gpu_scene.completion_value, {}));
   assert(static_gpu_scene_update->copy_bytes == 0);
   const auto static_gpu_scene =
       Render(*backend, extractor.snapshot(), static_gpu_scene_update);
@@ -283,9 +283,9 @@ int main() {
   assert(collision_update.vertex_revision == 8);
   assert(collision_update.index_revision == 7);
   assert((collision_baseline.vertex_revision ^
-          (collision_baseline.index_revision << 1U)) ==
+             (collision_baseline.index_revision << 1U)) ==
          (collision_update.vertex_revision ^
-          (collision_update.index_revision << 1U)));
+             (collision_update.index_revision << 1U)));
   const auto collision_result = Render(*backend, extractor.snapshot());
   assert(collision_result.telemetry.geometry_cache_misses == 1);
 
@@ -311,10 +311,10 @@ int main() {
   // Every frame context is now seeded. A stable snapshot performs no target
   // allocation or argument-table update when a context is reused.
   const auto before_static =
-      dynamic_cast<merlin::metal::Backend &>(*backend).metal_statistics();
+      dynamic_cast<merlin::metal::Backend&>(*backend).metal_statistics();
   const auto static_result = Render(*backend, extractor.snapshot());
   const auto after_static =
-      dynamic_cast<merlin::metal::Backend &>(*backend).metal_statistics();
+      dynamic_cast<merlin::metal::Backend&>(*backend).metal_statistics();
   assert(static_result.telemetry.allocation_count == 0);
   assert(after_static.argument_buffer_update_count ==
          before_static.argument_buffer_update_count);
@@ -325,7 +325,7 @@ int main() {
   extractor.Apply(world, world.Commit());
   const auto updated = Render(*backend, extractor.snapshot());
   const auto after_update =
-      dynamic_cast<merlin::metal::Backend &>(*backend).metal_statistics();
+      dynamic_cast<merlin::metal::Backend&>(*backend).metal_statistics();
   assert(after_update.texture_slots.in_use == texture_slot);
   assert(CenterChannel(updated, 0) >= 15 && CenterChannel(updated, 0) <= 17);
   assert(CenterChannel(updated, 1) >= 254);
@@ -336,7 +336,7 @@ int main() {
   world.UpdateTexture(texture_handle, texture);
   material.alpha_mode = merlin::AlphaMode::Masked;
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialFeatures);
+      merlin::ChangeAspect::MaterialFeatures);
   extractor.Apply(world, world.Commit());
   const auto masked = Render(*backend, extractor.snapshot());
   assert(CenterChannel(masked, 0) >= 4 && CenterChannel(masked, 0) <= 6);
@@ -356,7 +356,7 @@ int main() {
   bool capacity_rejected{};
   try {
     (void)Render(*backend, extractor.snapshot());
-  } catch (const merlin::render::RendererError &error) {
+  } catch (const merlin::render::RendererError& error) {
     capacity_rejected =
         error.code() == merlin::render::RendererErrorCode::ResourceExhausted &&
         error.operation() == "allocate Metal texture slot" &&
@@ -378,31 +378,31 @@ int main() {
   material.base_color_texture = merlin::TextureBinding{
       replacement_texture_handle, replacement_sampler_handle, 0};
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialFeatures |
-                           merlin::ChangeAspect::MaterialResources);
+      merlin::ChangeAspect::MaterialFeatures |
+          merlin::ChangeAspect::MaterialResources);
   world.Remove(texture_handle);
   world.Remove(sampler_handle);
   extractor.Apply(world, world.Commit());
   const auto replacement = Render(*backend, extractor.snapshot());
   assert(CenterChannel(replacement, 2) >= 254);
   const auto replacement_stats =
-      dynamic_cast<merlin::metal::Backend &>(*backend).metal_statistics();
+      dynamic_cast<merlin::metal::Backend&>(*backend).metal_statistics();
   assert(replacement_stats.texture_slots.in_use == 1);
   assert(replacement_stats.texture_slots.reuses >= 1);
   assert(replacement_stats.sampler_slots.in_use == 1);
   assert(replacement_stats.sampler_slots.reuses >= 1);
   assert(backend->statistics().validation_messages == 0);
 
-  CAMetalLayer *layer = [CAMetalLayer layer];
+  CAMetalLayer* layer = [CAMetalLayer layer];
   merlin::metal::BackendOptions presentation_options;
   merlin::metal::PresentationOptions presentation;
   presentation.layer =
-      reinterpret_cast<std::uintptr_t>((__bridge void *)layer);
+      reinterpret_cast<std::uintptr_t>((__bridge void*)layer);
   presentation.color_space =
       merlin::metal::PresentationColorSpace::DisplayP3;
   presentation_options.presentation = presentation;
   merlin::metal::Backend presentation_backend(create_info,
-                                               presentation_options);
+      presentation_options);
   assert(presentation_backend.capabilities().external_presentation);
   const auto presentation_target =
       presentation_backend.default_presentation_target();
@@ -415,9 +415,9 @@ int main() {
   try {
     presentation_backend.ResizePresentationTarget(
         merlin::render::PresentationTarget(presentation_target->owner() + 1,
-                                           presentation_target->value()),
+            presentation_target->value()),
         64, 64);
-  } catch (const merlin::render::RendererError &error) {
+  } catch (const merlin::render::RendererError& error) {
     foreign_target_rejected =
         error.code() == merlin::render::RendererErrorCode::InvalidRequest &&
         error.operation() == "resize Metal presentation";
@@ -430,8 +430,8 @@ int main() {
   bool hdr_rejected{};
   try {
     merlin::metal::Backend unsupported_hdr(create_info,
-                                           presentation_options);
-  } catch (const merlin::render::RendererError &error) {
+        presentation_options);
+  } catch (const merlin::render::RendererError& error) {
     hdr_rejected =
         error.code() == merlin::render::RendererErrorCode::Unsupported &&
         error.operation() == "create Metal presentation";

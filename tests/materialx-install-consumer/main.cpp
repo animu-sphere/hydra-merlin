@@ -6,7 +6,7 @@
 namespace {
 
 class CollectingSink final : public merlin::DiagnosticSink {
- public:
+public:
   void Report(const merlin::Diagnostic& diagnostic) override {
     reported.push_back(diagnostic);
   }
@@ -14,7 +14,7 @@ class CollectingSink final : public merlin::DiagnosticSink {
   std::vector<merlin::Diagnostic> reported;
 };
 
-}  // namespace
+} // namespace
 
 int main() {
   const auto result = merlin::materialx::CompileMaterialFunction(

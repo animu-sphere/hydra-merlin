@@ -32,14 +32,14 @@ enum class GpuScenePackingErrorCode {
 };
 
 class GpuScenePackingError : public std::runtime_error {
- public:
+public:
   GpuScenePackingError(GpuScenePackingErrorCode code, std::string message);
 
   [[nodiscard]] GpuScenePackingErrorCode code() const noexcept {
     return code_;
   }
 
- private:
+private:
   GpuScenePackingErrorCode code_;
 };
 
@@ -119,7 +119,7 @@ struct GpuScenePackedFrameUpdate {
 // A rejected update therefore leaves source/revision, generations,
 // retirements, telemetry, and free-slot order unchanged.
 class GpuScenePackingState {
- public:
+public:
   explicit GpuScenePackingState(GpuScenePackingCapacities capacities);
   GpuScenePackingState(const GpuScenePackingState&) = delete;
   GpuScenePackingState& operator=(const GpuScenePackingState&) = delete;
@@ -165,7 +165,7 @@ class GpuScenePackingState {
     return draws_->Find(draw);
   }
 
- private:
+private:
   std::unique_ptr<GpuSceneResourceSlots> geometries_;
   std::unique_ptr<GpuSceneResourceSlots> instances_;
   std::unique_ptr<GpuSceneResourceSlots> materials_;
@@ -173,4 +173,4 @@ class GpuScenePackingState {
   std::shared_ptr<const std::vector<std::uint32_t>> draw_slot_indices_;
 };
 
-}  // namespace merlin::render
+} // namespace merlin::render

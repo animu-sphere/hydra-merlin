@@ -46,12 +46,14 @@ enum class GpuSceneSlotErrorCode {
 };
 
 class GpuSceneSlotError : public std::runtime_error {
- public:
+public:
   GpuSceneSlotError(GpuSceneSlotErrorCode code, std::string message);
 
-  [[nodiscard]] GpuSceneSlotErrorCode code() const noexcept { return code_; }
+  [[nodiscard]] GpuSceneSlotErrorCode code() const noexcept {
+    return code_;
+  }
 
- private:
+private:
   GpuSceneSlotErrorCode code_;
 };
 
@@ -75,9 +77,9 @@ struct GpuSceneSlotTelemetry {
 // index is not reusable and its generation does not advance until Collect sees
 // the last completion value that may still reference it.
 class GpuSceneSlotAllocator {
- public:
+public:
   explicit GpuSceneSlotAllocator(std::string_view label,
-                                 std::uint32_t capacity);
+      std::uint32_t capacity);
   GpuSceneSlotAllocator(const GpuSceneSlotAllocator&) = delete;
   GpuSceneSlotAllocator& operator=(const GpuSceneSlotAllocator&) = delete;
 
@@ -94,7 +96,7 @@ class GpuSceneSlotAllocator {
     return telemetry_;
   }
 
- private:
+private:
   friend class GpuSceneDrawSlots;
   friend class GpuSceneResourceSlots;
 
@@ -102,7 +104,9 @@ class GpuSceneSlotAllocator {
 
   GpuSceneSlotAllocator(const GpuSceneSlotAllocator& source, CloneTag);
 
-  enum class State : std::uint8_t { Free, Active, Retired };
+  enum class State : std::uint8_t { Free,
+    Active,
+    Retired };
 
   struct Slot {
     std::uint32_t generation{1};
@@ -118,9 +122,9 @@ class GpuSceneSlotAllocator {
       std::uint32_t index) const noexcept;
   void ValidateOwnedHandle(GpuSceneSlotHandle slot);
   void RequireAvailable(std::size_t required,
-                        std::size_t immediately_reclaimable = 0);
+      std::size_t immediately_reclaimable = 0);
   [[noreturn]] void Throw(GpuSceneSlotErrorCode code,
-                          std::string_view detail) const;
+      std::string_view detail) const;
 
   std::string label_;
   std::uint64_t owner_{};
@@ -186,7 +190,7 @@ struct GpuSceneResourceUpdatePlan {
 // table. Exact snapshot deltas are an optimization; source changes, revision
 // gaps, and malformed indices fall back to complete identity reconciliation.
 class GpuSceneResourceSlots {
- public:
+public:
   GpuSceneResourceSlots(GpuSceneResourceTable table, std::uint32_t capacity);
   GpuSceneResourceSlots(const GpuSceneResourceSlots&) = delete;
   GpuSceneResourceSlots& operator=(const GpuSceneResourceSlots&) = delete;
@@ -202,15 +206,23 @@ class GpuSceneResourceSlots {
 
   [[nodiscard]] std::optional<GpuSceneSlotHandle> Find(
       std::uint64_t resource) const noexcept;
-  [[nodiscard]] GpuSceneResourceTable table() const noexcept { return table_; }
-  [[nodiscard]] std::uint64_t source_id() const noexcept { return source_id_; }
-  [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
-  [[nodiscard]] std::size_t size() const noexcept { return resident_.size(); }
+  [[nodiscard]] GpuSceneResourceTable table() const noexcept {
+    return table_;
+  }
+  [[nodiscard]] std::uint64_t source_id() const noexcept {
+    return source_id_;
+  }
+  [[nodiscard]] std::uint64_t revision() const noexcept {
+    return revision_;
+  }
+  [[nodiscard]] std::size_t size() const noexcept {
+    return resident_.size();
+  }
   [[nodiscard]] const GpuSceneSlotTelemetry& telemetry() const noexcept {
     return slots_.telemetry();
   }
 
- private:
+private:
   friend class GpuScenePackingState;
 
   struct CloneTag {};
@@ -265,7 +277,7 @@ struct GpuSceneDrawUpdatePlan {
 // CPU residency and update planning only; native buffer allocation and copies
 // remain backend responsibilities.
 class GpuSceneDrawSlots {
- public:
+public:
   explicit GpuSceneDrawSlots(std::uint32_t capacity);
   GpuSceneDrawSlots(const GpuSceneDrawSlots&) = delete;
   GpuSceneDrawSlots& operator=(const GpuSceneDrawSlots&) = delete;
@@ -281,14 +293,20 @@ class GpuSceneDrawSlots {
 
   [[nodiscard]] std::optional<GpuSceneSlotHandle> Find(
       std::uint64_t draw) const noexcept;
-  [[nodiscard]] std::uint64_t source_id() const noexcept { return source_id_; }
-  [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
-  [[nodiscard]] std::size_t size() const noexcept { return resident_.size(); }
+  [[nodiscard]] std::uint64_t source_id() const noexcept {
+    return source_id_;
+  }
+  [[nodiscard]] std::uint64_t revision() const noexcept {
+    return revision_;
+  }
+  [[nodiscard]] std::size_t size() const noexcept {
+    return resident_.size();
+  }
   [[nodiscard]] const GpuSceneSlotTelemetry& telemetry() const noexcept {
     return slots_.telemetry();
   }
 
- private:
+private:
   friend class GpuScenePackingState;
 
   struct CloneTag {};
@@ -307,4 +325,4 @@ class GpuSceneDrawSlots {
   std::uint64_t revision_{};
 };
 
-}  // namespace merlin::render
+} // namespace merlin::render

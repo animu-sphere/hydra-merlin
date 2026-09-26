@@ -13,19 +13,19 @@ namespace {
 constexpr std::uint32_t kMaxPreviewExtent = 64;
 
 std::uint32_t SampleCoordinate(std::uint32_t preview_coordinate,
-                               std::uint32_t preview_extent,
-                               std::uint32_t source_extent) noexcept {
+    std::uint32_t preview_extent,
+    std::uint32_t source_extent) noexcept {
   if (preview_extent <= 1U) {
     return source_extent / 2U;
   }
   return static_cast<std::uint32_t>(
       (static_cast<std::uint64_t>(preview_coordinate) *
-       (source_extent - 1U)) /
+          (source_extent - 1U)) /
       (preview_extent - 1U));
 }
 
 std::pair<std::uint32_t, std::uint32_t> PreviewExtent(std::uint32_t width,
-                                                      std::uint32_t height) {
+    std::uint32_t height) {
   if (width == 0 || height == 0) {
     throw std::invalid_argument("AOV preview extent must be non-zero");
   }
@@ -33,7 +33,7 @@ std::pair<std::uint32_t, std::uint32_t> PreviewExtent(std::uint32_t width,
       std::min(1.0, static_cast<double>(kMaxPreviewExtent) /
                         static_cast<double>(std::max(width, height)));
   return {std::max(1U, static_cast<std::uint32_t>(std::round(width * scale))),
-          std::max(1U, static_cast<std::uint32_t>(std::round(height * scale)))};
+      std::max(1U, static_cast<std::uint32_t>(std::round(height * scale)))};
 }
 
 template <typename Function>
@@ -55,8 +55,8 @@ void PopulatePixels(DeveloperUiAovPreview& result, Function&& function) {
 }
 
 DeveloperUiAovPreview MakePreview(Aov aov, std::uint32_t width,
-                                  std::uint32_t height,
-                                  std::uint64_t frame_index) {
+    std::uint32_t height,
+    std::uint64_t frame_index) {
   const auto [preview_width, preview_height] = PreviewExtent(width, height);
   DeveloperUiAovPreview result;
   result.available = true;
@@ -85,11 +85,11 @@ std::array<std::uint8_t, 4> IdColor(std::uint32_t id) {
   hash = (hash ^ (hash >> 15U)) * 0x735a2d97U;
   hash ^= hash >> 15U;
   return {static_cast<std::uint8_t>(64U + (hash & 0xBFU)),
-          static_cast<std::uint8_t>(64U + ((hash >> 8U) & 0xBFU)),
-          static_cast<std::uint8_t>(64U + ((hash >> 16U) & 0xBFU)), 255};
+      static_cast<std::uint8_t>(64U + ((hash >> 8U) & 0xBFU)),
+      static_cast<std::uint8_t>(64U + ((hash >> 16U) & 0xBFU)), 255};
 }
 
-}  // namespace
+} // namespace
 
 void AddDeveloperUiAovInspectionProduct(
     const DeveloperUiRendererSettings& settings,
@@ -126,7 +126,7 @@ DeveloperUiAovPreview BuildDeveloperUiColorPreview(
     DeveloperUiAovPreviewPixel pixel;
     const auto offset = (static_cast<std::size_t>(y) * width + x) * 4U;
     std::copy_n(rgba.begin() + static_cast<std::ptrdiff_t>(offset), 4,
-                pixel.color.begin());
+        pixel.color.begin());
     pixel.display_rgba = pixel.color;
     return pixel;
   });
@@ -202,4 +202,4 @@ DeveloperUiAovPreview BuildDeveloperUiIdPreview(
   return result;
 }
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

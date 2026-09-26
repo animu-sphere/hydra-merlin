@@ -185,14 +185,14 @@ void PopulateScene(SceneFixture& fixture) {
   merlin::MeshDescriptor triangle;
   triangle.label = "benchmark-triangle";
   triangle.positions = {{0.0F, -0.72F, 0.0F}, {0.72F, 0.62F, 0.0F},
-                        {-0.72F, 0.62F, 0.0F}};
+      {-0.72F, 0.62F, 0.0F}};
   triangle.indices = {0, 1, 2};
   fixture.triangle = fixture.world.CreateMesh(std::move(triangle));
 
   merlin::MeshDescriptor quad;
   quad.label = "benchmark-quad";
   quad.positions = {{-0.95F, -0.95F, 0.5F}, {-0.45F, -0.95F, 0.5F},
-                    {-0.45F, -0.45F, 0.5F}, {-0.95F, -0.45F, 0.5F}};
+      {-0.45F, -0.45F, 0.5F}, {-0.95F, -0.45F, 0.5F}};
   quad.indices = {0, 1, 2, 0, 2, 3};
   fixture.quad = fixture.world.CreateMesh(std::move(quad));
 
@@ -227,7 +227,7 @@ void PopulateScene(SceneFixture& fixture) {
 }
 
 FixtureSummary PopulateScaleFixture(std::string_view name,
-                                    ScaleFixture& fixture) {
+    ScaleFixture& fixture) {
   merlin::MaterialDescriptor material;
   material.label = "scale-material";
   material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
@@ -237,7 +237,7 @@ FixtureSummary PopulateScaleFixture(std::string_view name,
     merlin::MeshDescriptor mesh;
     mesh.label = std::move(label);
     mesh.positions = {{-0.01F, -0.01F, 0.0F}, {0.01F, -0.01F, 0.0F},
-                      {0.0F, 0.01F, 0.0F}};
+        {0.0F, 0.01F, 0.0F}};
     mesh.indices = {0, 1, 2};
     return mesh;
   };
@@ -320,7 +320,7 @@ FixtureSummary PopulateScaleFixture(std::string_view name,
 }
 
 FixtureSummary PopulateGpuDrivenSmallObjects(ScaleFixture& fixture,
-                                              std::uint32_t target_count) {
+    std::uint32_t target_count) {
   if (fixture.meshes.empty()) {
     merlin::MaterialDescriptor material;
     material.label = "gpu-driven-small-object-material";
@@ -330,8 +330,8 @@ FixtureSummary PopulateGpuDrivenSmallObjects(ScaleFixture& fixture,
     merlin::MeshDescriptor mesh;
     mesh.label = "gpu-driven-small-object-mesh";
     mesh.positions = {{-0.002F, -0.002F, 0.0F},
-                      {0.002F, -0.002F, 0.0F},
-                      {0.0F, 0.002F, 0.0F}};
+        {0.002F, -0.002F, 0.0F},
+        {0.0F, 0.002F, 0.0F}};
     mesh.indices = {0, 1, 2};
     fixture.meshes.push_back(fixture.world.CreateMesh(std::move(mesh)));
   }
@@ -343,7 +343,7 @@ FixtureSummary PopulateGpuDrivenSmallObjects(ScaleFixture& fixture,
   fixture.instances.reserve(target_count);
   for (std::uint32_t index =
            static_cast<std::uint32_t>(fixture.instances.size());
-       index < target_count; ++index) {
+      index < target_count; ++index) {
     merlin::InstanceDescriptor instance;
     instance.label = "gpu-driven-instance-" + std::to_string(index);
     instance.mesh = fixture.meshes.front();
@@ -378,18 +378,18 @@ FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
 }
 
 std::uint64_t Percentile(const std::vector<std::uint64_t>& sorted,
-                         std::uint32_t percentile) {
+    std::uint32_t percentile) {
   if (sorted.empty()) {
     return 0;
   }
   const auto rank = (static_cast<std::uint64_t>(percentile) * sorted.size() +
-                     99U) /
+                        99U) /
                     100U;
   return sorted[std::max<std::size_t>(1, static_cast<std::size_t>(rank)) - 1U];
 }
 
 Distribution Summarize(const std::vector<FrameTimings>& values,
-                       std::uint64_t FrameTimings::*member) {
+    std::uint64_t FrameTimings::* member) {
   std::vector<std::uint64_t> samples;
   samples.reserve(values.size());
   for (const auto& value : values) {
@@ -405,7 +405,7 @@ Distribution Summarize(const std::vector<FrameTimings>& values,
                           : samples[middle - 1U] +
                                 (samples[middle] - samples[middle - 1U]) / 2U;
   return {median, Percentile(samples, 95), Percentile(samples, 99),
-          samples.back()};
+      samples.back()};
 }
 
 std::string VersionString(std::uint32_t version) {
@@ -418,21 +418,35 @@ void JsonString(std::ostream& stream, std::string_view value) {
   stream << '"';
   for (const unsigned char character : value) {
     switch (character) {
-      case '"': stream << "\\\""; break;
-      case '\\': stream << "\\\\"; break;
-      case '\b': stream << "\\b"; break;
-      case '\f': stream << "\\f"; break;
-      case '\n': stream << "\\n"; break;
-      case '\r': stream << "\\r"; break;
-      case '\t': stream << "\\t"; break;
-      default:
-        if (character < 0x20U) {
-          constexpr char digits[] = "0123456789abcdef";
-          stream << "\\u00" << digits[character >> 4U]
-                 << digits[character & 0x0fU];
-        } else {
-          stream << character;
-        }
+    case '"':
+      stream << "\\\"";
+      break;
+    case '\\':
+      stream << "\\\\";
+      break;
+    case '\b':
+      stream << "\\b";
+      break;
+    case '\f':
+      stream << "\\f";
+      break;
+    case '\n':
+      stream << "\\n";
+      break;
+    case '\r':
+      stream << "\\r";
+      break;
+    case '\t':
+      stream << "\\t";
+      break;
+    default:
+      if (character < 0x20U) {
+        constexpr char digits[] = "0123456789abcdef";
+        stream << "\\u00" << digits[character >> 4U]
+               << digits[character & 0x0fU];
+      } else {
+        stream << character;
+      }
     }
   }
   stream << '"';
@@ -445,7 +459,7 @@ void WriteDistribution(std::ostream& stream, const Distribution& value) {
 }
 
 void WriteCounter(std::ostream& stream, std::string_view indent,
-                  std::string_view name, std::uint64_t value, bool last = false) {
+    std::string_view name, std::uint64_t value, bool last = false) {
   stream << indent << "\"" << name << "\": " << value
          << (last ? "\n" : ",\n");
 }
@@ -455,28 +469,42 @@ void WriteArenaTelemetry(
     std::string_view indent) {
   stream << "{\n"
          << indent << "  \"capacity_bytes\": " << arena.capacity_bytes
-         << ",\n" << indent << "  \"resident_bytes\": "
+         << ",\n"
+         << indent << "  \"resident_bytes\": "
          << arena.resident_bytes
-         << ",\n" << indent << "  \"peak_resident_bytes\": "
+         << ",\n"
+         << indent << "  \"peak_resident_bytes\": "
          << arena.peak_resident_bytes
-         << ",\n" << indent << "  \"free_bytes\": " << arena.free_bytes
-         << ",\n" << indent << "  \"largest_free_span_bytes\": "
+         << ",\n"
+         << indent << "  \"free_bytes\": " << arena.free_bytes
+         << ",\n"
+         << indent << "  \"largest_free_span_bytes\": "
          << arena.largest_free_span_bytes
-         << ",\n" << indent << "  \"retiring_bytes\": "
+         << ",\n"
+         << indent << "  \"retiring_bytes\": "
          << arena.retiring_bytes
-         << ",\n" << indent << "  \"allocations\": "
+         << ",\n"
+         << indent << "  \"allocations\": "
          << arena.allocation_count
-         << ",\n" << indent << "  \"releases\": " << arena.release_count
-         << ",\n" << indent << "  \"active_ranges\": "
+         << ",\n"
+         << indent << "  \"releases\": " << arena.release_count
+         << ",\n"
+         << indent << "  \"active_ranges\": "
          << arena.active_ranges
-         << ",\n" << indent << "  \"peak_active_ranges\": "
+         << ",\n"
+         << indent << "  \"peak_active_ranges\": "
          << arena.peak_active_ranges
-         << ",\n" << indent << "  \"retiring_ranges\": "
+         << ",\n"
+         << indent << "  \"retiring_ranges\": "
          << arena.retiring_ranges
-         << ",\n" << indent << "  \"free_spans\": " << arena.free_spans
-         << ",\n" << indent << "  \"blocks\": " << arena.blocks
-         << ",\n" << indent << "  \"growths\": " << arena.growth_count
-         << '\n' << indent << '}';
+         << ",\n"
+         << indent << "  \"free_spans\": " << arena.free_spans
+         << ",\n"
+         << indent << "  \"blocks\": " << arena.blocks
+         << ",\n"
+         << indent << "  \"growths\": " << arena.growth_count
+         << '\n'
+         << indent << '}';
 }
 
 void WriteUploadRingTelemetry(
@@ -484,43 +512,58 @@ void WriteUploadRingTelemetry(
     std::string_view indent) {
   stream << "{\n"
          << indent << "  \"capacity_bytes\": " << ring.capacity_bytes
-         << ",\n" << indent << "  \"peak_capacity_bytes\": "
+         << ",\n"
+         << indent << "  \"peak_capacity_bytes\": "
          << ring.peak_capacity_bytes
-         << ",\n" << indent << "  \"in_flight_bytes\": "
+         << ",\n"
+         << indent << "  \"in_flight_bytes\": "
          << ring.in_flight_bytes
-         << ",\n" << indent << "  \"peak_in_flight_bytes\": "
+         << ",\n"
+         << indent << "  \"peak_in_flight_bytes\": "
          << ring.peak_in_flight_bytes
-         << ",\n" << indent << "  \"reserved_bytes\": "
+         << ",\n"
+         << indent << "  \"reserved_bytes\": "
          << ring.reserved_bytes
-         << ",\n" << indent << "  \"reservations\": "
+         << ",\n"
+         << indent << "  \"reservations\": "
          << ring.reservation_count
-         << ",\n" << indent << "  \"retired_bytes\": "
+         << ",\n"
+         << indent << "  \"retired_bytes\": "
          << ring.retired_bytes
-         << ",\n" << indent << "  \"active_regions\": "
+         << ",\n"
+         << indent << "  \"active_regions\": "
          << ring.active_regions
-         << ",\n" << indent << "  \"peak_active_regions\": "
+         << ",\n"
+         << indent << "  \"peak_active_regions\": "
          << ring.peak_active_regions
-         << ",\n" << indent << "  \"wraps\": " << ring.wrap_count
-         << ",\n" << indent << "  \"growths\": " << ring.growth_count
-         << ",\n" << indent << "  \"retired_buffers\": "
-         << ring.retired_buffers << '\n' << indent << '}';
+         << ",\n"
+         << indent << "  \"wraps\": " << ring.wrap_count
+         << ",\n"
+         << indent << "  \"growths\": " << ring.growth_count
+         << ",\n"
+         << indent << "  \"retired_buffers\": "
+         << ring.retired_buffers << '\n'
+         << indent << '}';
 }
 
 void WriteBaseline(std::ostream& stream, const Baseline& baseline,
-                   std::string_view indent) {
-  stream << indent << "{\n" << indent << "  \"name\": ";
+    std::string_view indent) {
+  stream << indent << "{\n"
+         << indent << "  \"name\": ";
   JsonString(stream, baseline.name);
-  stream << ",\n" << indent << "  \"samples\": " << baseline.timings.size()
-         << ",\n" << indent << "  \"stages_ns\": {\n";
+  stream << ",\n"
+         << indent << "  \"samples\": " << baseline.timings.size()
+         << ",\n"
+         << indent << "  \"stages_ns\": {\n";
   constexpr std::array stages{
       std::pair{"render_world_update", &FrameTimings::scene_update_ns},
       std::pair{"snapshot_extraction", &FrameTimings::extraction_ns},
       std::pair{"gpu_scene_update", &FrameTimings::gpu_scene_update_ns},
       std::pair{"gaussian_preparation", &FrameTimings::gaussian_preparation_ns},
       std::pair{"gaussian_attribute_upload",
-                &FrameTimings::gaussian_attribute_upload_ns},
+          &FrameTimings::gaussian_attribute_upload_ns},
       std::pair{"gaussian_prepared_upload",
-                &FrameTimings::gaussian_prepared_upload_ns},
+          &FrameTimings::gaussian_prepared_upload_ns},
       std::pair{"gaussian_gpu_sort", &FrameTimings::gaussian_gpu_sort_ns},
       std::pair{"gaussian_raster", &FrameTimings::gaussian_raster_ns},
       std::pair{"command_recording", &FrameTimings::command_recording_ns},
@@ -542,243 +585,246 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       [&](const FrameTimings& timing) {
         return timing.total_frame_ns > hitch_threshold;
       }));
-  stream << indent << "  },\n" << indent << "  \"frame_hitches\": {"
+  stream << indent << "  },\n"
+         << indent << "  \"frame_hitches\": {"
          << "\"threshold_ns\": " << hitch_threshold << ", \"count\": "
-         << hitch_count << "},\n" << indent << "  \"counters\": {\n";
+         << hitch_count << "},\n"
+         << indent << "  \"counters\": {\n";
   const auto& count = baseline.counters;
   const auto& snapshot = baseline.snapshot_build_counters;
   const auto counter_indent = std::string(indent) + "    ";
   WriteCounter(stream, counter_indent, "snapshot_visited_records",
-               snapshot.visited_records);
+      snapshot.visited_records);
   WriteCounter(stream, counter_indent, "snapshot_copied_records",
-               snapshot.copied_records);
+      snapshot.copied_records);
   WriteCounter(stream, counter_indent, "snapshot_rebuilt_draws",
-               snapshot.rebuilt_draws);
+      snapshot.rebuilt_draws);
   WriteCounter(stream, counter_indent, "snapshot_fully_rebuilt_tables",
-               snapshot.fully_rebuilt_tables);
+      snapshot.fully_rebuilt_tables);
   WriteCounter(stream, counter_indent, "draw_count", count.draw_count);
   WriteCounter(stream, counter_indent, "visible_primitive_count",
-               count.visible_primitive_count);
+      count.visible_primitive_count);
   WriteCounter(stream, counter_indent, "triangle_count", count.triangle_count);
   WriteCounter(stream, counter_indent, "gaussian_candidate_count",
-               count.gaussian_candidate_count);
+      count.gaussian_candidate_count);
   WriteCounter(stream, counter_indent, "gaussian_visible_count",
-               count.gaussian_visible_count);
+      count.gaussian_visible_count);
   WriteCounter(stream, counter_indent, "gaussian_hidden_count",
-               count.gaussian_hidden_count);
+      count.gaussian_hidden_count);
   WriteCounter(stream, counter_indent, "gaussian_opacity_culled_count",
-               count.gaussian_opacity_culled_count);
+      count.gaussian_opacity_culled_count);
   WriteCounter(stream, counter_indent, "gaussian_frustum_culled_count",
-               count.gaussian_frustum_culled_count);
+      count.gaussian_frustum_culled_count);
   WriteCounter(stream, counter_indent, "gaussian_invalid_culled_count",
-               count.gaussian_invalid_culled_count);
+      count.gaussian_invalid_culled_count);
   WriteCounter(stream, counter_indent, "gaussian_sorted_count",
-               count.gaussian_sorted_count);
+      count.gaussian_sorted_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_sorting_policy_fallback_count",
-               count.gaussian_sorting_policy_fallback_count);
+      "gaussian_sorting_policy_fallback_count",
+      count.gaussian_sorting_policy_fallback_count);
   WriteCounter(stream, counter_indent, "gaussian_preparation_cache_hits",
-               count.gaussian_preparation_cache_hits);
+      count.gaussian_preparation_cache_hits);
   WriteCounter(stream, counter_indent, "gaussian_preparation_cache_misses",
-               count.gaussian_preparation_cache_misses);
+      count.gaussian_preparation_cache_misses);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_preparation_dispatch_count",
-               count.gaussian_gpu_preparation_dispatch_count);
+      "gaussian_gpu_preparation_dispatch_count",
+      count.gaussian_gpu_preparation_dispatch_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_preparation_candidate_count",
-               count.gaussian_gpu_preparation_candidate_count);
+      "gaussian_gpu_preparation_candidate_count",
+      count.gaussian_gpu_preparation_candidate_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_preparation_visible_count",
-               count.gaussian_gpu_preparation_visible_count);
+      "gaussian_gpu_preparation_visible_count",
+      count.gaussian_gpu_preparation_visible_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_preparation_opacity_culled_count",
-               count.gaussian_gpu_preparation_opacity_culled_count);
+      "gaussian_gpu_preparation_opacity_culled_count",
+      count.gaussian_gpu_preparation_opacity_culled_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_preparation_frustum_culled_count",
-               count.gaussian_gpu_preparation_frustum_culled_count);
+      "gaussian_gpu_preparation_frustum_culled_count",
+      count.gaussian_gpu_preparation_frustum_culled_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_preparation_invalid_culled_count",
-               count.gaussian_gpu_preparation_invalid_culled_count);
+      "gaussian_gpu_preparation_invalid_culled_count",
+      count.gaussian_gpu_preparation_invalid_culled_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_preparation_fallback_count",
-               count.gaussian_gpu_preparation_fallback_count);
+      "gaussian_gpu_preparation_fallback_count",
+      count.gaussian_gpu_preparation_fallback_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_sort_dispatch_count",
-               count.gaussian_gpu_sort_dispatch_count);
+      count.gaussian_gpu_sort_dispatch_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_sort_pass_count",
-               count.gaussian_gpu_sort_pass_count);
+      count.gaussian_gpu_sort_pass_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_sort_key_count",
-               count.gaussian_gpu_sort_key_count);
+      count.gaussian_gpu_sort_key_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_sorted_count",
-               count.gaussian_gpu_sorted_count);
+      count.gaussian_gpu_sorted_count);
   WriteCounter(stream, counter_indent,
-               "gaussian_gpu_sort_reference_divergence_count",
-               count.gaussian_gpu_sort_reference_divergence_count);
+      "gaussian_gpu_sort_reference_divergence_count",
+      count.gaussian_gpu_sort_reference_divergence_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_sort_fallback_count",
-               count.gaussian_gpu_sort_fallback_count);
+      count.gaussian_gpu_sort_fallback_count);
   WriteCounter(stream, counter_indent, "gaussian_draw_count",
-               count.gaussian_draw_count);
+      count.gaussian_draw_count);
   WriteCounter(stream, counter_indent, "gaussian_attribute_upload_bytes",
-               count.gaussian_attribute_upload_bytes);
+      count.gaussian_attribute_upload_bytes);
   WriteCounter(stream, counter_indent, "gaussian_attribute_copy_range_count",
-               count.gaussian_attribute_copy_range_count);
+      count.gaussian_attribute_copy_range_count);
   WriteCounter(stream, counter_indent, "gaussian_attribute_generation_count",
-               count.gaussian_attribute_generation_count);
+      count.gaussian_attribute_generation_count);
   WriteCounter(stream, counter_indent, "gaussian_upload_bytes",
-               count.gaussian_upload_bytes);
+      count.gaussian_upload_bytes);
   WriteCounter(stream, counter_indent, "upload_bytes", count.upload_bytes);
   WriteCounter(stream, counter_indent, "vertex_upload_bytes",
-               count.vertex_upload_bytes);
+      count.vertex_upload_bytes);
   WriteCounter(stream, counter_indent, "index_upload_bytes",
-               count.index_upload_bytes);
+      count.index_upload_bytes);
   WriteCounter(stream, counter_indent, "texture_upload_bytes",
-               count.texture_upload_bytes);
+      count.texture_upload_bytes);
   WriteCounter(stream, counter_indent, "gpu_scene_upload_bytes",
-               count.gpu_scene_upload_bytes);
+      count.gpu_scene_upload_bytes);
   WriteCounter(stream, counter_indent, "gpu_scene_copy_range_count",
-               count.gpu_scene_copy_range_count);
+      count.gpu_scene_copy_range_count);
   WriteCounter(stream, counter_indent,
-               "gpu_scene_upload_ring_reserved_bytes",
-               count.gpu_scene_upload_ring_reserved_bytes);
+      "gpu_scene_upload_ring_reserved_bytes",
+      count.gpu_scene_upload_ring_reserved_bytes);
   WriteCounter(stream, counter_indent, "gpu_scene_upload_ring_growth_count",
-               count.gpu_scene_upload_ring_growth_count);
+      count.gpu_scene_upload_ring_growth_count);
   WriteCounter(stream, counter_indent, "gpu_scene_upload_ring_growth_bytes",
-               count.gpu_scene_upload_ring_growth_bytes);
+      count.gpu_scene_upload_ring_growth_bytes);
   WriteCounter(stream, counter_indent, "gpu_scene_draw_count",
-               count.gpu_scene_draw_count);
+      count.gpu_scene_draw_count);
   WriteCounter(stream, counter_indent, "gpu_driven_candidate_draw_count",
-               count.gpu_driven_candidate_draw_count);
+      count.gpu_driven_candidate_draw_count);
   WriteCounter(stream, counter_indent, "gpu_driven_visible_draw_count",
-               count.gpu_driven_visible_draw_count);
+      count.gpu_driven_visible_draw_count);
   WriteCounter(stream, counter_indent,
-               "gpu_driven_visibility_mask_culled_count",
-               count.gpu_driven_visibility_mask_culled_count);
+      "gpu_driven_visibility_mask_culled_count",
+      count.gpu_driven_visibility_mask_culled_count);
   WriteCounter(stream, counter_indent,
-               "gpu_driven_frustum_culled_count",
-               count.gpu_driven_frustum_culled_count);
+      "gpu_driven_frustum_culled_count",
+      count.gpu_driven_frustum_culled_count);
   WriteCounter(stream, counter_indent, "gpu_driven_indirect_draw_count",
-               count.gpu_driven_indirect_draw_count);
+      count.gpu_driven_indirect_draw_count);
   WriteCounter(stream, counter_indent, "gpu_driven_candidate_upload_bytes",
-               count.gpu_driven_candidate_upload_bytes);
+      count.gpu_driven_candidate_upload_bytes);
   WriteCounter(stream, counter_indent, "gpu_driven_fallback_count",
-               count.gpu_driven_fallback_count);
+      count.gpu_driven_fallback_count);
   WriteCounter(stream, counter_indent, "upload_ring_reserved_bytes",
-               count.upload_ring_reserved_bytes);
+      count.upload_ring_reserved_bytes);
   WriteCounter(stream, counter_indent, "readback_bytes", count.readback_bytes);
   WriteCounter(stream, counter_indent, "requested_aov_mask",
-               count.requested_aov_mask);
+      count.requested_aov_mask);
   WriteCounter(stream, counter_indent, "rendered_aov_mask",
-               count.rendered_aov_mask);
+      count.rendered_aov_mask);
   WriteCounter(stream, counter_indent, "cpu_readback_aov_mask",
-               count.cpu_readback_aov_mask);
+      count.cpu_readback_aov_mask);
   WriteCounter(stream, counter_indent, "requested_aov_count",
-               count.requested_aov_count);
+      count.requested_aov_count);
   WriteCounter(stream, counter_indent, "rendered_aov_count",
-               count.rendered_aov_count);
+      count.rendered_aov_count);
   WriteCounter(stream, counter_indent, "cpu_readback_aov_count",
-               count.cpu_readback_aov_count);
+      count.cpu_readback_aov_count);
   WriteCounter(stream, counter_indent, "wait_count", count.wait_count);
   WriteCounter(stream, counter_indent, "resolve_count", count.resolve_count);
   WriteCounter(stream, counter_indent, "map_count", count.map_count);
   WriteCounter(stream, counter_indent, "allocation_count",
-               count.allocation_count);
+      count.allocation_count);
   WriteCounter(stream, counter_indent, "buffer_allocation_count",
-               count.buffer_allocation_count);
+      count.buffer_allocation_count);
   WriteCounter(stream, counter_indent, "image_allocation_count",
-               count.image_allocation_count);
+      count.image_allocation_count);
   WriteCounter(stream, counter_indent, "buffer_allocation_bytes",
-               count.buffer_allocation_bytes);
+      count.buffer_allocation_bytes);
   WriteCounter(stream, counter_indent, "image_allocation_bytes",
-               count.image_allocation_bytes);
+      count.image_allocation_bytes);
   WriteCounter(stream, counter_indent, "pipeline_creation_count",
-               count.pipeline_creation_count);
+      count.pipeline_creation_count);
   WriteCounter(stream, counter_indent, "scene_cache_hits",
-               count.scene_cache_hits);
+      count.scene_cache_hits);
   WriteCounter(stream, counter_indent, "scene_cache_misses",
-               count.scene_cache_misses);
+      count.scene_cache_misses);
   WriteCounter(stream, counter_indent, "geometry_cache_hits",
-               count.geometry_cache_hits);
+      count.geometry_cache_hits);
   WriteCounter(stream, counter_indent, "geometry_cache_misses",
-               count.geometry_cache_misses);
+      count.geometry_cache_misses);
   WriteCounter(stream, counter_indent, "texture_cache_hits",
-               count.texture_cache_hits);
+      count.texture_cache_hits);
   WriteCounter(stream, counter_indent, "texture_cache_misses",
-               count.texture_cache_misses);
+      count.texture_cache_misses);
   WriteCounter(stream, counter_indent, "sampler_cache_hits",
-               count.sampler_cache_hits);
+      count.sampler_cache_hits);
   WriteCounter(stream, counter_indent, "sampler_cache_misses",
-               count.sampler_cache_misses);
+      count.sampler_cache_misses);
   WriteCounter(stream, counter_indent, "geometry_reconcile_count",
-               count.geometry_reconcile_count);
+      count.geometry_reconcile_count);
   WriteCounter(stream, counter_indent, "texture_reconcile_count",
-               count.texture_reconcile_count);
+      count.texture_reconcile_count);
   WriteCounter(stream, counter_indent, "sampler_reconcile_count",
-               count.sampler_reconcile_count);
+      count.sampler_reconcile_count);
   WriteCounter(stream, counter_indent, "buffer_suballocation_count",
-               count.buffer_suballocation_count);
+      count.buffer_suballocation_count);
   WriteCounter(stream, counter_indent, "buffer_range_release_count",
-               count.buffer_range_release_count);
+      count.buffer_range_release_count);
   WriteCounter(stream, counter_indent, "geometry_range_reuse_count",
-               count.geometry_range_reuse_count);
+      count.geometry_range_reuse_count);
   WriteCounter(stream, counter_indent, "geometry_arena_growth_count",
-               count.geometry_arena_growth_count);
+      count.geometry_arena_growth_count);
   WriteCounter(stream, counter_indent, "geometry_arena_growth_bytes",
-               count.geometry_arena_growth_bytes);
+      count.geometry_arena_growth_bytes);
   WriteCounter(stream, counter_indent, "upload_ring_growth_count",
-               count.upload_ring_growth_count);
+      count.upload_ring_growth_count);
   WriteCounter(stream, counter_indent, "upload_ring_growth_bytes",
-               count.upload_ring_growth_bytes);
+      count.upload_ring_growth_bytes);
   WriteCounter(stream, counter_indent, "pipeline_cache_hits",
-               count.pipeline_cache_hits);
+      count.pipeline_cache_hits);
   WriteCounter(stream, counter_indent, "pipeline_cache_misses",
-               count.pipeline_cache_misses);
+      count.pipeline_cache_misses);
   WriteCounter(stream, counter_indent, "shader_module_cache_hits",
-               count.shader_module_cache_hits);
+      count.shader_module_cache_hits);
   WriteCounter(stream, counter_indent, "shader_module_cache_misses",
-               count.shader_module_cache_misses);
+      count.shader_module_cache_misses);
   WriteCounter(stream, counter_indent, "descriptor_layout_cache_hits",
-               count.descriptor_layout_cache_hits);
+      count.descriptor_layout_cache_hits);
   WriteCounter(stream, counter_indent, "descriptor_layout_cache_misses",
-               count.descriptor_layout_cache_misses);
+      count.descriptor_layout_cache_misses);
   WriteCounter(stream, counter_indent, "descriptor_pool_creation_count",
-               count.descriptor_pool_creation_count);
+      count.descriptor_pool_creation_count);
   WriteCounter(stream, counter_indent, "descriptor_allocation_count",
-               count.descriptor_allocation_count);
+      count.descriptor_allocation_count);
   WriteCounter(stream, counter_indent, "descriptor_update_count",
-               count.descriptor_update_count);
+      count.descriptor_update_count);
   WriteCounter(stream, counter_indent, "generated_material_draw_count",
-               count.generated_material_draw_count);
+      count.generated_material_draw_count);
   WriteCounter(stream, counter_indent, "generated_material_fallback_count",
-               count.generated_material_fallback_count);
+      count.generated_material_fallback_count);
   WriteCounter(stream, counter_indent, "material_fallback_recorded_count",
-               count.material_fallbacks.recorded_count);
+      count.material_fallbacks.recorded_count);
   WriteCounter(stream, counter_indent, "material_simplification_count",
-               count.material_fallbacks.simplification_count);
+      count.material_fallbacks.simplification_count);
   WriteCounter(stream, counter_indent, "material_basic_fallback_count",
-               count.material_fallbacks.basic_material_count);
+      count.material_fallbacks.basic_material_count);
   WriteCounter(stream, counter_indent, "material_error_fallback_count",
-               count.material_fallbacks.error_material_count);
+      count.material_fallbacks.error_material_count);
   stream << counter_indent << "\"material_effective_fallback\": ";
   JsonString(stream, merlin::MaterialFallbackName(
                          count.material_fallbacks.effective_fallback));
   stream << ",\n";
   WriteCounter(stream, counter_indent,
-               "bindless_sampled_image_descriptor_update_count",
-               count.bindless_sampled_image_descriptor_update_count);
+      "bindless_sampled_image_descriptor_update_count",
+      count.bindless_sampled_image_descriptor_update_count);
   WriteCounter(stream, counter_indent,
-               "bindless_sampler_descriptor_update_count",
-               count.bindless_sampler_descriptor_update_count);
+      "bindless_sampler_descriptor_update_count",
+      count.bindless_sampler_descriptor_update_count);
   WriteCounter(stream, counter_indent, "transfer_submission_count",
-               count.transfer_submission_count);
+      count.transfer_submission_count);
   WriteCounter(stream, counter_indent, "queue_ownership_transfer_count",
-               count.queue_ownership_transfer_count, true);
-  stream << indent << "  }\n" << indent << '}';
+      count.queue_ownership_transfer_count, true);
+  stream << indent << "  }\n"
+         << indent << '}';
 }
 
 void WriteJson(std::ostream& stream, const Arguments& arguments,
-               const FixtureSummary& fixture,
-               const merlin::vulkan::RendererCapabilities& capabilities,
-               const merlin::vulkan::RendererStatistics& statistics,
-               const std::vector<Baseline>& baselines) {
+    const FixtureSummary& fixture,
+    const merlin::vulkan::RendererCapabilities& capabilities,
+    const merlin::vulkan::RendererStatistics& statistics,
+    const std::vector<Baseline>& baselines) {
   const auto& textures = statistics.bindless_texture_slots;
   const auto& samplers = statistics.bindless_samplers;
   const auto& memory = statistics.memory_budget;
@@ -859,7 +905,7 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
   WriteArenaTelemetry(stream, statistics.gaussian_attribute_arena, "      ");
   stream << ",\n      \"upload_ring\": ";
   WriteUploadRingTelemetry(stream, statistics.gaussian_attribute_upload_ring,
-                           "      ");
+      "      ");
   stream << "\n    },\n    \"upload_ring\": ";
   WriteUploadRingTelemetry(stream, statistics.upload_ring, "    ");
   stream << ",\n    \"gpu_scene\": {\n"
@@ -957,9 +1003,9 @@ using Products = std::vector<merlin::vulkan::RenderProductRequest>;
 
 const Products& AllProducts() {
   static const Products products{{merlin::Aov::Color, true},
-                                 {merlin::Aov::Depth, true},
-                                 {merlin::Aov::PrimId, true},
-                                 {merlin::Aov::InstanceId, true}};
+      {merlin::Aov::Depth, true},
+      {merlin::Aov::PrimId, true},
+      {merlin::Aov::InstanceId, true}};
   return products;
 }
 
@@ -984,7 +1030,7 @@ merlin::vulkan::RenderResult Render(
 }
 
 void AssertStatic(const merlin::vulkan::FrameCounters& counters,
-                  std::string_view baseline = {}) {
+    std::string_view baseline = {}) {
   if (counters.upload_bytes != 0 || counters.allocation_count != 0 ||
       counters.pipeline_creation_count != 0 ||
       counters.shader_module_cache_misses != 0 ||
@@ -1019,7 +1065,7 @@ void AssertStatic(const merlin::vulkan::FrameCounters& counters,
 
 template <typename Image>
 void RequireSameImage(const Image& conventional, const Image& gpu_driven,
-                      std::string_view name, std::uint32_t draw_count) {
+    std::string_view name, std::uint32_t draw_count) {
   if (conventional.product != gpu_driven.product ||
       conventional.row_pitch_bytes != gpu_driven.row_pitch_bytes ||
       conventional.pixels != gpu_driven.pixels) {
@@ -1031,8 +1077,8 @@ void RequireSameImage(const Image& conventional, const Image& gpu_driven,
 }
 
 void RequireSameOutput(const merlin::vulkan::RenderResult& conventional,
-                       const merlin::vulkan::RenderResult& gpu_driven,
-                       std::uint32_t draw_count) {
+    const merlin::vulkan::RenderResult& gpu_driven,
+    std::uint32_t draw_count) {
   if (conventional.rendered_aovs != gpu_driven.rendered_aovs ||
       conventional.cpu_readback_aovs != gpu_driven.cpu_readback_aovs ||
       conventional.scene_revision != gpu_driven.scene_revision) {
@@ -1044,12 +1090,12 @@ void RequireSameOutput(const merlin::vulkan::RenderResult& conventional,
   RequireSameImage(conventional.color, gpu_driven.color, "color", draw_count);
   RequireSameImage(conventional.depth, gpu_driven.depth, "depth", draw_count);
   RequireSameImage(conventional.prim_id, gpu_driven.prim_id, "primId",
-                   draw_count);
+      draw_count);
   RequireSameImage(conventional.instance_id, gpu_driven.instance_id,
-                   "instanceId", draw_count);
+      "instanceId", draw_count);
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   try {
@@ -1070,7 +1116,7 @@ int main(int argc, char** argv) {
     constexpr std::uint32_t kGpuDrivenMaximumDrawCount = 100'000;
     constexpr merlin::render::GpuScenePackingCapacities
         kGpuDrivenCapacities{1, kGpuDrivenMaximumDrawCount, 1,
-                             kGpuDrivenMaximumDrawCount};
+            kGpuDrivenMaximumDrawCount};
     merlin::vulkan::RendererOptions renderer_options;
     if (gpu_driven_fixture) {
       renderer_options.gpu_scene_capacities = kGpuDrivenCapacities;
@@ -1104,10 +1150,10 @@ int main(int argc, char** argv) {
                     *extractor.snapshot(), last_completion_value,
                     last_completion_value,
                     {gpu_geometry_placements, gpu_instance_identities,
-                     gpu_material_bindings}));
+                        gpu_material_bindings}));
       }
       auto result = Render(renderer, extractor, shaders, arguments, products,
-                           std::move(update), gpu_driven_mode);
+          std::move(update), gpu_driven_mode);
       last_completion_value = result.completion_value;
       return result;
     };
@@ -1138,7 +1184,7 @@ int main(int argc, char** argv) {
       timings.total_frame_ns = ElapsedNanoseconds(start);
       baselines.push_back(
           {std::move(name), {timings}, result.counters,
-           extractor.snapshot()->build_counters});
+              extractor.snapshot()->build_counters});
       return result;
     };
     const auto steady = [&](std::string name) {
@@ -1181,7 +1227,7 @@ int main(int argc, char** argv) {
         auto descriptor = fixture.world.Get(fixture.camera);
         descriptor.view.values[12] = 0.125F;
         fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
-                                   merlin::ChangeAspect::Camera);
+            merlin::ChangeAspect::Camera);
       });
       AssertStatic(camera.counters);
 
@@ -1189,20 +1235,20 @@ int main(int argc, char** argv) {
         auto instance = fixture.world.Get(fixture.second_triangle);
         instance.transform.values[12] = -0.31F;
         fixture.world.UpdateInstance(fixture.second_triangle,
-                                     std::move(instance),
-                                     merlin::ChangeAspect::Transform);
+            std::move(instance),
+            merlin::ChangeAspect::Transform);
       });
       measure("edit-visibility", fixture.world, [&] {
         auto instance = fixture.world.Get(fixture.quad_instance);
         instance.visible = false;
         fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
-                                     merlin::ChangeAspect::Visibility);
+            merlin::ChangeAspect::Visibility);
       });
       {
         auto instance = fixture.world.Get(fixture.quad_instance);
         instance.visible = true;
         fixture.world.UpdateInstance(fixture.quad_instance, std::move(instance),
-                                     merlin::ChangeAspect::Visibility);
+            merlin::ChangeAspect::Visibility);
         extractor.Apply(fixture.world, fixture.world.Commit());
         (void)render();
       }
@@ -1210,24 +1256,24 @@ int main(int argc, char** argv) {
         auto material = fixture.world.Get(fixture.primary_material);
         material.parameters.base_color = {0.35F, 0.92F, 0.35F, 1.0F};
         fixture.world.UpdateMaterial(fixture.primary_material,
-                                     std::move(material));
+            std::move(material));
       });
       measure("edit-points", fixture.world, [&] {
         auto mesh = fixture.world.Get(fixture.triangle);
         mesh.positions[0].y = -0.6F;
         fixture.world.UpdateMesh(fixture.triangle, std::move(mesh),
-                                 merlin::ChangeAspect::Points);
+            merlin::ChangeAspect::Points);
       });
       measure("edit-topology", fixture.world, [&] {
         auto mesh = fixture.world.Get(fixture.triangle);
         mesh.indices = {1, 2, 0};
         fixture.world.UpdateMesh(fixture.triangle, std::move(mesh),
-                                 merlin::ChangeAspect::Topology);
+            merlin::ChangeAspect::Topology);
       });
 
       const auto warm = [&](const Products& products) {
         for (std::uint32_t i = 0; i < renderer.statistics().frame_context_count;
-             ++i) {
+            ++i) {
           (void)render(products);
         }
       };
@@ -1239,13 +1285,12 @@ int main(int argc, char** argv) {
       if (color.counters.readback_bytes != expected_color_bytes ||
           color.counters.cpu_readback_aov_count != 1 ||
           color.counters.cpu_readback_aov_mask !=
-              (std::uint64_t{1} <<
-               static_cast<std::uint32_t>(merlin::Aov::Color))) {
+              (std::uint64_t{1} << static_cast<std::uint32_t>(merlin::Aov::Color))) {
         throw std::runtime_error(
             "color-only fixture performed non-color CPU readback");
       }
       const Products color_depth{{merlin::Aov::Color, true},
-                                 {merlin::Aov::Depth, true}};
+          {merlin::Aov::Depth, true}};
       warm(color_depth);
       (void)record_render("aov-color-depth", color_depth);
       warm(AllProducts());
@@ -1260,7 +1305,7 @@ int main(int argc, char** argv) {
       const auto warm_path = [&](merlin::vulkan::GpuDrivenIndexedMode mode) {
         gpu_driven_mode = mode;
         for (std::uint32_t frame = 0;
-             frame < renderer.statistics().frame_context_count; ++frame) {
+            frame < renderer.statistics().frame_context_count; ++frame) {
           (void)render();
         }
       };
@@ -1315,7 +1360,7 @@ int main(int argc, char** argv) {
 
     if (arguments.output.empty()) {
       WriteJson(std::cout, arguments, fixture_summary, renderer.capabilities(),
-                renderer.statistics(), baselines);
+          renderer.statistics(), baselines);
     } else {
       if (arguments.output.has_parent_path()) {
         std::filesystem::create_directories(arguments.output.parent_path());
@@ -1326,7 +1371,7 @@ int main(int argc, char** argv) {
                                  arguments.output.string());
       }
       WriteJson(stream, arguments, fixture_summary, renderer.capabilities(),
-                renderer.statistics(), baselines);
+          renderer.statistics(), baselines);
       if (!stream) {
         throw std::runtime_error("could not write output: " +
                                  arguments.output.string());

@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
 
   merlin::MeshDescriptor mesh;
   mesh.positions = {{-0.7F, -0.7F, 0.0F}, {0.7F, -0.7F, 0.0F},
-                    {0.0F, 0.7F, 0.0F}};
+      {0.0F, 0.7F, 0.0F}};
   mesh.normals.assign(3, {0.0F, 0.0F, 1.0F});
   mesh.texcoords = {{0.0F, 0.0F}, {1.0F, 0.0F}, {0.5F, 1.0F}};
   mesh.indices = {0, 1, 2};

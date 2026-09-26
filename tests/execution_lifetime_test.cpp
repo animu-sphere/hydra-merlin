@@ -28,18 +28,18 @@ static_assert(
 merlin::MeshDescriptor Triangle(float x) {
   merlin::MeshDescriptor mesh;
   mesh.positions = {{x - 0.35F, -0.5F, 0.2F},
-                    {x + 0.35F, 0.5F, 0.2F},
-                    {x - 0.35F, 0.5F, 0.2F}};
+      {x + 0.35F, 0.5F, 0.2F},
+      {x - 0.35F, 0.5F, 0.2F}};
   mesh.indices = {0, 1, 2};
   return mesh;
 }
 
 bool IsCode(const merlin::vulkan::RendererError& error,
-            merlin::vulkan::RendererErrorCode code) {
+    merlin::vulkan::RendererErrorCode code) {
   return error.code() == code;
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -77,8 +77,8 @@ int main(int argc, char** argv) {
   first.height = 64;
   first.shaders = shaders;
   first.products = {{merlin::Aov::Color, true},
-                    {merlin::Aov::Depth, true},
-                    {merlin::Aov::PrimId, true}};
+      {merlin::Aov::Depth, true},
+      {merlin::Aov::PrimId, true}};
   auto unsupported = first;
   unsupported.products = {{merlin::Aov::Normal, true}};
   bool classified_unsupported{};
@@ -144,13 +144,13 @@ int main(int argc, char** argv) {
   assert(edited_vertex_bytes >
          first_in_flight_statistics.upload_ring.capacity_bytes);
   world.UpdateMesh(mesh, std::move(edited_triangle),
-                   merlin::ChangeAspect::Points,
-                   std::vector<merlin::ElementRange>{{0, 1}});
+      merlin::ChangeAspect::Points,
+      std::vector<merlin::ElementRange>{{0, 1}});
   extractor.Apply(world, world.Commit());
   merlin::vulkan::RenderRequest second = first;
   second.snapshot = extractor.snapshot();
   second.products = {{merlin::Aov::Color, false},
-                     {merlin::Aov::Depth, false}};
+      {merlin::Aov::Depth, false}};
   const auto second_token = renderer->Submit(second);
   assert(second_token.value() > first_token.value());
   auto second_color_export =
@@ -174,13 +174,13 @@ int main(int argc, char** argv) {
   assert(second_color_export.native_aspect_mask ==
          VK_IMAGE_ASPECT_COLOR_BIT);
   assert((second_color_export.native_usage_mask &
-          (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-           VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)) ==
+             (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)) ==
          (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
+             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
   assert(second_color_export.native_tiling == VK_IMAGE_TILING_OPTIMAL);
   assert((second_color_export.native_memory_property_mask &
-          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0);
+             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0);
   assert(second_color_export.native_sharing_mode ==
          VK_SHARING_MODE_EXCLUSIVE);
   assert(second_color_export.queue_family ==
@@ -373,7 +373,7 @@ int main(int argc, char** argv) {
   } catch (const merlin::vulkan::RendererError& error) {
     exhausted =
         IsCode(error,
-               merlin::vulkan::RendererErrorCode::ResourceExhausted) &&
+            merlin::vulkan::RendererErrorCode::ResourceExhausted) &&
         error.operation() == "allocate image memory";
   }
   assert(exhausted);
@@ -443,7 +443,7 @@ int main(int argc, char** argv) {
   oversized_texture_descriptor.pixels.assign(
       oversized_texture_extent * oversized_texture_extent * 4U, 128U);
   recovery_world.UpdateTexture(recovery_texture,
-                               oversized_texture_descriptor);
+      oversized_texture_descriptor);
   recovery_extractor.Apply(recovery_world, recovery_world.Commit());
   const auto oversized_snapshot = recovery_extractor.snapshot();
   bool replacement_exhausted{};
@@ -452,7 +452,7 @@ int main(int argc, char** argv) {
   } catch (const merlin::vulkan::RendererError& error) {
     replacement_exhausted =
         IsCode(error,
-               merlin::vulkan::RendererErrorCode::ResourceExhausted) &&
+            merlin::vulkan::RendererErrorCode::ResourceExhausted) &&
         error.operation() == "allocate image memory";
   }
   assert(replacement_exhausted);

@@ -26,7 +26,7 @@ struct HandleFactory {
   }
 };
 
-}  // namespace detail
+} // namespace detail
 namespace {
 
 constexpr std::uint64_t kIndexMask = 0xffffffffULL;
@@ -39,9 +39,9 @@ void ValidateMesh(const MeshDescriptor& descriptor) {
     throw std::invalid_argument("mesh index count must describe triangles");
   }
   if (std::any_of(descriptor.indices.begin(), descriptor.indices.end(),
-                  [&](std::uint32_t index) {
-                    return index >= descriptor.positions.size();
-                  })) {
+          [&](std::uint32_t index) {
+            return index >= descriptor.positions.size();
+          })) {
     throw std::invalid_argument("mesh index is outside the position array");
   }
   const auto validate_primvar_size = [&](std::size_t size,
@@ -99,18 +99,18 @@ void ValidateGaussian(const GaussianDescriptor& descriptor) {
         "Gaussian radiance count must match positions and degree");
   }
   if (std::any_of(descriptor.positions.begin(), descriptor.positions.end(),
-                  [](const Vec3& value) { return !IsFinite(value); }) ||
+          [](const Vec3& value) { return !IsFinite(value); }) ||
       std::any_of(descriptor.covariances.begin(),
-                  descriptor.covariances.end(),
-                  [](const Covariance3& value) { return !IsFinite(value); }) ||
+          descriptor.covariances.end(),
+          [](const Covariance3& value) { return !IsFinite(value); }) ||
       std::any_of(descriptor.opacities.begin(), descriptor.opacities.end(),
-                  [](float value) {
-                    return !std::isfinite(value) || value < 0.0F ||
-                           value > 1.0F;
-                  }) ||
+          [](float value) {
+            return !std::isfinite(value) || value < 0.0F ||
+                   value > 1.0F;
+          }) ||
       std::any_of(descriptor.spherical_harmonics_coefficients.begin(),
-                  descriptor.spherical_harmonics_coefficients.end(),
-                  [](const Vec3& value) { return !IsFinite(value); })) {
+          descriptor.spherical_harmonics_coefficients.end(),
+          [](const Vec3& value) { return !IsFinite(value); })) {
     throw std::invalid_argument(
         "Gaussian positions, covariance, opacity, and radiance must be finite; opacity must be in [0, 1]");
   }
@@ -129,25 +129,25 @@ void ValidateTexture(const TextureDescriptor& descriptor) {
 }
 
 bool MaterialValueMatchesType(const MaterialValue& value,
-                              MaterialValueType type) {
+    MaterialValueType type) {
   switch (type) {
-    case MaterialValueType::Float:
-      return std::holds_alternative<float>(value);
-    case MaterialValueType::Float2:
-      return std::holds_alternative<Vec2>(value);
-    case MaterialValueType::Float3:
-      return std::holds_alternative<Vec3>(value);
-    case MaterialValueType::Float4:
-      return std::holds_alternative<Vec4>(value);
-    case MaterialValueType::Integer:
-      return std::holds_alternative<std::int32_t>(value);
-    case MaterialValueType::Boolean:
-      return std::holds_alternative<bool>(value);
-    case MaterialValueType::Texture2D:
-    case MaterialValueType::Sampler:
-    case MaterialValueType::CombinedTextureSampler:
-    case MaterialValueType::Unknown:
-      return false;
+  case MaterialValueType::Float:
+    return std::holds_alternative<float>(value);
+  case MaterialValueType::Float2:
+    return std::holds_alternative<Vec2>(value);
+  case MaterialValueType::Float3:
+    return std::holds_alternative<Vec3>(value);
+  case MaterialValueType::Float4:
+    return std::holds_alternative<Vec4>(value);
+  case MaterialValueType::Integer:
+    return std::holds_alternative<std::int32_t>(value);
+  case MaterialValueType::Boolean:
+    return std::holds_alternative<bool>(value);
+  case MaterialValueType::Texture2D:
+  case MaterialValueType::Sampler:
+  case MaterialValueType::CombinedTextureSampler:
+  case MaterialValueType::Unknown:
+    return false;
   }
   return false;
 }
@@ -176,10 +176,10 @@ bool IsFiniteMaterialValue(const MaterialValue& value) {
 void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
   const auto& p = descriptor.parameters;
   const std::array<float, 7> values{p.base_color.x, p.base_color.y,
-                                    p.base_color.z, p.base_color.w, p.metallic,
-                                    p.roughness, p.alpha_cutoff};
+      p.base_color.z, p.base_color.w, p.metallic,
+      p.roughness, p.alpha_cutoff};
   if (std::any_of(values.begin(), values.end(),
-                  [](float value) { return !std::isfinite(value); })) {
+          [](float value) { return !std::isfinite(value); })) {
     throw std::invalid_argument("material parameters must be finite");
   }
   if (p.metallic < 0.0F || p.metallic > 1.0F || p.roughness < 0.0F ||
@@ -196,7 +196,7 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
     throw std::invalid_argument("material feature mask contains unknown bits");
   }
   if (HasMaterialFeature(descriptor.features,
-                         MaterialFeature::BaseColorTexture) &&
+          MaterialFeature::BaseColorTexture) &&
       !descriptor.base_color_texture) {
     throw std::invalid_argument(
         "base-color texture feature requires a texture binding");
@@ -302,10 +302,10 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
           layout->type != value.type ||
           value.values.size() != layout->array_size ||
           std::any_of(value.values.begin(), value.values.end(),
-                      [&](const MaterialValue& element) {
-                        return !MaterialValueMatchesType(element, value.type) ||
-                               !IsFiniteMaterialValue(element);
-                      })) {
+              [&](const MaterialValue& element) {
+                return !MaterialValueMatchesType(element, value.type) ||
+                       !IsFiniteMaterialValue(element);
+              })) {
         throw std::invalid_argument(
             "generated parameter value does not match the module layout");
       }
@@ -331,20 +331,20 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
         });
     const auto valid_binding = [&](const MaterialResourceValue& value) {
       switch (binding.type) {
-        case MaterialValueType::Texture2D:
-          return value.texture.valid() && !value.sampler.valid();
-        case MaterialValueType::Sampler:
-          return !value.texture.valid() && value.sampler.valid();
-        case MaterialValueType::CombinedTextureSampler:
-          return value.texture.valid() && value.sampler.valid();
-        case MaterialValueType::Float:
-        case MaterialValueType::Float2:
-        case MaterialValueType::Float3:
-        case MaterialValueType::Float4:
-        case MaterialValueType::Integer:
-        case MaterialValueType::Boolean:
-        case MaterialValueType::Unknown:
-          return false;
+      case MaterialValueType::Texture2D:
+        return value.texture.valid() && !value.sampler.valid();
+      case MaterialValueType::Sampler:
+        return !value.texture.valid() && value.sampler.valid();
+      case MaterialValueType::CombinedTextureSampler:
+        return value.texture.valid() && value.sampler.valid();
+      case MaterialValueType::Float:
+      case MaterialValueType::Float2:
+      case MaterialValueType::Float3:
+      case MaterialValueType::Float4:
+      case MaterialValueType::Integer:
+      case MaterialValueType::Boolean:
+      case MaterialValueType::Unknown:
+        return false;
       }
       return false;
     };
@@ -352,7 +352,7 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
         layout->type != binding.type ||
         binding.values.size() != layout->array_size ||
         !std::all_of(binding.values.begin(), binding.values.end(),
-                     valid_binding)) {
+            valid_binding)) {
       throw std::invalid_argument(
           "generated resource binding does not match the module layout");
     }
@@ -378,7 +378,7 @@ std::uint32_t HandleGeneration(HandleType handle) {
 
 template <typename Descriptor, typename HandleType>
 class Store {
- public:
+public:
   HandleType Create(Descriptor descriptor) {
     if (!free_slots_.empty()) {
       const auto index = free_slots_.back();
@@ -439,7 +439,7 @@ class Store {
     return slots_[HandleIndex(handle)].revision;
   }
 
- private:
+private:
   struct Slot {
     std::uint32_t generation{1};
     std::uint64_t revision{};
@@ -467,8 +467,8 @@ void ValidateChangeAspects(ObjectKind kind, ChangeAspect aspects) {
 }
 
 std::vector<ElementRange> NormalizeRanges(std::vector<ElementRange> ranges,
-                                          std::size_t element_count,
-                                          const char* label) {
+    std::size_t element_count,
+    const char* label) {
   for (const auto& range : ranges) {
     if (range.count == 0U || range.first > element_count ||
         range.count > element_count - range.first) {
@@ -477,9 +477,9 @@ std::vector<ElementRange> NormalizeRanges(std::vector<ElementRange> ranges,
     }
   }
   std::sort(ranges.begin(), ranges.end(),
-            [](const ElementRange& lhs, const ElementRange& rhs) {
-              return lhs.first < rhs.first;
-            });
+      [](const ElementRange& lhs, const ElementRange& rhs) {
+        return lhs.first < rhs.first;
+      });
   std::vector<ElementRange> normalized;
   for (const auto& range : ranges) {
     if (normalized.empty()) {
@@ -499,12 +499,12 @@ std::vector<ElementRange> NormalizeRanges(std::vector<ElementRange> ranges,
 }
 
 void MergeKnownRanges(std::vector<ElementRange>& destination,
-                      const std::vector<ElementRange>& source) {
+    const std::vector<ElementRange>& source) {
   destination.insert(destination.end(), source.begin(), source.end());
   std::sort(destination.begin(), destination.end(),
-            [](const ElementRange& lhs, const ElementRange& rhs) {
-              return lhs.first < rhs.first;
-            });
+      [](const ElementRange& lhs, const ElementRange& rhs) {
+        return lhs.first < rhs.first;
+      });
   std::vector<ElementRange> merged;
   for (const auto& range : destination) {
     if (merged.empty()) {
@@ -523,10 +523,10 @@ void MergeKnownRanges(std::vector<ElementRange>& destination,
   destination = std::move(merged);
 }
 
-}  // namespace
+} // namespace
 
 class RenderWorld::Impl {
- public:
+public:
   void ValidateMaterialResourceHandles(
       const MaterialDescriptor& descriptor) const {
     if (descriptor.base_color_texture) {
@@ -547,31 +547,31 @@ class RenderWorld::Impl {
 
   template <typename Descriptor, typename HandleType>
   HandleType Create(Store<Descriptor, HandleType>& store, ObjectKind kind,
-                    Descriptor descriptor) {
+      Descriptor descriptor) {
     auto handle = store.Create(std::move(descriptor));
     pending.push_back({kind, ChangeKind::Created, handle.value(),
-                       DefaultChangeAspects(kind), store.Revision(handle),
-                       false, false, {}, {}});
+        DefaultChangeAspects(kind), store.Revision(handle),
+        false, false, {}, {}});
     return handle;
   }
 
   template <typename Descriptor, typename HandleType>
   void Update(Store<Descriptor, HandleType>& store, ObjectKind kind,
-              HandleType handle, Descriptor descriptor,
-              ChangeAspect aspects) {
+      HandleType handle, Descriptor descriptor,
+      ChangeAspect aspects) {
     ValidateChangeAspects(kind, aspects);
     const auto resource_revision = store.Update(handle, std::move(descriptor));
     pending.push_back({kind, ChangeKind::Updated, handle.value(), aspects,
-                       resource_revision, false, false, {}, {}});
+        resource_revision, false, false, {}, {}});
   }
 
   template <typename Descriptor, typename HandleType>
   void Remove(Store<Descriptor, HandleType>& store, ObjectKind kind,
-              HandleType handle) {
+      HandleType handle) {
     const auto resource_revision = store.Remove(handle);
     pending.push_back({kind, ChangeKind::Removed, handle.value(),
-                       DefaultChangeAspects(kind), resource_revision, false,
-                       false, {}, {}});
+        DefaultChangeAspects(kind), resource_revision, false,
+        false, {}, {}});
   }
 
   Store<MeshDescriptor, MeshHandle> meshes;
@@ -587,7 +587,8 @@ class RenderWorld::Impl {
   std::uint64_t revision{};
 };
 
-RenderWorld::RenderWorld() : impl_(std::make_unique<Impl>()) {}
+RenderWorld::RenderWorld() : impl_(std::make_unique<Impl>()) {
+}
 RenderWorld::~RenderWorld() = default;
 RenderWorld::RenderWorld(RenderWorld&&) noexcept = default;
 RenderWorld& RenderWorld::operator=(RenderWorld&&) noexcept = default;
@@ -600,7 +601,7 @@ MeshHandle RenderWorld::CreateMesh(MeshDescriptor descriptor) {
 GaussianHandle RenderWorld::CreateGaussian(GaussianDescriptor descriptor) {
   ValidateGaussian(descriptor);
   return impl_->Create(impl_->gaussians, ObjectKind::Gaussian,
-                       std::move(descriptor));
+      std::move(descriptor));
 }
 
 MaterialHandle RenderWorld::CreateMaterial(MaterialDescriptor descriptor) {
@@ -612,12 +613,12 @@ MaterialHandle RenderWorld::CreateMaterial(MaterialDescriptor descriptor) {
 TextureHandle RenderWorld::CreateTexture(TextureDescriptor descriptor) {
   ValidateTexture(descriptor);
   return impl_->Create(impl_->textures, ObjectKind::Texture,
-                       std::move(descriptor));
+      std::move(descriptor));
 }
 
 SamplerHandle RenderWorld::CreateSampler(SamplerDescriptor descriptor) {
   return impl_->Create(impl_->samplers, ObjectKind::Sampler,
-                       std::move(descriptor));
+      std::move(descriptor));
 }
 
 InstanceHandle RenderWorld::CreateInstance(InstanceDescriptor descriptor) {
@@ -637,13 +638,13 @@ LightHandle RenderWorld::CreateLight(LightDescriptor descriptor) {
 RenderSettingsHandle RenderWorld::CreateRenderSettings(
     RenderSettingsDescriptor descriptor) {
   return impl_->Create(impl_->render_settings, ObjectKind::RenderSettings,
-                       std::move(descriptor));
+      std::move(descriptor));
 }
 
 void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
-                             ChangeAspect aspects,
-                             std::optional<std::vector<ElementRange>> vertex_ranges,
-                             std::optional<std::vector<ElementRange>> index_ranges) {
+    ChangeAspect aspects,
+    std::optional<std::vector<ElementRange>> vertex_ranges,
+    std::optional<std::vector<ElementRange>> index_ranges) {
   ValidateMesh(d);
   const auto& previous = impl_->meshes.Get(h);
   const auto vertex_aspects = ChangeAspect::Points | ChangeAspect::Primvars |
@@ -666,7 +667,7 @@ void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
       vertex_ranges.reset();
     } else {
       *vertex_ranges = NormalizeRanges(std::move(*vertex_ranges),
-                                       d.positions.size(), "vertex");
+          d.positions.size(), "vertex");
     }
   }
   if (index_ranges) {
@@ -674,18 +675,18 @@ void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
       index_ranges.reset();
     } else {
       *index_ranges = NormalizeRanges(std::move(*index_ranges),
-                                      d.indices.size(), "index");
+          d.indices.size(), "index");
     }
   }
   ValidateChangeAspects(ObjectKind::Mesh, aspects);
   const auto resource_revision = impl_->meshes.Update(h, std::move(d));
   impl_->pending.push_back({ObjectKind::Mesh, ChangeKind::Updated, h.value(),
-                            aspects, resource_revision,
-                            vertex_ranges.has_value(), index_ranges.has_value(),
-                            vertex_ranges ? std::move(*vertex_ranges)
-                                          : std::vector<ElementRange>{},
-                            index_ranges ? std::move(*index_ranges)
-                                         : std::vector<ElementRange>{}});
+      aspects, resource_revision,
+      vertex_ranges.has_value(), index_ranges.has_value(),
+      vertex_ranges ? std::move(*vertex_ranges)
+                    : std::vector<ElementRange>{},
+      index_ranges ? std::move(*index_ranges)
+                   : std::vector<ElementRange>{}});
 }
 void RenderWorld::UpdateGaussian(
     GaussianHandle h, GaussianDescriptor d, ChangeAspect aspects,
@@ -703,82 +704,114 @@ void RenderWorld::UpdateGaussian(
     const bool shape_changed =
         previous.positions.size() != d.positions.size() ||
         (HasAnyAspect(aspects, ChangeAspect::GaussianRadiance) &&
-         previous.spherical_harmonics_degree !=
-             d.spherical_harmonics_degree);
+            previous.spherical_harmonics_degree !=
+                d.spherical_harmonics_degree);
     if (shape_changed) {
       particle_ranges.reset();
     } else {
       *particle_ranges = NormalizeRanges(std::move(*particle_ranges),
-                                         d.positions.size(), "particle");
+          d.positions.size(), "particle");
     }
   }
   ValidateChangeAspects(ObjectKind::Gaussian, aspects);
   const auto resource_revision = impl_->gaussians.Update(h, std::move(d));
   impl_->pending.push_back(
       {ObjectKind::Gaussian, ChangeKind::Updated, h.value(), aspects,
-       resource_revision, false, false, {}, {},
-       particle_ranges.has_value(),
-       particle_ranges ? std::move(*particle_ranges)
-                       : std::vector<ElementRange>{}});
+          resource_revision, false, false, {}, {},
+          particle_ranges.has_value(),
+          particle_ranges ? std::move(*particle_ranges)
+                          : std::vector<ElementRange>{}});
 }
 void RenderWorld::UpdateMaterial(MaterialHandle h, MaterialDescriptor d,
-                                 ChangeAspect aspects) {
+    ChangeAspect aspects) {
   ValidateMaterialParameters(d);
   impl_->ValidateMaterialResourceHandles(d);
   impl_->Update(impl_->materials, ObjectKind::Material, h, std::move(d),
-                aspects);
+      aspects);
 }
 void RenderWorld::UpdateTexture(TextureHandle h, TextureDescriptor d,
-                                ChangeAspect aspects) {
+    ChangeAspect aspects) {
   ValidateTexture(d);
   impl_->Update(impl_->textures, ObjectKind::Texture, h, std::move(d), aspects);
 }
 void RenderWorld::UpdateSampler(SamplerHandle h, SamplerDescriptor d,
-                                ChangeAspect aspects) {
+    ChangeAspect aspects) {
   impl_->Update(impl_->samplers, ObjectKind::Sampler, h, std::move(d), aspects);
 }
 void RenderWorld::UpdateInstance(InstanceHandle h, InstanceDescriptor d,
-                                 ChangeAspect aspects) {
+    ChangeAspect aspects) {
   (void)impl_->meshes.Get(d.mesh);
   (void)impl_->materials.Get(d.material);
   impl_->Update(impl_->instances, ObjectKind::Instance, h, std::move(d),
-                aspects);
+      aspects);
 }
 void RenderWorld::UpdateCamera(CameraHandle h, CameraDescriptor d,
-                               ChangeAspect aspects) {
+    ChangeAspect aspects) {
   impl_->Update(impl_->cameras, ObjectKind::Camera, h, std::move(d), aspects);
 }
 void RenderWorld::UpdateLight(LightHandle h, LightDescriptor d,
-                              ChangeAspect aspects) {
+    ChangeAspect aspects) {
   impl_->Update(impl_->lights, ObjectKind::Light, h, std::move(d), aspects);
 }
 void RenderWorld::UpdateRenderSettings(RenderSettingsHandle h,
-                                       RenderSettingsDescriptor d,
-                                       ChangeAspect aspects) {
+    RenderSettingsDescriptor d,
+    ChangeAspect aspects) {
   impl_->Update(impl_->render_settings, ObjectKind::RenderSettings, h,
-                std::move(d), aspects);
+      std::move(d), aspects);
 }
 
-void RenderWorld::Remove(MeshHandle h) { impl_->Remove(impl_->meshes, ObjectKind::Mesh, h); }
-void RenderWorld::Remove(GaussianHandle h) { impl_->Remove(impl_->gaussians, ObjectKind::Gaussian, h); }
-void RenderWorld::Remove(MaterialHandle h) { impl_->Remove(impl_->materials, ObjectKind::Material, h); }
-void RenderWorld::Remove(TextureHandle h) { impl_->Remove(impl_->textures, ObjectKind::Texture, h); }
-void RenderWorld::Remove(SamplerHandle h) { impl_->Remove(impl_->samplers, ObjectKind::Sampler, h); }
-void RenderWorld::Remove(InstanceHandle h) { impl_->Remove(impl_->instances, ObjectKind::Instance, h); }
-void RenderWorld::Remove(CameraHandle h) { impl_->Remove(impl_->cameras, ObjectKind::Camera, h); }
-void RenderWorld::Remove(LightHandle h) { impl_->Remove(impl_->lights, ObjectKind::Light, h); }
+void RenderWorld::Remove(MeshHandle h) {
+  impl_->Remove(impl_->meshes, ObjectKind::Mesh, h);
+}
+void RenderWorld::Remove(GaussianHandle h) {
+  impl_->Remove(impl_->gaussians, ObjectKind::Gaussian, h);
+}
+void RenderWorld::Remove(MaterialHandle h) {
+  impl_->Remove(impl_->materials, ObjectKind::Material, h);
+}
+void RenderWorld::Remove(TextureHandle h) {
+  impl_->Remove(impl_->textures, ObjectKind::Texture, h);
+}
+void RenderWorld::Remove(SamplerHandle h) {
+  impl_->Remove(impl_->samplers, ObjectKind::Sampler, h);
+}
+void RenderWorld::Remove(InstanceHandle h) {
+  impl_->Remove(impl_->instances, ObjectKind::Instance, h);
+}
+void RenderWorld::Remove(CameraHandle h) {
+  impl_->Remove(impl_->cameras, ObjectKind::Camera, h);
+}
+void RenderWorld::Remove(LightHandle h) {
+  impl_->Remove(impl_->lights, ObjectKind::Light, h);
+}
 void RenderWorld::Remove(RenderSettingsHandle h) {
   impl_->Remove(impl_->render_settings, ObjectKind::RenderSettings, h);
 }
 
-const MeshDescriptor& RenderWorld::Get(MeshHandle h) const { return impl_->meshes.Get(h); }
-const GaussianDescriptor& RenderWorld::Get(GaussianHandle h) const { return impl_->gaussians.Get(h); }
-const MaterialDescriptor& RenderWorld::Get(MaterialHandle h) const { return impl_->materials.Get(h); }
-const TextureDescriptor& RenderWorld::Get(TextureHandle h) const { return impl_->textures.Get(h); }
-const SamplerDescriptor& RenderWorld::Get(SamplerHandle h) const { return impl_->samplers.Get(h); }
-const InstanceDescriptor& RenderWorld::Get(InstanceHandle h) const { return impl_->instances.Get(h); }
-const CameraDescriptor& RenderWorld::Get(CameraHandle h) const { return impl_->cameras.Get(h); }
-const LightDescriptor& RenderWorld::Get(LightHandle h) const { return impl_->lights.Get(h); }
+const MeshDescriptor& RenderWorld::Get(MeshHandle h) const {
+  return impl_->meshes.Get(h);
+}
+const GaussianDescriptor& RenderWorld::Get(GaussianHandle h) const {
+  return impl_->gaussians.Get(h);
+}
+const MaterialDescriptor& RenderWorld::Get(MaterialHandle h) const {
+  return impl_->materials.Get(h);
+}
+const TextureDescriptor& RenderWorld::Get(TextureHandle h) const {
+  return impl_->textures.Get(h);
+}
+const SamplerDescriptor& RenderWorld::Get(SamplerHandle h) const {
+  return impl_->samplers.Get(h);
+}
+const InstanceDescriptor& RenderWorld::Get(InstanceHandle h) const {
+  return impl_->instances.Get(h);
+}
+const CameraDescriptor& RenderWorld::Get(CameraHandle h) const {
+  return impl_->cameras.Get(h);
+}
+const LightDescriptor& RenderWorld::Get(LightHandle h) const {
+  return impl_->lights.Get(h);
+}
 const RenderSettingsDescriptor& RenderWorld::Get(
     RenderSettingsHandle h) const {
   return impl_->render_settings.Get(h);
@@ -874,15 +907,15 @@ ChangeSet RenderWorld::Commit() {
       }
     }
     if (HasAnyAspect(change.aspects,
-                     ChangeAspect::GaussianPositions |
-                         ChangeAspect::GaussianCovariance |
-                         ChangeAspect::GaussianOpacity |
-                         ChangeAspect::GaussianRadiance)) {
+            ChangeAspect::GaussianPositions |
+                ChangeAspect::GaussianCovariance |
+                ChangeAspect::GaussianOpacity |
+                ChangeAspect::GaussianRadiance)) {
       if (HasAnyAspect(old_aspects,
-                       ChangeAspect::GaussianPositions |
-                           ChangeAspect::GaussianCovariance |
-                           ChangeAspect::GaussianOpacity |
-                           ChangeAspect::GaussianRadiance)) {
+              ChangeAspect::GaussianPositions |
+                  ChangeAspect::GaussianCovariance |
+                  ChangeAspect::GaussianOpacity |
+                  ChangeAspect::GaussianRadiance)) {
         if (existing.particle_ranges_known &&
             change.particle_ranges_known) {
           MergeKnownRanges(existing.particle_ranges, change.particle_ranges);
@@ -924,6 +957,8 @@ ChangeSet RenderWorld::Commit() {
   return {impl_->revision, std::move(compact)};
 }
 
-std::uint64_t RenderWorld::revision() const noexcept { return impl_->revision; }
+std::uint64_t RenderWorld::revision() const noexcept {
+  return impl_->revision;
+}
 
-}  // namespace merlin
+} // namespace merlin

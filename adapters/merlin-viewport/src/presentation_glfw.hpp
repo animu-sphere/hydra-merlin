@@ -12,4 +12,4 @@ class Window;
 [[nodiscard]] vulkan::PresentationOptions MakeGlfwVulkanPresentation(
     Window& window, bool vsync);
 
-}  // namespace merlin::viewport
+} // namespace merlin::viewport

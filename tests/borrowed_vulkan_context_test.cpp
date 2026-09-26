@@ -44,19 +44,19 @@ struct VulkanContext {
 bool CreateContext(VulkanContext& result) {
   std::uint32_t extension_count{};
   if (vkEnumerateInstanceExtensionProperties(nullptr, &extension_count,
-                                              nullptr) != VK_SUCCESS) {
+          nullptr) != VK_SUCCESS) {
     return false;
   }
   std::vector<VkExtensionProperties> extensions(extension_count);
   if (vkEnumerateInstanceExtensionProperties(nullptr, &extension_count,
-                                              extensions.data()) !=
+          extensions.data()) !=
       VK_SUCCESS) {
     return false;
   }
   const auto has_debug_utils =
       std::any_of(extensions.begin(), extensions.end(), [](const auto& entry) {
         return std::strcmp(entry.extensionName,
-                           VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
+                   VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
       });
   if (!has_debug_utils) {
     return false;
@@ -85,7 +85,7 @@ bool CreateContext(VulkanContext& result) {
   }
   std::vector<VkPhysicalDevice> devices(device_count);
   if (vkEnumeratePhysicalDevices(result.instance, &device_count,
-                                 devices.data()) != VK_SUCCESS) {
+          devices.data()) != VK_SUCCESS) {
     return false;
   }
   for (const auto candidate : devices) {
@@ -117,7 +117,7 @@ bool CreateContext(VulkanContext& result) {
     vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queue_count, nullptr);
     std::vector<VkQueueFamilyProperties> queues(queue_count);
     vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queue_count,
-                                             queues.data());
+        queues.data());
     for (std::uint32_t index = 0; index < queue_count; ++index) {
       if ((queues[index].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0U) {
         continue;
@@ -192,7 +192,7 @@ bool ThrowsRendererError(const merlin::vulkan::RendererOptions& options) {
   return false;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   VulkanContext context;
@@ -276,7 +276,7 @@ int main() {
     const auto submit_message =
         reinterpret_cast<PFN_vkSubmitDebugUtilsMessageEXT>(
             vkGetInstanceProcAddr(context.instance,
-                                  "vkSubmitDebugUtilsMessageEXT"));
+                "vkSubmitDebugUtilsMessageEXT"));
     if (submit_message == nullptr) {
       std::cerr << "VK_EXT_debug_utils submit entry point is unavailable\n";
       return 1;
@@ -287,9 +287,9 @@ int main() {
     callback_data.pMessageIdName = "merlin-borrowed-context-test";
     callback_data.pMessage = "borrowed validation telemetry probe";
     submit_message(context.instance,
-                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
-                   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
-                   &callback_data);
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
+        &callback_data);
     if (renderer.statistics().validation_messages != before + 1) {
       std::cerr << "borrowed validation message was not counted\n";
       return 1;
@@ -302,7 +302,7 @@ int main() {
       VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
   VkSemaphore semaphore{};
   if (vkCreateSemaphore(context.device, &semaphore_info, nullptr,
-                        &semaphore) != VK_SUCCESS) {
+          &semaphore) != VK_SUCCESS) {
     std::cerr << "renderer destroyed or corrupted the borrowed device\n";
     return 1;
   }

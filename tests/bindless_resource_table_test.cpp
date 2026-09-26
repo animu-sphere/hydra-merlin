@@ -9,6 +9,9 @@
 
 namespace {
 
+using merlin::AddressMode;
+using merlin::FilterMode;
+using merlin::SamplerDescriptor;
 using merlin::vulkan::BindlessFallbackTexture;
 using merlin::vulkan::BindlessSamplerDescriptor;
 using merlin::vulkan::BindlessSamplerTable;
@@ -16,13 +19,10 @@ using merlin::vulkan::BindlessSlotError;
 using merlin::vulkan::BindlessSlotErrorCode;
 using merlin::vulkan::BindlessSlotHandle;
 using merlin::vulkan::BindlessTextureTable;
-using merlin::AddressMode;
-using merlin::FilterMode;
-using merlin::SamplerDescriptor;
 
 template <typename Callback>
 void ExpectError(Callback&& callback, BindlessSlotErrorCode code,
-                 std::string_view message_fragment) {
+    std::string_view message_fragment) {
   try {
     callback();
     assert(false && "expected BindlessSlotError");
@@ -70,21 +70,21 @@ void TestTextureSlots() {
   assert(telemetry.available_slots == 0);
   assert(telemetry.allocation_count == 2);
   ExpectError([&] { (void)textures.Allocate(); },
-              BindlessSlotErrorCode::Exhausted, "capacity=6");
+      BindlessSlotErrorCode::Exhausted, "capacity=6");
   assert(textures.telemetry().exhaustion_count == 1);
 
   ExpectError(
       [&] { textures.Retire(textures.fallback(BindlessFallbackTexture::Error),
-                            1); },
+                1); },
       BindlessSlotErrorCode::ReservedSlot, "reserved slot");
   textures.Retire(first, 7);
   assert(!textures.IsActive(first));
   assert(textures.telemetry().retiring_slots == 1);
   assert(textures.Collect(6).empty());
   ExpectError([&] { textures.Retire(first, 8); },
-              BindlessSlotErrorCode::SlotRetired, "pending");
+      BindlessSlotErrorCode::SlotRetired, "pending");
   ExpectError([&] { (void)textures.Allocate(); },
-              BindlessSlotErrorCode::Exhausted, "retiring=1");
+      BindlessSlotErrorCode::Exhausted, "retiring=1");
 
   const auto collected = textures.Collect(7);
   assert(collected == std::vector<BindlessSlotHandle>{first});
@@ -93,7 +93,7 @@ void TestTextureSlots() {
   assert(replacement.generation == first.generation + 1);
   assert(textures.IsActive(replacement));
   ExpectError([&] { textures.Retire(first, 9); },
-              BindlessSlotErrorCode::StaleGeneration, "generation is stale");
+      BindlessSlotErrorCode::StaleGeneration, "generation is stale");
   telemetry = textures.telemetry();
   assert(telemetry.reuse_count == 1);
   assert(telemetry.retirement_collection_count == 1);
@@ -104,7 +104,7 @@ void TestTextureSlots() {
 
   BindlessTextureTable other(4);
   ExpectError([&] { other.Retire(replacement, 10); },
-              BindlessSlotErrorCode::ForeignHandle, "another table");
+      BindlessSlotErrorCode::ForeignHandle, "another table");
 }
 
 void TestSamplerDeduplicationAndRetirement() {
@@ -137,7 +137,7 @@ void TestSamplerDeduplicationAndRetirement() {
   assert(samplers.ConsumeDirtySlots() ==
          (std::vector<std::uint32_t>{0, 1}));
   ExpectError([&] { (void)samplers.Acquire(linear_clamp); },
-              BindlessSlotErrorCode::Exhausted, "bindless sampler");
+      BindlessSlotErrorCode::Exhausted, "bindless sampler");
 
   // The first release retains the shared slot and contributes its completion
   // value to the final retirement fence.
@@ -149,7 +149,7 @@ void TestSamplerDeduplicationAndRetirement() {
   assert(samplers.telemetry().unique_sampler_count == 1);
   assert(samplers.Collect(9).empty());
   ExpectError([&] { (void)samplers.Acquire(linear_clamp); },
-              BindlessSlotErrorCode::Exhausted, "retiring=1");
+      BindlessSlotErrorCode::Exhausted, "retiring=1");
 
   assert(samplers.Collect(10) ==
          std::vector<BindlessSlotHandle>{shared_a});
@@ -157,7 +157,7 @@ void TestSamplerDeduplicationAndRetirement() {
   assert(replacement.index == shared_a.index);
   assert(replacement.generation == shared_a.generation + 1);
   ExpectError([&] { samplers.Release(shared_a, 11); },
-              BindlessSlotErrorCode::StaleGeneration, "stale");
+      BindlessSlotErrorCode::StaleGeneration, "stale");
 
   telemetry = samplers.telemetry();
   assert(telemetry.unique_sampler_count == 2);
@@ -176,7 +176,7 @@ void TestSamplerDeduplicationAndRetirement() {
   assert(samplers.telemetry().unique_sampler_count == 0);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   TestTextureSlots();

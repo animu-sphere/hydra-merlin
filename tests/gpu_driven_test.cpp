@@ -13,10 +13,10 @@ namespace {
 
 using merlin::render::BuildGpuDrivenIndexedPlan;
 using merlin::render::GpuDraw;
+using merlin::render::GpuDrivenGeometryBinding;
 using merlin::render::GpuDrivenIndexedConfig;
 using merlin::render::GpuDrivenIndexedError;
 using merlin::render::GpuDrivenIndexedErrorCode;
-using merlin::render::GpuDrivenGeometryBinding;
 using merlin::render::GpuGeometry;
 using merlin::render::GpuInstance;
 using merlin::render::GpuMaterial;
@@ -29,7 +29,7 @@ void Require(bool condition, std::string_view message) {
 
 template <typename Callback>
 void ExpectError(Callback&& callback, GpuDrivenIndexedErrorCode code,
-                 std::string_view fragment) {
+    std::string_view fragment) {
   try {
     callback();
     throw std::runtime_error("expected GpuDrivenIndexedError");
@@ -37,13 +37,13 @@ void ExpectError(Callback&& callback, GpuDrivenIndexedErrorCode code,
     Require(error.code() == code, "GPU-driven error code did not match");
     Require(std::string_view(error.what()).find(fragment) !=
                 std::string_view::npos,
-            "GPU-driven error message did not contain expected text");
+        "GPU-driven error message did not contain expected text");
   }
 }
 
 GpuGeometry MakeGeometry(std::uint32_t vertex_offset,
-                         std::uint32_t index_offset,
-                         std::uint32_t index_count) {
+    std::uint32_t index_offset,
+    std::uint32_t index_count) {
   GpuGeometry result;
   result.vertex_offset = vertex_offset;
   result.vertex_count = 8;
@@ -56,8 +56,8 @@ GpuGeometry MakeGeometry(std::uint32_t vertex_offset,
 }
 
 GpuDraw MakeDraw(std::uint32_t geometry, std::uint32_t instance,
-                 std::uint32_t primitive_base, std::uint32_t primitive_count,
-                 std::uint64_t identity) {
+    std::uint32_t primitive_base, std::uint32_t primitive_count,
+    std::uint64_t identity) {
   GpuDraw result;
   result.geometry_index = geometry;
   result.material_index = 0;
@@ -93,37 +93,37 @@ void TestCullingCompactionAndStableIdentity() {
   const auto plan = BuildGpuDrivenIndexedPlan(
       candidates, geometries, bindings, instances, materials, draws, config);
   Require(plan.visible_draw_slots == std::vector<std::uint32_t>{3},
-          "visible draw compaction is incorrect");
+      "visible draw compaction is incorrect");
   Require(plan.batches.size() == 1, "expected one arena batch");
   Require(plan.batches[0].binding == bindings[0],
-          "arena binding is incorrect");
+      "arena binding is incorrect");
   Require(plan.batches[0].visible_draw_slots ==
               std::vector<std::uint32_t>{3},
-          "batch draw identity is incorrect");
+      "batch draw identity is incorrect");
   Require(plan.batches[0].commands.size() == 1,
-          "expected one indirect command");
+      "expected one indirect command");
   Require(plan.batches[0].commands[0].index_count == 3,
-          "indirect index count is incorrect");
+      "indirect index count is incorrect");
   Require(plan.batches[0].commands[0].instance_count == 1,
-          "indirect instance count is incorrect");
+      "indirect instance count is incorrect");
   Require(plan.batches[0].commands[0].first_index == 3,
-          "indirect first index is incorrect");
+      "indirect first index is incorrect");
   Require(plan.batches[0].commands[0].vertex_offset == 0,
-          "indirect vertex offset is incorrect");
+      "indirect vertex offset is incorrect");
   Require(plan.batches[0].commands[0].first_instance == 3,
-          "indirect draw identity is incorrect");
+      "indirect draw identity is incorrect");
   Require(plan.counters.candidate_draw_count == 3,
-          "candidate counter is incorrect");
+      "candidate counter is incorrect");
   Require(plan.counters.visible_draw_count == 1,
-          "visible counter is incorrect");
+      "visible counter is incorrect");
   Require(plan.counters.visibility_mask_culled_count == 1,
-          "visibility-mask counter is incorrect");
+      "visibility-mask counter is incorrect");
   Require(plan.counters.frustum_culled_count == 1,
-          "frustum counter is incorrect");
+      "frustum counter is incorrect");
   Require(plan.counters.indirect_command_count == 1,
-          "indirect-command counter is incorrect");
+      "indirect-command counter is incorrect");
   Require(plan.counters.indirect_batch_count == 1,
-          "indirect-batch counter is incorrect");
+      "indirect-batch counter is incorrect");
 }
 
 void TestCullingCanBeDisabledForValidation() {
@@ -152,24 +152,24 @@ void TestCullingCanBeDisabledForValidation() {
   const auto plan = BuildGpuDrivenIndexedPlan(
       candidates, geometries, bindings, instances, materials, draws, config);
   Require(plan.visible_draw_slots == candidates,
-          "disabled culling changed candidate visibility");
+      "disabled culling changed candidate visibility");
   Require(plan.batches.size() == 1, "expected one arena batch");
   Require(plan.batches[0].commands.size() == 3,
-          "expected one command per candidate");
+      "expected one command per candidate");
   Require(plan.batches[0].commands[1].first_index == 12,
-          "byte index offset was not converted to elements");
+      "byte index offset was not converted to elements");
   Require(plan.batches[0].commands[1].vertex_offset == 10,
-          "byte vertex offset was not converted to elements");
+      "byte vertex offset was not converted to elements");
   Require(plan.batches[0].commands[1].first_instance == 1,
-          "physical draw slot was not preserved");
+      "physical draw slot was not preserved");
   Require(plan.counters.visible_draw_count == 3,
-          "disabled-culling visible counter is incorrect");
+      "disabled-culling visible counter is incorrect");
   Require(plan.counters.visibility_mask_culled_count == 0,
-          "disabled visibility culling changed its counter");
+      "disabled visibility culling changed its counter");
   Require(plan.counters.frustum_culled_count == 0,
-          "disabled frustum culling changed its counter");
+      "disabled frustum culling changed its counter");
   Require(plan.counters.indirect_batch_count == 1,
-          "disabled-culling batch counter is incorrect");
+      "disabled-culling batch counter is incorrect");
 }
 
 void TestCommandsAreBatchedByArenaBlocks() {
@@ -193,38 +193,38 @@ void TestCommandsAreBatchedByArenaBlocks() {
       candidates, geometries, bindings, instances, materials, draws, config);
 
   Require(plan.visible_draw_slots == candidates,
-          "batching changed visible draw order");
+      "batching changed visible draw order");
   Require(plan.batches.size() == 3,
-          "non-contiguous arena bindings were merged");
+      "non-contiguous arena bindings were merged");
   Require(plan.batches[0].binding == bindings[0],
-          "first arena binding is incorrect");
+      "first arena binding is incorrect");
   Require(plan.batches[0].visible_draw_slots ==
               std::vector<std::uint32_t>{3},
-          "first batch identity is incorrect");
+      "first batch identity is incorrect");
   Require(plan.batches[0].commands[0].first_instance == 3,
-          "first batch draw slot is incorrect");
+      "first batch draw slot is incorrect");
   Require(plan.batches[1].binding == bindings[1],
-          "second arena binding is incorrect");
+      "second arena binding is incorrect");
   Require(plan.batches[1].visible_draw_slots ==
               std::vector<std::uint32_t>{1},
-          "second batch identity is incorrect");
+      "second batch identity is incorrect");
   Require(plan.batches[1].commands[0].first_instance == 1,
-          "second batch draw slot is incorrect");
+      "second batch draw slot is incorrect");
   Require(plan.batches[1].commands[0].first_index == 0,
-          "second batch first index is incorrect");
+      "second batch first index is incorrect");
   Require(plan.batches[2].binding == bindings[0],
-          "third arena binding is incorrect");
+      "third arena binding is incorrect");
   Require(plan.batches[2].visible_draw_slots ==
               std::vector<std::uint32_t>{4},
-          "third batch identity is incorrect");
+      "third batch identity is incorrect");
   Require(plan.batches[2].commands[0].first_instance == 4,
-          "third batch draw slot is incorrect");
+      "third batch draw slot is incorrect");
   Require(plan.batches[2].commands[0].first_index == 3,
-          "third batch first index is incorrect");
+      "third batch first index is incorrect");
   Require(plan.counters.indirect_command_count == 3,
-          "batched command counter is incorrect");
+      "batched command counter is incorrect");
   Require(plan.counters.indirect_batch_count == 3,
-          "arena batch counter is incorrect");
+      "arena batch counter is incorrect");
 }
 
 void TestMalformedCandidatesAreRejected() {
@@ -240,7 +240,7 @@ void TestMalformedCandidatesAreRejected() {
   ExpectError(
       [&] {
         (void)BuildGpuDrivenIndexedPlan(missing, geometries, bindings,
-                                        instances, materials, draws, config);
+            instances, materials, draws, config);
       },
       GpuDrivenIndexedErrorCode::MissingResidency, "missing draw slot");
 
@@ -258,8 +258,8 @@ void TestMalformedCandidatesAreRejected() {
   ExpectError(
       [&] {
         (void)BuildGpuDrivenIndexedPlan(candidate, geometries,
-                                        missing_bindings, instances, materials,
-                                        draws, config);
+            missing_bindings, instances, materials,
+            draws, config);
       },
       GpuDrivenIndexedErrorCode::MissingResidency,
       "no native arena block binding");
@@ -278,7 +278,7 @@ void TestMalformedCandidatesAreRejected() {
   ExpectError(
       [&] {
         (void)BuildGpuDrivenIndexedPlan(duplicate, geometries, bindings,
-                                        instances, materials, draws, config);
+            instances, materials, draws, config);
       },
       GpuDrivenIndexedErrorCode::InvalidCandidate, "duplicated");
 
@@ -286,7 +286,7 @@ void TestMalformedCandidatesAreRejected() {
   ExpectError(
       [&] {
         (void)BuildGpuDrivenIndexedPlan(candidate, geometries, bindings,
-                                        instances, materials, draws, config);
+            instances, materials, draws, config);
       },
       GpuDrivenIndexedErrorCode::InvalidRecord, "exceeds its geometry");
 }
@@ -303,7 +303,7 @@ void TestUnrepresentableAndNonFiniteInputsAreRejected() {
   ExpectError(
       [&] {
         (void)BuildGpuDrivenIndexedPlan(candidate, geometries, bindings,
-                                        instances, materials, draws, config);
+            instances, materials, draws, config);
       },
       GpuDrivenIndexedErrorCode::UnrepresentableGeometry,
       "not element aligned");
@@ -314,12 +314,12 @@ void TestUnrepresentableAndNonFiniteInputsAreRejected() {
   ExpectError(
       [&] {
         (void)BuildGpuDrivenIndexedPlan(candidate, geometries, bindings,
-                                        instances, materials, draws, config);
+            instances, materials, draws, config);
       },
       GpuDrivenIndexedErrorCode::InvalidConfiguration, "not finite");
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   TestCullingCompactionAndStableIdentity();

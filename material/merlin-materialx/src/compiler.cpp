@@ -48,10 +48,11 @@ constexpr std::string_view kSourceDependencyFingerprintSchema =
     "animu-sphere.hdmerlin.materialx-source-dependencies.v1";
 
 class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
- public:
+public:
   explicit MaterialFunctionGenerator(bool standard_surface)
       : mx::SlangShaderGenerator(mx::TypeSystem::create()),
-        standard_surface_(standard_surface) {}
+        standard_surface_(standard_surface) {
+  }
 
   static std::shared_ptr<MaterialFunctionGenerator> Create(
       bool standard_surface) {
@@ -67,16 +68,16 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
            emitted_uniforms_.contains(std::string(variable));
   }
 
- protected:
+protected:
   void emitVertexStage(const mx::ShaderGraph&, mx::GenContext&,
-                       mx::ShaderStage& stage) const override {
+      mx::ShaderStage& stage) const override {
     // A material function has no render-pass vertex stage. The renderer owns
     // geometry transforms, varyings, and stage entry points.
     stage.setSourceCode({});
   }
 
   void emitPixelStage(const mx::ShaderGraph& graph, mx::GenContext& context,
-                      mx::ShaderStage& stage) const override {
+      mx::ShaderStage& stage) const override {
     emitDirectives(context, stage);
     emitLineBreak(stage);
     emitLibraryInclude("stdlib/genslang/lib/mx_texture.slang", context, stage);
@@ -130,7 +131,7 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
     setFunctionName(std::string(kEntryPoint), stage);
     emitLine(return_type + " " + std::string(kEntryPoint) +
                  "(MaterialInputs inputs)",
-             stage, false);
+        stage, false);
     emitFunctionBodyBegin(graph, context, stage);
     emitLine("vd = inputs", stage);
     emitFunctionCalls(graph, context, stage);
@@ -141,14 +142,14 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
     } else if (output->getValue() != nullptr) {
       emitLine("return " +
                    _syntax->getValue(output->getType(), *output->getValue()),
-               stage);
+          stage);
     } else {
       emitLine("return " + _syntax->getDefaultValue(output->getType()), stage);
     }
     emitFunctionBodyEnd(graph, context, stage);
   }
 
- private:
+private:
   static const mx::ShaderNode& StandardSurfaceRoot(
       const mx::ShaderGraph& graph) {
     const auto* output = graph.getOutputSocket();
@@ -211,8 +212,8 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
   }
 
   void emitMaterialUniforms(const mx::ShaderGraph& graph,
-                            mx::GenContext& context,
-                            mx::ShaderStage& stage) const {
+      mx::GenContext& context,
+      mx::ShaderStage& stage) const {
     const auto expressions = standard_surface_
                                  ? SelectedExpressions(graph, context)
                                  : std::set<std::string>{};
@@ -237,7 +238,7 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
           wrote_comment = true;
         }
         emitVariableDeclaration(uniform, _syntax->getUniformQualifier(),
-                                context, stage, false);
+            context, stage, false);
         emitLineEnd(stage);
         emitted_uniforms_.insert(uniform->getVariable());
       }
@@ -266,7 +267,7 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
           wrote_comment = true;
         }
         emitVariableDeclaration(uniform, _syntax->getUniformQualifier(),
-                                context, stage, false);
+            context, stage, false);
         emitLineEnd(stage);
         emitted_uniforms_.insert(uniform->getVariable());
       }
@@ -277,8 +278,8 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
   }
 
   void emitStandardSurfaceFunction(const mx::ShaderGraph& graph,
-                                   mx::GenContext& context,
-                                   mx::ShaderStage& stage) const {
+      mx::GenContext& context,
+      mx::ShaderStage& stage) const {
     const auto& root = StandardSurfaceRoot(graph);
     const auto selected = SelectedNodes(graph);
     for (const auto* node : graph.getNodes()) {
@@ -308,7 +309,7 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
     setFunctionName(std::string(kEntryPoint), stage);
     emitLine("MaterialResult " + std::string(kEntryPoint) +
                  "(MaterialInputs inputs)",
-             stage, false);
+        stage, false);
     emitFunctionBodyBegin(graph, context, stage);
     emitLine("vd = inputs", stage);
     for (const auto* node : graph.getNodes()) {
@@ -319,14 +320,14 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
     emitLine("MaterialResult result", stage);
     emitLine("result.base_color = " + expression("base") + " * " +
                  expression("base_color"),
-             stage);
+        stage);
     emitLine("result.metalness = " + expression("metalness"), stage);
     emitLine("result.specular_roughness = " +
                  expression("specular_roughness"),
-             stage);
+        stage);
     emitLine("result.shading_normal = normalize(" + expression("normal") +
                  ")",
-             stage);
+        stage);
     emitLine("return result", stage);
     emitFunctionBodyEnd(graph, context, stage);
   }
@@ -336,8 +337,8 @@ class MaterialFunctionGenerator final : public mx::SlangShaderGenerator {
 };
 
 void AddError(CompileResult& result, DiagnosticCode code,
-              std::string element_path, std::string message,
-              std::string node_category = {}, std::string input_name = {}) {
+    std::string element_path, std::string message,
+    std::string node_category = {}, std::string input_name = {}) {
   result.diagnostics.push_back(Diagnostic{
       DiagnosticSeverity::Error, code, std::move(element_path),
       std::move(message), std::move(node_category), std::move(input_name)});
@@ -348,7 +349,7 @@ void AddError(CompileResult& result, DiagnosticCode code,
 // it as a missing include instead of a generic generation failure. A dependency
 // that was found and read stays a plain generation failure.
 class DependencyError : public std::runtime_error {
- public:
+public:
   using std::runtime_error::runtime_error;
 };
 
@@ -431,7 +432,7 @@ std::string ReadDependency(const std::filesystem::path& path) {
                           path.filename().generic_string());
   }
   return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+      std::istreambuf_iterator<char>()};
 }
 
 std::string FingerprintDependencies(
@@ -469,8 +470,8 @@ std::string FingerprintDependencies(
 
 bool IsSupportedOutput(std::string_view type) {
   static const std::set<std::string_view> supported = {
-      "float",   "color3",       "color4", "vector2",
-      "vector3", "vector4",      "surfaceshader"};
+      "float", "color3", "color4", "vector2",
+      "vector3", "vector4", "surfaceshader"};
   return supported.contains(type);
 }
 
@@ -624,7 +625,7 @@ std::optional<LogicalModuleError> PopulateLogicalModule(
         // MaterialIR equivalent, which is a conversion failure at the
         // boundary rather than an unsupported authored input.
         return LogicalModuleError{DiagnosticCode::UnsupportedConversion, name,
-                                  std::move(error)};
+            std::move(error)};
       }
       logical.parameters.entries.push_back({name, type, 1});
       module.parameter_defaults.entries.push_back(
@@ -643,7 +644,7 @@ std::optional<LogicalModuleError> PopulateLogicalModule(
 }
 
 void AppendPortInterface(std::string& record, std::string_view kind,
-                         const MaterialFunctionPort& port) {
+    const MaterialFunctionPort& port) {
   AppendIdentityField(record, std::string(kind) + "-block", port.block);
   AppendIdentityField(record, std::string(kind) + "-name", port.name);
   AppendIdentityField(record, std::string(kind) + "-variable", port.variable);
@@ -651,9 +652,9 @@ void AppendPortInterface(std::string& record, std::string_view kind,
 }
 
 std::string MakeStateIdentity(std::string_view schema,
-                              const MaterialFunctionModule& module,
-                              bool include_parameters,
-                              bool include_resources) {
+    const MaterialFunctionModule& module,
+    bool include_parameters,
+    bool include_resources) {
   std::string record;
   AppendIdentityField(record, "schema", schema);
   AppendIdentityField(record, "module", module.module_key);
@@ -662,7 +663,7 @@ std::string MakeStateIdentity(std::string_view schema,
     if ((resource && include_resources) ||
         (!resource && include_parameters)) {
       AppendPortInterface(record, resource ? "resource" : "parameter",
-                          uniform);
+          uniform);
       AppendIdentityField(record, "value", uniform.default_value);
     }
   }
@@ -676,11 +677,11 @@ std::map<std::string, std::string> FindUnsupportedNodes(
       "texcoord"};
   std::map<std::string, std::string> unsupported;
   const auto inspect = [&unsupported,
-                        standard_surface](const mx::ElementPtr& element) {
+                           standard_surface](const mx::ElementPtr& element) {
     const auto node = element ? element->asA<mx::Node>() : nullptr;
     if (node != nullptr && !supported.contains(node->getCategory()) &&
         !(standard_surface &&
-          node->getCategory() == "standard_surface")) {
+            node->getCategory() == "standard_surface")) {
       unsupported.emplace(node->getNamePath(), node->getCategory());
     }
   };
@@ -693,15 +694,15 @@ std::map<std::string, std::string> FindUnsupportedNodes(
 }
 
 MaterialFunctionPort MakePort(std::string block,
-                              const mx::ShaderPort& port) {
+    const mx::ShaderPort& port) {
   return MaterialFunctionPort{std::move(block), port.getName(),
-                              port.getVariable(), port.getType().getName(),
-                              port.getValueString()};
+      port.getVariable(), port.getType().getName(),
+      port.getValueString()};
 }
 
 void CollectReflection(const mx::ShaderStage& stage,
-                       const MaterialFunctionGenerator& generator,
-                       MaterialFunctionModule& module) {
+    const MaterialFunctionGenerator& generator,
+    MaterialFunctionModule& module) {
   const auto& inputs = stage.getInputBlock(mx::HW::VERTEX_DATA);
   for (const auto* input : inputs.getVariableOrder()) {
     if (generator.standard_surface() &&
@@ -793,13 +794,13 @@ bool HasStandardLibraries(const mx::FileSearchPath& search_path) {
       "libraries/targets", "libraries/stdlib", "libraries/pbrlib",
       "libraries/bxdf"};
   return std::all_of(std::begin(required), std::end(required),
-                     [&search_path](std::string_view path) {
-                       return search_path.find(mx::FilePath(std::string(path)))
-                           .exists();
-                     });
+      [&search_path](std::string_view path) {
+        return search_path.find(mx::FilePath(std::string(path)))
+            .exists();
+      });
 }
 
-}  // namespace
+} // namespace
 
 namespace internal {
 
@@ -816,24 +817,24 @@ std::vector<Diagnostic> DiagnosePassDeclarations(
     // be named: the construct was emitted by the generator, not written in the
     // document.
     diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error,
-                                     DiagnosticCode::GeneratedPassDeclaration,
-                                     element_path, record.message});
+        DiagnosticCode::GeneratedPassDeclaration,
+        element_path, record.message});
   }
   return diagnostics;
 }
 
-}  // namespace internal
+} // namespace internal
 
 CompileResult CompileMaterialFunction(std::string_view document_xml,
-                                      const CompileOptions& options) {
+    const CompileOptions& options) {
   CompileResult result;
   result.source_document = options.source_document;
   result.materialx_version = mx::getVersionString();
   const auto search_path = MakeSearchPath(options);
   if (!HasStandardLibraries(search_path)) {
     AddError(result, DiagnosticCode::MissingStandardLibrary, {},
-             "MaterialX data roots must contain libraries/targets, "
-             "libraries/stdlib, libraries/pbrlib, and libraries/bxdf");
+        "MaterialX data roots must contain libraries/targets, "
+        "libraries/stdlib, libraries/pbrlib, and libraries/bxdf");
     return result;
   }
 
@@ -841,7 +842,7 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     auto library = mx::createDocument();
     const auto loaded_libraries = mx::loadLibraries(
         {mx::FilePath("libraries/targets"), mx::FilePath("libraries/stdlib"),
-         mx::FilePath("libraries/pbrlib"), mx::FilePath("libraries/bxdf")},
+            mx::FilePath("libraries/pbrlib"), mx::FilePath("libraries/bxdf")},
         search_path, library);
 
     auto document = mx::createDocument();
@@ -856,7 +857,7 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     std::string validation_message;
     if (!document->validate(&validation_message)) {
       AddError(result, DiagnosticCode::InvalidDocument, {},
-               NormalizeNewlines(std::move(validation_message)));
+          NormalizeNewlines(std::move(validation_message)));
       return result;
     }
 
@@ -865,21 +866,21 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
       renderable = document->getDescendant(options.renderable_path);
       if (renderable == nullptr) {
         AddError(result, DiagnosticCode::RenderableNotFound,
-                 options.renderable_path,
-                 "MaterialX renderable path was not found");
+            options.renderable_path,
+            "MaterialX renderable path was not found");
         return result;
       }
     } else {
       const auto renderables = mx::findRenderableElements(document);
       if (renderables.empty()) {
         AddError(result, DiagnosticCode::RenderableNotFound, {},
-                 "MaterialX document has no renderable element");
+            "MaterialX document has no renderable element");
         return result;
       }
       if (renderables.size() != 1U) {
         AddError(result, DiagnosticCode::AmbiguousRenderable, {},
-                 "MaterialX document has multiple renderable elements; set "
-                 "CompileOptions::renderable_path");
+            "MaterialX document has multiple renderable elements; set "
+            "CompileOptions::renderable_path");
         return result;
       }
       renderable = renderables.front();
@@ -888,10 +889,10 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     const auto typed = renderable->asA<mx::TypedElement>();
     if (typed == nullptr || !IsSupportedOutput(typed->getType())) {
       AddError(result, DiagnosticCode::UnsupportedRenderable,
-               renderable->getNamePath(),
-               "The prototype accepts float, color, vector, and direct "
-               "Standard Surface outputs; this renderable type is not "
-               "supported");
+          renderable->getNamePath(),
+          "The prototype accepts float, color, vector, and direct "
+          "Standard Surface outputs; this renderable type is not "
+          "supported");
       return result;
     }
 
@@ -901,17 +902,17 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
         renderable_node->getCategory() == "standard_surface";
     if (typed->getType() == "surfaceshader" && !standard_surface) {
       AddError(result, DiagnosticCode::UnsupportedRenderable,
-               renderable->getNamePath(),
-               "Only a direct standard_surface node may cross the v0.10.0 "
-               "material-result boundary");
+          renderable->getNamePath(),
+          "Only a direct standard_surface node may cross the v0.10.0 "
+          "material-result boundary");
       return result;
     }
     if (standard_surface) {
       if (const auto error =
               ValidateStandardSurfaceInputs(renderable_node)) {
         AddError(result, error->code, renderable->getNamePath(),
-                 error->message, renderable_node->getCategory(),
-                 error->input_name);
+            error->message, renderable_node->getCategory(),
+            error->input_name);
         return result;
       }
     }
@@ -920,7 +921,7 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
         FindUnsupportedNodes(renderable, standard_surface);
     for (const auto& [path, category] : unsupported) {
       AddError(result, DiagnosticCode::UnsupportedNode, path,
-               "Unsupported MaterialX node category: " + category, category);
+          "Unsupported MaterialX node category: " + category, category);
     }
     if (!unsupported.empty()) {
       return result;
@@ -938,8 +939,8 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     auto shader = generator->generate(shader_name, renderable, context);
     if (shader == nullptr) {
       AddError(result, DiagnosticCode::GenerationFailure,
-               renderable->getNamePath(),
-               "MaterialXGenSlang returned no shader");
+          renderable->getNamePath(),
+          "MaterialXGenSlang returned no shader");
       return result;
     }
 
@@ -961,8 +962,8 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
             module.source, renderable->getNamePath(), contamination_context);
         !contamination.empty()) {
       result.diagnostics.insert(result.diagnostics.end(),
-                                std::make_move_iterator(contamination.begin()),
-                                std::make_move_iterator(contamination.end()));
+          std::make_move_iterator(contamination.begin()),
+          std::make_move_iterator(contamination.end()));
       return result;
     }
 
@@ -976,7 +977,7 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
         module.standard_library_dependencies);
     auto source_dependencies = stage.getSourceDependencies();
     source_dependencies.insert(stage.getIncludes().begin(),
-                               stage.getIncludes().end());
+        stage.getIncludes().end());
     module.source_dependency_fingerprint = FingerprintDependencies(
         kSourceDependencyFingerprintSchema, source_dependencies,
         search_path, module.source_dependencies);
@@ -987,7 +988,7 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
       // authored node can be. Naming the renderable's category here would point
       // a host at a node that is not the one that failed.
       AddError(result, error->code, renderable->getNamePath(), error->message,
-               {}, error->input_name);
+          {}, error->input_name);
       return result;
     }
 
@@ -1001,13 +1002,13 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     AppendIdentityField(module_record, "generator", module.generator_version);
     AppendIdentityField(module_record, "revision", module.generator_revision);
     AppendIdentityField(module_record, "standard-library",
-                     module.standard_library_fingerprint);
+        module.standard_library_fingerprint);
     AppendIdentityField(module_record, "source-dependencies",
-                     module.source_dependency_fingerprint);
+        module.source_dependency_fingerprint);
     AppendIdentityField(module_record, "generator-options",
-                     "max-lights=0;srgb-output=false");
+        "max-lights=0;srgb-output=false");
     AppendIdentityField(module_record, "abi",
-                     std::to_string(module.logical_module.abi_version));
+        std::to_string(module.logical_module.abi_version));
     AppendIdentityField(
         module_record, "reflection",
         std::to_string(module.logical_module.reflection_schema_version));
@@ -1039,16 +1040,16 @@ CompileResult CompileMaterialFunction(std::string_view document_xml,
     result.module = std::move(module);
   } catch (const DependencyError& error) {
     AddError(result, DiagnosticCode::MissingInclude, options.renderable_path,
-             error.what());
+        error.what());
   } catch (const std::exception& error) {
     AddError(result, DiagnosticCode::GenerationFailure,
-             options.renderable_path, error.what());
+        options.renderable_path, error.what());
   } catch (...) {
     AddError(result, DiagnosticCode::GenerationFailure,
-             options.renderable_path,
-             "MaterialX generation failed with an unknown exception");
+        options.renderable_path,
+        "MaterialX generation failed with an unknown exception");
   }
   return result;
 }
 
-}  // namespace merlin::materialx
+} // namespace merlin::materialx

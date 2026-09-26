@@ -14,7 +14,7 @@ merlin::vulkan::RenderResult MakeResult() {
   result.color.product = merlin::MakeRenderProduct(2, 2, merlin::Aov::Color);
   result.color.row_pitch_bytes = 8;
   result.color.pixels = {255, 0, 0, 255, 0, 255, 0, 255,
-                         0, 0, 255, 255, 255, 255, 255, 255};
+      0, 0, 255, 255, 255, 255, 255, 255};
   result.depth.product = merlin::MakeRenderProduct(2, 2, merlin::Aov::Depth);
   result.depth.row_pitch_bytes = 8;
   result.depth.pixels = {0.1F, 0.2F, 0.3F, 1.0F};
@@ -22,14 +22,14 @@ merlin::vulkan::RenderResult MakeResult() {
       merlin::MakeRenderProduct(2, 2, merlin::Aov::PrimId);
   result.prim_id.row_pitch_bytes = 8;
   result.prim_id.pixels = {1, 1, 2,
-                           std::numeric_limits<std::uint32_t>::max()};
+      std::numeric_limits<std::uint32_t>::max()};
   result.instance_id.product =
       merlin::MakeRenderProduct(2, 2, merlin::Aov::InstanceId);
   result.instance_id.row_pitch_bytes = 8;
   result.instance_id.pixels = {10, 10, 20,
-                               std::numeric_limits<std::uint32_t>::max()};
+      std::numeric_limits<std::uint32_t>::max()};
   result.rendered_aovs = {merlin::Aov::Color, merlin::Aov::Depth,
-                          merlin::Aov::PrimId, merlin::Aov::InstanceId};
+      merlin::Aov::PrimId, merlin::Aov::InstanceId};
   result.cpu_readback_aovs = result.rendered_aovs;
   result.completion_value = 1;
   return result;
@@ -44,7 +44,7 @@ std::array<std::uint8_t, 8> Prefix(const std::filesystem::path& path) {
   return result;
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   assert(argc == 2);

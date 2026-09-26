@@ -35,7 +35,7 @@ std::uint32_t CenterBrightness(const merlin::vulkan::RenderResult& result) {
          result.color.pixels[index + 1U] + result.color.pixels[index + 2U];
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -67,10 +67,10 @@ int main(int argc, char** argv) {
   merlin::MeshDescriptor mesh;
   mesh.label = "textured-quad";
   mesh.positions = {{-0.8F, -0.8F, 0.2F}, {0.8F, -0.8F, 0.2F},
-                    {0.8F, 0.8F, 0.2F}, {-0.8F, 0.8F, 0.2F}};
+      {0.8F, 0.8F, 0.2F}, {-0.8F, 0.8F, 0.2F}};
   mesh.normals.assign(4, {0.0F, 0.0F, 1.0F});
   mesh.texcoords = {{0.0F, 0.0F}, {1.0F, 0.0F},
-                    {1.0F, 1.0F}, {0.0F, 1.0F}};
+      {1.0F, 1.0F}, {0.0F, 1.0F}};
   mesh.indices = {0, 1, 2, 0, 2, 3};
   const auto mesh_handle = world.CreateMesh(mesh);
 
@@ -78,8 +78,8 @@ int main(int argc, char** argv) {
   texture.label = "rgba-checker";
   texture.width = 2;
   texture.height = 2;
-  texture.pixels = {255, 0,   0,   255, 0,   255, 0,   255,
-                    0,   0,   255, 255, 255, 255, 255, 255};
+  texture.pixels = {255, 0, 0, 255, 0, 255, 0, 255,
+      0, 0, 255, 255, 255, 255, 255, 255};
   const auto texture_handle = world.CreateTexture(texture);
 
   merlin::SamplerDescriptor sampler;
@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
   // feature/state pipeline key.
   material.parameters.base_color = {0.5F, 0.75F, 1.0F, 1.0F};
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialParameters);
+      merlin::ChangeAspect::MaterialParameters);
   const auto value_edit = render();
   assert(value_edit.counters.upload_bytes == 0);
   assert(value_edit.counters.pipeline_creation_count == 0);
@@ -171,14 +171,14 @@ int main(int argc, char** argv) {
   // or geometry residency.
   material.features = merlin::MaterialFeature::None;
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialFeatures);
+      merlin::ChangeAspect::MaterialFeatures);
   const auto feature_edit = render();
   assert(feature_edit.counters.upload_bytes == 0);
   assert(feature_edit.counters.pipeline_creation_count == 1);
 
   material.features = merlin::MaterialFeature::BaseColorTexture;
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialFeatures);
+      merlin::ChangeAspect::MaterialFeatures);
   const auto cached_variant = render();
   assert(cached_variant.counters.pipeline_creation_count == 0);
 
@@ -188,9 +188,9 @@ int main(int argc, char** argv) {
   const auto resident_snapshot = extractor.snapshot();
   mesh.normals.front().x = 0.1F;
   world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Primvars,
-                   std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   texture.pixels = {255, 255, 0, 255, 255, 0, 255, 255,
-                    255, 255, 0, 255, 255, 0, 255, 255};
+      255, 255, 0, 255, 255, 0, 255, 255};
   world.UpdateTexture(texture_handle, texture);
   extractor.Apply(world, world.Commit());
   merlin::vulkan::RenderRequest abandoned;
@@ -259,13 +259,13 @@ int main(int argc, char** argv) {
 
   // Alpha mask is a state variant: transparent texels discard every AOV write.
   texture.pixels = {255, 255, 255, 255, 255, 255, 255, 0,
-                    255, 255, 255, 255, 255, 255, 255, 0};
+      255, 255, 255, 255, 255, 255, 255, 0};
   world.UpdateTexture(texture_handle, texture);
   material.alpha_mode = merlin::AlphaMode::Masked;
   material.parameters.alpha_cutoff = 0.5F;
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialFeatures |
-                           merlin::ChangeAspect::MaterialParameters);
+      merlin::ChangeAspect::MaterialFeatures |
+          merlin::ChangeAspect::MaterialParameters);
   const auto masked = render();
   assert(masked.counters.pipeline_creation_count == 1);
   assert(CoveredPixels(masked) < opaque_coverage);
@@ -276,12 +276,12 @@ int main(int argc, char** argv) {
   world.UpdateMesh(mesh_handle, mesh, merlin::ChangeAspect::Topology);
   material.alpha_mode = merlin::AlphaMode::Opaque;
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialFeatures);
+      merlin::ChangeAspect::MaterialFeatures);
   const auto culled = render();
   assert(CoveredPixels(culled) == 0);
   material.double_sided = true;
   world.UpdateMaterial(material_handle, material,
-                       merlin::ChangeAspect::MaterialFeatures);
+      merlin::ChangeAspect::MaterialFeatures);
   const auto double_sided = render();
   assert(double_sided.counters.pipeline_creation_count == 1);
   assert(CoveredPixels(double_sided) == opaque_coverage);
@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
   merlin::extraction::SceneExtractor lighting_extractor;
   merlin::MeshDescriptor lit_mesh;
   lit_mesh.positions = {{-0.8F, -0.4F, 0.0F}, {0.8F, -0.4F, 0.0F},
-                        {0.8F, 0.4F, 0.0F}, {-0.8F, 0.4F, 0.0F}};
+      {0.8F, 0.4F, 0.0F}, {-0.8F, 0.4F, 0.0F}};
   lit_mesh.normals.assign(4, {0.0F, 0.0F, 1.0F});
   lit_mesh.indices = {0, 1, 2, 0, 2, 3};
   const auto lit_mesh_handle = lighting_world.CreateMesh(lit_mesh);
@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
   lit_instance.transform.values[10] = half;
   lit_instance.transform.values[14] = 0.5F;
   lighting_world.UpdateInstance(lit_instance_handle, lit_instance,
-                                merlin::ChangeAspect::Transform);
+      merlin::ChangeAspect::Transform);
   lighting_extractor.Apply(lighting_world, lighting_world.Commit());
   const auto tilted = renderer->Render(
       *lighting_extractor.snapshot(), 64, 64, shaders);
@@ -348,16 +348,16 @@ int main(int argc, char** argv) {
   // difference comes from the StinsonBeach environment's SH irradiance.
   lit_instance.transform = {};
   lighting_world.UpdateInstance(lit_instance_handle, lit_instance,
-                                merlin::ChangeAspect::Transform);
+      merlin::ChangeAspect::Transform);
   lit_mesh.normals.assign(4, {0.0F, 1.0F, 0.0F});
   lighting_world.UpdateMesh(lit_mesh_handle, lit_mesh,
-                            merlin::ChangeAspect::Primvars);
+      merlin::ChangeAspect::Primvars);
   lighting_extractor.Apply(lighting_world, lighting_world.Commit());
   const auto sky_ibl = renderer->Render(
       *lighting_extractor.snapshot(), 64, 64, shaders);
   lit_mesh.normals.assign(4, {0.0F, -1.0F, 0.0F});
   lighting_world.UpdateMesh(lit_mesh_handle, lit_mesh,
-                            merlin::ChangeAspect::Primvars);
+      merlin::ChangeAspect::Primvars);
   lighting_extractor.Apply(lighting_world, lighting_world.Commit());
   const auto ground_ibl = renderer->Render(
       *lighting_extractor.snapshot(), 64, 64, shaders);

@@ -23,7 +23,7 @@ int main() {
       1};
 
   static_assert(merlin::HasCapability(bindless.capabilities,
-                                      ShaderCapability::BaseColorTexture));
+      ShaderCapability::BaseColorTexture));
   static_assert(merlin::HasCapability(
       bindless.capabilities, ShaderCapability::NonUniformResourceIndexing));
   static_assert(!merlin::HasCapability(

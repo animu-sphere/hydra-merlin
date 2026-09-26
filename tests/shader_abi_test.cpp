@@ -21,7 +21,7 @@ std::string Read(const std::filesystem::path& path) {
                              path.string());
   }
   return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+      std::istreambuf_iterator<char>()};
 }
 
 std::string CompactJson(std::string_view text) {
@@ -56,12 +56,12 @@ void Require(bool condition, std::string_view message) {
 }
 
 void RequireContains(std::string_view text, std::string_view expected,
-                     std::string_view diagnostic) {
+    std::string_view diagnostic) {
   Require(text.find(expected) != std::string_view::npos, diagnostic);
 }
 
 void RequireField(std::string_view json, std::string_view name,
-                  std::size_t offset, std::size_t size) {
+    std::size_t offset, std::size_t size) {
   const std::string field = "\"name\":\"" + std::string(name) + "\"";
   const std::string binding =
       "\"binding\":{\"kind\":\"uniform\",\"offset\":" +
@@ -82,10 +82,10 @@ void RequireField(std::string_view json, std::string_view name,
 
 void RequireCommonAbi(std::string_view json) {
   RequireContains(json, "\"name\":\"DrawConstants\"",
-                  "DrawConstants is absent from Slang reflection");
+      "DrawConstants is absent from Slang reflection");
   RequireContains(json,
-                  "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
-                  "DrawConstants is not a push constant buffer");
+      "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
+      "DrawConstants is not a push constant buffer");
   RequireField(json, "model_view_projection", 0, 64);
   RequireField(json, "normal_matrix_column0", 64, 16);
   RequireField(json, "normal_matrix_column1", 80, 16);
@@ -101,14 +101,14 @@ void RequireCommonAbi(std::string_view json) {
 }
 
 void RequireBinding(std::string_view json, std::string_view name,
-                    std::string_view binding) {
+    std::string_view binding) {
   const auto parameter =
       json.find("\"name\":\"" + std::string(name) + "\"");
   Require(parameter != std::string_view::npos,
-          "resource is absent from Slang reflection");
+      "resource is absent from Slang reflection");
   const auto reflected = json.find(binding, parameter);
   Require(reflected != std::string_view::npos && reflected - parameter < 180,
-          "Slang resource set/binding mismatch");
+      "Slang resource set/binding mismatch");
 }
 
 // Every manifest reference is resolved relative to the package directory, so a
@@ -125,8 +125,8 @@ void RequireBareFilenames(const std::string& json, std::string_view field) {
     Require(value.find('/') == std::string::npos &&
                 value.find('\\') == std::string::npos &&
                 value.find(':') == std::string::npos,
-            "manifest field " + std::string(field) +
-                " is not a bare filename: " + value);
+        "manifest field " + std::string(field) +
+            " is not a bare filename: " + value);
     ++seen;
     position = json.find(key, end);
   }
@@ -136,10 +136,10 @@ void RequireBareFilenames(const std::string& json, std::string_view field) {
 std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
   return static_cast<std::size_t>(
       std::distance(std::sregex_iterator(text.begin(), text.end(), pattern),
-                    std::sregex_iterator()));
+          std::sregex_iterator()));
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   try {
@@ -170,9 +170,12 @@ int main(int argc, char** argv) {
     const auto gaussian_prepare_compute = CompactJson(Read(argv[10]));
     // Entry point order matches the argv order above.
     const std::array<const char*, 6> gaussian_sort_entries{
-        "gaussian_sort_keys",        "gaussian_sort_histogram",
-        "gaussian_sort_scan_blocks", "gaussian_sort_scan_add",
-        "gaussian_sort_scatter",     "gaussian_sort_verify",
+        "gaussian_sort_keys",
+        "gaussian_sort_histogram",
+        "gaussian_sort_scan_blocks",
+        "gaussian_sort_scan_add",
+        "gaussian_sort_scatter",
+        "gaussian_sort_verify",
     };
     std::array<std::string, gaussian_sort_entries.size()> gaussian_sort;
     for (std::size_t i = 0; i < gaussian_sort.size(); ++i) {
@@ -192,7 +195,7 @@ int main(int argc, char** argv) {
     RequireCommonAbi(bindless_fragment);
 
     RequireContains(gpu_scene_vertex, "\"name\":\"GpuSceneDrawConstants\"",
-                    "GPU Scene draw constants are absent from reflection");
+        "GPU Scene draw constants are absent from reflection");
     RequireContains(
         gpu_scene_vertex,
         "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
@@ -201,30 +204,30 @@ int main(int argc, char** argv) {
     RequireField(gpu_scene_vertex, "draw_slot", 64, 4);
 
     RequireBinding(conventional_fragment, "base_color_texture",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
     RequireContains(conventional_fragment, "\"combined\":true",
-                    "base color texture is not a combined image sampler");
+        "base color texture is not a combined image sampler");
     RequireBinding(conventional_fragment, "material_constants",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":31}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":31}");
     RequireBinding(bindless_fragment, "bindless_samplers",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
     RequireBinding(bindless_fragment, "bindless_textures",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
     RequireBinding(bindless_fragment, "material_constants",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":0}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":0}");
     RequireBinding(gpu_scene_vertex, "gpu_geometries",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
     RequireBinding(gpu_scene_vertex, "gpu_instances",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
     RequireBinding(gpu_scene_vertex, "gpu_materials",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":3}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":3}");
     RequireBinding(gpu_scene_vertex, "gpu_draws",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
     RequireBinding(gpu_scene_fragment, "bindless_textures",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
     RequireContains(gpu_driven_compute,
-                    "\"name\":\"GpuDrivenIndexedConstants\"",
-                    "GPU-driven indexed constants are absent from reflection");
+        "\"name\":\"GpuDrivenIndexedConstants\"",
+        "GPU-driven indexed constants are absent from reflection");
     RequireContains(
         gpu_driven_compute,
         "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
@@ -235,19 +238,19 @@ int main(int argc, char** argv) {
     RequireField(gpu_driven_compute, "flags", 72, 4);
     RequireField(gpu_driven_compute, "vertex_stride", 76, 4);
     RequireBinding(gpu_driven_compute, "gpu_geometries",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
     RequireBinding(gpu_driven_compute, "gpu_instances",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
     RequireBinding(gpu_driven_compute, "gpu_draws",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
     RequireBinding(gpu_driven_compute, "candidate_draw_slots",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":0}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":0}");
     RequireBinding(gpu_driven_compute, "candidate_results",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":1}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":1}");
     RequireBinding(gpu_driven_compute, "indirect_commands",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":2}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":2}");
     RequireBinding(gpu_driven_compute, "dispatch_counters",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":3}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":3}");
     RequireField(gpu_driven_compute, "index_count", 0, 4);
     RequireField(gpu_driven_compute, "instance_count", 4, 4);
     RequireField(gpu_driven_compute, "first_index", 8, 4);
@@ -256,54 +259,54 @@ int main(int argc, char** argv) {
     RequireField(gpu_driven_compute, "visibility_mask_culled_count", 8, 4);
     RequireField(gpu_driven_compute, "frustum_culled_count", 12, 4);
     RequireContains(gpu_driven_vertex,
-                    "\"name\":\"GpuDrivenForwardConstants\"",
-                    "GPU-driven Forward constants are absent");
+        "\"name\":\"GpuDrivenForwardConstants\"",
+        "GPU-driven Forward constants are absent");
     RequireField(gpu_driven_vertex, "view_projection", 0, 64);
     RequireContains(gpu_driven_vertex,
-                    "\"semanticName\":\"SV_INSTANCEID\"",
-                    "GPU-driven Forward does not consume the local instance ID");
+        "\"semanticName\":\"SV_INSTANCEID\"",
+        "GPU-driven Forward does not consume the local instance ID");
     RequireContains(gpu_driven_vertex,
-                    "\"semanticName\":\"SV_STARTINSTANCELOCATION\"",
-                    "GPU-driven Forward does not consume firstInstance");
+        "\"semanticName\":\"SV_STARTINSTANCELOCATION\"",
+        "GPU-driven Forward does not consume firstInstance");
     RequireBinding(gpu_driven_vertex, "gpu_geometries",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
     RequireBinding(gpu_driven_vertex, "gpu_instances",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
     RequireBinding(gpu_driven_fragment, "gpu_materials",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":3}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":3}");
     RequireBinding(gpu_driven_fragment, "gpu_draws",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":4}");
     RequireContains(bindless_fragment, "\"elementCount\":0",
-                    "bindless descriptors are not reflected as runtime arrays");
+        "bindless descriptors are not reflected as runtime arrays");
 
     RequireContains(conventional_vertex,
-                    "\"name\":\"forward_vertex\",\"stage\":\"vertex\"",
-                    "conventional vertex entry point mismatch");
+        "\"name\":\"forward_vertex\",\"stage\":\"vertex\"",
+        "conventional vertex entry point mismatch");
     RequireContains(conventional_fragment,
-                    "\"name\":\"forward_fragment\",\"stage\":\"fragment\"",
-                    "conventional fragment entry point mismatch");
+        "\"name\":\"forward_fragment\",\"stage\":\"fragment\"",
+        "conventional fragment entry point mismatch");
     RequireContains(bindless_vertex,
-                    "\"name\":\"forward_bindless_vertex\",\"stage\":\"vertex\"",
-                    "bindless vertex entry point mismatch");
+        "\"name\":\"forward_bindless_vertex\",\"stage\":\"vertex\"",
+        "bindless vertex entry point mismatch");
     RequireContains(bindless_fragment,
-                    "\"name\":\"forward_bindless_fragment\",\"stage\":\"fragment\"",
-                    "bindless fragment entry point mismatch");
+        "\"name\":\"forward_bindless_fragment\",\"stage\":\"fragment\"",
+        "bindless fragment entry point mismatch");
     RequireContains(gpu_scene_vertex,
-                    "\"name\":\"forward_gpu_scene_vertex\",\"stage\":\"vertex\"",
-                    "GPU Scene vertex entry point mismatch");
+        "\"name\":\"forward_gpu_scene_vertex\",\"stage\":\"vertex\"",
+        "GPU Scene vertex entry point mismatch");
     RequireContains(gpu_scene_fragment,
-                    "\"name\":\"forward_gpu_scene_fragment\",\"stage\":\"fragment\"",
-                    "GPU Scene fragment entry point mismatch");
+        "\"name\":\"forward_gpu_scene_fragment\",\"stage\":\"fragment\"",
+        "GPU Scene fragment entry point mismatch");
     RequireContains(gpu_driven_compute,
-                    "\"name\":\"gpu_driven_indexed_compact\",\"stage\":\"compute\"",
-                    "GPU-driven indexed compute entry point mismatch");
+        "\"name\":\"gpu_driven_indexed_compact\",\"stage\":\"compute\"",
+        "GPU-driven indexed compute entry point mismatch");
     RequireContains(gpu_driven_compute, "\"threadGroupSize\":[64,1,1]",
-                    "GPU-driven compute workgroup size is incorrect");
+        "GPU-driven compute workgroup size is incorrect");
     RequireContains(gaussian_prepare_compute,
-                    "\"name\":\"GaussianPrepareConstants\"",
-                    "Gaussian prepare constants are absent from reflection");
+        "\"name\":\"GaussianPrepareConstants\"",
+        "Gaussian prepare constants are absent from reflection");
     RequireBinding(gaussian_prepare_compute, "gaussian_prepare_constants",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":7}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":7}");
     RequireField(gaussian_prepare_compute, "local_to_camera", 0, 64);
     RequireField(gaussian_prepare_compute, "projection", 64, 64);
     RequireField(gaussian_prepare_compute, "viewport_size", 128, 8);
@@ -311,53 +314,53 @@ int main(int argc, char** argv) {
     RequireField(gaussian_prepare_compute, "resource_id_low", 144, 4);
     RequireField(gaussian_prepare_compute, "particle_count", 152, 4);
     RequireField(gaussian_prepare_compute, "spherical_harmonics_degree", 160,
-                 4);
+        4);
     RequireField(gaussian_prepare_compute, "sorting_mode", 168, 4);
     RequireContains(gaussian_prepare_compute,
-                    "\"name\":\"GaussianPreparedRecord\"",
-                    "Gaussian prepared record is absent from reflection");
+        "\"name\":\"GaussianPreparedRecord\"",
+        "Gaussian prepared record is absent from reflection");
     RequireField(gaussian_prepare_compute, "center_pixels", 0, 8);
     RequireField(gaussian_prepare_compute, "inverse_conic", 16, 12);
     RequireField(gaussian_prepare_compute, "radiance", 32, 12);
     RequireField(gaussian_prepare_compute, "resource_id_low", 48, 4);
     RequireField(gaussian_prepare_compute, "particle_id", 56, 4);
     RequireContains(gaussian_prepare_compute,
-                    "\"name\":\"GaussianPrepareDispatchCounters\"",
-                    "Gaussian prepare counters are absent from reflection");
+        "\"name\":\"GaussianPrepareDispatchCounters\"",
+        "Gaussian prepare counters are absent from reflection");
     RequireField(gaussian_prepare_compute, "invalid_culled_count", 16, 4);
     RequireBinding(gaussian_prepare_compute, "gaussian_positions",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":0}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":0}");
     RequireBinding(gaussian_prepare_compute, "gaussian_covariances",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":1}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":1}");
     RequireBinding(gaussian_prepare_compute, "gaussian_opacities",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":2}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":2}");
     RequireBinding(gaussian_prepare_compute, "gaussian_radiance",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":3}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":3}");
     RequireBinding(gaussian_prepare_compute, "gaussian_candidate_results",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":4}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":4}");
     RequireBinding(gaussian_prepare_compute, "gaussian_prepared_records",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":5}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":5}");
     RequireBinding(gaussian_prepare_compute, "gaussian_prepare_counters",
-                   "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":6}");
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":6}");
     RequireContains(
         gaussian_prepare_compute,
         "\"name\":\"gaussian_prepare_compact\",\"stage\":\"compute\"",
         "Gaussian prepare compute entry point mismatch");
     RequireContains(gaussian_prepare_compute,
-                    "\"threadGroupSize\":[64,1,1]",
-                    "Gaussian prepare workgroup size is incorrect");
+        "\"threadGroupSize\":[64,1,1]",
+        "Gaussian prepare workgroup size is incorrect");
     for (std::size_t i = 0; i < gaussian_sort.size(); ++i) {
       const auto& sort = gaussian_sort[i];
       RequireContains(sort,
-                      "\"name\":\"" + std::string(gaussian_sort_entries[i]) +
-                          "\",\"stage\":\"compute\"",
-                      "Gaussian sort compute entry point mismatch");
+          "\"name\":\"" + std::string(gaussian_sort_entries[i]) +
+              "\",\"stage\":\"compute\"",
+          "Gaussian sort compute entry point mismatch");
       RequireContains(sort, "\"threadGroupSize\":[256,1,1]",
-                      "Gaussian sort workgroup size is incorrect");
+          "Gaussian sort workgroup size is incorrect");
       RequireBinding(sort, "gaussian_sort_constants",
-                     "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}");
+          "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}");
       RequireContains(sort, "\"name\":\"GaussianSortConstants\"",
-                      "Gaussian sort constants are absent from reflection");
+          "Gaussian sort constants are absent from reflection");
       RequireField(sort, "element_count", 0, 4);
       RequireField(sort, "digit_shift", 8, 4);
       RequireField(sort, "scan_offset", 16, 4);
@@ -365,7 +368,7 @@ int main(int argc, char** argv) {
       RequireField(sort, "candidate_base", 28, 4);
       RequireField(sort, "visible_count_offset", 36, 4);
       RequireContains(sort, "\"name\":\"GaussianSortElement\"",
-                      "Gaussian sort element is absent from reflection");
+          "Gaussian sort element is absent from reflection");
       RequireField(sort, "key_low", 0, 4);
       RequireField(sort, "key_high", 4, 4);
       RequireField(sort, "value", 8, 4);
@@ -376,20 +379,20 @@ int main(int argc, char** argv) {
       RequireField(sort, "resource_id_low", 48, 4);
       RequireField(sort, "particle_id", 56, 4);
       RequireBinding(sort, "gaussian_sort_source",
-                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
       RequireBinding(sort, "gaussian_sort_destination",
-                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
       RequireBinding(sort, "gaussian_sort_scan",
-                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":2}");
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":2}");
       RequireBinding(sort, "gaussian_sort_prepared_records",
-                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
     }
     RequireContains(gaussian_vertex,
-                    "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
-                    "Gaussian vertex entry point mismatch");
+        "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
+        "Gaussian vertex entry point mismatch");
     RequireContains(gaussian_fragment,
-                    "\"name\":\"gaussian_fragment\",\"stage\":\"fragment\"",
-                    "Gaussian fragment entry point mismatch");
+        "\"name\":\"gaussian_fragment\",\"stage\":\"fragment\"",
+        "Gaussian fragment entry point mismatch");
     RequireContains(
         gaussian_id_vertex,
         "\"name\":\"gaussian_id_vertex\",\"stage\":\"vertex\"",
@@ -399,39 +402,39 @@ int main(int argc, char** argv) {
         "\"name\":\"gaussian_id_fragment\",\"stage\":\"fragment\"",
         "Gaussian ID fragment entry point mismatch");
     RequireContains(gaussian_vertex, "\"name\":\"GaussianConstants\"",
-                    "Gaussian push constants are absent from reflection");
+        "Gaussian push constants are absent from reflection");
     RequireContains(
         gaussian_vertex,
         "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}",
         "Gaussian constants are not a push constant buffer");
     RequireField(gaussian_vertex, "inverse_viewport_size", 0, 8);
     RequireContains(metal_vertex,
-                    "\"name\":\"forward_vertex\",\"stage\":\"vertex\"",
-                    "Metal vertex compile gate reflection mismatch");
+        "\"name\":\"forward_vertex\",\"stage\":\"vertex\"",
+        "Metal vertex compile gate reflection mismatch");
     RequireContains(metal_fragment,
-                    "\"name\":\"forward_fragment\",\"stage\":\"fragment\"",
-                    "Metal fragment compile gate reflection mismatch");
+        "\"name\":\"forward_fragment\",\"stage\":\"fragment\"",
+        "Metal fragment compile gate reflection mismatch");
 
     RequireContains(manifest, "\"schema_version\":2",
-                    "shader artifact manifest schema mismatch");
+        "shader artifact manifest schema mismatch");
     RequireContains(manifest, "\"shader_abi_version\":7",
-                    "shader ABI manifest version mismatch");
+        "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
-                    "Slang toolchain series is not pinned");
+        "Slang toolchain series is not pinned");
     RequireContains(
         manifest,
         "\"environment\":{\"path\":\"environment.hdr\",\"sha256\":\"4897697c757edc524dc9b7bcc692e8e05a7f02dbede3e30d2291dc0831dece17\",\"representation\":\"diffuse-sh-l2\"}",
         "environment artifact identity is absent");
     RequireContains(manifest,
-                    "\"feature\":\"non_uniform_resource_indexing\"",
-                    "Metal unsupported feature diagnostic is absent");
+        "\"feature\":\"non_uniform_resource_indexing\"",
+        "Metal unsupported feature diagnostic is absent");
     RequireContains(manifest, "\"fallback\":\"forward-conventional\"",
-                    "Metal fallback declaration is absent");
+        "Metal fallback declaration is absent");
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 22,
-            "manifest does not contain one deterministic key per artifact");
+                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 22,
+        "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");

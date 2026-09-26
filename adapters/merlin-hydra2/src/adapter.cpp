@@ -152,24 +152,24 @@ struct HydraTelemetry {
       return value.exchange(0, std::memory_order_relaxed);
     };
     return {take(hydra_sync_ns),
-            take(hydra_sync_count),
-            take(mesh_sync_count),
-            take(material_sync_count),
-            take(light_sync_count),
-            take(instancer_sync_count),
-            take(camera_sync_count),
-            take(render_world_update_ns),
-            take(snapshot_extraction_ns),
-            take(points_fetch_count),
-            take(topology_fetch_count),
-            take(primvar_descriptor_fetch_count),
-            take(primvar_fetch_count),
-            take(material_fetch_count),
-            take(triangulation_rebuild_count),
-            take(packed_mesh_rebuild_count),
-            take(changed_vertex_count),
-            take(diagnostic_count),
-            take(coarse_primvar_invalidation_count)};
+        take(hydra_sync_count),
+        take(mesh_sync_count),
+        take(material_sync_count),
+        take(light_sync_count),
+        take(instancer_sync_count),
+        take(camera_sync_count),
+        take(render_world_update_ns),
+        take(snapshot_extraction_ns),
+        take(points_fetch_count),
+        take(topology_fetch_count),
+        take(primvar_descriptor_fetch_count),
+        take(primvar_fetch_count),
+        take(material_fetch_count),
+        take(triangulation_rebuild_count),
+        take(packed_mesh_rebuild_count),
+        take(changed_vertex_count),
+        take(diagnostic_count),
+        take(coarse_primvar_invalidation_count)};
   }
 };
 
@@ -178,27 +178,27 @@ HydraTelemetry g_hydra_telemetry;
 const char* DiagnosticDispositionName(
     merlin::DiagnosticDisposition disposition) {
   switch (disposition) {
-    case merlin::DiagnosticDisposition::Fallback:
-      return "fallback";
-    case merlin::DiagnosticDisposition::Rejected:
-      return "rejected";
-    case merlin::DiagnosticDisposition::Ignored:
-      return "ignored";
+  case merlin::DiagnosticDisposition::Fallback:
+    return "fallback";
+  case merlin::DiagnosticDisposition::Rejected:
+    return "rejected";
+  case merlin::DiagnosticDisposition::Ignored:
+    return "ignored";
   }
   return "rejected";
 }
 
 class HydraDiagnosticSink final : public merlin::DiagnosticSink {
- public:
+public:
   void Report(const merlin::Diagnostic& diagnostic) override {
     g_hydra_telemetry.diagnostic_count.fetch_add(
         1, std::memory_order_relaxed);
     TF_WARN("schema=%s code=%s disposition=%s source=%s message=%s "
             "recovery=%s",
-            merlin::kDiagnosticSchema.data(), diagnostic.code.c_str(),
-            DiagnosticDispositionName(diagnostic.disposition),
-            diagnostic.source.c_str(), diagnostic.message.c_str(),
-            diagnostic.recovery.c_str());
+        merlin::kDiagnosticSchema.data(), diagnostic.code.c_str(),
+        DiagnosticDispositionName(diagnostic.disposition),
+        diagnostic.source.c_str(), diagnostic.message.c_str(),
+        diagnostic.recovery.c_str());
     std::scoped_lock lock(mutex_);
     records_.push_back({next_sequence_++, diagnostic});
     if (records_.size() > kCapacity) {
@@ -220,7 +220,7 @@ class HydraDiagnosticSink final : public merlin::DiagnosticSink {
     return result;
   }
 
- private:
+private:
   struct Record {
     std::uint64_t sequence{};
     merlin::Diagnostic diagnostic;
@@ -239,29 +239,31 @@ void ReportHydraDiagnostic(
     std::string recovery) {
   g_diagnostic_sink.Report(
       {merlin::kDiagnosticSchemaVersion, std::move(code),
-       merlin::DiagnosticSeverity::Warning, disposition, source.GetString(),
-       std::move(message), std::move(recovery)});
+          merlin::DiagnosticSeverity::Warning, disposition, source.GetString(),
+          std::move(message), std::move(recovery)});
 }
 
 struct SceneIndexPrimvarSources {
   HdSampledDataSourceHandle value;
   HdIntArrayDataSourceHandle indices;
 
-  [[nodiscard]] bool available() const noexcept { return bool(value); }
+  [[nodiscard]] bool available() const noexcept {
+    return bool(value);
+  }
 
   friend bool operator==(const SceneIndexPrimvarSources&,
-                         const SceneIndexPrimvarSources&) = default;
+      const SceneIndexPrimvarSources&) = default;
 };
 
 class HydraDirtyTracker final : public HdSceneIndexObserver {
- public:
+public:
   void SetSceneIndex(const HdSceneIndexBaseRefPtr& scene_index) {
     std::scoped_lock lock(mutex_);
     scene_index_ = scene_index;
   }
 
   SceneIndexPrimvarSources GetPrimvarSources(const SdfPath& path,
-                                             const TfToken& name) const {
+      const TfToken& name) const {
     HdSceneIndexBaseRefPtr scene_index;
     {
       std::scoped_lock lock(mutex_);
@@ -281,7 +283,7 @@ class HydraDirtyTracker final : public HdSceneIndexObserver {
     }
     return {primvar.IsIndexed() ? primvar.GetIndexedPrimvarValue()
                                 : primvar.GetPrimvarValue(),
-            primvar.GetIndices()};
+        primvar.GetIndices()};
   }
 
   std::optional<HdDataSourceLocatorSet> Consume(const SdfPath& path) {
@@ -296,17 +298,17 @@ class HydraDirtyTracker final : public HdSceneIndexObserver {
   }
 
   void PrimsAdded(const HdSceneIndexBase& sender,
-                  const AddedPrimEntries& entries) override {
+      const AddedPrimEntries& entries) override {
     (void)sender;
     std::scoped_lock lock(mutex_);
     for (const auto& entry : entries) {
       dirty_.insert_or_assign(entry.primPath,
-                              HdDataSourceLocatorSet::UniversalSet());
+          HdDataSourceLocatorSet::UniversalSet());
     }
   }
 
   void PrimsRemoved(const HdSceneIndexBase& sender,
-                    const RemovedPrimEntries& entries) override {
+      const RemovedPrimEntries& entries) override {
     (void)sender;
     std::scoped_lock lock(mutex_);
     for (const auto& entry : entries) {
@@ -317,7 +319,7 @@ class HydraDirtyTracker final : public HdSceneIndexObserver {
   }
 
   void PrimsDirtied(const HdSceneIndexBase& sender,
-                    const DirtiedPrimEntries& entries) override {
+      const DirtiedPrimEntries& entries) override {
     (void)sender;
     std::scoped_lock lock(mutex_);
     for (const auto& entry : entries) {
@@ -326,7 +328,7 @@ class HydraDirtyTracker final : public HdSceneIndexObserver {
   }
 
   void PrimsRenamed(const HdSceneIndexBase& sender,
-                    const RenamedPrimEntries& entries) override {
+      const RenamedPrimEntries& entries) override {
     (void)sender;
     std::scoped_lock lock(mutex_);
     for (const auto& entry : entries) {
@@ -334,40 +336,42 @@ class HydraDirtyTracker final : public HdSceneIndexObserver {
         return item.first.HasPrefix(entry.oldPrimPath);
       });
       dirty_.insert_or_assign(entry.newPrimPath,
-                              HdDataSourceLocatorSet::UniversalSet());
+          HdDataSourceLocatorSet::UniversalSet());
     }
   }
 
- private:
+private:
   mutable std::mutex mutex_;
   HdSceneIndexBaseRefPtr scene_index_;
   std::unordered_map<SdfPath, HdDataSourceLocatorSet, SdfPath::Hash> dirty_;
 };
 
 class ScopedHydraSync {
- public:
-  ScopedHydraSync() : start_(CpuClock::now()) {}
+public:
+  ScopedHydraSync() : start_(CpuClock::now()) {
+  }
   ~ScopedHydraSync() {
     g_hydra_telemetry.hydra_sync_ns.fetch_add(
         ElapsedNanoseconds(start_), std::memory_order_relaxed);
     g_hydra_telemetry.hydra_sync_count.fetch_add(1,
-                                                  std::memory_order_relaxed);
+        std::memory_order_relaxed);
   }
 
- private:
+private:
   CpuClock::time_point start_;
 };
 
 class ScopedAtomicTimer {
- public:
+public:
   explicit ScopedAtomicTimer(std::atomic<std::uint64_t>& destination)
-      : destination_(destination), start_(CpuClock::now()) {}
+      : destination_(destination), start_(CpuClock::now()) {
+  }
   ~ScopedAtomicTimer() {
     destination_.fetch_add(ElapsedNanoseconds(start_),
-                           std::memory_order_relaxed);
+        std::memory_order_relaxed);
   }
 
- private:
+private:
   std::atomic<std::uint64_t>& destination_;
   CpuClock::time_point start_;
 };
@@ -407,25 +411,25 @@ std::vector<std::array<std::uint32_t, 3>> TriangulateFace(
 }
 
 std::optional<std::size_t> PrimvarElement(const PrimvarInput& input,
-                                          const MeshCorner& corner) {
+    const MeshCorner& corner) {
   std::size_t element{};
   switch (input.interpolation) {
-    case HdInterpolationConstant:
-      element = 0;
-      break;
-    case HdInterpolationUniform:
-      element = corner.face;
-      break;
-    case HdInterpolationVertex:
-    case HdInterpolationVarying:
-      element = corner.point;
-      break;
-    case HdInterpolationFaceVarying:
-      element = corner.authored_corner;
-      break;
-    case HdInterpolationInstance:
-    case HdInterpolationCount:
-      return std::nullopt;
+  case HdInterpolationConstant:
+    element = 0;
+    break;
+  case HdInterpolationUniform:
+    element = corner.face;
+    break;
+  case HdInterpolationVertex:
+  case HdInterpolationVarying:
+    element = corner.point;
+    break;
+  case HdInterpolationFaceVarying:
+    element = corner.authored_corner;
+    break;
+  case HdInterpolationInstance:
+  case HdInterpolationCount:
+    return std::nullopt;
   }
   if (!input.indices.empty()) {
     if (element >= input.indices.size() || input.indices[element] < 0) {
@@ -438,7 +442,7 @@ std::optional<std::size_t> PrimvarElement(const PrimvarInput& input,
 
 template <typename ArrayType, typename ResultType, typename Convert>
 bool ReadArrayElement(const VtValue& value, std::size_t index,
-                      ResultType& result, Convert convert) {
+    ResultType& result, Convert convert) {
   if (!value.IsHolding<ArrayType>()) {
     return false;
   }
@@ -451,40 +455,40 @@ bool ReadArrayElement(const VtValue& value, std::size_t index,
 }
 
 bool ReadVec3(const PrimvarInput& input, const MeshCorner& corner,
-              merlin::Vec3& result) {
+    merlin::Vec3& result) {
   const auto element = PrimvarElement(input, corner);
   if (!element) {
     return false;
   }
   const auto convert = [](const auto& value) {
     return merlin::Vec3{static_cast<float>(value[0]),
-                        static_cast<float>(value[1]),
-                        static_cast<float>(value[2])};
+        static_cast<float>(value[1]),
+        static_cast<float>(value[2])};
   };
   return ReadArrayElement<VtVec3fArray>(input.value, *element, result,
-                                        convert) ||
+             convert) ||
          ReadArrayElement<VtVec3dArray>(input.value, *element, result,
-                                        convert);
+             convert);
 }
 
 bool ReadVec2(const PrimvarInput& input, const MeshCorner& corner,
-              merlin::Vec2& result) {
+    merlin::Vec2& result) {
   const auto element = PrimvarElement(input, corner);
   if (!element) {
     return false;
   }
   const auto convert = [](const auto& value) {
     return merlin::Vec2{static_cast<float>(value[0]),
-                        static_cast<float>(value[1])};
+        static_cast<float>(value[1])};
   };
   return ReadArrayElement<VtVec2fArray>(input.value, *element, result,
-                                        convert) ||
+             convert) ||
          ReadArrayElement<VtVec2dArray>(input.value, *element, result,
-                                        convert);
+             convert);
 }
 
 bool ReadFloat(const PrimvarInput& input, const MeshCorner& corner,
-               float& result) {
+    float& result) {
   const auto element = PrimvarElement(input, corner);
   if (!element) {
     return false;
@@ -521,7 +525,7 @@ std::filesystem::path PluginDirectory() {
   const auto address = reinterpret_cast<LPCWSTR>(&module_anchor);
   if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                          address, &module)) {
+          address, &module)) {
     throw std::runtime_error("could not locate hdMerlin module");
   }
   std::wstring path(32768, L'\0');
@@ -613,7 +617,7 @@ std::optional<std::uint64_t> MetalHeapCapacityBytesFromEnvironment() {
   constexpr std::uint64_t bytes_per_mib = 1024ULL * 1024ULL;
   if (error != std::errc{} || parsed_end != end || capacity_mib == 0 ||
       capacity_mib > std::numeric_limits<std::uint64_t>::max() /
-                          bytes_per_mib) {
+                         bytes_per_mib) {
     throw std::invalid_argument(
         "MERLIN_METAL_HEAP_MIB must be a positive in-range integer");
   }
@@ -647,7 +651,7 @@ bool ReadColor(const VtValue& value, merlin::Vec4& result) {
   if (value.IsHolding<GfVec3d>()) {
     const auto& color = value.UncheckedGet<GfVec3d>();
     result = {static_cast<float>(color[0]), static_cast<float>(color[1]),
-              static_cast<float>(color[2]), result.w};
+        static_cast<float>(color[2]), result.w};
     return true;
   }
   if (value.IsHolding<GfVec4f>()) {
@@ -658,14 +662,14 @@ bool ReadColor(const VtValue& value, merlin::Vec4& result) {
   if (value.IsHolding<GfVec4d>()) {
     const auto& color = value.UncheckedGet<GfVec4d>();
     result = {static_cast<float>(color[0]), static_cast<float>(color[1]),
-              static_cast<float>(color[2]), static_cast<float>(color[3])};
+        static_cast<float>(color[2]), static_cast<float>(color[3])};
     return true;
   }
   return false;
 }
 
 merlin::AddressMode ReadAddressMode(const HdMaterialNode2& node,
-                                    const char* name) {
+    const char* name) {
   const auto* value = FindParameter(node, name);
   if (value == nullptr) {
     return merlin::AddressMode::Repeat;
@@ -728,7 +732,7 @@ std::optional<merlin::TextureDescriptor> LoadPpmTexture(
   texture.height = height;
   texture.pixels.resize(static_cast<std::size_t>(width) * height * 4U);
   for (std::size_t pixel = 0;
-       pixel < static_cast<std::size_t>(width) * height; ++pixel) {
+      pixel < static_cast<std::size_t>(width) * height; ++pixel) {
     for (std::size_t component = 0; component < 3U; ++component) {
       std::uint32_t sample{};
       if (!ReadPpmUnsigned(stream, sample) || sample > maximum) {
@@ -753,18 +757,18 @@ std::optional<merlin::TextureDescriptor> LoadTexture(
   }
   const auto& asset = file->UncheckedGet<SdfAssetPath>();
   const auto path = asset.GetResolvedPath().empty() ? asset.GetAssetPath()
-                                                     : asset.GetResolvedPath();
+                                                    : asset.GetResolvedPath();
   auto extension = std::filesystem::path(path).extension().string();
   std::transform(extension.begin(), extension.end(), extension.begin(),
-                 [](unsigned char value) {
-                   return static_cast<char>(std::tolower(value));
-                 });
+      [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+      });
   if (extension == ".ppm") {
     return LoadPpmTexture(path, diagnostic);
   }
   const auto image = HioImage::OpenForReading(path, 0, 0,
-                                              HioImage::SourceColorSpace::Auto,
-                                              true);
+      HioImage::SourceColorSpace::Auto,
+      true);
   if (!image || image->GetWidth() <= 0 || image->GetHeight() <= 0) {
     diagnostic = "could not open texture image " + path;
     return std::nullopt;
@@ -797,7 +801,7 @@ struct ParsedMaterial {
 };
 
 bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
-                             const merlin::MaterialParameterBlock& rhs) {
+    const merlin::MaterialParameterBlock& rhs) {
   return lhs.base_color.x == rhs.base_color.x &&
          lhs.base_color.y == rhs.base_color.y &&
          lhs.base_color.z == rhs.base_color.z &&
@@ -807,7 +811,7 @@ bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
 }
 
 bool MaterialFeaturesEqual(const merlin::MaterialDescriptor& lhs,
-                           const merlin::MaterialDescriptor& rhs) {
+    const merlin::MaterialDescriptor& rhs) {
   if (lhs.base_color_texture.has_value() !=
       rhs.base_color_texture.has_value()) {
     return false;
@@ -825,21 +829,21 @@ bool MaterialFeaturesEqual(const merlin::MaterialDescriptor& lhs,
 }
 
 bool TextureDescriptorsEqual(const merlin::TextureDescriptor& lhs,
-                             const merlin::TextureDescriptor& rhs) {
+    const merlin::TextureDescriptor& rhs) {
   return lhs.label == rhs.label && lhs.width == rhs.width &&
          lhs.height == rhs.height && lhs.format == rhs.format &&
          lhs.pixels == rhs.pixels;
 }
 
 bool SamplerDescriptorsEqual(const merlin::SamplerDescriptor& lhs,
-                             const merlin::SamplerDescriptor& rhs) {
+    const merlin::SamplerDescriptor& rhs) {
   return lhs.label == rhs.label && lhs.min_filter == rhs.min_filter &&
          lhs.mag_filter == rhs.mag_filter && lhs.address_u == rhs.address_u &&
          lhs.address_v == rhs.address_v;
 }
 
 ParsedMaterial ParseMaterialResource(const SdfPath& path,
-                                     const VtValue& resource) {
+    const VtValue& resource) {
   ParsedMaterial result;
   result.material.label = path.GetString();
   result.sampler.label = path.GetString() + ":baseColorSampler";
@@ -922,9 +926,9 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
     const bool reads_display_color =
         varname != nullptr &&
         ((varname->IsHolding<TfToken>() &&
-          varname->UncheckedGet<TfToken>() == TfToken("displayColor")) ||
-         (varname->IsHolding<std::string>() &&
-          varname->UncheckedGet<std::string>() == "displayColor"));
+             varname->UncheckedGet<TfToken>() == TfToken("displayColor")) ||
+            (varname->IsHolding<std::string>() &&
+                varname->UncheckedGet<std::string>() == "displayColor"));
     if (reads_display_color) {
       // USD resolves a connected input by ignoring its authored value, so any
       // diffuseColor constant captured above must not tint the vertex colors.
@@ -981,7 +985,7 @@ struct MaterialEntry {
 };
 
 bool IsInCollection(const SdfPath& path,
-                    const HdRprimCollection& collection) {
+    const HdRprimCollection& collection) {
   const auto& roots = collection.GetRootPaths();
   const bool included = std::any_of(
       roots.begin(), roots.end(), [&path](const SdfPath& root) {
@@ -992,25 +996,25 @@ bool IsInCollection(const SdfPath& path,
   }
   const auto& excludes = collection.GetExcludePaths();
   return std::none_of(excludes.begin(), excludes.end(),
-                      [&path](const SdfPath& exclude) {
-                        return path.HasPrefix(exclude);
-                      });
+      [&path](const SdfPath& exclude) {
+        return path.HasPrefix(exclude);
+      });
 }
 
 bool HasRequestedRenderTag(const SdfPath& path,
-                           const TfTokenVector& render_tags,
-                           HdRenderIndex* render_index) {
+    const TfTokenVector& render_tags,
+    HdRenderIndex* render_index) {
   if (render_tags.empty()) {
     return true;
   }
   const HdRprim* rprim = render_index->GetRprim(path);
   return rprim != nullptr &&
          std::find(render_tags.begin(), render_tags.end(),
-                   rprim->GetRenderTag()) != render_tags.end();
+             rprim->GetRenderTag()) != render_tags.end();
 }
 
 class SceneBridge {
- public:
+public:
   explicit SceneBridge(
       std::shared_ptr<merlin::render::Backend> backend = {},
       std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge = {},
@@ -1055,14 +1059,14 @@ class SceneBridge {
   }
 
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
-                const SdfPath& material_path,
-                const std::vector<merlin::Mat4>& transforms, bool visible,
-                merlin::ChangeAspect mesh_aspects,
-                merlin::ChangeAspect instance_aspects,
-                std::optional<std::vector<merlin::ElementRange>> vertex_ranges =
-                    std::nullopt,
-                std::optional<std::vector<merlin::ElementRange>> index_ranges =
-                    std::nullopt) {
+      const SdfPath& material_path,
+      const std::vector<merlin::Mat4>& transforms, bool visible,
+      merlin::ChangeAspect mesh_aspects,
+      merlin::ChangeAspect instance_aspects,
+      std::optional<std::vector<merlin::ElementRange>> vertex_ranges =
+          std::nullopt,
+      std::optional<std::vector<merlin::ElementRange>> index_ranges =
+          std::nullopt) {
     ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
@@ -1103,7 +1107,7 @@ class SceneBridge {
     state.mesh_descriptor = std::move(mesh);
     if (mesh_aspects != merlin::ChangeAspect::None) {
       world_.UpdateMesh(state.mesh, state.mesh_descriptor, mesh_aspects,
-                        std::move(vertex_ranges), std::move(index_ranges));
+          std::move(vertex_ranges), std::move(index_ranges));
     }
     state.authored_visible = visible;
     // Re-resolve the binding. Acquire the new material before repointing any
@@ -1145,7 +1149,7 @@ class SceneBridge {
       descriptor.material = material;
       if (instance_aspects != merlin::ChangeAspect::None) {
         world_.UpdateInstance(state.instances[i], descriptor,
-                              instance_aspects);
+            instance_aspects);
       }
     }
     // No-op unless the binding changed above; retires the previous material
@@ -1193,8 +1197,8 @@ class SceneBridge {
     found->second.descriptor = std::move(descriptor);
     if (aspects != merlin::ChangeAspect::None) {
       world_.UpdateGaussian(found->second.gaussian,
-                            found->second.descriptor, aspects,
-                            std::move(particle_ranges));
+          found->second.descriptor, aspects,
+          std::move(particle_ranges));
     }
   }
 
@@ -1244,7 +1248,7 @@ class SceneBridge {
     if (parsed.texture) {
       if (entry.texture) {
         if (!TextureDescriptorsEqual(world_.Get(*entry.texture),
-                                     *parsed.texture)) {
+                *parsed.texture)) {
           world_.UpdateTexture(*entry.texture, std::move(*parsed.texture));
         }
       } else {
@@ -1252,7 +1256,7 @@ class SceneBridge {
       }
       if (entry.sampler) {
         if (!SamplerDescriptorsEqual(world_.Get(*entry.sampler),
-                                     parsed.sampler)) {
+                parsed.sampler)) {
           world_.UpdateSampler(*entry.sampler, std::move(parsed.sampler));
         }
       } else {
@@ -1263,7 +1267,7 @@ class SceneBridge {
     }
     merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
     if (!MaterialParametersEqual(entry.descriptor.parameters,
-                                 descriptor.parameters)) {
+            descriptor.parameters)) {
       aspects |= merlin::ChangeAspect::MaterialParameters;
     }
     if (!MaterialFeaturesEqual(entry.descriptor, descriptor)) {
@@ -1298,7 +1302,7 @@ class SceneBridge {
   }
 
   void SyncLight(const SdfPath& path, merlin::LightDescriptor descriptor,
-                 merlin::ChangeAspect aspects) {
+      merlin::ChangeAspect aspects) {
     ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
@@ -1321,10 +1325,10 @@ class SceneBridge {
   }
 
   void Render(const HdRenderPassState& state,
-              const HdRenderPassAovBindingVector& bindings,
-              const HdRprimCollection& collection,
-              const TfTokenVector& render_tags,
-              HdRenderIndex* render_index) {
+      const HdRenderPassAovBindingVector& bindings,
+      const HdRprimCollection& collection,
+      const TfTokenVector& render_tags,
+      HdRenderIndex* render_index) {
     const auto render_execute_start = CpuClock::now();
     std::scoped_lock lock(mutex_);
     std::uint64_t render_world_update_ns{};
@@ -1341,7 +1345,7 @@ class SceneBridge {
         if (descriptor.visible != visible) {
           descriptor.visible = visible;
           world_.UpdateInstance(mesh.instances[i], descriptor,
-                                merlin::ChangeAspect::Visibility);
+              merlin::ChangeAspect::Visibility);
         }
       }
     }
@@ -1421,7 +1425,7 @@ class SceneBridge {
       render_settings_descriptor_.depth_aov = depth_aov;
       const auto render_settings_update_start = CpuClock::now();
       world_.UpdateRenderSettings(render_settings_,
-                                  render_settings_descriptor_);
+          render_settings_descriptor_);
       render_world_update_ns +=
           ElapsedNanoseconds(render_settings_update_start);
     }
@@ -1451,36 +1455,36 @@ class SceneBridge {
     for (const auto& change : changes.changes) {
       const auto aspects = static_cast<std::uint32_t>(change.aspects);
       switch (change.object_kind) {
-        case merlin::ObjectKind::Mesh:
-          mesh_aspects |= aspects;
-          mesh_resource_revision =
-              std::max(mesh_resource_revision, change.resource_revision);
-          break;
-        case merlin::ObjectKind::Material:
-          material_aspects |= aspects;
-          material_resource_revision =
-              std::max(material_resource_revision, change.resource_revision);
-          break;
-        case merlin::ObjectKind::Texture:
-        case merlin::ObjectKind::Sampler:
-          break;
-        case merlin::ObjectKind::Instance:
-          instance_aspects |= aspects;
-          instance_resource_revision =
-              std::max(instance_resource_revision, change.resource_revision);
-          break;
-        case merlin::ObjectKind::Camera:
-          camera_aspects |= aspects;
-          camera_resource_revision =
-              std::max(camera_resource_revision, change.resource_revision);
-          break;
-        case merlin::ObjectKind::Light:
-          break;
-        case merlin::ObjectKind::RenderSettings:
-          render_settings_aspects |= aspects;
-          render_settings_resource_revision = std::max(
-              render_settings_resource_revision, change.resource_revision);
-          break;
+      case merlin::ObjectKind::Mesh:
+        mesh_aspects |= aspects;
+        mesh_resource_revision =
+            std::max(mesh_resource_revision, change.resource_revision);
+        break;
+      case merlin::ObjectKind::Material:
+        material_aspects |= aspects;
+        material_resource_revision =
+            std::max(material_resource_revision, change.resource_revision);
+        break;
+      case merlin::ObjectKind::Texture:
+      case merlin::ObjectKind::Sampler:
+        break;
+      case merlin::ObjectKind::Instance:
+        instance_aspects |= aspects;
+        instance_resource_revision =
+            std::max(instance_resource_revision, change.resource_revision);
+        break;
+      case merlin::ObjectKind::Camera:
+        camera_aspects |= aspects;
+        camera_resource_revision =
+            std::max(camera_resource_revision, change.resource_revision);
+        break;
+      case merlin::ObjectKind::Light:
+        break;
+      case merlin::ObjectKind::RenderSettings:
+        render_settings_aspects |= aspects;
+        render_settings_resource_revision = std::max(
+            render_settings_resource_revision, change.resource_revision);
+        break;
       }
     }
 
@@ -1579,7 +1583,7 @@ class SceneBridge {
     }
     HdMerlinRenderBuffer* gpu_color_buffer =
         HdMerlinCanUseExclusiveGpuColorCopy(color_buffers.size(),
-                                             gpu_color_candidates.size())
+            gpu_color_candidates.size())
             ? gpu_color_candidates.front()
             : nullptr;
 
@@ -1635,8 +1639,8 @@ class SceneBridge {
         } catch (const merlin::render::RendererError&) {
           gpu_color_copied = false;
         }
+      }
     }
-  }
 #elif defined(MERLIN_HYDRA2_ENABLE_METAL)
     if (gpu_color_buffer != nullptr) {
       if (auto* exporter = dynamic_cast<merlin::metal::AovImageExporter*>(
@@ -1724,21 +1728,21 @@ class SceneBridge {
           written = true;
         } else {
           written = buffer->WriteColor(result.color.pixels,
-                                       result.color.product.width,
-                                       result.color.product.height);
+              result.color.product.width,
+              result.color.product.height);
         }
       } else if (HdAovHasDepthSemantic(binding.aovName)) {
         written = buffer->WriteDepth(result.depth.pixels,
-                                     result.depth.product.width,
-                                     result.depth.product.height);
+            result.depth.product.width,
+            result.depth.product.height);
       } else if (binding.aovName == HdAovTokens->primId) {
         written = buffer->WriteId(result.prim_id.pixels,
-                                  result.prim_id.product.width,
-                                  result.prim_id.product.height);
+            result.prim_id.product.width,
+            result.prim_id.product.height);
       } else if (binding.aovName == HdAovTokens->instanceId) {
         written = buffer->WriteId(result.instance_id.pixels,
-                                  result.instance_id.product.width,
-                                  result.instance_id.product.height);
+            result.instance_id.product.width,
+            result.instance_id.product.height);
       }
       buffer->SetConverged(written);
       buffers_written += written ? 1U : 0U;
@@ -1769,31 +1773,31 @@ class SceneBridge {
         std::ofstream stream(*marker_path, std::ios::app);
         const auto textured_materials = static_cast<std::size_t>(
             std::count_if(snapshot->materials.begin(),
-                          snapshot->materials.end(), [](const auto& material) {
-                            return material.base_color_texture.has_value();
-                          }));
+                snapshot->materials.end(), [](const auto& material) {
+                  return material.base_color_texture.has_value();
+                }));
         const auto vertex_color_materials = static_cast<std::size_t>(
             std::count_if(snapshot->materials.begin(),
-                          snapshot->materials.end(), [](const auto& material) {
-                            return merlin::HasMaterialFeature(
-                                material.features,
-                                merlin::MaterialFeature::VertexColor);
-                          }));
+                snapshot->materials.end(), [](const auto& material) {
+                  return merlin::HasMaterialFeature(
+                      material.features,
+                      merlin::MaterialFeature::VertexColor);
+                }));
         const auto neutral_vertex_color_materials = static_cast<std::size_t>(
             std::count_if(snapshot->materials.begin(), snapshot->materials.end(),
-                          [](const auto& material) {
-                            return merlin::HasMaterialFeature(
-                                       material.features,
-                                       merlin::MaterialFeature::VertexColor) &&
-                                   material.parameters.base_color.x == 1.0F &&
-                                   material.parameters.base_color.y == 1.0F &&
-                                   material.parameters.base_color.z == 1.0F;
-                          }));
+                [](const auto& material) {
+                  return merlin::HasMaterialFeature(
+                             material.features,
+                             merlin::MaterialFeature::VertexColor) &&
+                         material.parameters.base_color.x == 1.0F &&
+                         material.parameters.base_color.y == 1.0F &&
+                         material.parameters.base_color.z == 1.0F;
+                }));
         const auto texcoord_geometries = static_cast<std::size_t>(
             std::count_if(snapshot->geometries.begin(),
-                          snapshot->geometries.end(), [](const auto& geometry) {
-                            return geometry.has_texcoords;
-                          }));
+                snapshot->geometries.end(), [](const auto& geometry) {
+                  return geometry.has_texcoords;
+                }));
         const auto missing_texcoord_geometries =
             snapshot->geometries.size() - texcoord_geometries;
         const auto hgi_vulkan_telemetry =
@@ -2065,12 +2069,12 @@ class SceneBridge {
     }
   }
 
- private:
+private:
   // Resolves the material bound at `path`, creating it on first use, and takes
   // one reference. `key_out` receives the tracking key to pass back to
   // ReleaseMaterialLocked (empty for the untracked fallback material).
   merlin::MaterialHandle AcquireMaterialLocked(const SdfPath& path,
-                                               std::string& key_out) {
+      std::string& key_out) {
     if (path.IsEmpty()) {
       key_out.clear();
       return fallback_material_;
@@ -2119,8 +2123,8 @@ class SceneBridge {
   }
 
   merlin::CameraHandle SyncCameraLocked(const std::string& key,
-                                        const merlin::Mat4& view,
-                                        const merlin::Mat4& projection) {
+      const merlin::Mat4& view,
+      const merlin::Mat4& projection) {
     const auto found = cameras_.find(key);
     if (found == cameras_.end()) {
       merlin::CameraDescriptor descriptor;
@@ -2142,7 +2146,7 @@ class SceneBridge {
       descriptor.projection = projection;
       descriptor.front_face = camera_front_face_;
       world_.UpdateCamera(handle, std::move(descriptor),
-                          merlin::ChangeAspect::Camera);
+          merlin::ChangeAspect::Camera);
     }
     return handle;
   }
@@ -2170,12 +2174,13 @@ class SceneBridge {
 };
 
 class HdMerlinInstancer final : public HdInstancer {
- public:
+public:
   HdMerlinInstancer(HdSceneDelegate* delegate, const SdfPath& id)
-      : HdInstancer(delegate, id) {}
+      : HdInstancer(delegate, id) {
+  }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
-            HdDirtyBits* dirty_bits) override {
+      HdDirtyBits* dirty_bits) override {
     ScopedHydraSync sync_timer;
     g_hydra_telemetry.instancer_sync_count.fetch_add(
         1, std::memory_order_relaxed);
@@ -2188,9 +2193,9 @@ class HdMerlinInstancer final : public HdInstancer {
       for (const auto& descriptor : delegate->GetPrimvarDescriptors(
                GetId(), HdInterpolationInstance)) {
         if (HdChangeTracker::IsPrimvarDirty(*dirty_bits, GetId(),
-                                            descriptor.name)) {
+                descriptor.name)) {
           primvars_.insert_or_assign(descriptor.name,
-                                     delegate->Get(GetId(), descriptor.name));
+              delegate->Get(GetId(), descriptor.name));
         }
       }
     }
@@ -2206,24 +2211,24 @@ class HdMerlinInstancer final : public HdInstancer {
     VtMatrix4dArray transforms(indices.size(),
         GetDelegate()->GetInstancerTransform(GetId()));
     ApplyVec3(transforms, indices, HdInstancerTokens->instanceTranslations,
-              [&](GfMatrix4d& matrix, const GfVec3d& value) {
-                GfMatrix4d operation(1.0);
-                operation.SetTranslate(value);
-                matrix = operation * matrix;
-              });
+        [&](GfMatrix4d& matrix, const GfVec3d& value) {
+          GfMatrix4d operation(1.0);
+          operation.SetTranslate(value);
+          matrix = operation * matrix;
+        });
     ApplyVec4(transforms, indices, HdInstancerTokens->instanceRotations,
-              [&](GfMatrix4d& matrix, const GfVec4d& value) {
-                GfMatrix4d operation(1.0);
-                operation.SetRotate(
-                    GfQuatd(value[0], value[1], value[2], value[3]));
-                matrix = operation * matrix;
-              });
+        [&](GfMatrix4d& matrix, const GfVec4d& value) {
+          GfMatrix4d operation(1.0);
+          operation.SetRotate(
+              GfQuatd(value[0], value[1], value[2], value[3]));
+          matrix = operation * matrix;
+        });
     ApplyVec3(transforms, indices, HdInstancerTokens->instanceScales,
-              [&](GfMatrix4d& matrix, const GfVec3d& value) {
-                GfMatrix4d operation(1.0);
-                operation.SetScale(value);
-                matrix = operation * matrix;
-              });
+        [&](GfMatrix4d& matrix, const GfVec3d& value) {
+          GfMatrix4d operation(1.0);
+          operation.SetScale(value);
+          matrix = operation * matrix;
+        });
     const auto transform_found =
         primvars_.find(HdInstancerTokens->instanceTransforms);
     if (transform_found != primvars_.end() &&
@@ -2254,9 +2259,9 @@ class HdMerlinInstancer final : public HdInstancer {
     const auto parent_transforms = parent->ComputeInstanceTransforms(GetId());
     VtMatrix4dArray flattened(parent_transforms.size() * transforms.size());
     for (std::size_t parent_index = 0;
-         parent_index < parent_transforms.size(); ++parent_index) {
+        parent_index < parent_transforms.size(); ++parent_index) {
       for (std::size_t child_index = 0; child_index < transforms.size();
-           ++child_index) {
+          ++child_index) {
         flattened[parent_index * transforms.size() + child_index] =
             transforms[child_index] * parent_transforms[parent_index];
       }
@@ -2264,10 +2269,10 @@ class HdMerlinInstancer final : public HdInstancer {
     return flattened;
   }
 
- private:
+private:
   template <typename Callback>
   void ApplyVec3(VtMatrix4dArray& transforms, const VtIntArray& indices,
-                 const TfToken& token, Callback callback) {
+      const TfToken& token, Callback callback) {
     const auto found = primvars_.find(token);
     if (found == primvars_.end()) {
       return;
@@ -2278,7 +2283,7 @@ class HdMerlinInstancer final : public HdInstancer {
         if (index >= 0 && static_cast<std::size_t>(index) < values.size()) {
           const auto& value = values[index];
           callback(transforms[i],
-                   GfVec3d(value[0], value[1], value[2]));
+              GfVec3d(value[0], value[1], value[2]));
         }
       }
     };
@@ -2291,7 +2296,7 @@ class HdMerlinInstancer final : public HdInstancer {
 
   template <typename Callback>
   void ApplyVec4(VtMatrix4dArray& transforms, const VtIntArray& indices,
-                 const TfToken& token, Callback callback) {
+      const TfToken& token, Callback callback) {
     const auto found = primvars_.find(token);
     if (found == primvars_.end()) {
       return;
@@ -2302,7 +2307,7 @@ class HdMerlinInstancer final : public HdInstancer {
         if (index >= 0 && static_cast<std::size_t>(index) < values.size()) {
           const auto& value = values[index];
           callback(transforms[i],
-                   GfVec4d(value[0], value[1], value[2], value[3]));
+              GfVec4d(value[0], value[1], value[2], value[3]));
         }
       }
     };
@@ -2318,14 +2323,17 @@ class HdMerlinInstancer final : public HdInstancer {
 };
 
 class HdMerlinMaterial final : public HdMaterial {
- public:
+public:
   HdMerlinMaterial(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
-      : HdMaterial(id), bridge_(std::move(bridge)) {}
+      : HdMaterial(id), bridge_(std::move(bridge)) {
+  }
 
-  ~HdMerlinMaterial() override { bridge_->RemoveMaterial(GetId()); }
+  ~HdMerlinMaterial() override {
+    bridge_->RemoveMaterial(GetId());
+  }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
-            HdDirtyBits* dirty_bits) override {
+      HdDirtyBits* dirty_bits) override {
     ScopedHydraSync sync_timer;
     g_hydra_telemetry.material_sync_count.fetch_add(
         1, std::memory_order_relaxed);
@@ -2349,25 +2357,27 @@ class HdMerlinMaterial final : public HdMaterial {
     return HdMaterial::AllDirty;
   }
 
- private:
+private:
   std::shared_ptr<SceneBridge> bridge_;
 };
 
 class HdMerlinDistantLight final : public HdLight {
- public:
+public:
   HdMerlinDistantLight(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
       : HdLight(id), bridge_(std::move(bridge)) {
     descriptor_.label = id.GetString();
     descriptor_.type = merlin::LightType::Directional;
   }
 
-  ~HdMerlinDistantLight() override { bridge_->RemoveLight(GetId()); }
+  ~HdMerlinDistantLight() override {
+    bridge_->RemoveLight(GetId());
+  }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
-            HdDirtyBits* dirty_bits) override {
+      HdDirtyBits* dirty_bits) override {
     ScopedHydraSync sync_timer;
     g_hydra_telemetry.light_sync_count.fetch_add(1,
-                                                  std::memory_order_relaxed);
+        std::memory_order_relaxed);
     (void)render_param;
     merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
     if ((*dirty_bits & HdLight::DirtyTransform) != 0) {
@@ -2376,7 +2386,7 @@ class HdMerlinDistantLight final : public HdLight {
     }
     if ((*dirty_bits & HdLight::DirtyParams) != 0) {
       merlin::Vec4 color{descriptor_.color.x, descriptor_.color.y,
-                         descriptor_.color.z, 1.0F};
+          descriptor_.color.z, 1.0F};
       const auto color_value =
           delegate->GetLightParamValue(GetId(), HdLightTokens->color);
       (void)ReadColor(color_value, color);
@@ -2400,22 +2410,24 @@ class HdMerlinDistantLight final : public HdLight {
     return HdLight::AllDirty;
   }
 
- private:
+private:
   std::shared_ptr<SceneBridge> bridge_;
   merlin::LightDescriptor descriptor_;
 };
 
 class HdMerlinMesh final : public HdMesh {
- public:
+public:
   HdMerlinMesh(const SdfPath& id, std::shared_ptr<SceneBridge> bridge,
-               HydraDirtyTracker* dirty_tracker)
+      HydraDirtyTracker* dirty_tracker)
       : HdMesh(id),
         bridge_(std::move(bridge)),
         dirty_tracker_(dirty_tracker) {
     descriptor_.label = id.GetString();
   }
 
-  ~HdMerlinMesh() override { bridge_->RemoveMesh(GetId()); }
+  ~HdMerlinMesh() override {
+    bridge_->RemoveMesh(GetId());
+  }
 
   HdDirtyBits GetInitialDirtyBitsMask() const override {
     return HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology |
@@ -2427,10 +2439,10 @@ class HdMerlinMesh final : public HdMesh {
   }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
-            HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
+      HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
     ScopedHydraSync sync_timer;
     g_hydra_telemetry.mesh_sync_count.fetch_add(1,
-                                                 std::memory_order_relaxed);
+        std::memory_order_relaxed);
     (void)render_param;
     (void)repr_token;
     _UpdateInstancer(delegate, dirty_bits);
@@ -2442,7 +2454,7 @@ class HdMerlinMesh final : public HdMesh {
                                     ? dirty_locators->Intersects(
                                           HdMeshSchema::GetTopologyLocator())
                                     : (*dirty_bits &
-                                       HdChangeTracker::DirtyTopology) != 0;
+                                          HdChangeTracker::DirtyTopology) != 0;
     const bool primvar_bit =
         (*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0;
     auto& change_tracker =
@@ -2477,8 +2489,8 @@ class HdMerlinMesh final : public HdMesh {
         dirty_locators
             ? HasNonPointPrimvarDirtiness(*dirty_locators)
             : (primvar_bit &&
-               (!topology_dirty || !primvar_cache_initialized_ ||
-                AnyCachedPrimvarDirty(change_tracker)));
+                  (!topology_dirty || !primvar_cache_initialized_ ||
+                      AnyCachedPrimvarDirty(change_tracker)));
     if (dirty_locators && dirty_locators->Contains(
                               HdPrimvarsSchema::GetDefaultLocator())) {
       g_hydra_telemetry.coarse_primvar_invalidation_count.fetch_add(
@@ -2507,7 +2519,7 @@ class HdMerlinMesh final : public HdMesh {
     }
     std::optional<std::vector<merlin::ElementRange>> known_index_ranges;
     if (merlin::HasAnyAspect(mesh_aspects,
-                             merlin::ChangeAspect::Topology)) {
+            merlin::ChangeAspect::Topology)) {
       known_index_ranges =
           ChangedIndexRanges(previous_descriptor, descriptor_);
     }
@@ -2542,7 +2554,7 @@ class HdMerlinMesh final : public HdMesh {
         transforms_.push_back(ToMerlinMatrix(hydra_transform_));
       } else {
         HdInstancer::_SyncInstancerAndParents(delegate->GetRenderIndex(),
-                                              GetInstancerId());
+            GetInstancerId());
         auto* instancer = dynamic_cast<HdMerlinInstancer*>(
             delegate->GetRenderIndex().GetInstancer(GetInstancerId()));
         if (instancer == nullptr) {
@@ -2554,7 +2566,7 @@ class HdMerlinMesh final : public HdMesh {
               "reject-instanced-prim");
         } else {
           for (const auto& instance_transform :
-               instancer->ComputeInstanceTransforms(GetId())) {
+              instancer->ComputeInstanceTransforms(GetId())) {
             transforms_.push_back(ToMerlinMatrix(hydra_transform_ *
                                                  instance_transform));
           }
@@ -2573,13 +2585,13 @@ class HdMerlinMesh final : public HdMesh {
       instance_aspects |= merlin::ChangeAspect::Visibility;
     }
     bridge_->SyncMesh(GetId(), descriptor_, material_id_, transforms_, visible_,
-                      mesh_aspects, instance_aspects,
-                      std::move(known_vertex_ranges),
-                      std::move(known_index_ranges));
+        mesh_aspects, instance_aspects,
+        std::move(known_vertex_ranges),
+        std::move(known_index_ranges));
     *dirty_bits = HdChangeTracker::Clean;
   }
 
- protected:
+protected:
   HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override {
     return bits;
   }
@@ -2589,7 +2601,7 @@ class HdMerlinMesh final : public HdMesh {
     *dirty_bits |= GetInitialDirtyBitsMask();
   }
 
- private:
+private:
   struct DiscoveredPrimvar {
     TfToken name;
     TfToken role;
@@ -2606,7 +2618,7 @@ class HdMerlinMesh final : public HdMesh {
   }
 
   bool FetchPoints(HdSceneDelegate* delegate,
-                   SceneIndexPrimvarSources sources) {
+      SceneIndexPrimvarSources sources) {
     std::vector<GfVec3d> next_points;
     g_hydra_telemetry.points_fetch_count.fetch_add(
         1, std::memory_order_relaxed);
@@ -2646,10 +2658,10 @@ class HdMerlinMesh final : public HdMesh {
         g_hydra_telemetry.primvar_descriptor_fetch_count.fetch_add(
             1, std::memory_order_relaxed);
         for (const auto& descriptor :
-             GetPrimvarDescriptors(delegate, interpolation)) {
+            GetPrimvarDescriptors(delegate, interpolation)) {
           primvar_descriptors_.push_back(
               {descriptor.name, descriptor.role, interpolation,
-               descriptor.indexed});
+                  descriptor.indexed});
         }
       }
     }
@@ -2708,10 +2720,10 @@ class HdMerlinMesh final : public HdMesh {
       const bool value_dirty =
           !primvar_cache_initialized_ || descriptor_changed ||
           (dirty_locators
-               ? dirty_locators->Intersects(
-                     HdPrimvarsSchema::GetDefaultLocator().Append(
-                         selected->name))
-               : change_tracker.IsPrimvarDirty(GetId(), selected->name));
+                  ? dirty_locators->Intersects(
+                        HdPrimvarsSchema::GetDefaultLocator().Append(
+                            selected->name))
+                  : change_tracker.IsPrimvarDirty(GetId(), selected->name));
       if (!value_dirty) {
         continue;
       }
@@ -2725,7 +2737,7 @@ class HdMerlinMesh final : public HdMesh {
           1, std::memory_order_relaxed);
       next.value = selected->indexed
                        ? GetIndexedPrimvar(delegate, selected->name,
-                                           &next.indices)
+                             &next.indices)
                        : GetPrimvar(delegate, selected->name);
       const bool input_changed =
           descriptor_changed || cache.value != next.value ||
@@ -2816,7 +2828,7 @@ class HdMerlinMesh final : public HdMesh {
     }
     std::size_t offset{};
     for (std::uint32_t face_index = 0; face_index < counts.size();
-         ++face_index) {
+        ++face_index) {
       const int count = counts[face_index];
       if (count < 3 || offset > authored_indices.size() ||
           static_cast<std::size_t>(count) >
@@ -2861,7 +2873,7 @@ class HdMerlinMesh final : public HdMesh {
           for (const auto local_corner : triangle) {
             packed_corners_.push_back(
                 {face_points[local_corner], face_index,
-                 static_cast<std::uint32_t>(offset) + local_corner});
+                    static_cast<std::uint32_t>(offset) + local_corner});
           }
         }
       }
@@ -2885,7 +2897,7 @@ class HdMerlinMesh final : public HdMesh {
     }
     const bool has_display_color = colors_.present || opacities_.present;
     for (std::size_t triangle = 0; triangle < packed_corners_.size();
-         triangle += 3U) {
+        triangle += 3U) {
       if (packed_corners_.size() - triangle < 3U) {
         ResetPackedMesh();
         ReportHydraDiagnostic(
@@ -2904,10 +2916,10 @@ class HdMerlinMesh final : public HdMesh {
         const auto& point = points_[corner.point];
         descriptor_.positions.push_back(
             {static_cast<float>(point[0]), static_cast<float>(point[1]),
-             static_cast<float>(point[2])});
+                static_cast<float>(point[2])});
         merlin::Vec3 normal{static_cast<float>(generated_normal[0]),
-                            static_cast<float>(generated_normal[1]),
-                            static_cast<float>(generated_normal[2])};
+            static_cast<float>(generated_normal[1]),
+            static_cast<float>(generated_normal[2])};
         if (normals_.present && !ReadVec3(normals_, corner, normal)) {
           ReportHydraDiagnostic(
               "hydra.mesh.primvar.normals", GetId(),
@@ -2994,14 +3006,14 @@ class HdMerlinMesh final : public HdMesh {
       }
       if (!changed && first != current.indices.size()) {
         ranges.push_back({static_cast<std::uint32_t>(first),
-                          static_cast<std::uint32_t>(i - first)});
+            static_cast<std::uint32_t>(i - first)});
         first = current.indices.size();
       }
     }
     if (first != current.indices.size()) {
       ranges.push_back({static_cast<std::uint32_t>(first),
-                        static_cast<std::uint32_t>(current.indices.size() -
-                                                   first)});
+          static_cast<std::uint32_t>(current.indices.size() -
+                                     first)});
     }
     return ranges;
   }
@@ -3055,13 +3067,13 @@ class HdMerlinMesh final : public HdMesh {
       }
       if (!changed && first != count) {
         ranges.push_back({static_cast<std::uint32_t>(first),
-                          static_cast<std::uint32_t>(i - first)});
+            static_cast<std::uint32_t>(i - first)});
         first = count;
       }
     }
     if (first != count) {
       ranges.push_back({static_cast<std::uint32_t>(first),
-                        static_cast<std::uint32_t>(count - first)});
+          static_cast<std::uint32_t>(count - first)});
     }
     return ranges;
   }
@@ -3087,9 +3099,9 @@ class HdMerlinMesh final : public HdMesh {
 };
 
 class HdMerlinGaussian final : public HdRprim {
- public:
+public:
   HdMerlinGaussian(const SdfPath& id, std::shared_ptr<SceneBridge> bridge,
-                   HydraDirtyTracker* dirty_tracker)
+      HydraDirtyTracker* dirty_tracker)
       : HdRprim(id),
         bridge_(std::move(bridge)),
         dirty_tracker_(dirty_tracker) {
@@ -3097,7 +3109,9 @@ class HdMerlinGaussian final : public HdRprim {
     source_.source = source_.label;
   }
 
-  ~HdMerlinGaussian() override { bridge_->RemoveGaussian(GetId()); }
+  ~HdMerlinGaussian() override {
+    bridge_->RemoveGaussian(GetId());
+  }
 
   HdDirtyBits GetInitialDirtyBitsMask() const override {
     return HdChangeTracker::DirtyPrimvar |
@@ -3118,7 +3132,7 @@ class HdMerlinGaussian final : public HdRprim {
   }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
-            HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
+      HdDirtyBits* dirty_bits, const TfToken& repr_token) override {
     ScopedHydraSync sync_timer;
     (void)render_param;
     (void)repr_token;
@@ -3186,7 +3200,7 @@ class HdMerlinGaussian final : public HdRprim {
       transform_ = transform;
     }
     if ((*dirty_bits & (HdChangeTracker::DirtyVisibility |
-                        HdChangeTracker::DirtyRenderTag)) != 0) {
+                           HdChangeTracker::DirtyRenderTag)) != 0) {
       const bool visible = delegate->GetVisible(GetId());
       if (!payload_valid_ || visible != visible_) {
         aspects |= merlin::ChangeAspect::Visibility;
@@ -3198,8 +3212,8 @@ class HdMerlinGaussian final : public HdRprim {
     }
     if (source_dirty) {
       if (!FetchSource(delegate, positions_dirty, orientations_dirty,
-                       scales_dirty, opacities_dirty, radiance_dirty,
-                       degree_dirty)) {
+              scales_dirty, opacities_dirty, radiance_dirty,
+              degree_dirty)) {
         InvalidatePayload();
         *dirty_bits = HdChangeTracker::Clean;
         return;
@@ -3231,7 +3245,7 @@ class HdMerlinGaussian final : public HdRprim {
         if (descriptor_.spherical_harmonics_degree !=
                 descriptor.spherical_harmonics_degree ||
             !Same(descriptor_.spherical_harmonics_coefficients,
-                  descriptor.spherical_harmonics_coefficients)) {
+                descriptor.spherical_harmonics_coefficients)) {
           aspects |= merlin::ChangeAspect::GaussianRadiance;
         }
         if (descriptor_.projection_mode != descriptor.projection_mode ||
@@ -3239,7 +3253,7 @@ class HdMerlinGaussian final : public HdRprim {
           aspects |= merlin::ChangeAspect::GaussianPolicy;
         }
         particle_ranges = ChangedParticleRanges(descriptor_, descriptor,
-                                                aspects);
+            aspects);
       }
       descriptor_ = std::move(descriptor);
       payload_valid_ = true;
@@ -3259,22 +3273,22 @@ class HdMerlinGaussian final : public HdRprim {
     descriptor_.transform = transform_;
     descriptor_.visible = visible_;
     bridge_->SyncGaussian(GetId(), descriptor_, aspects,
-                          std::move(particle_ranges));
+        std::move(particle_ranges));
     *dirty_bits = HdChangeTracker::Clean;
   }
 
- protected:
+protected:
   HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override {
     return bits;
   }
 
   void _InitRepr(const TfToken& repr_token,
-                 HdDirtyBits* dirty_bits) override {
+      HdDirtyBits* dirty_bits) override {
     (void)repr_token;
     *dirty_bits |= GetInitialDirtyBitsMask();
   }
 
- private:
+private:
   VtValue Read(HdSceneDelegate* delegate, const char* name) const {
     g_hydra_telemetry.primvar_fetch_count.fetch_add(
         1, std::memory_order_relaxed);
@@ -3283,7 +3297,7 @@ class HdMerlinGaussian final : public HdRprim {
 
   template <typename FloatArray, typename HalfArray, typename Convert>
   bool ReadPreferredArray(HdSceneDelegate* delegate, const char* name,
-                          Convert convert) {
+      Convert convert) {
     const auto value = Read(delegate, name);
     if (value.IsHolding<FloatArray>()) {
       convert(value.UncheckedGet<FloatArray>());
@@ -3297,16 +3311,16 @@ class HdMerlinGaussian final : public HdRprim {
   }
 
   bool FetchSource(HdSceneDelegate* delegate, bool positions_dirty,
-                   bool orientations_dirty, bool scales_dirty,
-                   bool opacities_dirty, bool radiance_dirty,
-                   bool degree_dirty) {
+      bool orientations_dirty, bool scales_dirty,
+      bool opacities_dirty, bool radiance_dirty,
+      bool degree_dirty) {
     const auto copy_vec3 = [](auto& destination) {
       return [&destination](const auto& values) {
         destination.reserve(values.size());
         for (const auto& value : values) {
           destination.push_back(
               {static_cast<float>(value[0]), static_cast<float>(value[1]),
-               static_cast<float>(value[2])});
+                  static_cast<float>(value[2])});
         }
       };
     };
@@ -3316,9 +3330,9 @@ class HdMerlinGaussian final : public HdRprim {
         const auto imaginary = value.GetImaginary();
         source_.orientations.push_back(
             {static_cast<float>(value.GetReal()),
-             {static_cast<float>(imaginary[0]),
-              static_cast<float>(imaginary[1]),
-              static_cast<float>(imaginary[2])}});
+                {static_cast<float>(imaginary[0]),
+                    static_cast<float>(imaginary[1]),
+                    static_cast<float>(imaginary[2])}});
       }
     };
     const auto copy_scalar = [&](const auto& values) {
@@ -3432,18 +3446,18 @@ class HdMerlinGaussian final : public HdRprim {
 
   template <typename Value>
   static bool Same(const std::vector<Value>& lhs,
-                   const std::vector<Value>& rhs) {
+      const std::vector<Value>& rhs) {
     return lhs.size() == rhs.size() &&
            std::equal(lhs.begin(), lhs.end(), rhs.begin(),
-                      [](const Value& a, const Value& b) {
-                        return Same(a, b);
-                      });
+               [](const Value& a, const Value& b) {
+                 return Same(a, b);
+               });
   }
 
   static std::optional<std::vector<merlin::ElementRange>>
   ChangedParticleRanges(const merlin::GaussianDescriptor& previous,
-                        const merlin::GaussianDescriptor& next,
-                        merlin::ChangeAspect aspects) {
+      const merlin::GaussianDescriptor& next,
+      merlin::ChangeAspect aspects) {
     constexpr auto payload_aspects =
         merlin::ChangeAspect::GaussianPositions |
         merlin::ChangeAspect::GaussianCovariance |
@@ -3473,7 +3487,7 @@ class HdMerlinGaussian final : public HdRprim {
                           aspects,
                           merlin::ChangeAspect::GaussianCovariance)) {
         changed = !Same(previous.covariances[index],
-                        next.covariances[index]);
+            next.covariances[index]);
       }
       if (!changed && merlin::HasAnyAspect(
                           aspects, merlin::ChangeAspect::GaussianOpacity)) {
@@ -3483,11 +3497,9 @@ class HdMerlinGaussian final : public HdRprim {
                           aspects, merlin::ChangeAspect::GaussianRadiance)) {
         const auto offset = index * coefficient_count;
         for (std::size_t coefficient = 0;
-             coefficient < coefficient_count; ++coefficient) {
-          if (!Same(previous.spherical_harmonics_coefficients[
-                        offset + coefficient],
-                    next.spherical_harmonics_coefficients[
-                        offset + coefficient])) {
+            coefficient < coefficient_count; ++coefficient) {
+          if (!Same(previous.spherical_harmonics_coefficients[offset + coefficient],
+                  next.spherical_harmonics_coefficients[offset + coefficient])) {
             changed = true;
             break;
           }
@@ -3498,13 +3510,13 @@ class HdMerlinGaussian final : public HdRprim {
       } else if (!changed && first != count) {
         ranges.push_back(
             {static_cast<std::uint32_t>(first),
-             static_cast<std::uint32_t>(index - first)});
+                static_cast<std::uint32_t>(index - first)});
         first = count;
       }
     }
     if (first != count) {
       ranges.push_back({static_cast<std::uint32_t>(first),
-                        static_cast<std::uint32_t>(count - first)});
+          static_cast<std::uint32_t>(count - first)});
     }
     return ranges;
   }
@@ -3532,42 +3544,46 @@ class HdMerlinGaussian final : public HdRprim {
 };
 
 class HdMerlinCamera final : public HdCamera {
- public:
+public:
   HdMerlinCamera(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
-      : HdCamera(id), bridge_(std::move(bridge)) {}
+      : HdCamera(id), bridge_(std::move(bridge)) {
+  }
 
-  ~HdMerlinCamera() override { bridge_->RemoveCamera(GetId()); }
+  ~HdMerlinCamera() override {
+    bridge_->RemoveCamera(GetId());
+  }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
-            HdDirtyBits* dirty_bits) override {
+      HdDirtyBits* dirty_bits) override {
     ScopedHydraSync sync_timer;
     g_hydra_telemetry.camera_sync_count.fetch_add(1,
-                                                   std::memory_order_relaxed);
+        std::memory_order_relaxed);
     HdCamera::Sync(delegate, render_param, dirty_bits);
   }
 
- private:
+private:
   std::shared_ptr<SceneBridge> bridge_;
 };
 
 class HdMerlinRenderPass final : public HdRenderPass {
- public:
+public:
   HdMerlinRenderPass(HdRenderIndex* index,
-                     const HdRprimCollection& collection,
-                     std::shared_ptr<SceneBridge> bridge)
-      : HdRenderPass(index, collection), bridge_(std::move(bridge)) {}
+      const HdRprimCollection& collection,
+      std::shared_ptr<SceneBridge> bridge)
+      : HdRenderPass(index, collection), bridge_(std::move(bridge)) {
+  }
 
- private:
+private:
   void _Execute(const HdRenderPassStateSharedPtr& render_pass_state,
-                const TfTokenVector& render_tags) override {
+      const TfTokenVector& render_tags) override {
     bridge_->Render(*render_pass_state, render_pass_state->GetAovBindings(),
-                    GetRprimCollection(), render_tags, GetRenderIndex());
+        GetRprimCollection(), render_tags, GetRenderIndex());
   }
 
   std::shared_ptr<SceneBridge> bridge_;
 };
 
-}  // namespace
+} // namespace
 
 bool HdMerlinCanUseExclusiveGpuColorCopy(
     std::size_t color_buffer_count,
@@ -3581,7 +3597,8 @@ HdMerlinRenderBuffer::HdMerlinRenderBuffer(
     std::shared_ptr<HdMerlinHgiMetalBridge> hgi_metal_bridge)
     : HdRenderBuffer(id),
       hgi_vulkan_bridge_(std::move(hgi_vulkan_bridge)),
-      hgi_metal_bridge_(std::move(hgi_metal_bridge)) {}
+      hgi_metal_bridge_(std::move(hgi_metal_bridge)) {
+}
 
 HdMerlinRenderBuffer::~HdMerlinRenderBuffer() {
   std::scoped_lock lock(mutex_);
@@ -3589,12 +3606,12 @@ HdMerlinRenderBuffer::~HdMerlinRenderBuffer() {
 }
 
 bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
-                                    bool multi_sampled) {
+    bool multi_sampled) {
   std::scoped_lock lock(mutex_);
   if (map_count_ != 0 || dimensions[0] < 0 || dimensions[1] < 0 ||
       dimensions[2] < 0 || multi_sampled ||
       (format != HdFormatUNorm8Vec4 && format != HdFormatFloat32 &&
-       format != HdFormatInt32)) {
+          format != HdFormatInt32)) {
     return false;
   }
   const auto pixel_size = HdDataSizeOfFormat(format);
@@ -3738,7 +3755,7 @@ bool HdMerlinRenderBuffer::WriteColor(
   std::scoped_lock lock(mutex_);
   if (map_count_ != 0 || format_ != HdFormatUNorm8Vec4 ||
       dimensions_ != GfVec3i(static_cast<int>(width), static_cast<int>(height),
-                             1) ||
+                         1) ||
       rgba8.size() != data_.size()) {
     return false;
   }
@@ -3750,13 +3767,13 @@ bool HdMerlinRenderBuffer::WriteColor(
 }
 
 bool HdMerlinRenderBuffer::WriteDepth(const std::vector<float>& depth,
-                                      std::uint32_t width,
-                                      std::uint32_t height) {
+    std::uint32_t width,
+    std::uint32_t height) {
   std::scoped_lock lock(mutex_);
   const auto byte_size = depth.size() * sizeof(float);
   if (map_count_ != 0 || format_ != HdFormatFloat32 ||
       dimensions_ != GfVec3i(static_cast<int>(width), static_cast<int>(height),
-                             1) ||
+                         1) ||
       byte_size != data_.size()) {
     return false;
   }
@@ -3766,13 +3783,13 @@ bool HdMerlinRenderBuffer::WriteDepth(const std::vector<float>& depth,
 }
 
 bool HdMerlinRenderBuffer::WriteId(const std::vector<std::uint32_t>& ids,
-                                   std::uint32_t width,
-                                   std::uint32_t height) {
+    std::uint32_t width,
+    std::uint32_t height) {
   std::scoped_lock lock(mutex_);
   const auto byte_size = ids.size() * sizeof(std::uint32_t);
   if (format_ != HdFormatInt32 || map_count_ != 0 ||
       dimensions_ != GfVec3i(static_cast<int>(width), static_cast<int>(height),
-                             1) ||
+                         1) ||
       byte_size != data_.size()) {
     return false;
   }
@@ -3785,12 +3802,12 @@ bool HdMerlinRenderBuffer::CanGpuCopyColor() const {
   std::scoped_lock lock(mutex_);
   return format_ == HdFormatUNorm8Vec4 && !multi_sampled_ &&
          ((hgi_vulkan_target_ && hgi_vulkan_bridge_ &&
-           hgi_vulkan_bridge_->status().gpu_copy) ||
+              hgi_vulkan_bridge_->status().gpu_copy) ||
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-          (hgi_metal_target_ && hgi_metal_bridge_ &&
-           hgi_metal_bridge_->status().gpu_copy));
+             (hgi_metal_target_ && hgi_metal_bridge_ &&
+                 hgi_metal_bridge_->status().gpu_copy));
 #else
-          false);
+             false);
 #endif
 }
 
@@ -3807,7 +3824,7 @@ bool HdMerlinRenderBuffer::CopyColor(
           hgi_vulkan_copy_submission_serial_);
   std::uint64_t submission_serial{};
   if (!hgi_vulkan_bridge_->Copy(hgi_vulkan_target_, std::move(source),
-                                std::move(backend), submission_serial)) {
+          std::move(backend), submission_serial)) {
     hgi_vulkan_bridge_->DestroyTarget(&hgi_vulkan_target_);
     gpu_only_ = false;
     gpu_copy_ready_ = false;
@@ -3832,7 +3849,7 @@ bool HdMerlinRenderBuffer::CopyColor(
     return false;
   }
   if (!hgi_metal_bridge_->Copy(hgi_metal_target_, std::move(source),
-                               std::move(backend))) {
+          std::move(backend))) {
     hgi_metal_bridge_->DestroyTarget(&hgi_metal_target_);
     gpu_only_ = false;
     return false;
@@ -3876,7 +3893,7 @@ void HdMerlinRenderBuffer::UploadHgiTargetLocked() {
   // stale texture; the bridge records why and the CPU buffer stays the truth.
   if (hgi_vulkan_target_ &&
       (!hgi_vulkan_bridge_ || !hgi_vulkan_bridge_->Upload(
-           hgi_vulkan_target_, data_.data(), data_.size()))) {
+                                  hgi_vulkan_target_, data_.data(), data_.size()))) {
     if (hgi_vulkan_bridge_) {
       hgi_vulkan_bridge_->DestroyTarget(&hgi_vulkan_target_);
     } else {
@@ -3886,7 +3903,7 @@ void HdMerlinRenderBuffer::UploadHgiTargetLocked() {
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
   if (hgi_metal_target_ &&
       (!hgi_metal_bridge_ || !hgi_metal_bridge_->Upload(
-           hgi_metal_target_, data_.data(), data_.size()))) {
+                                 hgi_metal_target_, data_.data(), data_.size()))) {
     if (hgi_metal_bridge_) {
       hgi_metal_bridge_->DestroyTarget(&hgi_metal_target_);
     } else {
@@ -3928,10 +3945,10 @@ constexpr bool kHgiMetalBridgeEnabled = true;
 constexpr bool kHgiMetalBridgeEnabled = false;
 #endif
 
-}  // namespace
+} // namespace
 
 class HdMerlinRenderDelegate::Impl {
- public:
+public:
   Impl()
       : hgi_vulkan_bridge(
             std::make_shared<HdMerlinHgiVulkanBridge>(
@@ -3941,7 +3958,8 @@ class HdMerlinRenderDelegate::Impl {
             kHgiMetalBridgeEnabled)),
 #endif
         bridge(std::make_shared<SceneBridge>(nullptr, hgi_vulkan_bridge,
-                                             hgi_metal_bridge)) {}
+            hgi_metal_bridge)) {
+  }
   explicit Impl(std::shared_ptr<merlin::render::Backend> backend)
       : hgi_vulkan_bridge(
             std::make_shared<HdMerlinHgiVulkanBridge>(
@@ -3956,8 +3974,8 @@ class HdMerlinRenderDelegate::Impl {
       throw std::invalid_argument("Hydra renderer backend is null");
     }
     bridge = std::make_shared<SceneBridge>(std::move(backend),
-                                           hgi_vulkan_bridge,
-                                           hgi_metal_bridge);
+        hgi_vulkan_bridge,
+        hgi_metal_bridge);
   }
 
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge{
@@ -3972,14 +3990,16 @@ HdMerlinRenderDelegate::HdMerlinRenderDelegate(
     const HdRenderSettingsMap& settings)
     : HdRenderDelegate(settings),
       impl_(std::make_unique<Impl>()),
-      resources_(std::make_shared<HdResourceRegistry>()) {}
+      resources_(std::make_shared<HdResourceRegistry>()) {
+}
 
 HdMerlinRenderDelegate::HdMerlinRenderDelegate(
     std::shared_ptr<merlin::render::Backend> backend,
     const HdRenderSettingsMap& settings)
     : HdRenderDelegate(settings),
       impl_(std::make_unique<Impl>(std::move(backend))),
-      resources_(std::make_shared<HdResourceRegistry>()) {}
+      resources_(std::make_shared<HdResourceRegistry>()) {
+}
 
 HdMerlinRenderDelegate::~HdMerlinRenderDelegate() = default;
 
@@ -4028,14 +4048,14 @@ HdMerlinRenderDelegate::GetLatestViewportFrame() const {
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
   static const TfTokenVector types{HdPrimTypeTokens->mesh,
-                                   HdPrimTypeTokens->particleField};
+      HdPrimTypeTokens->particleField};
   return types;
 }
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedSprimTypes() const {
   static const TfTokenVector types{HdPrimTypeTokens->camera,
-                                   HdPrimTypeTokens->material,
-                                   HdPrimTypeTokens->distantLight};
+      HdPrimTypeTokens->material,
+      HdPrimTypeTokens->distantLight};
   return types;
 }
 
@@ -4051,11 +4071,11 @@ HdResourceRegistrySharedPtr HdMerlinRenderDelegate::GetResourceRegistry() const 
 HdRenderPassSharedPtr HdMerlinRenderDelegate::CreateRenderPass(
     HdRenderIndex* index, const HdRprimCollection& collection) {
   return std::make_shared<HdMerlinRenderPass>(index, collection,
-                                              impl_->bridge);
+      impl_->bridge);
 }
 
 HdInstancer* HdMerlinRenderDelegate::CreateInstancer(HdSceneDelegate* delegate,
-                                                     const SdfPath& id) {
+    const SdfPath& id) {
   return new HdMerlinInstancer(delegate, id);
 }
 
@@ -4064,21 +4084,23 @@ void HdMerlinRenderDelegate::DestroyInstancer(HdInstancer* instancer) {
 }
 
 HdRprim* HdMerlinRenderDelegate::CreateRprim(const TfToken& type_id,
-                                             const SdfPath& rprim_id) {
+    const SdfPath& rprim_id) {
   if (type_id == HdPrimTypeTokens->mesh) {
     return new HdMerlinMesh(rprim_id, impl_->bridge, &impl_->dirty_tracker);
   }
   if (type_id == HdPrimTypeTokens->particleField) {
     return new HdMerlinGaussian(rprim_id, impl_->bridge,
-                                &impl_->dirty_tracker);
+        &impl_->dirty_tracker);
   }
   return nullptr;
 }
 
-void HdMerlinRenderDelegate::DestroyRprim(HdRprim* rprim) { delete rprim; }
+void HdMerlinRenderDelegate::DestroyRprim(HdRprim* rprim) {
+  delete rprim;
+}
 
 HdSprim* HdMerlinRenderDelegate::CreateSprim(const TfToken& type_id,
-                                             const SdfPath& sprim_id) {
+    const SdfPath& sprim_id) {
   if (type_id == HdPrimTypeTokens->camera) {
     return new HdMerlinCamera(sprim_id, impl_->bridge);
   }
@@ -4094,26 +4116,28 @@ HdSprim* HdMerlinRenderDelegate::CreateSprim(const TfToken& type_id,
 HdSprim* HdMerlinRenderDelegate::CreateFallbackSprim(const TfToken& type_id) {
   if (type_id == HdPrimTypeTokens->camera) {
     return new HdMerlinCamera(SdfPath("/__merlinFallbackCamera"),
-                              impl_->bridge);
+        impl_->bridge);
   }
   if (type_id == HdPrimTypeTokens->material) {
     return new HdMerlinMaterial(SdfPath("/__merlinFallbackMaterial"),
-                                impl_->bridge);
+        impl_->bridge);
   }
   if (type_id == HdPrimTypeTokens->distantLight) {
     return new HdMerlinDistantLight(SdfPath("/__merlinFallbackLight"),
-                                    impl_->bridge);
+        impl_->bridge);
   }
   return nullptr;
 }
 
-void HdMerlinRenderDelegate::DestroySprim(HdSprim* sprim) { delete sprim; }
+void HdMerlinRenderDelegate::DestroySprim(HdSprim* sprim) {
+  delete sprim;
+}
 
 HdBprim* HdMerlinRenderDelegate::CreateBprim(const TfToken& type_id,
-                                             const SdfPath& bprim_id) {
+    const SdfPath& bprim_id) {
   if (type_id == HdPrimTypeTokens->renderBuffer) {
     return new HdMerlinRenderBuffer(bprim_id, impl_->hgi_vulkan_bridge,
-                                    impl_->hgi_metal_bridge);
+        impl_->hgi_metal_bridge);
   }
   return nullptr;
 }
@@ -4121,13 +4145,15 @@ HdBprim* HdMerlinRenderDelegate::CreateBprim(const TfToken& type_id,
 HdBprim* HdMerlinRenderDelegate::CreateFallbackBprim(const TfToken& type_id) {
   if (type_id == HdPrimTypeTokens->renderBuffer) {
     return new HdMerlinRenderBuffer(SdfPath("/__merlinFallbackRenderBuffer"),
-                                    impl_->hgi_vulkan_bridge,
-                                    impl_->hgi_metal_bridge);
+        impl_->hgi_vulkan_bridge,
+        impl_->hgi_metal_bridge);
   }
   return nullptr;
 }
 
-void HdMerlinRenderDelegate::DestroyBprim(HdBprim* bprim) { delete bprim; }
+void HdMerlinRenderDelegate::DestroyBprim(HdBprim* bprim) {
+  delete bprim;
+}
 
 void HdMerlinRenderDelegate::SetTerminalSceneIndex(
     const HdSceneIndexBaseRefPtr& terminal_scene_index) {

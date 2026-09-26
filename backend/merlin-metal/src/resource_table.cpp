@@ -17,13 +17,13 @@ StableResourceTable::StableResourceTable(std::uint32_t capacity)
 }
 
 ResourceSlot StableResourceTable::Acquire(std::uint64_t resource,
-                                          std::uint64_t completed_value) {
+    std::uint64_t completed_value) {
   if (resource == 0) {
     throw std::invalid_argument("resource identity must be non-zero");
   }
   Collect(completed_value);
   if (const auto found = active_.find(resource); found != active_.end()) {
-    const auto &entry = entries_[found->second];
+    const auto& entry = entries_[found->second];
     return {found->second, entry.generation};
   }
   if (free_.empty()) {
@@ -32,7 +32,7 @@ ResourceSlot StableResourceTable::Acquire(std::uint64_t resource,
   }
   const auto index = free_.back();
   free_.pop_back();
-  auto &entry = entries_[index];
+  auto& entry = entries_[index];
   ++entry.generation;
   if (entry.generation == 0) {
     ++entry.generation;
@@ -55,17 +55,17 @@ StableResourceTable::Find(std::uint64_t resource) const noexcept {
   if (found == active_.end()) {
     return std::nullopt;
   }
-  const auto &entry = entries_[found->second];
+  const auto& entry = entries_[found->second];
   return ResourceSlot{found->second, entry.generation};
 }
 
 void StableResourceTable::Release(std::uint64_t resource,
-                                  std::uint64_t retire_value) {
+    std::uint64_t retire_value) {
   const auto found = active_.find(resource);
   if (found == active_.end()) {
     throw std::invalid_argument("resource is not resident in the table");
   }
-  auto &entry = entries_[found->second];
+  auto& entry = entries_[found->second];
   active_.erase(found);
   entry.retire_value = retire_value;
   entry.state = State::Retiring;
@@ -76,7 +76,7 @@ void StableResourceTable::Release(std::uint64_t resource,
 
 void StableResourceTable::Collect(std::uint64_t completed_value) noexcept {
   for (std::uint32_t index = 0; index < entries_.size(); ++index) {
-    auto &entry = entries_[index];
+    auto& entry = entries_[index];
     if (entry.state == State::Retiring &&
         entry.retire_value <= completed_value) {
       entry.state = State::Free;

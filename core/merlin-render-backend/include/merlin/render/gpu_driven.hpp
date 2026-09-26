@@ -43,14 +43,14 @@ enum class GpuDrivenIndexedErrorCode {
 };
 
 class GpuDrivenIndexedError : public std::runtime_error {
- public:
+public:
   GpuDrivenIndexedError(GpuDrivenIndexedErrorCode code, std::string message);
 
   [[nodiscard]] GpuDrivenIndexedErrorCode code() const noexcept {
     return code_;
   }
 
- private:
+private:
   GpuDrivenIndexedErrorCode code_;
 };
 
@@ -69,7 +69,7 @@ struct GpuDrivenGeometryBinding {
   std::uint32_t index_arena_block{kInvalidGpuSceneTableIndex};
 
   friend constexpr bool operator==(const GpuDrivenGeometryBinding&,
-                                   const GpuDrivenGeometryBinding&) = default;
+      const GpuDrivenGeometryBinding&) = default;
 };
 
 struct GpuDrivenIndexedCounters {
@@ -113,4 +113,4 @@ struct GpuDrivenIndexedPlan {
     std::span<const GpuDraw> draws,
     const GpuDrivenIndexedConfig& config);
 
-}  // namespace merlin::render
+} // namespace merlin::render

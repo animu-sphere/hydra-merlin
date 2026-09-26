@@ -10,7 +10,7 @@ namespace merlin {
 std::string MakeShaderModuleIdentity(
     std::vector<ShaderSourceFingerprint> sources) {
   const auto order = [](const ShaderSourceFingerprint& lhs,
-                        const ShaderSourceFingerprint& rhs) {
+                         const ShaderSourceFingerprint& rhs) {
     return std::tie(lhs.path, lhs.content_sha256) <
            std::tie(rhs.path, rhs.content_sha256);
   };
@@ -22,12 +22,12 @@ std::string MakeShaderModuleIdentity(
   // one of them. Resolving it here would instead hand out a key claiming a
   // content the module never compiled.
   sources.erase(std::unique(sources.begin(), sources.end(),
-                            [](const ShaderSourceFingerprint& lhs,
-                               const ShaderSourceFingerprint& rhs) {
-                              return lhs.path == rhs.path &&
-                                     lhs.content_sha256 == rhs.content_sha256;
-                            }),
-                sources.end());
+                    [](const ShaderSourceFingerprint& lhs,
+                        const ShaderSourceFingerprint& rhs) {
+                      return lhs.path == rhs.path &&
+                             lhs.content_sha256 == rhs.content_sha256;
+                    }),
+      sources.end());
 
   std::string record;
   AppendIdentityField(record, "schema", kShaderModuleIdentitySchema);
@@ -50,14 +50,14 @@ std::string MakeShaderArtifactKeyRecord(
   AppendIdentityField(record, "features", inputs.features);
   AppendIdentityField(record, "compiler", inputs.policy.compiler);
   AppendIdentityField(record, "compiler-version",
-                      inputs.policy.compiler_version);
+      inputs.policy.compiler_version);
   AppendIdentityField(record, "target", inputs.policy.target);
   AppendIdentityField(record, "profile", inputs.policy.profile);
   AppendIdentityField(record, "capabilities", inputs.policy.capabilities);
   AppendIdentityField(record, "matrix-layout", inputs.policy.matrix_layout);
   AppendIdentityField(record, "optimization", inputs.policy.optimization);
   AppendIdentityField(record, "debug-info",
-                      inputs.policy.debug_info ? "true" : "false");
+      inputs.policy.debug_info ? "true" : "false");
   for (const auto& option : inputs.policy.target_options) {
     AppendIdentityField(record, "target-option", option);
   }
@@ -68,4 +68,4 @@ std::string MakeShaderArtifactKey(const ShaderArtifactKeyInputs& inputs) {
   return MakeIdentity(MakeShaderArtifactKeyRecord(inputs));
 }
 
-}  // namespace merlin
+} // namespace merlin

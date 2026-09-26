@@ -35,4 +35,4 @@ merlin::MaterialFallbackEvidence ReportCompileDiagnostics(
     const CompileResult& result, merlin::DiagnosticSink& sink,
     const merlin::MaterialFallbackPolicy& policy = {});
 
-}  // namespace merlin::materialx
+} // namespace merlin::materialx

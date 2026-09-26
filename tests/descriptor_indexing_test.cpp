@@ -24,22 +24,22 @@ DescriptorIndexingLimits FullLimits() {
 }
 
 void ExpectFallback(const DescriptorIndexingConfiguration& configuration,
-                    const DescriptorIndexingFeatures& features,
-                    const DescriptorIndexingLimits& limits,
-                    DescriptorFallbackReason reason,
-                    DescriptorFallbackCategory category) {
+    const DescriptorIndexingFeatures& features,
+    const DescriptorIndexingLimits& limits,
+    DescriptorFallbackReason reason,
+    DescriptorFallbackCategory category) {
   const auto selection = merlin::vulkan::SelectDescriptorBackend(
       configuration, features, limits);
   assert(selection.selected_backend == DescriptorBackend::Conventional);
   assert(selection.fallback_reason == reason);
   assert(selection.requirements_satisfied ==
          (reason ==
-          DescriptorFallbackReason::ConfigurationForcedConventional));
+             DescriptorFallbackReason::ConfigurationForcedConventional));
   assert(merlin::vulkan::DescriptorFallbackReasonCategory(reason) == category);
   assert(merlin::vulkan::DescriptorFallbackReasonName(reason) != "unknown");
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   DescriptorIndexingConfiguration configuration;
@@ -62,8 +62,8 @@ int main() {
       configuration, features, limits);
   assert(conventional.requirements_satisfied);
   ExpectFallback(configuration, features, limits,
-                 DescriptorFallbackReason::ConfigurationForcedConventional,
-                 DescriptorFallbackCategory::Configuration);
+      DescriptorFallbackReason::ConfigurationForcedConventional,
+      DescriptorFallbackCategory::Configuration);
   configuration.request = DescriptorBackendRequest::Bindless;
   const auto forced_bindless = merlin::vulkan::SelectDescriptorBackend(
       configuration, features, limits);
@@ -91,20 +91,20 @@ int main() {
     auto missing = features;
     missing.*feature_members[index] = false;
     ExpectFallback(configuration, missing, limits, feature_failures[index],
-                   DescriptorFallbackCategory::Feature);
+        DescriptorFallbackCategory::Feature);
   }
 
   auto invalid = configuration;
   invalid.texture_capacity =
       merlin::vulkan::kReservedBindlessTextureSlots - 1;
   ExpectFallback(invalid, features, limits,
-                 DescriptorFallbackReason::ConfigurationTextureCapacityInvalid,
-                 DescriptorFallbackCategory::Configuration);
+      DescriptorFallbackReason::ConfigurationTextureCapacityInvalid,
+      DescriptorFallbackCategory::Configuration);
   invalid = configuration;
   invalid.sampler_capacity = 0;
   ExpectFallback(invalid, features, limits,
-                 DescriptorFallbackReason::ConfigurationSamplerCapacityInvalid,
-                 DescriptorFallbackCategory::Configuration);
+      DescriptorFallbackReason::ConfigurationSamplerCapacityInvalid,
+      DescriptorFallbackCategory::Configuration);
 
   // Standalone sampler descriptors have their own per-stage limit and do not
   // consume maxPerStageResources.
@@ -113,7 +113,7 @@ int main() {
       configuration.texture_capacity;
   const auto sampler_excluded_selection =
       merlin::vulkan::SelectDescriptorBackend(configuration, features,
-                                               sampler_excluded);
+          sampler_excluded);
   assert(sampler_excluded_selection.selected_backend ==
          DescriptorBackend::Bindless);
 
@@ -124,8 +124,8 @@ int main() {
       resource_overhead.texture_capacity +
       resource_overhead.additional_per_stage_resource_count - 1;
   ExpectFallback(resource_overhead, features, overhead_limit,
-                 DescriptorFallbackReason::LimitPerStageResourcesInsufficient,
-                 DescriptorFallbackCategory::Limit);
+      DescriptorFallbackReason::LimitPerStageResourcesInsufficient,
+      DescriptorFallbackCategory::Limit);
   ++overhead_limit.max_per_stage_update_after_bind_resources;
   const auto exact_resource_limit = merlin::vulkan::SelectDescriptorBackend(
       resource_overhead, features, overhead_limit);
@@ -174,7 +174,7 @@ int main() {
     auto insufficient = limits;
     insufficient.*limit_members[index] = 0;
     ExpectFallback(configuration, features, insufficient,
-                   limit_failures[index], DescriptorFallbackCategory::Limit);
+        limit_failures[index], DescriptorFallbackCategory::Limit);
   }
 
   std::cout << "Descriptor-indexing negotiation verified\n";

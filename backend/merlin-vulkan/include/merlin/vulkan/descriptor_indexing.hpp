@@ -105,4 +105,4 @@ struct DescriptorIndexingSelection {
     const DescriptorIndexingFeatures& features,
     const DescriptorIndexingLimits& limits) noexcept;
 
-}  // namespace merlin::vulkan
+} // namespace merlin::vulkan

@@ -18,7 +18,7 @@ std::string ReadFile(const std::filesystem::path& path) {
                              path.string());
   }
   return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+      std::istreambuf_iterator<char>()};
 }
 
 void WriteFile(const std::filesystem::path& path, std::string_view contents) {
@@ -31,7 +31,7 @@ void WriteFile(const std::filesystem::path& path, std::string_view contents) {
                              path.string());
   }
   stream.write(contents.data(),
-               static_cast<std::streamsize>(contents.size()));
+      static_cast<std::streamsize>(contents.size()));
   if (!stream) {
     throw std::runtime_error("could not write generated material module: " +
                              path.string());
@@ -39,9 +39,9 @@ void WriteFile(const std::filesystem::path& path, std::string_view contents) {
 }
 
 void Generate(const std::filesystem::path& document_path,
-              const std::filesystem::path& data_root,
-              std::string renderable_path,
-              const std::filesystem::path& output_path) {
+    const std::filesystem::path& data_root,
+    std::string renderable_path,
+    const std::filesystem::path& output_path) {
   merlin::materialx::CompileOptions options;
   options.renderable_path = std::move(renderable_path);
   options.library_search_paths.push_back(data_root);
@@ -59,7 +59,7 @@ void Generate(const std::filesystem::path& document_path,
   WriteFile(output_path, result.module->source);
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 6) {

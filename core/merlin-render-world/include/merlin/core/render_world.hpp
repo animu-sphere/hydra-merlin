@@ -10,7 +10,7 @@
 namespace merlin {
 
 class RenderWorld {
- public:
+public:
   RenderWorld();
   ~RenderWorld();
 
@@ -97,9 +97,9 @@ class RenderWorld {
   [[nodiscard]] ChangeSet Commit();
   [[nodiscard]] std::uint64_t revision() const noexcept;
 
- private:
+private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace merlin
+} // namespace merlin

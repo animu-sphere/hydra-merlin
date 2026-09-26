@@ -81,4 +81,4 @@ struct GaussianSortingPolicy {
     const extraction::FrameSnapshot& snapshot,
     const GaussianPreparationOptions& options);
 
-}  // namespace merlin::vulkan::detail
+} // namespace merlin::vulkan::detail

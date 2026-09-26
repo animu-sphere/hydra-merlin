@@ -24,7 +24,7 @@ std::string Read(const std::filesystem::path& path) {
                              path.string());
   }
   return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+      std::istreambuf_iterator<char>()};
 }
 
 std::string CompactJson(std::string_view text) {
@@ -90,7 +90,7 @@ std::string_view StructFields(std::string_view json, std::string_view name) {
 }
 
 void RequireField(std::string_view fields, const FieldExpectation& expected,
-                  std::string_view record) {
+    std::string_view record) {
   const std::string field =
       "\"name\":\"" + std::string(expected.name) + "\"";
   const auto position = fields.find(field);
@@ -113,7 +113,7 @@ void RequireField(std::string_view fields, const FieldExpectation& expected,
 
 template <std::size_t Size>
 void RequireLayout(std::string_view json, std::string_view record,
-                   const std::array<FieldExpectation, Size>& fields) {
+    const std::array<FieldExpectation, Size>& fields) {
   const auto reflected = StructFields(json, record);
   std::size_t reflected_count{};
   auto position = reflected.find("\"name\":");
@@ -132,42 +132,42 @@ void RequireLayout(std::string_view json, std::string_view record,
 
 void RequireAbi(std::string_view json) {
   RequireLayout(json, "GpuGeometry",
-                std::array{FieldExpectation{"vertex_offset", 0, 4},
-                           FieldExpectation{"vertex_count", 4, 4},
-                           FieldExpectation{"index_offset", 8, 4},
-                           FieldExpectation{"index_count", 12, 4},
-                           FieldExpectation{"index_type", 16, 4},
-                           FieldExpectation{"attribute_mask", 20, 4},
-                           FieldExpectation{"meshlet_offset", 24, 4},
-                           FieldExpectation{"meshlet_count", 28, 4},
-                           FieldExpectation{"bounds_min", 32, 16},
-                           FieldExpectation{"bounds_max", 48, 16}});
+      std::array{FieldExpectation{"vertex_offset", 0, 4},
+          FieldExpectation{"vertex_count", 4, 4},
+          FieldExpectation{"index_offset", 8, 4},
+          FieldExpectation{"index_count", 12, 4},
+          FieldExpectation{"index_type", 16, 4},
+          FieldExpectation{"attribute_mask", 20, 4},
+          FieldExpectation{"meshlet_offset", 24, 4},
+          FieldExpectation{"meshlet_count", 28, 4},
+          FieldExpectation{"bounds_min", 32, 16},
+          FieldExpectation{"bounds_max", 48, 16}});
   RequireLayout(json, "GpuInstance",
-                std::array{FieldExpectation{"transform", 0, 64},
-                           FieldExpectation{"normal_matrix_columns", 64, 48},
-                           FieldExpectation{"object_id", 112, 4},
-                           FieldExpectation{"instance_id", 116, 4},
-                           FieldExpectation{"visibility_mask", 120, 4},
-                           FieldExpectation{"flags", 124, 4}});
+      std::array{FieldExpectation{"transform", 0, 64},
+          FieldExpectation{"normal_matrix_columns", 64, 48},
+          FieldExpectation{"object_id", 112, 4},
+          FieldExpectation{"instance_id", 116, 4},
+          FieldExpectation{"visibility_mask", 120, 4},
+          FieldExpectation{"flags", 124, 4}});
   RequireLayout(json, "GpuMaterial",
-                std::array{FieldExpectation{"base_color", 0, 16},
-                           FieldExpectation{"surface_factors", 16, 16},
-                           FieldExpectation{"material_class_flags", 32, 4},
-                           FieldExpectation{"base_color_texture_index", 36, 4},
-                           FieldExpectation{"base_color_sampler_index", 40, 4},
-                           FieldExpectation{"base_color_texcoord_set", 44, 4}});
+      std::array{FieldExpectation{"base_color", 0, 16},
+          FieldExpectation{"surface_factors", 16, 16},
+          FieldExpectation{"material_class_flags", 32, 4},
+          FieldExpectation{"base_color_texture_index", 36, 4},
+          FieldExpectation{"base_color_sampler_index", 40, 4},
+          FieldExpectation{"base_color_texcoord_set", 44, 4}});
   RequireLayout(json, "GpuDraw",
-                std::array{FieldExpectation{"geometry_index", 0, 4},
-                           FieldExpectation{"material_index", 4, 4},
-                           FieldExpectation{"instance_index", 8, 4},
-                           FieldExpectation{"primitive_base", 12, 4},
-                           FieldExpectation{"primitive_count", 16, 4},
-                           FieldExpectation{"flags", 20, 4},
-                           FieldExpectation{"draw_id_low", 24, 4},
-                           FieldExpectation{"draw_id_high", 28, 4}});
+      std::array{FieldExpectation{"geometry_index", 0, 4},
+          FieldExpectation{"material_index", 4, 4},
+          FieldExpectation{"instance_index", 8, 4},
+          FieldExpectation{"primitive_base", 12, 4},
+          FieldExpectation{"primitive_count", 16, 4},
+          FieldExpectation{"flags", 20, 4},
+          FieldExpectation{"draw_id_low", 24, 4},
+          FieldExpectation{"draw_id_high", 28, 4}});
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   try {

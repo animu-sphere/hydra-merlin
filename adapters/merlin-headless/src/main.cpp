@@ -103,7 +103,7 @@ std::uint64_t ParseUnsigned64(std::string_view text, std::string_view option) {
 
 std::int64_t CurrentUnixSeconds() {
   return std::chrono::duration_cast<std::chrono::seconds>(
-             std::chrono::system_clock::now().time_since_epoch())
+      std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
 
@@ -210,28 +210,42 @@ void WriteJsonString(std::ostream& stream, std::string_view value) {
   stream << '"';
   for (const unsigned char character : value) {
     switch (character) {
-      case '"': stream << "\\\""; break;
-      case '\\': stream << "\\\\"; break;
-      case '\b': stream << "\\b"; break;
-      case '\f': stream << "\\f"; break;
-      case '\n': stream << "\\n"; break;
-      case '\r': stream << "\\r"; break;
-      case '\t': stream << "\\t"; break;
-      default:
-        if (character < 0x20U) {
-          stream << "\\u" << std::hex << std::setw(4) << std::setfill('0')
-                 << static_cast<unsigned int>(character) << std::dec
-                 << std::setfill(' ');
-        } else {
-          stream << character;
-        }
+    case '"':
+      stream << "\\\"";
+      break;
+    case '\\':
+      stream << "\\\\";
+      break;
+    case '\b':
+      stream << "\\b";
+      break;
+    case '\f':
+      stream << "\\f";
+      break;
+    case '\n':
+      stream << "\\n";
+      break;
+    case '\r':
+      stream << "\\r";
+      break;
+    case '\t':
+      stream << "\\t";
+      break;
+    default:
+      if (character < 0x20U) {
+        stream << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+               << static_cast<unsigned int>(character) << std::dec
+               << std::setfill(' ');
+      } else {
+        stream << character;
+      }
     }
   }
   stream << '"';
 }
 
 void WriteMetadata(const std::filesystem::path& path,
-                   const merlin::vulkan::RendererCapabilities& capabilities) {
+    const merlin::vulkan::RendererCapabilities& capabilities) {
   if (path.empty()) {
     return;
   }
@@ -324,21 +338,21 @@ void WriteMetadata(const std::filesystem::path& path,
          << ",\n      \"features\": {\n"
          << "        \"shader_sampled_image_array_non_uniform_indexing\": "
          << (descriptor_features
-                     .shader_sampled_image_array_non_uniform_indexing
-                 ? "true"
-                 : "false")
+                        .shader_sampled_image_array_non_uniform_indexing
+                    ? "true"
+                    : "false")
          << ",\n        \"descriptor_binding_sampled_image_update_after_bind\": "
          << (descriptor_features
-                     .descriptor_binding_sampled_image_update_after_bind
-                 ? "true"
-                 : "false")
+                        .descriptor_binding_sampled_image_update_after_bind
+                    ? "true"
+                    : "false")
          << ",\n        \"descriptor_binding_partially_bound\": "
          << (descriptor_features.descriptor_binding_partially_bound ? "true"
                                                                     : "false")
          << ",\n        \"descriptor_binding_variable_descriptor_count\": "
          << (descriptor_features.descriptor_binding_variable_descriptor_count
-                 ? "true"
-                 : "false")
+                    ? "true"
+                    : "false")
          << ",\n        \"runtime_descriptor_array\": "
          << (descriptor_features.runtime_descriptor_array ? "true" : "false")
          << "\n      },\n      \"limits\": {\n"
@@ -454,9 +468,9 @@ bool IsUnavailableCapability(std::string_view detail) {
 }
 
 std::vector<RendererCheck> FailureChecks(ReportPhase phase,
-                                         std::string_view detail,
-                                         bool unavailable,
-                                         bool install_tree) {
+    std::string_view detail,
+    bool unavailable,
+    bool install_tree) {
   std::vector<RendererCheck> checks;
   if (phase > ReportPhase::Core) {
     checks.push_back({"renderer.core.boundary", "pass", {}});
@@ -468,36 +482,36 @@ std::vector<RendererCheck> FailureChecks(ReportPhase phase,
     checks.push_back({"renderer.backend.capability", "pass", {}});
   } else if (phase == ReportPhase::Backend) {
     checks.push_back({"renderer.backend.capability",
-                      unavailable ? "skip" : "fail", std::string(detail)});
+        unavailable ? "skip" : "fail", std::string(detail)});
   } else {
     checks.push_back({"renderer.backend.capability", "skip",
-                      "core validation did not complete"});
+        "core validation did not complete"});
   }
 
   if (phase >= ReportPhase::Frame) {
     checks.push_back({"renderer.gpu.frame", "fail", std::string(detail)});
   } else {
     checks.push_back({"renderer.gpu.frame", "skip",
-                      unavailable ? std::string(detail)
-                                  : "renderer backend was not available"});
+        unavailable ? std::string(detail)
+                    : "renderer backend was not available"});
   }
   checks.push_back({"renderer.validation.messages", "skip",
-                    "no validated GPU frame completed"});
+      "no validated GPU frame completed"});
   checks.push_back({"renderer.render_product.color", "skip",
-                    "no validated GPU frame completed"});
+      "no validated GPU frame completed"});
   checks.push_back({"renderer.render_product.depth", "skip",
-                    "no validated GPU frame completed"});
+      "no validated GPU frame completed"});
   checks.push_back({"renderer.frame.persistence", "skip",
-                    "no validated GPU frame completed"});
+      "no validated GPU frame completed"});
   checks.push_back(
       {"renderer.install_tree", install_tree ? "pass" : "skip",
-       install_tree ? "" : "install-tree validation was not exercised"});
+          install_tree ? "" : "install-tree validation was not exercised"});
   AppendHydraSkips(checks);
   return checks;
 }
 
 void WritePpm(const std::filesystem::path& path,
-              const merlin::vulkan::ImageRgba8& image) {
+    const merlin::vulkan::ImageRgba8& image) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -505,7 +519,8 @@ void WritePpm(const std::filesystem::path& path,
   if (!stream) {
     throw std::runtime_error("could not create output image: " + path.string());
   }
-  stream << "P6\n" << image.product.width << ' ' << image.product.height
+  stream << "P6\n"
+         << image.product.width << ' ' << image.product.height
          << "\n255\n";
   for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
     stream.write(reinterpret_cast<const char*>(image.pixels.data() + i), 3);
@@ -532,8 +547,7 @@ void ValidateSmokeResult(const merlin::vulkan::RenderResult& result) {
       image.pixels[2] == image.pixels[center + 2U]) {
     throw std::runtime_error("offscreen smoke image does not contain the triangle");
   }
-  const auto depth_center = result.depth.pixels[
-      static_cast<std::size_t>(height / 2U) * width + width / 2U];
+  const auto depth_center = result.depth.pixels[static_cast<std::size_t>(height / 2U) * width + width / 2U];
   const auto depth_corner = result.depth.pixels.front();
   if (!(depth_center < depth_corner)) {
     throw std::runtime_error("depth AOV does not contain triangle depth");
@@ -543,8 +557,7 @@ void ValidateSmokeResult(const merlin::vulkan::RenderResult& result) {
   std::size_t bottom_coverage{};
   for (std::uint32_t y = 0; y < height; ++y) {
     for (std::uint32_t x = 0; x < width; ++x) {
-      const auto depth = result.depth.pixels[
-          static_cast<std::size_t>(y) * width + x];
+      const auto depth = result.depth.pixels[static_cast<std::size_t>(y) * width + x];
       if (depth < 1.0F) {
         (y < height / 2U ? top_coverage : bottom_coverage)++;
       }
@@ -559,9 +572,9 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
   merlin::MeshDescriptor mesh;
   mesh.label = "headless-triangle";
   mesh.positions = {{0.0F, -0.72F, 0.0F}, {0.72F, 0.62F, 0.0F},
-                    {-0.72F, 0.62F, 0.0F}};
+      {-0.72F, 0.62F, 0.0F}};
   mesh.normals = {{0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, 1.0F},
-                  {0.0F, 0.0F, 1.0F}};
+      {0.0F, 0.0F, 1.0F}};
   mesh.texcoords = {{0.5F, 0.0F}, {1.0F, 1.0F}, {0.0F, 1.0F}};
   mesh.indices = {0, 1, 2};
   const auto mesh_handle = world.CreateMesh(std::move(mesh));
@@ -571,7 +584,7 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
   texture.width = 2;
   texture.height = 2;
   texture.pixels = {255, 255, 255, 255, 40, 180, 255, 255,
-                    40, 180, 255, 255, 255, 255, 255, 255};
+      40, 180, 255, 255, 255, 255, 255, 255};
   const auto texture_handle = world.CreateTexture(std::move(texture));
   merlin::SamplerDescriptor sampler;
   sampler.label = "headless-nearest";
@@ -599,7 +612,7 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
   return world.Commit();
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   const auto producer_started_unix = CurrentUnixSeconds();
@@ -693,7 +706,7 @@ int main(int argc, char** argv) {
       request.height = arguments.height;
       request.shaders = shaders;
       request.products = {{merlin::Aov::Color, true},
-                          {merlin::Aov::Depth, true}};
+          {merlin::Aov::Depth, true}};
       if (!arguments.artifact_dir.empty()) {
         request.products.push_back({merlin::Aov::PrimId, true});
         request.products.push_back({merlin::Aov::InstanceId, true});
@@ -754,34 +767,34 @@ int main(int argc, char** argv) {
           {"renderer.core.boundary", "pass", {}},
           {"renderer.backend.capability", "pass", {}},
           {"renderer.gpu.frame", arguments.probe_only ? "skip" : "pass",
-           arguments.probe_only ? "probe-only mode did not render a frame" : ""},
+              arguments.probe_only ? "probe-only mode did not render a frame" : ""},
           {"renderer.validation.messages",
-           capabilities.validation_enabled
-               ? (statistics.validation_messages == 0 ? "pass" : "fail")
-               : "skip",
-           capabilities.validation_enabled
-               ? (statistics.validation_messages == 0
-                      ? ""
-                      : "Vulkan validation reported warnings or errors")
-               : "VK_LAYER_KHRONOS_validation is unavailable"},
+              capabilities.validation_enabled
+                  ? (statistics.validation_messages == 0 ? "pass" : "fail")
+                  : "skip",
+              capabilities.validation_enabled
+                  ? (statistics.validation_messages == 0
+                            ? ""
+                            : "Vulkan validation reported warnings or errors")
+                  : "VK_LAYER_KHRONOS_validation is unavailable"},
           {"renderer.render_product.color",
-           arguments.probe_only ? "skip" : "pass",
-           arguments.probe_only ? "probe-only mode did not render color" : ""},
+              arguments.probe_only ? "skip" : "pass",
+              arguments.probe_only ? "probe-only mode did not render color" : ""},
           {"renderer.render_product.depth",
-           arguments.probe_only ? "skip" : "pass",
-           arguments.probe_only ? "probe-only mode did not render depth" : ""},
+              arguments.probe_only ? "skip" : "pass",
+              arguments.probe_only ? "probe-only mode did not render depth" : ""},
           {"renderer.frame.persistence", persistence_ok ? "pass" : "fail",
-           persistence_ok
-               ? ""
-               : "frame count, completion, context, or unchanged-upload contract failed"},
+              persistence_ok
+                  ? ""
+                  : "frame count, completion, context, or unchanged-upload contract failed"},
           {"renderer.install_tree", arguments.install_tree ? "pass" : "skip",
-           arguments.install_tree ? ""
-                                  : "install-tree validation was not exercised"},
+              arguments.install_tree ? ""
+                                     : "install-tree validation was not exercised"},
       };
       if (arguments.probe_only) {
         checks.push_back(
             {"renderer.material.fallback", "skip",
-             "probe-only mode did not render material evidence"});
+                "probe-only mode did not render material evidence"});
       } else {
         const auto material_detail =
             merlin::MakeMaterialFallbackEvidenceRecord(
@@ -793,9 +806,9 @@ int main(int argc, char** argv) {
                 result.counters.generated_material_fallback_count);
         checks.push_back(
             {"renderer.material.fallback",
-             result.counters.material_fallbacks.fallback_taken() ? "fail"
-                                                                 : "pass",
-             material_detail});
+                result.counters.material_fallbacks.fallback_taken() ? "fail"
+                                                                    : "pass",
+                material_detail});
       }
       AppendHydraSkips(checks);
       report_phase = ReportPhase::Reporting;
@@ -803,7 +816,7 @@ int main(int argc, char** argv) {
       completed_producer.completed_unix = CurrentUnixSeconds();
       completed_producer.outcome = ReportPassed(checks) ? "success" : "failure";
       WriteRendererReport(arguments.report, report_capabilities, checks,
-                          completed_producer);
+          completed_producer);
       return ReportPassed(checks) ? 0 : 1;
     }
     return 0;
@@ -813,13 +826,13 @@ int main(int argc, char** argv) {
           report_phase == ReportPhase::Backend &&
           IsUnavailableCapability(error.what());
       const auto checks = FailureChecks(report_phase, error.what(), unavailable,
-                                        arguments.install_tree);
+          arguments.install_tree);
       try {
         auto completed_producer = producer;
         completed_producer.completed_unix = CurrentUnixSeconds();
         completed_producer.outcome = ReportPassed(checks) ? "success" : "failure";
         WriteRendererReport(arguments.report, report_capabilities, checks,
-                            completed_producer);
+            completed_producer);
       } catch (const std::exception& report_error) {
         std::cerr << "merlin-headless: " << report_error.what() << '\n';
         return 1;

@@ -31,18 +31,18 @@ void WriteUniformEnvironment(const std::filesystem::path& path) {
   for (int row = 0; row < 32; ++row) {
     const std::array<unsigned char, 4> marker{2, 2, 0, 64};
     stream.write(reinterpret_cast<const char*>(marker.data()),
-                 static_cast<std::streamsize>(marker.size()));
+        static_cast<std::streamsize>(marker.size()));
     for (int channel = 0; channel < 4; ++channel) {
       const std::array<unsigned char, 2> run{
           128 + 64, static_cast<unsigned char>(channel == 3 ? 129 : 128)};
       stream.write(reinterpret_cast<const char*>(run.data()),
-                   static_cast<std::streamsize>(run.size()));
+          static_cast<std::streamsize>(run.size()));
     }
   }
   assert(stream);
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
   assert(Finite(horizon));
   assert(Finite(down));
   assert(std::max({Difference(up, horizon), Difference(up, down),
-                   Difference(horizon, down)}) > 0.01F);
+             Difference(horizon, down)}) > 0.01F);
 
   // A uniform radiance-1 environment must evaluate to irradiance/pi of 1 in
   // every direction; this pins the SH basis and Lambert convolution factors.
@@ -82,9 +82,9 @@ int main(int argc, char** argv) {
   const auto uniform =
       merlin::vulkan::detail::LoadDiffuseEnvironment(uniform_path);
   for (const auto& normal :
-       {merlin::Vec3{0.0F, 1.0F, 0.0F}, merlin::Vec3{1.0F, 0.0F, 0.0F},
-        merlin::Vec3{0.0F, 0.0F, -1.0F},
-        merlin::Vec3{0.577F, -0.577F, 0.577F}}) {
+      {merlin::Vec3{0.0F, 1.0F, 0.0F}, merlin::Vec3{1.0F, 0.0F, 0.0F},
+          merlin::Vec3{0.0F, 0.0F, -1.0F},
+          merlin::Vec3{0.577F, -0.577F, 0.577F}}) {
     const auto value =
         merlin::vulkan::detail::EvaluateDiffuseEnvironment(uniform, normal);
     assert(std::abs(value.x - 1.0F) < 0.01F);

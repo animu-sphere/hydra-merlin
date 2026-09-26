@@ -45,16 +45,16 @@ constexpr Flag FoldFlags(const std::array<Flag, Count>& flags) noexcept {
 }
 
 static_assert(FoldFlags(kResultFields) == kAllMaterialResultFields,
-              "a material result field was added without extending the ABI "
-              "check that walks them");
+    "a material result field was added without extending the ABI "
+    "check that walks them");
 static_assert(FoldFlags(kInputRequirements) == kAllMaterialInputRequirements,
-              "a material geometry input was added without extending the ABI "
-              "check that walks them");
+    "a material geometry input was added without extending the ABI "
+    "check that walks them");
 
 MaterialDiagnostic MakeRecord(MaterialDiagnosticCategory category,
-                              std::string message,
-                              MaterialDiagnosticContext context,
-                              const MaterialFallbackPolicy& policy) {
+    std::string message,
+    MaterialDiagnosticContext context,
+    const MaterialFallbackPolicy& policy) {
   MaterialDiagnostic record;
   record.category = category;
   record.severity = DiagnosticSeverity::Error;
@@ -72,10 +72,10 @@ MaterialDiagnostic MakeRecord(MaterialDiagnosticCategory category,
 // found, and both entry points into this contract look for it.
 template <typename Entry>
 void VerifyDeclaredNamesUnique(const std::vector<Entry>& declared,
-                               std::string_view noun,
-                               const MaterialDiagnosticContext& base,
-                               const MaterialFallbackPolicy& policy,
-                               std::vector<MaterialDiagnostic>& records) {
+    std::string_view noun,
+    const MaterialDiagnosticContext& base,
+    const MaterialFallbackPolicy& policy,
+    std::vector<MaterialDiagnostic>& records) {
   for (auto index = std::size_t{}; index < declared.size(); ++index) {
     const auto begin = declared.begin();
     const auto here = begin + static_cast<std::ptrdiff_t>(index);
@@ -102,11 +102,11 @@ void VerifyDeclaredNamesUnique(const std::vector<Entry>& declared,
 // checked by the same rule; only the noun in the message differs.
 template <typename Entry>
 void VerifyLayout(const std::vector<Entry>& declared,
-                  const std::vector<Entry>& reported, std::string_view noun,
-                  const std::string& target,
-                  const MaterialDiagnosticContext& base,
-                  const MaterialFallbackPolicy& policy,
-                  std::vector<MaterialDiagnostic>& records) {
+    const std::vector<Entry>& reported, std::string_view noun,
+    const std::string& target,
+    const MaterialDiagnosticContext& base,
+    const MaterialFallbackPolicy& policy,
+    std::vector<MaterialDiagnostic>& records) {
   const auto record = [&](std::string message, const std::string& name) {
     auto context = base;
     // A reflected variable is attributable to a name but never to an authored
@@ -114,16 +114,16 @@ void VerifyLayout(const std::vector<Entry>& declared,
     // document element that produced it is not knowable from here.
     context.input_name = name;
     records.push_back(MakeRecord(MaterialDiagnosticCategory::ReflectionMismatch,
-                                 std::move(message), std::move(context),
-                                 policy));
+        std::move(message), std::move(context),
+        policy));
   };
   const std::string quoted_target = "Target '" + target + "' ";
 
   for (const auto& expected : declared) {
     if (std::count_if(declared.begin(), declared.end(),
-                      [&](const Entry& other) {
-                        return other.name == expected.name;
-                      }) > 1) {
+            [&](const Entry& other) {
+              return other.name == expected.name;
+            }) > 1) {
       // `VerifyDeclaredNamesUnique` has already reported this name. Nothing the
       // target reported can be attributed to one of two declarations, so
       // comparing would blame the target for disagreeing with whichever
@@ -141,7 +141,7 @@ void VerifyLayout(const std::vector<Entry>& declared,
     if (matches == 0U) {
       record(quoted_target + "does not report " + std::string(noun) + " '" +
                  expected.name + "', which the module declares",
-             expected.name);
+          expected.name);
       continue;
     }
     if (matches > 1U) {
@@ -149,7 +149,7 @@ void VerifyLayout(const std::vector<Entry>& declared,
       // nothing further to say about this entry.
       record(quoted_target + "reports " + std::string(noun) + " '" +
                  expected.name + "' more than once",
-             expected.name);
+          expected.name);
       continue;
     }
     if (found->type != expected.type) {
@@ -158,14 +158,14 @@ void VerifyLayout(const std::vector<Entry>& declared,
                  std::string(MaterialValueTypeName(found->type)) +
                  "; the module declares " +
                  std::string(MaterialValueTypeName(expected.type)),
-             expected.name);
+          expected.name);
     }
     if (found->array_size != expected.array_size) {
       record(quoted_target + "reports " + std::string(noun) + " '" +
                  expected.name + "' with array size " +
                  std::to_string(found->array_size) +
                  "; the module declares " + std::to_string(expected.array_size),
-             expected.name);
+          expected.name);
     }
   }
 
@@ -183,16 +183,16 @@ void VerifyLayout(const std::vector<Entry>& declared,
     const auto reported_before =
         reported.begin() + static_cast<std::ptrdiff_t>(index);
     if (std::any_of(reported.begin(), reported_before,
-                    [&](const Entry& earlier) {
-                      return earlier.name == actual.name;
-                    })) {
+            [&](const Entry& earlier) {
+              return earlier.name == actual.name;
+            })) {
       continue;
     }
     // A renderer-owned uniform that landed in the material block reaches the
     // consumer as material state it never agreed to own.
     record(quoted_target + "reports " + std::string(noun) + " '" + actual.name +
                "', which the module does not declare",
-           actual.name);
+        actual.name);
   }
 }
 
@@ -263,9 +263,8 @@ std::string StripCommentsAndStrings(std::string_view source) {
 
 std::size_t LineOf(std::string_view source, std::size_t offset) {
   return static_cast<std::size_t>(
-             std::count(source.begin(), source.begin() +
-                                            static_cast<std::ptrdiff_t>(offset),
-                        '\n')) +
+             std::count(source.begin(), source.begin() + static_cast<std::ptrdiff_t>(offset),
+                 '\n')) +
          1U;
 }
 
@@ -298,7 +297,7 @@ struct Finding {
 };
 
 void FindPassDeclarations(const std::string& source,
-                          std::vector<Finding>& findings) {
+    std::vector<Finding>& findings) {
   for (const auto& declaration : kPassDeclarations) {
     const bool leading_boundary = IsIdentifierCharacter(declaration.text.front());
     const bool trailing_boundary = IsIdentifierCharacter(declaration.text.back());
@@ -307,9 +306,9 @@ void FindPassDeclarations(const std::string& source,
       const auto end = position + declaration.text.size();
       const bool bounded =
           (!leading_boundary || position == 0 ||
-           !IsIdentifierCharacter(source[position - 1])) &&
+              !IsIdentifierCharacter(source[position - 1])) &&
           (!trailing_boundary || end >= source.size() ||
-           !IsIdentifierCharacter(source[end]));
+              !IsIdentifierCharacter(source[end]));
       if (bounded) {
         findings.push_back({position, std::string(declaration.description)});
       }
@@ -329,7 +328,7 @@ void FindPassDeclarations(const std::string& source,
 // always does. One forward pass carries that as a depth count, which nests
 // correctly and costs no second scan per colon.
 void FindSystemValueSemantics(const std::string& source,
-                              std::vector<Finding>& findings) {
+    std::vector<Finding>& findings) {
   std::size_t conditional_depth{};
   for (std::size_t position = 0; position < source.size(); ++position) {
     const char character = source[position];
@@ -379,46 +378,46 @@ void FindSystemValueSemantics(const std::string& source,
   }
 }
 
-}  // namespace
+} // namespace
 
 std::string_view MaterialValueTypeName(MaterialValueType type) noexcept {
   switch (type) {
-    case MaterialValueType::Float:
-      return "float";
-    case MaterialValueType::Float2:
-      return "float2";
-    case MaterialValueType::Float3:
-      return "float3";
-    case MaterialValueType::Float4:
-      return "float4";
-    case MaterialValueType::Integer:
-      return "int";
-    case MaterialValueType::Boolean:
-      return "bool";
-    case MaterialValueType::Texture2D:
-      return "texture2d";
-    case MaterialValueType::Sampler:
-      return "sampler";
-    case MaterialValueType::CombinedTextureSampler:
-      return "texture2d-sampler";
-    case MaterialValueType::Unknown:
-      return "unknown";
+  case MaterialValueType::Float:
+    return "float";
+  case MaterialValueType::Float2:
+    return "float2";
+  case MaterialValueType::Float3:
+    return "float3";
+  case MaterialValueType::Float4:
+    return "float4";
+  case MaterialValueType::Integer:
+    return "int";
+  case MaterialValueType::Boolean:
+    return "bool";
+  case MaterialValueType::Texture2D:
+    return "texture2d";
+  case MaterialValueType::Sampler:
+    return "sampler";
+  case MaterialValueType::CombinedTextureSampler:
+    return "texture2d-sampler";
+  case MaterialValueType::Unknown:
+    return "unknown";
   }
   return "unknown";
 }
 
 std::string_view MaterialResultFieldName(MaterialResultField field) noexcept {
   switch (field) {
-    case MaterialResultField::None:
-      return "none";
-    case MaterialResultField::BaseColor:
-      return "base-color";
-    case MaterialResultField::Metalness:
-      return "metalness";
-    case MaterialResultField::SpecularRoughness:
-      return "specular-roughness";
-    case MaterialResultField::ShadingNormal:
-      return "shading-normal";
+  case MaterialResultField::None:
+    return "none";
+  case MaterialResultField::BaseColor:
+    return "base-color";
+  case MaterialResultField::Metalness:
+    return "metalness";
+  case MaterialResultField::SpecularRoughness:
+    return "specular-roughness";
+  case MaterialResultField::ShadingNormal:
+    return "shading-normal";
   }
   return "unknown";
 }
@@ -426,18 +425,18 @@ std::string_view MaterialResultFieldName(MaterialResultField field) noexcept {
 std::string_view MaterialInputRequirementName(
     MaterialInputRequirement input) noexcept {
   switch (input) {
-    case MaterialInputRequirement::None:
-      return "none";
-    case MaterialInputRequirement::PositionObject:
-      return "position-object";
-    case MaterialInputRequirement::PositionWorld:
-      return "position-world";
-    case MaterialInputRequirement::NormalObject:
-      return "normal-object";
-    case MaterialInputRequirement::NormalWorld:
-      return "normal-world";
-    case MaterialInputRequirement::Texcoord0:
-      return "texcoord-0";
+  case MaterialInputRequirement::None:
+    return "none";
+  case MaterialInputRequirement::PositionObject:
+    return "position-object";
+  case MaterialInputRequirement::PositionWorld:
+    return "position-world";
+  case MaterialInputRequirement::NormalObject:
+    return "normal-object";
+  case MaterialInputRequirement::NormalWorld:
+    return "normal-world";
+  case MaterialInputRequirement::Texcoord0:
+    return "texcoord-0";
   }
   return "unknown";
 }
@@ -452,8 +451,8 @@ std::vector<MaterialDiagnostic> VerifyMaterialAbi(
   const auto mismatch = [&](std::string message,
                             MaterialDiagnosticContext context) {
     records.push_back(MakeRecord(MaterialDiagnosticCategory::AbiMismatch,
-                                 std::move(message), std::move(context),
-                                 policy));
+        std::move(message), std::move(context),
+        policy));
   };
 
   if (module.abi_version != expectation.abi_version) {
@@ -461,7 +460,7 @@ std::vector<MaterialDiagnostic> VerifyMaterialAbi(
                  std::to_string(module.abi_version) +
                  "; this consumer implements " +
                  std::to_string(expectation.abi_version),
-             base);
+        base);
   }
   if (module.reflection_schema_version !=
       expectation.reflection_schema_version) {
@@ -469,20 +468,20 @@ std::vector<MaterialDiagnostic> VerifyMaterialAbi(
                  std::to_string(module.reflection_schema_version) +
                  "; this consumer implements " +
                  std::to_string(expectation.reflection_schema_version),
-             base);
+        base);
   }
   if (module.entry_point != expectation.entry_point) {
     mismatch("Module entry point '" + module.entry_point +
                  "' does not match the required '" + expectation.entry_point +
                  "'",
-             base);
+        base);
   }
   // Checked here as well as against a reflection, because a consumer deciding
   // whether it may draw with a module has no artifact in hand yet.
   VerifyDeclaredNamesUnique(module.parameters.entries, "parameter", base, policy,
-                            records);
+      records);
   VerifyDeclaredNamesUnique(module.resources.entries, "resource", base, policy,
-                            records);
+      records);
   for (const auto field : kResultFields) {
     const bool required = (Bits(expectation.required_results) & Bits(field)) != 0U;
     const bool produced =
@@ -493,7 +492,7 @@ std::vector<MaterialDiagnostic> VerifyMaterialAbi(
       mismatch("Consumer reads material result '" +
                    std::string(MaterialResultFieldName(field)) +
                    "', which the module does not produce",
-               base);
+          base);
     }
   }
   for (const auto input : kInputRequirements) {
@@ -505,7 +504,7 @@ std::vector<MaterialDiagnostic> VerifyMaterialAbi(
       context.input_name = std::string(MaterialInputRequirementName(input));
       mismatch("Module requires geometry input '" + context.input_name +
                    "', which this consumer cannot supply",
-               std::move(context));
+          std::move(context));
     }
   }
   return records;
@@ -522,9 +521,9 @@ std::vector<MaterialDiagnostic> VerifyMaterialTargetReflection(
   if (reflection.entry_points.empty()) {
     records.push_back(
         MakeRecord(MaterialDiagnosticCategory::AbiMismatch,
-                   "Target '" + reflection.target +
-                       "' reports no entry point; nothing calls the material",
-                   base, policy));
+            "Target '" + reflection.target +
+                "' reports no entry point; nothing calls the material",
+            base, policy));
   }
   for (const auto& entry_point : reflection.entry_points) {
     if (entry_point != module.entry_point) {
@@ -538,13 +537,13 @@ std::vector<MaterialDiagnostic> VerifyMaterialTargetReflection(
         base, policy));
   }
   VerifyDeclaredNamesUnique(module.parameters.entries, "parameter", base, policy,
-                            records);
+      records);
   VerifyDeclaredNamesUnique(module.resources.entries, "resource", base, policy,
-                            records);
+      records);
   VerifyLayout(module.parameters.entries, reflection.parameters.entries,
-               "parameter", reflection.target, base, policy, records);
+      "parameter", reflection.target, base, policy, records);
   VerifyLayout(module.resources.entries, reflection.resources.entries,
-               "resource", reflection.target, base, policy, records);
+      "resource", reflection.target, base, policy, records);
   return records;
 }
 
@@ -558,23 +557,23 @@ std::vector<MaterialDiagnostic> VerifyMaterialSourcePassNeutral(
   // Source order, so a reader walks the module the way it is written rather
   // than the order the scanner happened to look for things.
   std::sort(findings.begin(), findings.end(),
-            [](const Finding& left, const Finding& right) {
-              return std::tie(left.offset, left.description) <
-                     std::tie(right.offset, right.description);
-            });
+      [](const Finding& left, const Finding& right) {
+        return std::tie(left.offset, left.description) <
+               std::tie(right.offset, right.description);
+      });
 
   std::vector<MaterialDiagnostic> records;
   records.reserve(findings.size());
   for (const auto& finding : findings) {
     records.push_back(
         MakeRecord(MaterialDiagnosticCategory::GenerationFailure,
-                   "Generated material source declares " + finding.description +
-                       " at line " +
-                       std::to_string(LineOf(stripped, finding.offset)) +
-                       "; the renderer owns the pass",
-                   context, policy));
+            "Generated material source declares " + finding.description +
+                " at line " +
+                std::to_string(LineOf(stripped, finding.offset)) +
+                "; the renderer owns the pass",
+            context, policy));
   }
   return records;
 }
 
-}  // namespace merlin
+} // namespace merlin

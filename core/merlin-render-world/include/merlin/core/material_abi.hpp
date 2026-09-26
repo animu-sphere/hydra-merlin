@@ -172,4 +172,4 @@ struct MaterialTargetReflection {
     std::string_view source, const MaterialDiagnosticContext& context = {},
     const MaterialFallbackPolicy& policy = {});
 
-}  // namespace merlin
+} // namespace merlin

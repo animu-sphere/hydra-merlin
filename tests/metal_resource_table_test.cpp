@@ -15,7 +15,7 @@ int main() {
   bool exhausted{};
   try {
     (void)table.Acquire(0x0000000100000003ULL, 0);
-  } catch (const std::length_error &) {
+  } catch (const std::length_error&) {
     exhausted = true;
   }
   assert(exhausted);
@@ -30,7 +30,7 @@ int main() {
   exhausted = false;
   try {
     (void)table.Acquire(0x0000000200000001ULL, 6);
-  } catch (const std::length_error &) {
+  } catch (const std::length_error&) {
     exhausted = true;
   }
   assert(exhausted);

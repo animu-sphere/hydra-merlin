@@ -14,8 +14,8 @@ namespace {
 
 using merlin::extraction::DrawRecord;
 using merlin::extraction::FrameSnapshot;
-using merlin::extraction::GeometryRecord;
 using merlin::extraction::GaussianRecord;
+using merlin::extraction::GeometryRecord;
 using merlin::extraction::InstanceRecord;
 using merlin::extraction::MaterialRecord;
 using merlin::extraction::SnapshotDelta;
@@ -31,7 +31,7 @@ using merlin::render::GpuSceneSlotHandle;
 
 template <typename Callback>
 void ExpectError(Callback&& callback, GpuSceneSlotErrorCode code,
-                 std::string_view fragment) {
+    std::string_view fragment) {
   try {
     callback();
     assert(false && "expected GpuSceneSlotError");
@@ -43,8 +43,8 @@ void ExpectError(Callback&& callback, GpuSceneSlotErrorCode code,
 }
 
 FrameSnapshot Snapshot(std::uint64_t source, std::uint64_t revision,
-                       std::vector<std::pair<std::uint64_t, std::uint64_t>> draws,
-                       std::optional<SnapshotDelta> delta = std::nullopt) {
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> draws,
+    std::optional<SnapshotDelta> delta = std::nullopt) {
   FrameSnapshot snapshot;
   snapshot.source_id = source;
   snapshot.revision = revision;
@@ -62,9 +62,9 @@ FrameSnapshot Snapshot(std::uint64_t source, std::uint64_t revision,
 }
 
 SnapshotDelta DrawDelta(std::uint64_t base_revision,
-                        std::vector<std::uint64_t> upserts,
-                        std::vector<std::uint64_t> removals,
-                        std::vector<std::uint32_t> upsert_indices) {
+    std::vector<std::uint64_t> upserts,
+    std::vector<std::uint64_t> removals,
+    std::vector<std::uint32_t> upsert_indices) {
   SnapshotDelta delta;
   delta.base_revision = base_revision;
   delta.draws.upserts = std::move(upserts);
@@ -74,26 +74,26 @@ SnapshotDelta DrawDelta(std::uint64_t base_revision,
 }
 
 SnapshotDelta TableDelta(GpuSceneResourceTable table,
-                         std::uint64_t base_revision,
-                         std::vector<std::uint64_t> upserts,
-                         std::vector<std::uint64_t> removals,
-                         std::vector<std::uint32_t> upsert_indices) {
+    std::uint64_t base_revision,
+    std::vector<std::uint64_t> upserts,
+    std::vector<std::uint64_t> removals,
+    std::vector<std::uint32_t> upsert_indices) {
   SnapshotDelta delta;
   delta.base_revision = base_revision;
   merlin::extraction::ResourceDelta* resource_delta{};
   switch (table) {
-    case GpuSceneResourceTable::Geometry:
-      resource_delta = &delta.geometries;
-      break;
-    case GpuSceneResourceTable::Instance:
-      resource_delta = &delta.instances;
-      break;
-    case GpuSceneResourceTable::Material:
-      resource_delta = &delta.materials;
-      break;
-    case GpuSceneResourceTable::Gaussian:
-      resource_delta = &delta.gaussians;
-      break;
+  case GpuSceneResourceTable::Geometry:
+    resource_delta = &delta.geometries;
+    break;
+  case GpuSceneResourceTable::Instance:
+    resource_delta = &delta.instances;
+    break;
+  case GpuSceneResourceTable::Material:
+    resource_delta = &delta.materials;
+    break;
+  case GpuSceneResourceTable::Gaussian:
+    resource_delta = &delta.gaussians;
+    break;
   }
   resource_delta->upserts = std::move(upserts);
   resource_delta->removals = std::move(removals);
@@ -198,24 +198,24 @@ void TestSlotLifetime() {
   assert(slots.telemetry().active_slots == 2);
 
   ExpectError([&] { (void)slots.Allocate(); },
-              GpuSceneSlotErrorCode::Exhausted, "capacity=2");
+      GpuSceneSlotErrorCode::Exhausted, "capacity=2");
   ExpectError([&] { slots.RequireActive(foreign.Allocate()); },
-              GpuSceneSlotErrorCode::ForeignHandle, "another allocator");
+      GpuSceneSlotErrorCode::ForeignHandle, "another allocator");
 
   slots.Retire(first, 7);
   assert(!slots.IsActive(first));
   ExpectError([&] { slots.RequireActive(first); },
-              GpuSceneSlotErrorCode::SlotRetired, "pending");
+      GpuSceneSlotErrorCode::SlotRetired, "pending");
   assert(slots.Collect(6).empty());
   ExpectError([&] { (void)slots.Allocate(); },
-              GpuSceneSlotErrorCode::Exhausted, "retiring=1");
+      GpuSceneSlotErrorCode::Exhausted, "retiring=1");
 
   assert(slots.Collect(7) == std::vector<GpuSceneSlotHandle>{first});
   const auto replacement = slots.Allocate();
   assert(replacement.index == first.index);
   assert(replacement.generation == first.generation + 1);
   ExpectError([&] { slots.RequireActive(first); },
-              GpuSceneSlotErrorCode::StaleGeneration, "stale");
+      GpuSceneSlotErrorCode::StaleGeneration, "stale");
 
   const auto telemetry = slots.telemetry();
   assert(telemetry.schema_version == 1);
@@ -279,7 +279,7 @@ void TestPersistentDrawSlots() {
   const auto changed_twenty = Snapshot(
       11, 3, {{10, 2}, {20, 3}}, DrawDelta(2, {20}, {}, {1}));
   ExpectError([&] { (void)slots.Apply(changed_twenty, 6, 4); },
-              GpuSceneSlotErrorCode::Exhausted, "completion-safe");
+      GpuSceneSlotErrorCode::Exhausted, "completion-safe");
   assert(slots.revision() == 2);
   assert(slots.Find(20) == original_twenty);
 
@@ -477,7 +477,7 @@ void TestResourceFailureAtomicity() {
       61, 2, {{700, 2}},
       TableDelta(GpuSceneResourceTable::Instance, 1, {700}, {}, {0}));
   ExpectError([&] { (void)slots.Apply(changed, 5, 4); },
-              GpuSceneSlotErrorCode::Exhausted, "completion-safe");
+      GpuSceneSlotErrorCode::Exhausted, "completion-safe");
   assert(slots.revision() == 1);
   assert(slots.Find(700) == original);
 
@@ -492,7 +492,7 @@ void TestResourceFailureAtomicity() {
 void TestInvalidSnapshots() {
   GpuSceneDrawSlots slots(2);
   ExpectError([&] { (void)slots.Apply(Snapshot(1, 1, {{0, 1}}), 0, 0); },
-              GpuSceneSlotErrorCode::InvalidSnapshot, "non-zero");
+      GpuSceneSlotErrorCode::InvalidSnapshot, "non-zero");
   ExpectError(
       [&] {
         (void)slots.Apply(Snapshot(1, 1, {{10, 1}, {10, 1}}), 0, 0);
@@ -502,11 +502,11 @@ void TestInvalidSnapshots() {
   const auto current = Snapshot(2, 2, {{20, 2}});
   (void)slots.Apply(current, 0, 0);
   ExpectError([&] { (void)slots.Apply(Snapshot(2, 1, {{20, 1}}), 0, 0); },
-              GpuSceneSlotErrorCode::InvalidSnapshot,
-              "precedes resident revision");
+      GpuSceneSlotErrorCode::InvalidSnapshot,
+      "precedes resident revision");
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   TestSlotLifetime();

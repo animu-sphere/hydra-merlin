@@ -29,7 +29,7 @@ merlin::MeshDescriptor Triangle() {
   merlin::MeshDescriptor mesh;
   mesh.label = "triangle";
   mesh.positions = {{0.0F, -0.5F, 0.2F}, {0.5F, 0.5F, 0.2F},
-                    {-0.5F, 0.5F, 0.2F}};
+      {-0.5F, 0.5F, 0.2F}};
   mesh.indices = {0, 1, 2};
   return mesh;
 }
@@ -38,12 +38,12 @@ merlin::MeshDescriptor Quad() {
   merlin::MeshDescriptor mesh;
   mesh.label = "quad";
   mesh.positions = {{-0.9F, -0.9F, 0.5F}, {-0.3F, -0.9F, 0.5F},
-                    {-0.3F, -0.3F, 0.5F}, {-0.9F, -0.3F, 0.5F}};
+      {-0.3F, -0.3F, 0.5F}, {-0.9F, -0.3F, 0.5F}};
   mesh.indices = {0, 1, 2, 0, 2, 3};
   return mesh;
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
   instance = world.Get(second_triangle);
   instance.transform.values[12] = -0.4F;
   world.UpdateInstance(second_triangle, instance,
-                       merlin::ChangeAspect::Transform);
+      merlin::ChangeAspect::Transform);
   const auto transformed = render();
   assert(transformed.counters.draw_count == 3);
   assert(transformed.counters.upload_bytes == 0);
@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
   instance = world.Get(quad_instance);
   instance.visible = false;
   world.UpdateInstance(quad_instance, instance,
-                       merlin::ChangeAspect::Visibility);
+      merlin::ChangeAspect::Visibility);
   const auto hidden = render();
   assert(hidden.counters.draw_count == 2);
   assert(hidden.counters.upload_bytes == 0);
@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
   auto moved_triangle = Triangle();
   moved_triangle.positions[0].x = 0.1F;
   world.UpdateMesh(triangle, moved_triangle, merlin::ChangeAspect::Points,
-                   std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   const auto moved = render();
   assert(moved.counters.upload_bytes == kVertexBytes);
   assert(moved.counters.vertex_upload_bytes == kVertexBytes);
@@ -363,11 +363,11 @@ int main(int argc, char** argv) {
 
   gap_mesh.positions[0].x = 0.1F;
   gap_world.UpdateMesh(changed_mesh, gap_mesh, merlin::ChangeAspect::Points,
-                       std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   gap_extractor.Apply(gap_world, gap_world.Commit());
   gap_mesh.positions[0].x = 0.2F;
   gap_world.UpdateMesh(changed_mesh, gap_mesh, merlin::ChangeAspect::Points,
-                       std::vector<merlin::ElementRange>{{0, 1}});
+      std::vector<merlin::ElementRange>{{0, 1}});
   gap_extractor.Apply(gap_world, gap_world.Commit());
   const auto gap_fallback = renderer->Render(
       *gap_extractor.snapshot(), 64, 64, shaders);
@@ -432,8 +432,8 @@ int main(int argc, char** argv) {
 
   dense_c_descriptor.positions[0].x = 0.25F;
   dense_world.UpdateMesh(dense_c, dense_c_descriptor,
-                         merlin::ChangeAspect::Points,
-                         std::vector<merlin::ElementRange>{{0, 1}});
+      merlin::ChangeAspect::Points,
+      std::vector<merlin::ElementRange>{{0, 1}});
   dense_extractor.Apply(dense_world, dense_world.Commit());
   const auto dense_edited = renderer->Render(
       *dense_extractor.snapshot(), 64, 64, shaders);

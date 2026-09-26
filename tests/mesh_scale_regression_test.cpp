@@ -11,15 +11,15 @@ namespace {
 merlin::MeshDescriptor Triangle() {
   merlin::MeshDescriptor mesh;
   mesh.positions = {{-0.5F, -0.5F, 0.0F}, {0.5F, -0.5F, 0.0F},
-                    {0.0F, 0.5F, 0.0F}};
+      {0.0F, 0.5F, 0.0F}};
   mesh.colors = {{1.0F, 1.0F, 1.0F, 1.0F},
-                 {1.0F, 1.0F, 1.0F, 1.0F},
-                 {1.0F, 1.0F, 1.0F, 1.0F}};
+      {1.0F, 1.0F, 1.0F, 1.0F},
+      {1.0F, 1.0F, 1.0F, 1.0F}};
   mesh.indices = {0, 1, 2};
   return mesh;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   // One million indexed triangles exercise 32-bit topology and packed vertex
@@ -89,7 +89,7 @@ int main() {
     auto changed = world.Get(instances[changed_index]);
     changed.transform.values[13] = 1.0F;
     world.UpdateInstance(instances[changed_index], changed,
-                         merlin::ChangeAspect::Transform);
+        merlin::ChangeAspect::Transform);
     extractor.Apply(world, world.Commit());
     const auto after = extractor.snapshot();
     assert(after->build_counters.visited_records == 1);
@@ -209,7 +209,7 @@ int main() {
       auto changed = world.Get(instances[index]);
       changed.transform.values[13] = 1.0F;
       world.UpdateInstance(instances[index], changed,
-                           merlin::ChangeAspect::Transform);
+          merlin::ChangeAspect::Transform);
     }
     extractor.Apply(world, world.Commit());
     const auto localized = extractor.snapshot();
@@ -244,7 +244,7 @@ int main() {
     std::vector<merlin::InstanceHandle> removed_instances;
     removed_instances.reserve(replacement_count);
     for (std::size_t replacement = 0; replacement < replacement_count;
-         ++replacement) {
+        ++replacement) {
       const auto index = prim_count / (replacement_count * 4U) +
                          replacement * (prim_count / replacement_count);
       removed_instances.push_back(instances[index]);
@@ -253,7 +253,7 @@ int main() {
     std::vector<merlin::InstanceHandle> added_instances;
     added_instances.reserve(replacement_count);
     for (std::size_t replacement = 0; replacement < replacement_count;
-         ++replacement) {
+        ++replacement) {
       added_instances.push_back(world.CreateInstance(descriptor));
     }
     extractor.Apply(world, world.Commit());
@@ -277,7 +277,7 @@ int main() {
     assert(structural->delta->draws.upsert_indices.size() ==
            structural->delta->draws.upserts.size());
     for (std::size_t upsert = 0;
-         upsert < structural->delta->draws.upserts.size(); ++upsert) {
+        upsert < structural->delta->draws.upserts.size(); ++upsert) {
       const auto draw_index =
           structural->delta->draws.upsert_indices[upsert];
       assert(structural->draws[draw_index].draw ==
@@ -285,16 +285,16 @@ int main() {
     }
     for (const auto removed : removed_instances) {
       assert(std::binary_search(structural->delta->instances.removals.begin(),
-                                structural->delta->instances.removals.end(),
-                                removed.value()));
+          structural->delta->instances.removals.end(),
+          removed.value()));
     }
     for (const auto added : added_instances) {
       assert(std::binary_search(structural->delta->instances.upserts.begin(),
-                                structural->delta->instances.upserts.end(),
-                                added.value()));
+          structural->delta->instances.upserts.end(),
+          added.value()));
     }
     for (std::size_t upsert = 0;
-         upsert < structural->delta->instances.upserts.size(); ++upsert) {
+        upsert < structural->delta->instances.upserts.size(); ++upsert) {
       const auto dense_index =
           structural->delta->instances.upsert_indices[upsert];
       assert(structural->instances[dense_index].instance ==
@@ -307,7 +307,7 @@ int main() {
     assert(structural->draws.record_identity(0) ==
            localized->draws.record_identity(0));
     for (std::size_t displaced = 0; displaced < replacement_count;
-         ++displaced) {
+        ++displaced) {
       const auto previous_index = prim_count - replacement_count + displaced;
       const auto handle = instances[previous_index].value();
       const auto found = std::lower_bound(
