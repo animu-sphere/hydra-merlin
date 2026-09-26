@@ -1,14 +1,11 @@
 # MaterialXGenSlang material boundary
 
-**Status:** Accepted and implemented for v0.10.0
-
 **Date:** 2026-07-18
 
 ## Decision
 
-v0.10.0 proves a durable shader-generation boundary, not production-wide
-MaterialX support. The release is complete when an intentionally small
-MaterialX subset can generate a deterministic Slang material-evaluation module,
+This decision defines a shader-generation boundary, not production-wide
+MaterialX support. A deliberately small subset generates a deterministic Slang material-evaluation module,
 flow through the existing host-neutral material model, and execute in Vulkan
 Forward while the same source passes SPIR-V and Metal-target compile and
 reflection gates.
@@ -40,7 +37,7 @@ MaterialX SDK type. Core does not depend on MaterialX, Slang compiler APIs,
 OpenUSD, Hydra, Vulkan, or Metal.
 
 The existing repository does not need a speculative general runtime shader
-service for v0.10.0. Target compilation may reuse or extract the current
+service for this boundary. Target compilation may reuse or extract the existing
 `slangc` build/test machinery, but its input, reflection, diagnostic, and cache
 contracts must also work for handwritten Slang modules and must not be named or
 shaped exclusively around MaterialX.
@@ -99,7 +96,7 @@ renderer wrapper may adapt those blocks to this contract. The stable part is
 the meaning, not whether every argument appears literally in the generated
 function signature.
 
-v0.10.0 fixes the following logical ABI:
+The boundary fixes the following logical ABI:
 
 - the material-evaluation entry contract;
 - required geometry inputs and their semantics;
@@ -173,7 +170,7 @@ are checked for the same property, since a material that reached an artifact as
 one of its entry points was not composed into the renderer's pass but became
 one.
 
-## v0.10.0 feature slice
+## Bounded feature contract
 
 Required node and data coverage is intentionally narrow:
 
@@ -187,7 +184,7 @@ Required node and data coverage is intentionally narrow:
 public coverage claim. Normal input may initially use an already constructed
 shading normal. Complete tangent-space normal mapping is deferred.
 
-The following are not v0.10.0 release requirements:
+The following are outside the bounded feature contract:
 
 - complete Standard Surface, arbitrary documents, or broad procedural nodes;
 - coat, transmission, subsurface, sheen, anisotropy, displacement, or volume;
@@ -203,7 +200,7 @@ plausible but incorrect result.
 
 ## Module, artifact, and instance identity
 
-v0.10.0 keeps three identities separate:
+The contract keeps three identities separate:
 
 ```text
 canonical graph topology -> material module key
@@ -313,7 +310,7 @@ material that still generated substituted nothing, so it takes no rung, is
 reported to the host as an ignored record rather than a rejection, and is not
 counted as a substitution in fallback evidence.
 
-Within the v0.10.0 slice an image resource must carry an authored filename at
+Within the bounded subset an image resource must carry an authored filename at
 generation time. Instance-time texture binding against a resource the document
 left unnamed is out of scope, so such a document is rejected at generation
 rather than producing a module carrying a resource identifier no host could
@@ -342,7 +339,7 @@ artifact or resource, ABI/reflection/concrete-layout mismatch, or bindless
 selection falls back to the basic material with a structured diagnostic and
 frame evidence rather than being rendered through an incompatible layout.
 
-Metal execution is not required in v0.10.0. The compile gate does require the
+Metal execution is not implied by this boundary. The compile gate requires the
 same canonical module and ABI version to produce SPIR-V and Metal-target output,
 with semantically matching parameter/resource reflection and explicit
 diagnostics for unsupported target features. Each backend derives its own
@@ -369,9 +366,9 @@ dielectric, add/multiply, mix, normal input, multiple material assignments, and
 unsupported-node fallback. OpenChess Set may provide representative integration
 smoke materials; complete visual fidelity is not a release gate.
 
-## Release acceptance
+## Contract validation
 
-v0.10.0 is complete only when all of the following hold:
+The boundary is validated when all of the following hold:
 
 1. A MaterialX document deterministically produces a material-evaluation Slang
    module.
@@ -387,15 +384,16 @@ v0.10.0 is complete only when all of the following hold:
 10. Core and the existing Vulkan material path build and run with MaterialX
     disabled.
 11. Reuse of an identical graph performs no unnecessary regeneration.
-12. Complete OpenChess Set reproduction remains outside the release claim.
+12. Complete OpenChess Set reproduction remains outside this contract.
 
-## Later releases
+## Extension boundary
 
-v0.18.0 builds quality and operational behavior on this accepted boundary:
-broader Standard Surface, UV transforms, tangent-space normal maps, opacity and
+Broader Standard Surface, UV transforms, tangent-space normal maps, opacity and
 emissive behavior, environment lighting, asynchronous compilation, prewarming,
 texture/sampler residency, runtime parameter-only updates, shader sharing, mip
-and gradient quality, and Forward/Visibility parity.
+and gradient quality, and Forward/Visibility parity extend this boundary without
+changing its ownership rules. Their delivery belongs in the
+[backlog](../roadmap/backlog.md).
 
 Metal consumes the common module/reflection contract but owns Metal residency
 and pipeline layout. Persistent draw records carry material and module IDs, not

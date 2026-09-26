@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible problem in hdMerlin.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check existing issues before filing. Do not report vulnerabilities here; use the [private security process](https://github.com/animu-sphere/hydra-merlin/security/advisories/new). Remove credentials and private scene data from logs and attachments.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Core / extraction
+        - Vulkan / headless
+        - Metal
+        - Hydra 2 / host presentation
+        - MaterialX
+        - Native viewport
+        - Build / packaging / CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the commit or release, OS, compiler, and relevant GPU/driver, Vulkan, OpenUSD, or MaterialX versions. Mark anything not applicable.
+      placeholder: "Commit or release: ...\nOS and compiler: ...\nGPU and driver (if relevant): ...\nOpenUSD / MaterialX (if relevant): ..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the command, input or minimal scene, and any required build options.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Describe the result and any error or fallback diagnostics.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and evidence
+      description: Add sanitized CTest output, images, validation messages, or benchmark reports when relevant. Note if a required GPU or SDK was unavailable.
+    validations:
+      required: false

@@ -17,41 +17,17 @@ labels, not permission to violate a dependency gate: scope may move when
 benchmark, capability, or host-integration evidence changes the justified
 order.
 
-Legend: ✅ complete pending release · 🚧 in progress · ⬜ not started
-
 | Document | Contents |
 | --- | --- |
-| [current.md](current.md) | The next release milestone and active carry-over work. |
-| [backlog.md](backlog.md) | Ordered releases after the active milestone and cross-cutting open work. |
+| [current.md](current.md) | Active and immediately next incomplete work. |
+| [backlog.md](backlog.md) | Planned but inactive incomplete work. |
 
-v0.5.0 shipped the host-neutral MaterialIR, basic textured shading, and usdview
-slice. v0.6.0 shipped the performance-observability foundation and incremental
-Hydra synchronization work. v0.7.0 shipped the persistent resource model,
-bindless Forward path, transfer and memory-budget infrastructure, and scale
-evidence for Mesh and future Gaussian data. v0.8.0 moved the Vulkan Forward
-shader source of truth to Slang, established reflected shader ABI validation,
-and added the Metal compile gate. v0.9.0 extracts the minimum backend contract
-and delivers the dedicated backend-neutral `merlin-viewport` with Vulkan
-presentation; its completed pre-release detail is retained in the changelog and
-delivery history. v0.10.0 released a MaterialXGenSlang material-function slice,
-and v0.11.0 released native Metal offscreen execution and residency while the
-active v0.10.x work finishes the renderer-development diagnostic surface.
-v0.12.0 released native Metal viewport presentation, v0.13.0 released the
-HgiVulkan GPU-copy bridge, and v0.13.1 released its direct-path hardening
-boundary. v0.14.0 released HgiMetal GPU-copy host presentation, and v0.14.1
-establishes the Gaussian correctness MVP. The later Gaussian path advances through
-persistent resources, GPU-driven projection/sorting, contribution-aware and
-hierarchical tiling, temporal reuse, LOD/compression, and streaming; Mesh
-Visibility, MaterialX/lighting, meshlets, Mesh Shader, and Hi-Z remain
-independently measurement-gated. The
-architecture behind this order is recorded in the [multi-backend shader and
-presentation strategy](../design/multibackend-slang-materialx.md), [Hgi host
-presentation policy](../design/hgi-host-presentation.md), and [Gaussian
-rendering roadmap](../design/gaussian-rendering-roadmap.md); the exact v0.10.0 contract is the
-[MaterialXGenSlang material boundary](../design/materialxgenslang-boundary.md).
-
-When a version ships, its completed scope is captured in the changelog and
-removed from the roadmap. The roadmap is not a second changelog.
+Work moves from backlog to current when implementation begins. On completion,
+remove it from both roadmap files; user-visible shipped changes belong in the
+[changelog](../../CHANGELOG.md), detailed releases in
+[release records](../releases/), and dated validation in
+[reports](../reports/). The roadmap is not a second changelog or a design
+document.
 
 ## Product direction
 
@@ -94,11 +70,11 @@ The long-term ownership invariants are:
 
 | Phase | Objective | Planned scope |
 | --- | --- | --- |
-| A — Renderer foundation | Complete material, diagnostics, and renderer-development foundations. | v0.10.0, v0.10.x, and foundation gates |
-| B — Backend parity | Establish native and Hgi host-presentation parity. | v0.11.0–v0.14.0 |
-| C — Scene breadth | Establish the Gaussian correctness and persistent-resource baselines. | v0.14.1–v0.15.0 and lighting tiers |
-| D — GPU scalability | Scale Mesh and Gaussian execution through measured GPU-driven paths, while hardening Forward lighting and shading quality from late v0.16.x onward. | v0.16.0–v0.20.0 |
-| E — Production readiness | Productize streaming, backend parity, DCC hosts, runtime composition, and v1.0 contracts. | v0.21.0–v1.0.0 |
+| A — Renderer foundation | Establish material, diagnostic, and development foundations. | Ownership and measurement contracts |
+| B — Backend parity | Establish native and Hgi host-presentation parity. | Backend and host boundaries |
+| C — Scene breadth | Establish Mesh and Gaussian correctness before scaling. | Reference images and lighting tiers |
+| D — GPU scalability | Scale Mesh and Gaussian execution through measured GPU-driven paths while hardening Forward quality. | Optional acceleration and fallbacks |
+| E — Production readiness | Productize streaming, backend parity, DCC hosts, and runtime composition. | Compatibility and support evidence |
 
 ## Quality bar
 

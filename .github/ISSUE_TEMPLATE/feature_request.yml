@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a capability, workflow improvement, or documentation change.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [current milestone](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/roadmap/current.md) and [backlog](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/roadmap/backlog.md) before proposing work. For a major public API or design change, describe the ownership boundary and fallback.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core / extraction
+        - Vulkan / headless
+        - Metal
+        - Hydra 2 / host presentation
+        - MaterialX
+        - Native viewport
+        - Build / packaging / CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Explain who needs this and what cannot be done today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the expected result, not only a particular implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and evidence
+      description: Describe how correctness, fallback, compatibility, or performance can be verified.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and constraints
+      description: Note existing workarounds, dependencies, or relevant design documents.
+    validations:
+      required: false

@@ -1,7 +1,5 @@
 # Multi-backend, Slang, MaterialX, and Hgi host-presentation strategy
 
-**Status:** v0.9 backend/viewport boundary implemented; later stages accepted
-
 **Date:** 2026-07-27
 
 hdMerlin evolves from its Vulkan first implementation into a backend-neutral
@@ -56,7 +54,7 @@ Vulkan/Metal contract.
   surface/swapchain state; the Cocoa adapter creates the `CAMetalLayer`, while
   Metal configures it and owns drawable acquisition, encoding, presentation,
   and completion. Both plug into the same application host.
-- The v0.9 Vulkan host uses GLFW behind a private adapter. GLFW types do not
+- The Vulkan host uses GLFW behind a private adapter. GLFW types do not
   enter Core or Hydra public APIs, and Vulkan owns the created surface and
   swapchain. Presentation uses a GPU blit from the reference color attachment,
   retaining exact offscreen output and zero CPU readback for normal frames.
@@ -72,9 +70,8 @@ capability names.
 
 ## Slang shader foundation
 
-Slang becomes the source of truth for new shader work and progressively
-replaces the current GLSL sources before Gaussian, GPU-driven, Visibility, and
-meshlet shader families expand. The same module set produces Vulkan SPIR-V,
+Slang is the source of truth for renderer shader work. The same module set
+produces Vulkan SPIR-V,
 Metal-target output, and reflection metadata.
 
 Normal distribution builds use precompiled shader artifacts. Development may
@@ -105,8 +102,8 @@ node graph is translated outside Core into a generated Slang material module,
 which then produces both SPIR-V and Metal-target artifacts through the common
 compiler pipeline.
 
-The detailed v0.10.0 ownership, ABI, cache-key, diagnostic, fallback, and test
-contract is the
+The detailed ownership, ABI, cache-key, diagnostic, fallback, and test contract
+is the
 [MaterialXGenSlang material boundary](materialxgenslang-boundary.md). This
 document records how that boundary participates in the wider backend strategy.
 
@@ -138,24 +135,18 @@ into a MaterialX mesh BSDF.
 
 In the repository, optional `material/merlin-materialx` owns document handling
 and MaterialXGenSlang generation, Core owns `MaterialIR` and neutral module
-semantics, and each backend owns target artifacts and native layouts. The
-current graph-output and minimum Standard Surface result adapters compile
-through direct SPIR-V/Metal wrappers while keeping topology, instance, and
-resource identities separate. v0.10.0 still requires Vulkan Forward execution,
-common fallback evidence, and target-artifact identity.
+semantics, and each backend owns target artifacts and native layouts.
+Graph-output and Standard Surface result adapters keep topology, instance, and
+resource identities separate across SPIR-V and Metal-target artifacts. The
+[support matrix](../reference/support-matrix.md) owns current execution claims.
 
 Material identity is layered. Canonical graph topology and generator/library
 provenance identify the target-neutral module; compiler, target, profile,
 layout, and capability policy identify a backend artifact; runtime values and
-texture assignment remain instance and binding state. The current compiler
-separates a generated-source/interface module key from parameter and resource
-default-state keys, and portable standard-library/include fingerprints feed the
-module key. The backend artifact-key layer remains incomplete.
-
-Production MaterialX quality remains a later milestone. v0.18.0 extends the
-accepted v0.10.0 function and reflection contract with broader Standard Surface,
-normal/UV/opacity/emissive quality, asynchronous compilation, prewarming,
-residency, and Forward/Visibility parity.
+texture assignment remain instance and binding state. Portable
+standard-library/include fingerprints feed the module key. Broader material
+coverage must preserve this split; its delivery gates are in the
+[backlog](../roadmap/backlog.md).
 
 ## Hgi host presentation
 
@@ -166,16 +157,15 @@ native handles, resource ownership, barriers, queues, and synchronization
 separate. Tier 0 CPU RenderBuffers are permanent. The full delivery and
 verification policy is [Hgi host presentation](hgi-host-presentation.md).
 
-### HgiVulkan first
+### HgiVulkan
 
-v0.13.0 establishes Hgi-owned targets and selected-AOV Vulkan GPU copy. It
-must avoid CPU readback/upload and coarse device waits while preserving Tier 0
-image parity, frames-in-flight safety, and explicit renderer -> bridge -> host
-completion. Same-device direct sharing is deferred to a separate v0.13.1
-capability/evidence gate; external memory/semaphore interop is not an initial
-requirement.
+Hgi-owned targets and selected-AOV Vulkan GPU copy avoid CPU readback/upload
+and coarse device waits while preserving Tier 0 image parity, frames-in-flight
+safety, and explicit renderer -> bridge -> host completion. Same-device direct
+sharing requires its own capability and evidence gate; external memory/semaphore
+interop is not a baseline requirement.
 
-### HgiMetal follow-up
+### HgiMetal
 
 `merlin-metal` renders directly with Metal. HgiMetal is not the rendering RHI;
 it is a Hydra-host presentation and interop boundary for passing AOVs to usdview
@@ -239,16 +229,12 @@ barrier, queue-transfer, timeline, validation, and memory-budget diagnostics;
 Metal retains argument-buffer, encoder, heap-residency, drawable-wait,
 command-buffer, and counter-sample diagnostics.
 
-## Sequencing and non-goals
+## Non-goals
 
-The Vulkan persistent-residency milestone, Slang migration/Metal compile gate,
-backend contract/native Vulkan viewport boundary, MaterialXGenSlang prototype,
-Metal residency, and native Metal presentation are complete. Ordered delivery
-continues with HgiVulkan GPU copy, optional direct-path hardening, HgiMetal,
-then the Gaussian MVP and measured Gaussian scalability roadmap. Mesh Visibility,
-production MaterialX, and meshlets remain independent tracks. The detailed
-release gates are in the [roadmap](../roadmap/backlog.md), [Hgi policy](hgi-host-presentation.md),
-and [Gaussian roadmap](gaussian-rendering-roadmap.md).
+Delivery order and release gates belong in the
+[roadmap](../roadmap/README.md); Hgi and Gaussian dependencies are detailed in
+the [Hgi policy](hgi-host-presentation.md) and
+[Gaussian rendering design](gaussian-rendering.md).
 
 The initial effort does not attempt to support every GPU API, build a universal
 RHI, make Vulkan and Metal internals identical, require a runtime compiler in

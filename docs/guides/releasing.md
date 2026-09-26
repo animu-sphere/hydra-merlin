@@ -41,11 +41,11 @@ git push origin v0.5.0
 README, roadmap, support-matrix, and detailed release-record edits are required
 only when their content actually changes; they are not release bookkeeping.
 
-Release review must also confirm that the support matrix describes at least the
-release being tagged, `current.md` does not list shipped work as incomplete,
-`backlog.md` does not retain a shipped milestone, and README capability
-boundaries agree with the release record. These content checks are deliberate
-review items even though identity checks are automated.
+Release review must also confirm that the support matrix reflects validated
+configurations, [current](../roadmap/current.md) and
+[backlog](../roadmap/backlog.md) contain only incomplete work, and README links
+to the current support claims. These content checks are deliberate review items
+even though identity checks are automated.
 
 ## Automated contract
 

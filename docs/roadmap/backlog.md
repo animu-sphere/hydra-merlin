@@ -1,318 +1,159 @@
 # Backlog
 
-Ordered work after the released v0.14.0 HgiMetal GPU-copy host presentation,
-alongside active foundation work in
-[current.md](current.md).
-Shipped scope moves to the [changelog](../../CHANGELOG.md).
+Planned but inactive work follows the [current milestone](current.md).
+Shipped changes belong in the [changelog](../../CHANGELOG.md), and pipeline
+contracts belong in [design](../design/). Version labels may move when
+capability, integration, or benchmark evidence changes the dependency order.
 
-Legend: 🚧 in progress · ⬜ not started
+## Phase D — GPU scalability and shading quality
 
-The backlog follows the product phases in the [roadmap strategy](README.md),
-but a version label does not override dependency, capability, integration, or
-benchmark evidence. Scope may move when that evidence changes the justified
-order.
+### Late v0.16.x onward — Forward lighting and shading quality
 
-## Phase B — Cross-platform backend and presentation parity
+**Goal:** Stabilize native and Hydra-hosted Forward images under camera motion,
+including camera-light energy, direct/environment lighting, linear/sRGB
+boundaries, exposure, tone mapping, and handwritten/generated material parity.
 
-## Phase C — Scene breadth and lighting quality
+**Depends on:** The active GPU-driven foundation and a declared host camera-light
+contract. Forward remains the reference for optional shading paths.
 
-### Lighting ladder
+**Exit:** Differential Kitchen and focused material fixtures cover Camera Light
+ON/OFF, motion/static frames, Tier 0 and Hgi presentation, and both backends
+where available. No supported mode needs the camera light disabled to avoid
+white clipping or flicker; costs and unsupported lighting are diagnosed.
 
-Lighting evolves with the architectural rule that material evaluation produces
-surface properties while the renderer owns illumination, visibility,
-integration, and presentation.
+### v0.17.0 — Contribution-aware Gaussian culling and adaptive bounds
 
-1. **L0 — Diagnostic light.** Retain one or a bounded small number of
-   deterministic directional lights, an explicit no-authored-light fallback,
-   and no hidden dependence on host lighting.
-2. **L1 — Minimal environment lighting.** Add dome/environment ingestion,
-   diffuse irradiance, prefiltered specular sampling, a BRDF integration lookup,
-   exposure/rotation, a deterministic fallback environment, and color-space
-   diagnostics for both handwritten and generated material functions.
-3. **L2 — Production viewport lighting.** After the material ABI and backend
-   parity are stable, add fixture-justified distant, point, spot, and dome
-   lights, transforms/visibility, documented intensity/unit interpretation,
-   shadow maps, alpha-tested casters, filtering/bias policy, and debug views.
-   Light linking waits for a clear Hydra contract and fixture set.
-4. **L3 — Scalable evaluation.** Add tiled/clustered light assignment and GPU
-   influence culling only when active local-light counts make bounded Forward
-   loops inadequate and benchmarks demonstrate the need.
+**Goal:** Add conservative Gaussian/tile contribution bounds and selectable
+quality thresholds; retain `Exact` as the validation path.
 
-A lighting tier exits only when no-light behavior and supported Hydra inputs
-are documented, unsupported units/features produce diagnostics, basic and
-MaterialX paths agree within tolerance, lighting cost is separately observable,
-representative dielectric/metal/textured/normal-mapped/mixed-light fixtures
-exist, and Vulkan/Metal behavior is compared where both backends are available.
+**Depends on:** Image-producing GPU Gaussian tiling from the
+[current milestone](current.md). See the
+[Gaussian rendering design](../design/gaussian-rendering.md).
 
-### ✅ v0.15.0 — Persistent GPU Scene and Gaussian resources
+**Exit:** Rejection, pair, saturation, and early-termination counters accompany
+image and temporal-tolerance evidence without unexplained view-dependent
+popping.
 
-The common GPU Scene ABI now has persistent geometry, instance, material, draw,
-and Gaussian identity; stable IDs; reflected C++/shader layouts; table-backed
-Vulkan/Metal Forward consumption; descriptor-bind reduction; revision-based
-invalidation; and generation-checked completion-safe lifetime. Vulkan Gaussian
-source attributes are device-local and preserve exact aspect/range updates.
-CPU preparation, raw and prepared upload, and GPU raster timing are separate.
-GPU-driven packet generation, secondary-command reuse, parallel recording, and
-large-scale instance aggregation remain v0.16.0 submission work rather than
-requirements for this persistent-resource boundary.
+### Experimental opaque Visibility Buffer — independent Mesh track
 
-Exit requires static Mesh scenes to generate no new draw packets, static Gaussian
-scenes to allocate or upload nothing, partial Gaussian edits to preserve the
-MVP's range-only transfer behavior in persistent storage, and both paths to
-retain deterministic IDs, picking identity, and completion-safe lifetime. The
-full Gaussian sequence is in the
-[Gaussian rendering roadmap](../design/gaussian-rendering-roadmap.md).
+**Goal:** Add selectable opaque indexed-triangle ID raster and basic-PBR
+resolve, with Forward handling transparent or unsupported materials.
 
-## Phase D — GPU-driven rendering and shading scalability
+**Depends on:** GPU-driven indexed Forward and the common GPU Scene. See the
+[GPU-driven design](../design/gpu-driven-rendering.md).
 
-### 🚧 v0.16.0 — GPU-driven rendering
+**Exit:** Stable picking/primitive identity, deterministic Forward differential
+images, explicit pass barriers and timestamps, and separate raster/resolve
+cost evidence.
 
-For Mesh, establish GPU-driven indexed Forward with candidate draw records,
-frustum/visibility-mask culling, visible-draw compaction, indexed multi-draw
-indirect, indirect count, and debug-selectable CPU/GPU culling. Occlusion,
-meshlet expansion, and LOD are deliberately later gates. For Gaussian, add
-compute projection, frustum/screen-size/opacity culling, visible compaction, GPU
-depth-key generation and sorting, tile binning, indirect dispatch, and early
-termination without sharing the Mesh primitive algorithm.
+### v0.18.0 — Hierarchical Gaussian tiles; production MaterialX and lighting
 
-Exit requires camera movement to avoid CPU traversal of all instances or
-Gaussians, Mesh CPU submission not to scale linearly with draw count, and both
-render preparations to complete in a small number of GPU dispatches/draws.
-Conventional Forward output remains the image reference, and candidate/visible
-counts plus culling cost are retained as benchmark evidence.
+**Goal:** Select bounded two-level Gaussian tiling only when measured 4K/8K
+p95/p99 benefit justifies it. Independently broaden Standard Surface,
+UV/normal/opacity/emissive coverage, environment and authored lighting, shadows,
+asynchronous compilation, residency, and Forward/Visibility material parity.
 
-### ⬜ Late v0.16.x onward — Forward lighting and shading quality
+**Depends on:** Flat Gaussian tile evidence, the
+[MaterialX function boundary](../design/materialxgenslang-boundary.md), and
+Forward quality fixtures. Material evaluation does not own lighting or passes.
 
-Begin a dedicated visual-quality hardening track after the v0.16.0 GPU-driven
-foundation is stable, and continue it through the production MaterialX and
-lighting work in v0.18.0. Preserve conventional Forward as the correctness
-reference while improving both native and Hydra-hosted presentation.
+**Exit:** Overflow falls back safely; representative material/lighting fixtures
+and backend comparisons meet declared tolerances. Unsupported inputs have
+structured fallback; static and parameter-only edits avoid steady-state
+compile/pipeline creation.
 
-The first scope covers:
+### v0.19.0 — Temporal Gaussian reuse; static meshlet rendering
 
-- define and validate the usdview/Hydra camera-light contract so enabling the
-  camera light does not wash the frame toward white, while Camera Light OFF
-  remains a valid authored-light/environment mode;
-- calibrate direct-light and environment energy, linear/sRGB boundaries,
-  exposure, and tone mapping so SDR output retains highlight and color
-  headroom instead of saturating the UNorm target;
-- make handwritten and generated material functions agree on normal,
-  base-color, metallic, roughness, emissive, and opacity interpretation for
-  the supported subset;
-- eliminate camera-motion flicker and other view-dependent instability caused
-  by light transforms, stale frame state, resource updates, or presentation;
-- expose selected lighting mode, light counts, exposure/tone-mapping policy,
-  saturation diagnostics, and relevant CPU/GPU costs through renderer
-  diagnostics and telemetry.
+**Goal:** Reuse only compatibility-classified Gaussian preprocessing and build
+material-homogeneous meshlets from standard Hydra mesh data, with indexed-indirect
+submission and conventional fallbacks.
 
-Exit requires deterministic differential fixtures against Storm or another
-declared reference for the Kitchen set and smaller dielectric, metallic,
-textured, and normal-mapped scenes. Tests cover Camera Light ON and OFF, static
-frames and camera motion, native and Hydra presentation, Tier 0 readback and
-HgiVulkan delivery, and Vulkan/Metal where both backends are available. No
-supported mode may require disabling the camera light merely to avoid global
-white clipping or temporal flicker. Declared tolerances and unsupported light
-features remain explicit; v0.18.0 still owns the broader L1/L2 light types,
-shadows, and production MaterialX breadth.
+**Depends on:** Stable Gaussian tile/quality evidence and GPU-driven indexed
+Mesh execution. See the [Gaussian](../design/gaussian-rendering.md) and
+[GPU-driven](../design/gpu-driven-rendering.md) designs.
 
-### ⬜ v0.17.0 — Contribution-aware Gaussian culling and adaptive bounds
+**Exit:** `PreprocessOnly` is exact under scene/camera/target invalidation;
+meshlet build/cache behavior and material partitions are deterministic,
+Forward/Visibility images agree within tolerance, and large static scenes
+improve without regressing small or dynamic fallbacks.
 
-Add conservative Gaussian and Gaussian–tile contribution bounds, tighter
-projected bounds, threshold quality modes, and diagnostics for rejection,
-pair counts, saturation, and early termination. `Exact` remains the validation
-path; `Balanced` requires image and temporal-tolerance evidence with no
-unexplained view-dependent popping. Experimental opaque Mesh Visibility remains
-a separately gated track after GPU-driven indexed Forward is stable.
+### v0.20.0 — Gaussian LOD/compression; optional Mesh Shader, Hi-Z, mesh LOD
 
-### ⬜ Experimental opaque Visibility Buffer — independently gated Mesh track
+**Goal:** Add deterministic Gaussian chunk LOD and versioned compression with
+full-precision fallback. Add benchmark-selected Mesh Shader, conservative
+previous-frame Hi-Z, and meshlet LOD behind indexed-indirect fallback.
 
-Add an opt-in Visibility path for supported opaque, static, indexed triangle
-meshes. Rasterize stable draw and primitive IDs to `R32G32_UINT` plus depth,
-reconstruct geometry/instance/material data through the common GPU Scene, and
-resolve a bounded basic-PBR subset to HDR color in compute. Begin with explicit
-LOD or mip 0, retain Forward for transparent and unsupported content, and keep
-Gaussian and overlay passes specialized.
+**Depends on:** Stable Gaussian residency and static indexed meshlets.
 
-Exit requires correct draw/primitive and picking identity, transforms, normals,
-UVs, and multiple materials/instances; deterministic Forward differential
-images; explicit pass barriers/timestamps; and separate visibility-raster and
-material-resolve evidence. Visibility remains a selectable path, not the new
-universal renderer.
-
-### ⬜ v0.18.0 — Hierarchical Gaussian tiles; production MaterialX and lighting
-
-Classify coarse Gaussian tiles, render light tiles directly, and subdivide only
-heavy tiles for local pair generation and sorting. Start with a bounded two-level
-path, overflow fallback, debug visualization, and resolution-specific profiles;
-select it only from measured 4K/8K p95/p99 benefit. MaterialX and lighting work
-continues as an independent scope:
-
-Extend the accepted v0.10.0
-[MaterialX material-function boundary](../design/materialxgenslang-boundary.md)
-rather than redefining it. Broaden Standard Surface coverage with UV transforms,
-tangent-space normal maps, opacity/alpha mask, emissive, and the additional
-material inputs justified by fixtures. Add production environment lighting,
-asynchronous compilation, prewarming, texture/sampler residency, runtime
-parameter-only updates, shader sharing, and cache persistence/recovery while
-preserving the v0.10.0 module/artifact/instance identity split.
-
-Advance lighting to the justified L1/L2 scope: production environment lighting,
-fixture-backed Hydra light types, shadow mapping, and consistent handwritten and
-generated-material response. Do not claim a MaterialX input whose renderer
-illumination behavior is undefined. Share the logical material, lighting, and
-bindless resource ABI between Forward and Visibility resolve; add analytic or
-validated conservative texture gradients, mip and primitive-boundary quality,
-and Forward/Visibility material parity before considering material-class pixel
-lists or specialized resolve dispatches.
-
-Exit requires broader supported fixtures to remain deterministic, every
-unsupported input to retain an explicit structured fallback, identical graphs
-to share modules, parameter-only edits and static scenes to perform zero
-steady-state compile/pipeline creation, and Forward/Visibility comparisons to
-meet declared tolerances. Lighting behavior and costs must be documented,
-diagnosed, and compared across Vulkan and Metal. Raw MaterialX graphs never
-enter the Core scene model, and Gaussian appearance is not forced into a
-MaterialX BSDF.
-
-### ⬜ v0.19.0 — Temporal Gaussian reuse; static meshlet rendering
-
-Reuse only compatibility-classified Gaussian preprocessing with conservative
-camera margins, periodic full validation, and explicit invalidation on scene,
-projection, target, LOD, or residency changes. `PreprocessOnly` must be exact;
-selective color-tile reuse remains experimental. Static meshlet work continues
-as an independent scope:
-
-Build material-homogeneous meshlets internally from standard Hydra mesh data
-after triangulation and `GeomSubset` partitioning. Add deterministic local
-indices, configurable vertex/primitive limits, bounds and normal cones,
-in-process build caching and dirty-state invalidation, instance-then-meshlet
-frustum/cone culling, visible meshlet compaction, and an indexed-indirect
-meshlet backend compatible with Forward and Visibility. Keep small, dynamic,
-deformed, skinned, unstable-topology, and unsupported geometry on conventional
-paths when appropriate.
-
-Exit requires deterministic builder/cache behavior; correct topology, points,
-primvar, and material-partition invalidation; conventional/Visibility image
-parity; visible and rejected meshlet statistics; and a measured reduction in
-processed triangles or frame cost on the large-static-mesh fixture without a
-regression on small-mesh fallback fixtures.
-
-### ⬜ v0.20.0 — Gaussian LOD/compression; optional Mesh Shader, Hi-Z, and mesh LOD
-
-Add deterministic Gaussian chunk bounds, discrete LOD, versioned compression,
-full-precision fallback, and residency preparation with image/temporal evidence.
-Mesh optional-path work continues as an independent scope:
-
-Add a capability- and benchmark-selected `VK_EXT_mesh_shader` backend while
-retaining indexed-indirect meshlets. Add previous-frame hierarchical-Z
-occlusion, conservative history invalidation for camera/projection/resolution
-changes, screen-space size selection, discrete meshlet LOD, and debug views for
-culling reason and LOD.
-
-Exit requires indexed and Mesh Shader backends to render the same supported
-scenes, a repeatable win on at least one declared hardware profile before
-automatic Mesh Shader selection, safe fallback everywhere else, no material
-visibility errors during motion, and acceptable versioned LOD transitions.
+**Exit:** Image/temporal evidence covers LOD transitions, invalidation, and
+motion; a declared hardware profile shows a repeatable Mesh Shader win, with
+correct indexed fallback elsewhere.
 
 ## Phase E — Large scenes, hosts, and production readiness
 
-### ⬜ v0.21.0 — Gaussian streaming/out-of-core rendering and parallel ingestion
+### v0.21.0 — Gaussian streaming and parallel ingestion
 
-Add asynchronous Gaussian chunk requests, decode/upload queues, prioritized
-prefetch, completion-safe residency, eviction, temporal hysteresis, bounded
-VRAM, and out-of-core rendering. Missing data retains a coarser resident LOD
-or bounded proxy and never exposes uninitialized memory. Continue mesh/texture
-residency as independently justified work.
-Parallelize Hydra primitive processing, triangulation, primvar/Gaussian
-conversion, batched RenderWorld commits, and incremental snapshot generation
-with deterministic merge and low-contention queues.
+**Goal:** Add prioritized chunk requests, asynchronous decode/upload, bounded
+VRAM eviction/prefetch, and deterministic parallel Hydra processing and
+RenderWorld commits. Other resource streaming remains independently gated.
 
-Exit requires a scene larger than VRAM to stream only needed chunks with bounded
-hitches and controllable quality, plus deterministic CPU scaling for large dirty
-sets across available cores.
+**Depends on:** Completion-safe Gaussian LOD/residency and stable extraction.
 
-### ⬜ v0.22.0 — Gaussian cross-backend optimization and production hardening
+**Exit:** Over-VRAM scenes stream needed chunks with bounded hitches and quality
+fallback; large dirty sets scale across CPU cores without nondeterministic
+scene output or uninitialized memory.
 
-Bring Vulkan and Metal to one Gaussian resource ABI, culling/sort semantics,
-quality modes, AOV/picking contract, telemetry vocabulary, and reference
-tolerance while retaining backend-specific kernels. Add capability-selected
-optimization, overflow/device-loss/allocation diagnostics, cache persistence,
-reproducible benchmarks, host-presentation validation, and conservative fallback.
+### v0.22.0 — Gaussian backend parity and production hardening
 
-### DCC integration order
+**Goal:** Align Vulkan/Metal Gaussian ABI, quality, AOV/picking, telemetry, and
+reference tolerances while allowing backend-specific kernels.
 
-1. usdview and `testusdview` remain the reference host.
-2. Houdini Solaris viewport integration.
-3. Husk batch integration.
-4. Hydra 1 compatibility when demanded by a supported host.
-5. Maya Hydra integration.
+**Depends on:** Validated Gaussian optimization and fallback modes.
 
-Before Solaris work begins, the renderer must have structured diagnostics,
-OpenUSD SDK/runtime compatibility diagnostics, a versioned renderer-settings
-schema, stable Hydra 2 integration, versioned capability reporting, comparable
-usdview frame-stage evidence, package/discovery automation, supported AOV and
-picking semantics, and documented material/lighting boundaries. Integration
-packages own environment setup, discovery metadata, settings UI, package
-metadata, and host smoke tests; Core and GPU backends remain independent of
-every DCC SDK.
+**Exit:** Comparable backend images and costs, overflow/device-loss diagnostics,
+cache recovery, reproducible benchmarks, and host-presentation validation.
 
-### OpenStrata composition
+### Production host integrations
 
-hdMerlin remains an OpenStrata renderer unit while runtime composition assembles
-compatible OpenUSD and plugin environments. This repository owns renderer code
-and evidence; FileFormat/import plugins remain independent; runtime profiles,
-artifact metadata, and validated matrices express compatibility. The renderer
-does not directly depend on every possible import plugin.
+**Goal:** Integrate Houdini Solaris viewport, then Husk batch, Hydra 1 where
+required by a supported host, and Maya Hydra when justified.
 
-For Gaussian content, an importer or FileFormat plugin exposes external data as
-standard USD, OpenUSD composes the stage, Hydra exposes its standard Gaussian
-primitive, hdMerlin consumes that primitive, and OpenStrata assembles compatible
-runtime artifacts for the session.
+**Depends on:** Stable Hydra 2, settings/diagnostics, capability reporting,
+package discovery, AOV/picking semantics, and documented material/lighting
+boundaries. DCC packages own host metadata and UI; Core has no DCC SDK types.
 
-### ⬜ v1.0.0 — Production interactive renderer
+**Exit:** Each supported host has discoverable packages, runtime compatibility
+diagnostics, representative scene smokes, and comparable frame-stage evidence.
+The [OpenStrata composition contract](../design/openstrata-project.md) governs
+runtime artifact assembly.
 
-v1.0 is gated by product contracts and evidence, not by implementing every
-planned algorithm. It requires stable Hydra 2 integration; native Vulkan and
-supported Apple Silicon Metal viewports; production basic and MaterialX
-coverage; documented lighting and shadows; standard Gaussian rendering;
-selection/picking; opaque, alpha-mask, and transparent presentation policies;
-structured diagnostics/fallbacks; hardware tiers; versioned settings;
-packaging/runtime composition; cross-platform correctness/performance evidence;
-and at least one production DCC integration beyond usdview.
+### v1.0.0 — Production interactive renderer
 
-Visibility, Mesh Shaders, Hi-Z, meshlet LOD, direct zero-copy for every host,
-out-of-core support for every resource, and complete MaterialX graph coverage
-may remain optional at v1.0. Optional paths still require declared capability,
-selection, fallback, correctness, and performance evidence.
+**Goal:** Productize native Vulkan and Apple Silicon Metal viewports, stable
+Hydra 2 and at least one production DCC integration, production materials and
+lighting, standard Gaussian rendering, selection, diagnostics, and packaging.
 
-## Post-v1 research directions
+**Depends on:** Versioned settings, declared capabilities, explicit fallback,
+and cross-platform correctness/performance evidence. Visibility, Mesh Shader,
+Hi-Z, out-of-core support for every resource, and complete MaterialX graphs
+remain optional rather than universal release gates.
 
-Hierarchical meshlets and virtualized geometry are not aliases for the v0.19
-static meshlet path. They require separately approved designs and evidence for
-parent-cluster simplification, geometric error, mixed-level traversal, crack and
-transition handling, offline compressed pages, GPU residency feedback,
-asynchronous disk/cache streaming, eviction, memory budgeting, and recovery from
-missing pages. They do not enter a release merely because static meshlets or a
-Mesh Shader backend exist.
+**Exit:** Each claimed platform, host, and rendering path has documented AOV,
+material, lighting, fallback, compatibility, and performance evidence in the
+[support matrix](../reference/support-matrix.md).
 
-## Cross-cutting open items
+## Cross-cutting planned work
 
-- ⬜ **GPU capability matrix.** Retain Windows Vulkan/Hydra evidence first, then
-  add Linux and NVIDIA/AMD coverage, with Intel when practical. Add a macOS
-  Apple Silicon compile runner before the Metal compile gate and GPU evidence
-  before Metal execution ships. Extend the versioned report with logical
-  resource-table limits, indirect draw/count, fragment barycentric, subgroup,
-  external-presentation, and Mesh Shader capabilities before the paths that
-  consume them; keep API-specific facts as backend diagnostics. A missing
-  runner must remain distinguishable from a product failure.
-- ⬜ **Capabilities.** Extend versioned host-neutral capability reporting with
-  backend feature/limit extensions and explicit unsupported/fallback states.
-- ⬜ **OpenUSD compatibility.** Extend the validated 26.05 shared-SDK and MSVC
-  configuration checks with runtime plugin ABI diagnostics where supported by
-  the host.
-- ⬜ **Build and exported products.** Add independently justified options and
-  resolve `Merlin::Hydra2`/`Merlin::Headless` packaging without making OpenUSD a
+- **GPU capability matrix:** Expand validated NVIDIA/AMD and optional Intel
+  hardware profiles and add Metal GPU evidence; separate missing-runner evidence
+  from product failure. Extend feature/limit reporting before new paths use it.
+- **OpenUSD compatibility:** Extend validated shared-SDK configurations with
+  runtime plugin ABI diagnostics for supported hosts.
+- **Build and exported products:** Justify independent options and resolve
+  `Merlin::Hydra2`/`Merlin::Headless` packaging without adding OpenUSD as a
   Core/Vulkan transitive dependency.
-- ⬜ **OST template extraction.** Extract only boundaries proven by Merlin and a
-  second consumer; keep renderer-specific extraction, material, upload,
-  Gaussian, and presentation policies project-owned until separately proven.
+- **OST template extraction:** Extract only boundaries proven by Merlin and a
+  second consumer; retain renderer-specific policies until separately proven.
+- **Post-v1 research:** Hierarchical meshlets and virtualized geometry require
+  separately approved simplification, crack handling, streaming, paging,
+  residency, and recovery evidence; static meshlets do not imply them.
