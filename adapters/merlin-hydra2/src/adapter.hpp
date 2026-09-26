@@ -5,6 +5,7 @@
 
 #include <pxr/pxr.h>
 
+#include <pxr/base/tf/staticTokens.h>
 #include <pxr/imaging/hd/renderBuffer.h>
 #include <pxr/imaging/hd/renderDelegate.h>
 
@@ -22,6 +23,21 @@ class Backend;
 }
 
 PXR_NAMESPACE_OPEN_SCOPE
+
+// Hydra render setting keys for the renderer settings v3 Gaussian execution
+// policy. The mode and raster keys take the renderer vocabulary names as
+// strings: disabled, prefer, or require, and sorted-stream or tiled. Hosts
+// list only the two flags, which are views of the same policy: enabled is
+// on unless the mode is disabled and turning it on selects prefer, and
+// tiled selects the raster path.
+#define HD_MERLIN_RENDER_SETTINGS_TOKENS                                    \
+  ((gpuDrivenGaussianMode, "merlin:gpuDrivenGaussian:mode"))                \
+  ((gpuDrivenGaussianRaster, "merlin:gpuDrivenGaussian:raster"))            \
+  ((gpuDrivenGaussianEnabled, "merlin:gpuDrivenGaussian:enabled"))          \
+  ((gpuDrivenGaussianTiled, "merlin:gpuDrivenGaussian:tiled"))
+
+TF_DECLARE_PUBLIC_TOKENS(HdMerlinRenderSettingsTokens,
+    HD_MERLIN_RENDER_SETTINGS_TOKENS);
 
 struct HdMerlinViewportFrame {
   merlin::render::FrameTimings timings;
@@ -149,6 +165,16 @@ public:
       const HdSceneIndexBaseRefPtr& terminal_scene_index) override;
   void CommitResources(HdChangeTracker* tracker) override;
   HdAovDescriptor GetDefaultAovDescriptor(const TfToken& name) const override;
+  HdRenderSettingDescriptorList GetRenderSettingDescriptors() const override;
+  // Gaussian execution settings are validated against the selected backend
+  // before they apply; a rejected value reports a renderer-settings
+  // diagnostic and leaves the applied policy unchanged. Once the backend
+  // exists validation is immediate, otherwise it runs before the first frame.
+  void SetRenderSetting(const TfToken& key, const VtValue& value) override;
+  // Reports the effective Gaussian execution policy, in the form the key
+  // uses: the pending request before the backend exists, and the applied
+  // policy afterwards.
+  VtValue GetRenderSetting(const TfToken& key) const override;
 
   // The standalone Vulkan viewport reflects projection Y to compensate for
   // its positive-height framebuffer viewport. Other Hydra hosts keep the
@@ -160,11 +186,18 @@ public:
   void SetHgiProjectionYReflection(bool reflect);
   void SetGpuDrivenIndexedSettings(
       merlin::render::GpuDrivenIndexedSettings settings);
+  // Requests the policy that the Gaussian render settings describe, with the
+  // same validation as SetRenderSetting.
   void SetGpuDrivenGaussianSettings(
       merlin::render::GpuDrivenGaussianSettings settings);
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const;
 
 private:
+  void ApplyInitialRenderSettings();
+  void RequestGpuDrivenGaussianSettings(
+      merlin::render::GpuDrivenGaussianSettings settings,
+      const TfToken& source);
+
   class Impl;
   std::unique_ptr<Impl> impl_;
   HdResourceRegistrySharedPtr resources_;

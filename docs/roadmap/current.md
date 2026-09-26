@@ -17,10 +17,11 @@ ownership, dependency, and fallback contracts.
 
 ### Work
 
-- ⬜ Expose the renderer settings v3 Gaussian execution policy to Hydra hosts
-  such as usdview through render setting descriptors, so GPU preparation,
-  sorting, and tile raster can be selected without the development viewport,
-  and measure the host-presentation cost on the GPU-sorted path.
+- ⬜ Reduce the Hydra CPU-readback floor on GPU-sorted Gaussian frames. In
+  usdview over HgiGL, reading back the four AOVs (5.2 MB at 597x540) takes
+  about 19 ms of a 20 ms frame while the GPU Gaussian stages take under 0.5 ms,
+  so the GPU path cannot be faster than that readback. Investigate the readback
+  bandwidth and whether every bound AOV needs a per-frame CPU readback.
 - ⬜ Remove per-draw CPU preparation from the steady-state Mesh submission path
   while preserving the indexed Forward image and fallback contracts.
 - ⬜ Capture controlled hardware evidence for Mesh command-recording and

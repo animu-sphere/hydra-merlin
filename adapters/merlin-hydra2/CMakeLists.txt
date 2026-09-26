@@ -243,6 +243,26 @@ if(MERLIN_BUILD_TESTS)
       "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
   )
 
+  add_executable(merlin-hydra2-render-settings-test
+    tests/render_settings_test.cpp
+  )
+  merlin_target_defaults(merlin-hydra2-render-settings-test)
+  target_link_libraries(merlin-hydra2-render-settings-test
+    PRIVATE merlin-hydra2-runtime)
+  target_compile_features(merlin-hydra2-render-settings-test
+    PRIVATE cxx_std_20)
+  target_compile_definitions(merlin-hydra2-render-settings-test PRIVATE
+    NOMINMAX
+    _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING
+  )
+  add_test(NAME merlin-hydra2-render-settings
+           COMMAND merlin-hydra2-render-settings-test)
+  set_tests_properties(merlin-hydra2-render-settings PROPERTIES
+    LABELS "hydra;gaussian;settings"
+    ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
+  )
+
   add_executable(merlin-hydra2-hgi-vulkan-bridge-test
     tests/hgi_vulkan_bridge_test.cpp
   )
@@ -361,6 +381,36 @@ if(MERLIN_BUILD_TESTS)
         LABELS "gaussian;hydra;host-smoke"
         TIMEOUT 60
         RUN_SERIAL TRUE)
+      # usdview selects GPU Gaussian execution through the Hydra render
+      # settings alone. Require makes an unavailable stage fail the smoke
+      # instead of falling back to the CPU-sorted reference.
+      foreach(_merlin_gaussian_raster IN ITEMS sorted-stream tiled)
+        set(_merlin_gaussian_gpu_test
+            "merlin-hydra2-gaussian-gpu-${_merlin_gaussian_raster}-usdview-smoke")
+        add_test(
+          NAME "${_merlin_gaussian_gpu_test}"
+          COMMAND ${CMAKE_COMMAND}
+            "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+            "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "-DMERLIN_CONFIG=$<CONFIG>"
+            "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/gaussian-gpu-${_merlin_gaussian_raster}-usdview-install"
+            "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+            "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+            "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+            "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+            "-DMERLIN_GAUSSIAN_SAMPLE=${MERLIN_GAUSSIAN_SAMPLE}"
+            "-DMERLIN_GAUSSIAN_REFERENCE_IMAGE=${_merlin_gaussian_reference_image}"
+            "-DMERLIN_GAUSSIAN_GPU_MODE=require"
+            "-DMERLIN_GAUSSIAN_GPU_RASTER=${_merlin_gaussian_raster}"
+            "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
+            "-DMERLIN_GAUSSIAN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/gaussian_usdview_test.py"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_gaussian_usdview_smoke.cmake"
+        )
+        set_tests_properties("${_merlin_gaussian_gpu_test}" PROPERTIES
+          LABELS "gaussian;hydra;host-smoke;gpu-driven"
+          TIMEOUT 60
+          RUN_SERIAL TRUE)
+      endforeach()
       if(TARGET hgiVulkan)
         add_test(
           NAME merlin-hydra2-gaussian-hgi-vulkan-usdview-smoke

@@ -55,6 +55,14 @@ ost renderer viewport --intent viewport-usd --profile usd -- `
 developer UI's Gaussian counters show the selected path. `require` is rejected
 when GPU Gaussian execution is unavailable.
 
+In usdview, the **Hydra Settings** menu has **GPU Gaussian execution**
+(`prefer` when checked) and **Gaussian tile raster** checkboxes. Other Hydra
+hosts see the same two flags, `merlin:gpuDrivenGaussian:enabled` and
+`merlin:gpuDrivenGaussian:tiled`, and can also set
+`merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster` to the
+names above, for example to select `require`. A rejected value is reported as
+a `renderer-settings.*` warning and the previous policy stays applied.
+
 See the [OpenStrata project layout](docs/design/openstrata-project.md) for the
 composition mapping and adoption decisions.
 

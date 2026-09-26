@@ -66,6 +66,39 @@ unchanged. The development viewport uses this common validator before its
 viewport-specific clear-color, continuous-readback, and AOV-inspection checks;
 the same feedback enters the host-neutral diagnostic history.
 
+## Hydra render settings
+
+The Hydra render delegate translates host render settings into the v3
+Gaussian execution policy. Four keys edit the same policy:
+
+| Key | Values | Default | Listed |
+| --- | --- | --- | --- |
+| `merlin:gpuDrivenGaussian:enabled` | bool: on unless the mode is `disabled`; turning it on selects `prefer` and keeps `require` | `false` | Yes |
+| `merlin:gpuDrivenGaussian:tiled` | bool: `tiled` or `sorted-stream` | `false` | Yes |
+| `merlin:gpuDrivenGaussian:mode` | `disabled`, `prefer`, `require` | `disabled` | No |
+| `merlin:gpuDrivenGaussian:raster` | `sorted-stream`, `tiled` | `sorted-stream` | No |
+
+The delegate's render setting descriptors list only the two flags, which
+usdview shows as Hydra Settings menu checkboxes. usdview's settings dialog,
+which it adds for any non-flag setting, re-sends every listed setting as it
+was when the dialog opened; listing the names as well would let an untouched,
+stale value undo an edited one. The names stay settable, since `require` has
+no flag, and are read before the flags when a host passes both at creation.
+
+A policy name outside the vocabulary, a name that is not a string or token,
+or a flag that is not a bool is rejected with the same `renderer-settings.*`
+code the validator uses. Other
+values are bound to the selected backend through `ValidateRendererSettings`
+with only the Gaussian fields set: immediately when the backend exists, and
+otherwise before the first frame, since the plugin creates its backend
+lazily. Every rejection is a Rejected diagnostic whose source is the setting
+key and whose recovery names the policy that stays applied, and
+`GetRenderSetting` reports that effective policy rather than the rejected
+request. An unchanged policy is neither revalidated nor reported again, because
+hosts such as usdview re-send every setting when one changes. Settings the host
+passes when it creates the delegate go through the same path, and the
+development viewport's `SetGpuDrivenGaussianSettings` shares it too.
+
 Settings versioning does not silently coerce an unknown schema to v3. Schema v2
 added the GPU-driven indexed submission policy and schema v3 the GPU-driven
 Gaussian execution policy; each bumped the backend capability contract, now

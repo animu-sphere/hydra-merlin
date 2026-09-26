@@ -106,6 +106,8 @@ def parse_events(path: Path) -> list[dict]:
         "hgi_direct_share_rejection",
         "hgi_metal_transfer_mode",
         "hgi_metal_direct_share_rejection",
+        "gaussian_gpu_mode",
+        "gaussian_raster_path",
     }
     events = []
     for line_number, line in enumerate(
