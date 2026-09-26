@@ -1,9 +1,12 @@
 #include <merlin/vulkan/shader_abi.hpp>
 
+#include <array>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -140,12 +143,16 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 18) {
+    if (argc != 24) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
           "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
           "gpu-scene.frag.json gpu-driven.comp.json gpu-driven.vert.json "
-          "gpu-driven.frag.json gaussian-prepare.comp.json gaussian.vert.json "
+          "gpu-driven.frag.json gaussian-prepare.comp.json "
+          "gaussian-sort-keys.comp.json gaussian-sort-histogram.comp.json "
+          "gaussian-sort-scan.comp.json gaussian-sort-scan-add.comp.json "
+          "gaussian-sort-scatter.comp.json gaussian-sort-verify.comp.json "
+          "gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -161,13 +168,23 @@ int main(int argc, char** argv) {
     const auto gpu_driven_vertex = CompactJson(Read(argv[8]));
     const auto gpu_driven_fragment = CompactJson(Read(argv[9]));
     const auto gaussian_prepare_compute = CompactJson(Read(argv[10]));
-    const auto gaussian_vertex = CompactJson(Read(argv[11]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[12]));
-    const auto gaussian_fragment = CompactJson(Read(argv[13]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[14]));
-    const auto metal_vertex = CompactJson(Read(argv[15]));
-    const auto metal_fragment = CompactJson(Read(argv[16]));
-    const auto manifest = CompactJson(Read(argv[17]));
+    // Entry point order matches the argv order above.
+    const std::array<const char*, 6> gaussian_sort_entries{
+        "gaussian_sort_keys",        "gaussian_sort_histogram",
+        "gaussian_sort_scan_blocks", "gaussian_sort_scan_add",
+        "gaussian_sort_scatter",     "gaussian_sort_verify",
+    };
+    std::array<std::string, gaussian_sort_entries.size()> gaussian_sort;
+    for (std::size_t i = 0; i < gaussian_sort.size(); ++i) {
+      gaussian_sort[i] = CompactJson(Read(argv[11 + i]));
+    }
+    const auto gaussian_vertex = CompactJson(Read(argv[17]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[18]));
+    const auto gaussian_fragment = CompactJson(Read(argv[19]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[20]));
+    const auto metal_vertex = CompactJson(Read(argv[21]));
+    const auto metal_fragment = CompactJson(Read(argv[22]));
+    const auto manifest = CompactJson(Read(argv[23]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -329,6 +346,44 @@ int main(int argc, char** argv) {
     RequireContains(gaussian_prepare_compute,
                     "\"threadGroupSize\":[64,1,1]",
                     "Gaussian prepare workgroup size is incorrect");
+    for (std::size_t i = 0; i < gaussian_sort.size(); ++i) {
+      const auto& sort = gaussian_sort[i];
+      RequireContains(sort,
+                      "\"name\":\"" + std::string(gaussian_sort_entries[i]) +
+                          "\",\"stage\":\"compute\"",
+                      "Gaussian sort compute entry point mismatch");
+      RequireContains(sort, "\"threadGroupSize\":[256,1,1]",
+                      "Gaussian sort workgroup size is incorrect");
+      RequireBinding(sort, "gaussian_sort_constants",
+                     "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}");
+      RequireContains(sort, "\"name\":\"GaussianSortConstants\"",
+                      "Gaussian sort constants are absent from reflection");
+      RequireField(sort, "element_count", 0, 4);
+      RequireField(sort, "digit_shift", 8, 4);
+      RequireField(sort, "scan_offset", 16, 4);
+      RequireField(sort, "scan_sums_offset", 24, 4);
+      RequireField(sort, "candidate_base", 28, 4);
+      RequireField(sort, "visible_count_offset", 36, 4);
+      RequireContains(sort, "\"name\":\"GaussianSortElement\"",
+                      "Gaussian sort element is absent from reflection");
+      RequireField(sort, "key_low", 0, 4);
+      RequireField(sort, "key_high", 4, 4);
+      RequireField(sort, "value", 8, 4);
+      // The sort indexes the same prepared records the preparation writes.
+      RequireField(sort, "center_pixels", 0, 8);
+      RequireField(sort, "inverse_conic", 16, 12);
+      RequireField(sort, "sort_key", 44, 4);
+      RequireField(sort, "resource_id_low", 48, 4);
+      RequireField(sort, "particle_id", 56, 4);
+      RequireBinding(sort, "gaussian_sort_source",
+                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
+      RequireBinding(sort, "gaussian_sort_destination",
+                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+      RequireBinding(sort, "gaussian_sort_scan",
+                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":2}");
+      RequireBinding(sort, "gaussian_sort_prepared_records",
+                     "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
+    }
     RequireContains(gaussian_vertex,
                     "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
                     "Gaussian vertex entry point mismatch");
@@ -359,7 +414,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
                     "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":6",
+    RequireContains(manifest, "\"shader_abi_version\":7",
                     "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
                     "Slang toolchain series is not pinned");
@@ -375,14 +430,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 16,
+                "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 22,
             "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 6);
+    static_assert(kVersion == 7);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -412,6 +467,42 @@ int main(int argc, char** argv) {
     static_assert(GaussianPrepareWorkgroupCount(1) == 1);
     static_assert(GaussianPrepareWorkgroupCount(64) == 1);
     static_assert(GaussianPrepareWorkgroupCount(65) == 2);
+    static_assert(kGaussianSortSource.set == 0);
+    static_assert(kGaussianSortSource.binding == 0);
+    static_assert(kGaussianSortDestination.binding == 1);
+    static_assert(kGaussianSortScan.binding == 2);
+    static_assert(kGaussianSortPreparedRecords.binding == 3);
+    static_assert(GaussianSortWorkgroupCount(0) == 0);
+    static_assert(GaussianSortWorkgroupCount(256) == 1);
+    static_assert(GaussianSortWorkgroupCount(257) == 2);
+    static_assert(GaussianSortScanWorkgroupCount(1024) == 1);
+    static_assert(GaussianSortScanWorkgroupCount(1025) == 2);
+    // Only bytes a candidate index can occupy take a low-word pass.
+    static_assert(GaussianSortLowWordPassCount(0) == 0);
+    static_assert(GaussianSortLowWordPassCount(1) == 0);
+    static_assert(GaussianSortLowWordPassCount(2) == 1);
+    static_assert(GaussianSortLowWordPassCount(256) == 1);
+    static_assert(GaussianSortLowWordPassCount(257) == 2);
+    static_assert(GaussianSortLowWordPassCount(std::uint64_t{1} << 32U) == 4);
+    // Back-to-front order: larger keys, including infinite ones, map to
+    // smaller high words, and signed zeros compare equal.
+    static_assert(GaussianSortKeyHigh(2.0F) < GaussianSortKeyHigh(1.0F));
+    static_assert(GaussianSortKeyHigh(1.0F) < GaussianSortKeyHigh(0.0F));
+    static_assert(GaussianSortKeyHigh(0.0F) == GaussianSortKeyHigh(-0.0F));
+    static_assert(GaussianSortKeyHigh(-0.0F) < GaussianSortKeyHigh(-1.0F));
+    static_assert(GaussianSortKeyHigh(-1.0F) < GaussianSortKeyHigh(-2.0F));
+    static_assert(GaussianSortKeyHigh(std::numeric_limits<float>::infinity()) <
+                  GaussianSortKeyHigh(std::numeric_limits<float>::max()));
+    // A finite or infinite key never collides with the all-ones sentinel.
+    static_assert(GaussianSortKeyHigh(
+                      -std::numeric_limits<float>::infinity()) !=
+                  kGaussianSortInvalidValue);
+    static_assert(GaussianSortIdentityHash(1, 0, 0) !=
+                  GaussianSortIdentityHash(1, 0, 1));
+    static_assert(GaussianSortIdentityHash(1, 0, 0) !=
+                  GaussianSortIdentityHash(2, 0, 0));
+    static_assert(GaussianSortIdentityHash(1, 0, 0) !=
+                  GaussianSortIdentityHash(1, 1, 0));
     static_assert(GpuDrivenIndexedWorkgroupCount(0) == 0);
     static_assert(GpuDrivenIndexedWorkgroupCount(1) == 1);
     static_assert(GpuDrivenIndexedWorkgroupCount(64) == 1);

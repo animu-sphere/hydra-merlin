@@ -333,12 +333,31 @@ into one dispatch per visible resident resource; each reusable frame context
 owns aligned output, uniform, descriptor, and counter-readback resources, and
 completion validates every resource partition before publishing structured
 telemetry. Preferred selection falls back when the artifact or capability is
-unavailable, while required selection rejects it explicitly. Deterministic
-radix sorting, Gaussian-tile pairing/ranges, indirect raster, and
-reference-image evidence still retain the CPU-sorted raster path.
+unavailable, while required selection rejects it explicitly.
 
-The Gaussian compute preparation path remains incomplete. This slice is
-therefore not the complete v0.16.0 support claim.
+A deterministic GPU radix sort now orders the prepared records of the whole
+frame. Its 64-bit key places a larger authored sort key first and breaks ties
+by a frame-global candidate index assigned in ascending resource/particle
+order. The GPU order is therefore independent of atomic compaction and matches
+the CPU reference exactly. Portable 8-bit LSD passes (digit-major histogram,
+multi-level exclusive scan, stable scatter) use no subgroup operations and bind
+four storage buffers. Low-word passes the candidate count cannot occupy are
+skipped, so the dispatch count is a fixed function of candidate and resource
+counts. A GPU verification pass checks strict key order, sentinel placement,
+and every key against its prepared record, and resolve fails the frame on any
+violation or lost record. An order-sensitive identity checksum is compared
+with the CPU reference and reported as a divergence counter. Shader ABI v7
+reflection-checks the sort layouts. Selection is independent of preparation;
+preferred sorting falls back when preparation or its artifacts are
+unavailable, and required sorting rejects explicitly. Validation-backed
+coverage exercises multiple workgroups, a two-level scan, two low-word passes,
+depth ties across resources, and fallback/rejection paths.
+Gaussian-tile pairing/ranges, indirect raster consuming the sorted stream,
+sort timestamps, and reference-image evidence still retain the CPU-sorted
+raster path.
+
+The Gaussian compute path remains incomplete. These slices are therefore not
+the complete v0.16.0 support claim.
 
 ## Near-term execution order
 

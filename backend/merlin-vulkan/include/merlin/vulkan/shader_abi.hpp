@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -13,7 +14,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 6;
+inline constexpr std::uint32_t kVersion = 7;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -149,6 +150,107 @@ struct alignas(16) GaussianPrepareDispatchCounters {
   std::uint32_t padding[3]{};
 };
 
+// The global Gaussian sort runs an LSD radix sort over 8-bit digits of a
+// 64-bit key. Histogram and scatter workgroups own 256 keys each; the key
+// count is padded to that size with sentinels, so the digit-major histogram
+// holds exactly one entry per padded key.
+inline constexpr std::uint32_t kGaussianSortWorkgroupSize = 256U;
+inline constexpr std::uint32_t kGaussianSortRadixBits = 8U;
+inline constexpr std::uint32_t kGaussianSortRadixBins = 256U;
+inline constexpr std::uint32_t kGaussianSortScanWorkgroupElements = 1024U;
+inline constexpr std::uint32_t kGaussianSortInvalidValue = ~std::uint32_t{};
+// Verification words precede the per-resource visible counts and histogram
+// levels in the scan/control buffer.
+inline constexpr std::uint32_t kGaussianSortControlWordCount = 4U;
+
+[[nodiscard]] constexpr std::uint32_t GaussianSortWorkgroupCount(
+    std::uint32_t key_count) noexcept {
+  return key_count == 0U
+             ? 0U
+             : 1U + (key_count - 1U) / kGaussianSortWorkgroupSize;
+}
+
+[[nodiscard]] constexpr std::uint32_t GaussianSortScanWorkgroupCount(
+    std::uint32_t element_count) noexcept {
+  return element_count == 0U
+             ? 0U
+             : 1U + (element_count - 1U) /
+                        kGaussianSortScanWorkgroupElements;
+}
+
+// Back to front: a larger sort key maps to a smaller unsigned high word, and
+// -0 shares +0's key because the CPU reference compares the float values.
+[[nodiscard]] constexpr std::uint32_t GaussianSortKeyHigh(
+    float sort_key) noexcept {
+  const auto bits =
+      sort_key == 0.0F ? 0U : std::bit_cast<std::uint32_t>(sort_key);
+  const auto ordered =
+      (bits & 0x80000000U) != 0U ? ~bits : (bits | 0x80000000U);
+  return ~ordered;
+}
+
+// The low word is a frame-global candidate index below candidate_count, so
+// only the bytes that can differ need a radix pass. The four high-word passes
+// always run.
+[[nodiscard]] constexpr std::uint32_t GaussianSortLowWordPassCount(
+    std::uint64_t candidate_count) noexcept {
+  if (candidate_count <= 1U) {
+    return 0U;
+  }
+  const auto bits = static_cast<std::uint32_t>(
+      std::bit_width(candidate_count - 1U));
+  return (bits + kGaussianSortRadixBits - 1U) / kGaussianSortRadixBits;
+}
+
+[[nodiscard]] constexpr std::uint32_t GaussianSortMix(
+    std::uint32_t value) noexcept {
+  value ^= value >> 16U;
+  value *= 0x85EBCA6BU;
+  value ^= value >> 13U;
+  value *= 0xC2B2AE35U;
+  value ^= value >> 16U;
+  return value;
+}
+
+// Order-sensitive verification: the sort adds (position + 1) * hash for each
+// sorted record, so the CPU reference order reproduces the same checksum.
+[[nodiscard]] constexpr std::uint32_t GaussianSortIdentityHash(
+    std::uint32_t resource_low, std::uint32_t resource_high,
+    std::uint32_t particle) noexcept {
+  const auto hash = GaussianSortMix((particle * 0x9E3779B9U) ^ resource_low);
+  return GaussianSortMix(hash ^ (resource_high * 0x85EBCA6BU));
+}
+
+struct GaussianSortElement {
+  std::uint32_t key_low{};
+  std::uint32_t key_high{};
+  // Index into the prepared-record buffer, or kGaussianSortInvalidValue.
+  std::uint32_t value{};
+};
+
+// One push-constant block shared by every sort kernel; each reads only the
+// fields its stage documents in gaussian-sort.slang.
+struct alignas(16) GaussianSortConstants {
+  std::uint32_t element_count{};
+  std::uint32_t block_count{};
+  std::uint32_t digit_shift{};
+  std::uint32_t digit_word{};
+  std::uint32_t scan_offset{};
+  std::uint32_t scan_count{};
+  std::uint32_t scan_sums_offset{};
+  std::uint32_t candidate_base{};
+  std::uint32_t prepared_base{};
+  std::uint32_t visible_count_offset{};
+  std::uint32_t padding[2]{};
+};
+
+struct GaussianSortVerification {
+  std::uint32_t sorted_count{};
+  std::uint32_t order_violation_count{};
+  std::uint32_t key_mismatch_count{};
+  std::uint32_t identity_checksum{};
+};
+
 static_assert(sizeof(DrawConstants) == 128);
 static_assert(alignof(DrawConstants) == 16);
 static_assert(offsetof(DrawConstants, model_view_projection) == 0);
@@ -211,6 +313,20 @@ static_assert(alignof(GaussianPrepareDispatchCounters) == 16);
 static_assert(offsetof(GaussianPrepareDispatchCounters, candidate_count) == 0);
 static_assert(offsetof(GaussianPrepareDispatchCounters, invalid_culled_count) ==
               16);
+static_assert(sizeof(GaussianSortElement) == 12);
+static_assert(alignof(GaussianSortElement) == 4);
+static_assert(offsetof(GaussianSortElement, key_high) == 4);
+static_assert(offsetof(GaussianSortElement, value) == 8);
+static_assert(sizeof(GaussianSortConstants) == 48);
+static_assert(alignof(GaussianSortConstants) == 16);
+static_assert(offsetof(GaussianSortConstants, digit_shift) == 8);
+static_assert(offsetof(GaussianSortConstants, scan_offset) == 16);
+static_assert(offsetof(GaussianSortConstants, candidate_base) == 28);
+static_assert(offsetof(GaussianSortConstants, visible_count_offset) == 36);
+static_assert(sizeof(GaussianSortVerification) ==
+              kGaussianSortControlWordCount * sizeof(std::uint32_t));
+static_assert(kGaussianSortRadixBins == 1U << kGaussianSortRadixBits);
+static_assert(kGaussianSortWorkgroupSize == kGaussianSortRadixBins);
 static_assert(sizeof(render::GpuIndexedIndirectCommand) == 20);
 
 enum class ResourceClass {
@@ -269,6 +385,16 @@ inline constexpr ResourceBinding kGaussianPrepareCounters{
     3, 6, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGaussianPrepareConstants{
     3, 7, ResourceClass::UniformBuffer};
+// Every sort kernel shares one four-storage-buffer set, the Vulkan
+// guaranteed per-stage minimum, and one push-constant block.
+inline constexpr ResourceBinding kGaussianSortSource{
+    0, 0, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianSortDestination{
+    0, 1, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianSortScan{
+    0, 2, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianSortPreparedRecords{
+    0, 3, ResourceClass::StorageBuffer};
 
 inline constexpr ShaderCapability kConventionalCapabilities =
     ShaderCapability::MaterialConstants |

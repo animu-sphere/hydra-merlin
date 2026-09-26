@@ -357,6 +357,18 @@ struct FrameCounters {
   std::uint64_t gaussian_gpu_preparation_frustum_culled_count{};
   std::uint64_t gaussian_gpu_preparation_invalid_culled_count{};
   std::uint64_t gaussian_gpu_preparation_fallback_count{};
+  // The GPU sort orders every prepared record of the frame by one 64-bit key.
+  // key_count includes the sentinel padding to whole 256-key workgroups;
+  // sorted_count is the verified number of real records. A reference
+  // divergence means the verified GPU order differs from the CPU reference
+  // order, which floating-point differences between the two preparations can
+  // cause; ordering violations fail the frame instead.
+  std::uint64_t gaussian_gpu_sort_dispatch_count{};
+  std::uint64_t gaussian_gpu_sort_pass_count{};
+  std::uint64_t gaussian_gpu_sort_key_count{};
+  std::uint64_t gaussian_gpu_sorted_count{};
+  std::uint64_t gaussian_gpu_sort_reference_divergence_count{};
+  std::uint64_t gaussian_gpu_sort_fallback_count{};
   std::uint64_t gaussian_draw_count{};
   std::uint64_t gaussian_attribute_upload_bytes{};
   std::uint64_t gaussian_attribute_copy_range_count{};
@@ -484,6 +496,9 @@ struct ShaderPaths {
   std::filesystem::path gpu_driven_fragment;
   // Empty resolves beside gaussian_vertex using the packaged compute name.
   std::filesystem::path gaussian_prepare_compute;
+  // Directory holding the packaged gaussian-sort-*.comp.spv kernels. Empty
+  // resolves beside the effective Gaussian preparation compute artifact.
+  std::filesystem::path gaussian_sort_directory;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
@@ -495,6 +510,12 @@ enum class GpuDrivenIndexedMode {
 };
 
 enum class GpuDrivenGaussianPreparationMode {
+  Disabled,
+  Prefer,
+  Require,
+};
+
+enum class GpuDrivenGaussianSortMode {
   Disabled,
   Prefer,
   Require,
@@ -541,12 +562,19 @@ struct RenderRequest {
   // expands. Prefer falls back to table-backed Forward; Require reports an
   // actionable Unsupported error.
   GpuDrivenIndexedRequest gpu_driven_indexed;
-  // GPU preparation remains independently opt-in while radix sort, tiling,
-  // and indirect raster are incomplete. Prefer retains the CPU-sorted raster
+  // GPU preparation remains independently opt-in while tiling and indirect
+  // raster are incomplete. Prefer retains the CPU-sorted raster
   // path when compute preparation cannot be selected; Require reports an
   // actionable Unsupported error.
   GpuDrivenGaussianPreparationMode gpu_driven_gaussian_preparation{
       GpuDrivenGaussianPreparationMode::Disabled};
+  // The deterministic global radix sort consumes the GPU-prepared records, so
+  // it requires GPU preparation to be selected for the same frame. Its output
+  // is verified on the GPU but not yet rasterized; tile binning and indirect
+  // raster remain follow-up stages. Prefer counts a fallback when the sort
+  // cannot run; Require reports an actionable Unsupported error.
+  GpuDrivenGaussianSortMode gpu_driven_gaussian_sort{
+      GpuDrivenGaussianSortMode::Disabled};
 };
 
 enum class RendererErrorCode {

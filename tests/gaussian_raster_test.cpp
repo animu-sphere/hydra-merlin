@@ -1,5 +1,6 @@
 // Exercises the Vulkan Gaussian path end to end: GPU projection/culling
-// dispatch and counter readback beside the CPU-sorted reference raster,
+// dispatch, the verified GPU radix sort, and counter readback beside the
+// CPU-sorted reference raster,
 // prepared-stream upload, procedural ellipse rasterization, alpha compositing,
 // Mesh depth composition, ID output, and steady-state frame-local reuse.
 
@@ -10,9 +11,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -36,6 +39,30 @@ std::size_t PixelIndex(const merlin::vulkan::RenderResult& result,
   return static_cast<std::size_t>(y) *
              (result.depth.row_pitch_bytes / sizeof(float)) +
          x;
+}
+
+bool ThrowsRendererError(const std::function<void()>& action,
+                         merlin::vulkan::RendererErrorCode code) {
+  try {
+    action();
+  } catch (const merlin::vulkan::RendererError& error) {
+    return error.code() == code;
+  }
+  return false;
+}
+
+// The GPU sort must produce the CPU reference order, verify its own keys,
+// and retain every visible prepared record exactly once.
+void RequireVerifiedSort(const merlin::vulkan::RenderResult& result,
+                         const char* message) {
+  Require(result.counters.gaussian_gpu_sorted_count ==
+                  result.counters.gaussian_gpu_preparation_visible_count &&
+              result.counters.gaussian_gpu_sorted_count ==
+                  result.counters.gaussian_visible_count &&
+              result.counters.gaussian_gpu_sort_reference_divergence_count ==
+                  0 &&
+              result.counters.gaussian_gpu_sort_fallback_count == 0,
+          message);
 }
 
 }  // namespace
@@ -113,6 +140,8 @@ int main(int argc, char** argv) {
                         {merlin::Aov::InstanceId, true}};
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
+    request.gpu_driven_gaussian_sort =
+        merlin::vulkan::GpuDrivenGaussianSortMode::Require;
 
     const auto first = renderer->Resolve(renderer->Submit(request));
     Require(first.counters.gaussian_visible_count == 2,
@@ -127,6 +156,14 @@ int main(int argc, char** argv) {
             first.counters.gaussian_gpu_preparation_frustum_culled_count == 0 &&
             first.counters.gaussian_gpu_preparation_invalid_culled_count == 0,
         "GPU Gaussian preparation unexpectedly rejected a visible particle");
+    RequireVerifiedSort(first, "GPU Gaussian sort diverged from the reference");
+    // Two candidates need one low-word and four high-word passes over one
+    // padded workgroup: keys, then histogram/scan/scatter per pass, then
+    // verification.
+    Require(first.counters.gaussian_gpu_sort_key_count == 256 &&
+                first.counters.gaussian_gpu_sort_pass_count == 5 &&
+                first.counters.gaussian_gpu_sort_dispatch_count == 17,
+            "GPU Gaussian sort did not follow its bounded dispatch plan");
     Require(first.counters.gaussian_draw_count == 2,
             "Gaussian color and ID streams were not submitted as two draws");
     Require(first.counters.gaussian_upload_bytes == 104,
@@ -182,19 +219,52 @@ int main(int argc, char** argv) {
     Require(steady.counters.gaussian_gpu_preparation_dispatch_count == 1 &&
                 steady.counters.gaussian_gpu_preparation_visible_count == 2,
             "static Gaussian frame lost GPU preparation evidence");
+    RequireVerifiedSort(steady, "static Gaussian frame lost its GPU sort");
 
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Prefer;
+    request.gpu_driven_gaussian_sort =
+        merlin::vulkan::GpuDrivenGaussianSortMode::Prefer;
     request.shaders.gaussian_prepare_compute =
         shader_dir / "missing-gaussian-prepare.comp.spv";
     const auto fallback = renderer->Resolve(renderer->Submit(request));
     Require(fallback.counters.gaussian_gpu_preparation_fallback_count == 1 &&
                 fallback.counters.gaussian_gpu_preparation_dispatch_count == 0,
             "preferred GPU Gaussian preparation did not retain CPU fallback");
+    Require(fallback.counters.gaussian_gpu_sort_fallback_count == 1 &&
+                fallback.counters.gaussian_gpu_sort_dispatch_count == 0,
+            "preferred GPU Gaussian sort ran without GPU preparation");
     Require(fallback.counters.gaussian_visible_count == 2 &&
                 fallback.counters.gaussian_draw_count == 2,
             "GPU Gaussian preparation fallback lost the reference raster");
     request.shaders.gaussian_prepare_compute.clear();
+    request.gpu_driven_gaussian_preparation =
+        merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
+
+    // A missing sort artifact keeps GPU preparation and falls back only the
+    // sort when preferred, and fails the frame when required.
+    request.shaders.gaussian_sort_directory =
+        shader_dir / "missing-gaussian-sort";
+    const auto sort_fallback = renderer->Resolve(renderer->Submit(request));
+    Require(sort_fallback.counters.gaussian_gpu_sort_fallback_count == 1 &&
+                sort_fallback.counters.gaussian_gpu_sort_dispatch_count == 0 &&
+                sort_fallback.counters.gaussian_gpu_preparation_dispatch_count ==
+                    1,
+            "missing Gaussian sort artifacts did not fall back independently");
+    request.gpu_driven_gaussian_sort =
+        merlin::vulkan::GpuDrivenGaussianSortMode::Require;
+    Require(ThrowsRendererError(
+                [&] { (void)renderer->Submit(request); },
+                merlin::vulkan::RendererErrorCode::InvalidRequest),
+            "required Gaussian sort accepted missing artifacts");
+    request.shaders.gaussian_sort_directory.clear();
+    // The sort consumes GPU-prepared records, so it cannot be required alone.
+    request.gpu_driven_gaussian_preparation =
+        merlin::vulkan::GpuDrivenGaussianPreparationMode::Disabled;
+    Require(ThrowsRendererError(
+                [&] { (void)renderer->Submit(request); },
+                merlin::vulkan::RendererErrorCode::Unsupported),
+            "required Gaussian sort accepted a CPU-prepared frame");
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
 
@@ -208,6 +278,9 @@ int main(int argc, char** argv) {
                 resolved.counters.gaussian_gpu_preparation_fallback_count == 0,
             "omitted Gaussian artifacts did not resolve the packaged compute "
             "artifact");
+    RequireVerifiedSort(resolved,
+                        "omitted Gaussian artifacts did not resolve the "
+                        "packaged sort kernels");
     request.shaders.gaussian_vertex = authored_gaussian_vertex;
 
     // Z depth and camera distance are incomparable key domains, so a frame
@@ -230,6 +303,11 @@ int main(int argc, char** argv) {
     Require(mixed_sorting.counters.gaussian_gpu_preparation_visible_count ==
                 mixed_sorting.counters.gaussian_visible_count,
             "mixed sorting policy diverged from the CPU reference partition");
+    // Both resources share key domains and tie on depth; ascending resource
+    // identity has to break those ties exactly as the CPU reference does.
+    RequireVerifiedSort(mixed_sorting,
+                        "mixed sorting policy diverged from the reference "
+                        "order");
     world.Remove(distance_gaussian);
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
@@ -256,6 +334,8 @@ int main(int argc, char** argv) {
             multiple_resources.counters
                     .gaussian_gpu_preparation_opacity_culled_count == 1,
         "per-resource GPU Gaussian dispatch did not preserve partitions");
+    RequireVerifiedSort(multiple_resources,
+                        "a fully culled resource disturbed the GPU sort");
     world.Remove(secondary_gaussian);
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
@@ -322,6 +402,48 @@ int main(int argc, char** argv) {
             "visibility-only Gaussian edit re-uploaded source attributes");
     Require(hidden.counters.gaussian_attribute_generation_count == 1,
             "visibility-only Gaussian edit did not advance record generation");
+    // Enough candidates for several sort workgroups, a two-level scan, and
+    // two low-word passes. Three shared depths per resource make most keys
+    // tie, so the order also proves the resource/particle tie break. This
+    // runs last because it replaces the frame's prepared instance stream.
+    std::vector<merlin::GaussianHandle> scale_gaussians;
+    for (const std::uint32_t count : {2500U, 700U}) {
+      merlin::GaussianDescriptor scale;
+      scale.label = "sort-scale-splats";
+      for (std::uint32_t particle = 0; particle < count; ++particle) {
+        const auto column = static_cast<float>(particle % 50U);
+        const auto row = static_cast<float>((particle / 50U) % 50U);
+        scale.positions.push_back({-0.6F + column * 0.024F,
+                                   -0.6F + row * 0.024F,
+                                   0.3F + 0.2F * static_cast<float>(
+                                                     (particle * 7U) % 3U)});
+        scale.covariances.push_back(
+            {0.0001F, 0.0F, 0.0F, 0.0001F, 0.0F, 0.0001F});
+        scale.opacities.push_back(0.5F);
+        scale.spherical_harmonics_coefficients.push_back(
+            {0.2F, 0.4F, 0.6F});
+      }
+      scale_gaussians.push_back(world.CreateGaussian(std::move(scale)));
+    }
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    const auto scaled = renderer->Resolve(renderer->Submit(request));
+    Require(scaled.counters.gaussian_gpu_preparation_visible_count == 3200,
+            "sort-scale fixture lost visible Gaussians");
+    RequireVerifiedSort(scaled, "multi-workgroup GPU sort diverged");
+    // 3200 candidates pad to 3328 keys: 13 workgroups, a two-level scan, and
+    // two low-word passes. Each of six passes records histogram, two scans,
+    // one add, and scatter between two key segments and one verification.
+    Require(scaled.counters.gaussian_gpu_sort_key_count == 3328 &&
+                scaled.counters.gaussian_gpu_sort_pass_count == 6 &&
+                scaled.counters.gaussian_gpu_sort_dispatch_count == 33,
+            "multi-workgroup GPU sort did not follow its dispatch plan");
+    for (const auto handle : scale_gaussians) {
+      world.Remove(handle);
+    }
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+
     Require(renderer->statistics().validation_messages == 0,
             "Gaussian rasterization produced Vulkan validation diagnostics");
   } catch (const std::exception& error) {

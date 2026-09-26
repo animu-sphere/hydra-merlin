@@ -10,6 +10,28 @@ after its public API and release process are established.
 
 ### Added
 
+- A deterministic Vulkan GPU radix sort now orders every GPU-prepared Gaussian
+  record of a frame. A 64-bit key places a larger authored sort key first and
+  breaks ties by a frame-global candidate index assigned in ascending
+  resource/particle order, so atomic compaction order never reaches the result
+  and the sorted order matches the CPU reference exactly. Six portable Slang
+  kernels (key generation, 8-bit digit-major histogram, block scan, scan add,
+  stable scatter, and verification) use no subgroup operations and bind four
+  storage buffers, the Vulkan guaranteed minimum. The sort skips low-word
+  passes the candidate count cannot occupy. Its dispatch count is fixed by the
+  candidate count and resource count. A GPU verification pass checks strict
+  key order, sentinel placement, and every key against its prepared record, and
+  resolve fails the frame on any violation or lost record. An
+  order-sensitive identity checksum is compared with the CPU reference stream
+  and reported as `gaussian_gpu_sort_reference_divergence_count`. Shader ABI
+  v7 fixes the sort constants, element, and descriptor layouts through SPIR-V
+  reflection and packages the six artifacts. The sort is selected
+  independently of preparation through
+  `RenderRequest::gpu_driven_gaussian_sort`, falls back or fails explicitly
+  when preparation or its artifacts are unavailable, and reports dispatch,
+  pass, key, sorted, divergence, and fallback counters in the benchmark JSON.
+  Its output is not yet rasterized; the CPU-sorted raster path remains the
+  image-producing fallback until tiling and indirect raster land.
 - The first Vulkan GPU-driven Gaussian preparation contract reads the existing
   tightly packed position, covariance, opacity, and spherical-harmonic arena
   ranges directly in a 64-thread compute kernel. It projects covariance,

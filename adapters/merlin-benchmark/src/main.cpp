@@ -599,6 +599,19 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
   WriteCounter(stream, counter_indent,
                "gaussian_gpu_preparation_fallback_count",
                count.gaussian_gpu_preparation_fallback_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_sort_dispatch_count",
+               count.gaussian_gpu_sort_dispatch_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_sort_pass_count",
+               count.gaussian_gpu_sort_pass_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_sort_key_count",
+               count.gaussian_gpu_sort_key_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_sorted_count",
+               count.gaussian_gpu_sorted_count);
+  WriteCounter(stream, counter_indent,
+               "gaussian_gpu_sort_reference_divergence_count",
+               count.gaussian_gpu_sort_reference_divergence_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_sort_fallback_count",
+               count.gaussian_gpu_sort_fallback_count);
   WriteCounter(stream, counter_indent, "gaussian_draw_count",
                count.gaussian_draw_count);
   WriteCounter(stream, counter_indent, "gaussian_attribute_upload_bytes",

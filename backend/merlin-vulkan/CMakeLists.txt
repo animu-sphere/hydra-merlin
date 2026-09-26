@@ -112,6 +112,18 @@ set(MERLIN_GPU_DRIVEN_FRAGMENT_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gpu-driven-forward.frag.spv")
 set(MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-prepare.comp.spv")
+set(MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-keys.comp.spv")
+set(MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-histogram.comp.spv")
+set(MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-scan.comp.spv")
+set(MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-scan-add.comp.spv")
+set(MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-scatter.comp.spv")
+set(MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV
+    "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-verify.comp.spv")
 set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_SHADER_OUTPUT_DIR}/gaussian.vert.spv")
 set(MERLIN_GAUSSIAN_FRAGMENT_SPV
@@ -138,6 +150,8 @@ set(_merlin_shader_gpu_driven_forward
     "${_merlin_shader_source_dir}/forward-gpu-driven.slang")
 set(_merlin_shader_gaussian_prepare
     "${_merlin_shader_source_dir}/gaussian-prepare.slang")
+set(_merlin_shader_gaussian_sort
+    "${_merlin_shader_source_dir}/gaussian-sort.slang")
 set(_merlin_gpu_scene_abi
     "${PROJECT_SOURCE_DIR}/core/merlin-render-backend/shaders/gpu-scene-abi.slang")
 set(_merlin_shader_gaussian
@@ -239,6 +253,30 @@ _merlin_compile_shader("${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
   gaussian-prepare.slang gaussian_prepare_compact compute spirv
   "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-prepare-compact
   "persistent_gaussian_attributes+projection+culling+parallel_atomic_compaction")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV}"
+  gaussian-sort.slang gaussian_sort_keys compute spirv
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-sort-keys
+  "prepared_record_keys+candidate_identity_tie_break")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV}"
+  gaussian-sort.slang gaussian_sort_histogram compute spirv
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-sort-histogram
+  "radix_8bit+digit_major_histogram")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV}"
+  gaussian-sort.slang gaussian_sort_scan_blocks compute spirv
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-sort-scan
+  "exclusive_block_scan")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}"
+  gaussian-sort.slang gaussian_sort_scan_add compute spirv
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-sort-scan-add
+  "exclusive_block_scan")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
+  gaussian-sort.slang gaussian_sort_scatter compute spirv
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-sort-scatter
+  "radix_8bit+stable_scatter")
+_merlin_compile_shader("${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
+  gaussian-sort.slang gaussian_sort_verify compute spirv
+  "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-sort-verify
+  "order_verification+identity_checksum")
 _merlin_compile_shader("${MERLIN_GAUSSIAN_VERTEX_SPV}" gaussian.slang
   gaussian_vertex vertex spirv "${_merlin_slang_spirv_profile}"
   spirv_1_5 gaussian-mvp "prepared_stream+procedural_quad")
@@ -277,6 +315,12 @@ set(_merlin_shader_reflections
   "${MERLIN_GPU_DRIVEN_VERTEX_SPV}.reflection.json"
   "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}.reflection.json"
+  "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
@@ -311,6 +355,12 @@ add_custom_command(
     "${MERLIN_GPU_DRIVEN_INDEXED_COMPUTE_SPV}"
     "${MERLIN_GPU_DRIVEN_VERTEX_SPV}" "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
@@ -321,6 +371,7 @@ add_custom_command(
     "${_merlin_shader_gpu_driven_indexed}"
     "${_merlin_shader_gpu_driven_forward}"
     "${_merlin_shader_gaussian_prepare}"
+    "${_merlin_shader_gaussian_sort}"
     "${_merlin_shader_gaussian}"
     "${_merlin_shader_common}"
     "${MERLIN_ENVIRONMENT_HDR}"
@@ -342,6 +393,12 @@ add_custom_target(merlin-vulkan-shaders
     "${MERLIN_GPU_DRIVEN_VERTEX_SPV}"
     "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}"
     "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -364,6 +421,12 @@ set(_merlin_shader_package_files
   "${MERLIN_GPU_DRIVEN_VERTEX_SPV}"
   "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}"
   "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}"
+  "${MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV}"
+  "${MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV}"
+  "${MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV}"
+  "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}"
+  "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
+  "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
   "${MERLIN_GAUSSIAN_VERTEX_SPV}"
   "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
   "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -395,6 +458,18 @@ set(MERLIN_GPU_DRIVEN_FRAGMENT_SPV
     "${MERLIN_GPU_DRIVEN_FRAGMENT_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV
     "${MERLIN_GAUSSIAN_PREPARE_COMPUTE_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV
+    "${MERLIN_GAUSSIAN_SORT_KEYS_COMPUTE_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV
+    "${MERLIN_GAUSSIAN_SORT_HISTOGRAM_COMPUTE_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV
+    "${MERLIN_GAUSSIAN_SORT_SCAN_COMPUTE_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV
+    "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV
+    "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}" PARENT_SCOPE)
+set(MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV
+    "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_VERTEX_SPV
     "${MERLIN_GAUSSIAN_VERTEX_SPV}" PARENT_SCOPE)
 set(MERLIN_GAUSSIAN_ID_VERTEX_SPV
