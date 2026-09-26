@@ -41,7 +41,8 @@ candidates -> projection -> conservative culling -> compaction -> depth key and 
 
 The path uses deterministic keys, benchmark-selected tile sizes, bounded GPU
 submissions, and independently switchable stages. CPU sorting, GPU projection
-plus CPU sort, and conservative flat tiling remain diagnostic fallbacks.
+plus CPU sort, GPU-sorted stream raster, and conservative flat tiling remain
+diagnostic fallbacks.
 Validation requires reference-tolerance parity, timestamp ranges and observable
 candidate/visible/rejected/sorted/pair counts, with no CPU full traversal or
 sort during camera movement.
@@ -70,10 +71,19 @@ Vulkan timestamps bracket the selected GPU sort, from key generation through
 verification and counter readback. The separate sort duration is zero for
 fallback or devices without timestamp queries.
 
+Before tile stages exist, the verified order is rasterized directly. A gather
+kernel copies the 64-byte prepared record each sorted element names into
+raster order, and the thread holding the last real element writes the instance
+count of one indirect draw; sentinels sort last, so no atomics are involved.
+The procedural color and ID draws read those records with the same shaders and
+blend state as the CPU-sorted stream, so the frame uploads no prepared stream
+and the image matches the CPU reference whenever the orders match. Resolve
+rejects a draw whose instance count differs from the verified sorted count.
+
 Tile pairing sorts only by tile identity with a stable sort, which preserves
 the verified depth order within every tile without widening the key. The
-CPU-sorted path remains the image reference and fallback when tile/raster
-stages are unavailable. Delivery and support status live in the
+CPU-sorted path remains the image reference, and sorted-stream raster the GPU
+fallback, when tile stages are unavailable. Delivery and support status live in the
 [current milestone](../roadmap/current.md) and
 [support matrix](../reference/support-matrix.md).
 

@@ -37,6 +37,8 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-scatter.comp.spv")
   set(MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV
       "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-verify.comp.spv")
+  set(MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV
+      "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-raster-gather.comp.spv")
   set(MERLIN_GAUSSIAN_VERTEX_SPV
       "${MERLIN_SHADER_OUTPUT_DIR}/gaussian.vert.spv")
   set(MERLIN_GAUSSIAN_FRAGMENT_SPV
@@ -65,6 +67,8 @@ macro(merlin_add_vulkan_shaders)
       "${_merlin_shader_source_dir}/gaussian-prepare.slang")
   set(_merlin_shader_gaussian_sort
       "${_merlin_shader_source_dir}/gaussian-sort.slang")
+  set(_merlin_shader_gaussian_raster_gather
+      "${_merlin_shader_source_dir}/gaussian-raster-gather.slang")
   set(_merlin_gpu_scene_abi
       "${PROJECT_SOURCE_DIR}/core/merlin-render-backend/shaders/gpu-scene-abi.slang")
   set(_merlin_shader_gaussian
@@ -190,6 +194,10 @@ macro(merlin_add_vulkan_shaders)
     gaussian-sort.slang gaussian_sort_verify compute spirv
     "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-sort-verify
     "order_verification+identity_checksum")
+  _merlin_compile_shader("${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}"
+    gaussian-raster-gather.slang gaussian_raster_gather compute spirv
+    "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-raster-gather
+    "sorted_prepared_records+indirect_draw_arguments")
   _merlin_compile_shader("${MERLIN_GAUSSIAN_VERTEX_SPV}" gaussian.slang
     gaussian_vertex vertex spirv "${_merlin_slang_spirv_profile}"
     spirv_1_5 gaussian-mvp "prepared_stream+procedural_quad")
@@ -234,6 +242,7 @@ macro(merlin_add_vulkan_shaders)
     "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}.reflection.json"
+    "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
@@ -274,6 +283,7 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}" "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
       "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
@@ -285,6 +295,7 @@ macro(merlin_add_vulkan_shaders)
       "${_merlin_shader_gpu_driven_forward}"
       "${_merlin_shader_gaussian_prepare}"
       "${_merlin_shader_gaussian_sort}"
+      "${_merlin_shader_gaussian_raster_gather}"
       "${_merlin_shader_gaussian}"
       "${_merlin_shader_common}"
       "${MERLIN_ENVIRONMENT_HDR}"
@@ -312,6 +323,7 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
       "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -340,6 +352,7 @@ macro(merlin_add_vulkan_shaders)
     "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -383,6 +396,8 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}" PARENT_SCOPE)
   set(MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV
       "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}" PARENT_SCOPE)
+  set(MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV
+      "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}" PARENT_SCOPE)
   set(MERLIN_GAUSSIAN_VERTEX_SPV
       "${MERLIN_GAUSSIAN_VERTEX_SPV}" PARENT_SCOPE)
   set(MERLIN_GAUSSIAN_ID_VERTEX_SPV

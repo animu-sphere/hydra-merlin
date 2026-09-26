@@ -143,7 +143,7 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 24) {
+    if (argc != 25) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
           "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
           "gaussian-sort-keys.comp.json gaussian-sort-histogram.comp.json "
           "gaussian-sort-scan.comp.json gaussian-sort-scan-add.comp.json "
           "gaussian-sort-scatter.comp.json gaussian-sort-verify.comp.json "
-          "gaussian.vert.json "
+          "gaussian-raster-gather.comp.json gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -181,13 +181,14 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < gaussian_sort.size(); ++i) {
       gaussian_sort[i] = CompactJson(Read(argv[11 + i]));
     }
-    const auto gaussian_vertex = CompactJson(Read(argv[17]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[18]));
-    const auto gaussian_fragment = CompactJson(Read(argv[19]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[20]));
-    const auto metal_vertex = CompactJson(Read(argv[21]));
-    const auto metal_fragment = CompactJson(Read(argv[22]));
-    const auto manifest = CompactJson(Read(argv[23]));
+    const auto gaussian_raster_gather = CompactJson(Read(argv[17]));
+    const auto gaussian_vertex = CompactJson(Read(argv[18]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[19]));
+    const auto gaussian_fragment = CompactJson(Read(argv[20]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[21]));
+    const auto metal_vertex = CompactJson(Read(argv[22]));
+    const auto metal_fragment = CompactJson(Read(argv[23]));
+    const auto manifest = CompactJson(Read(argv[24]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -387,6 +388,36 @@ int main(int argc, char** argv) {
       RequireBinding(sort, "gaussian_sort_prepared_records",
           "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
     }
+    RequireContains(gaussian_raster_gather,
+        "\"name\":\"gaussian_raster_gather\",\"stage\":\"compute\"",
+        "Gaussian raster gather entry point mismatch");
+    RequireContains(gaussian_raster_gather, "\"threadGroupSize\":[256,1,1]",
+        "Gaussian raster gather workgroup size is incorrect");
+    RequireBinding(gaussian_raster_gather, "gaussian_raster_gather_constants",
+        "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}");
+    RequireContains(gaussian_raster_gather,
+        "\"name\":\"GaussianRasterGatherConstants\"",
+        "Gaussian raster gather constants are absent from reflection");
+    RequireField(gaussian_raster_gather, "element_count", 0, 4);
+    // The gather reads the sort's elements and copies the preparation's
+    // records verbatim, which the Gaussian vertex input then consumes.
+    RequireField(gaussian_raster_gather, "value", 8, 4);
+    RequireField(gaussian_raster_gather, "center_pixels", 0, 8);
+    RequireField(gaussian_raster_gather, "radius_pixels", 8, 4);
+    RequireField(gaussian_raster_gather, "depth", 12, 4);
+    RequireField(gaussian_raster_gather, "inverse_conic", 16, 12);
+    RequireField(gaussian_raster_gather, "opacity", 28, 4);
+    RequireField(gaussian_raster_gather, "radiance", 32, 12);
+    RequireField(gaussian_raster_gather, "resource_id_low", 48, 4);
+    RequireField(gaussian_raster_gather, "particle_id", 56, 4);
+    RequireBinding(gaussian_raster_gather, "gaussian_raster_sorted",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
+    RequireBinding(gaussian_raster_gather, "gaussian_raster_prepared_records",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+    RequireBinding(gaussian_raster_gather, "gaussian_raster_records",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":2}");
+    RequireBinding(gaussian_raster_gather, "gaussian_raster_draw",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
     RequireContains(gaussian_vertex,
         "\"name\":\"gaussian_vertex\",\"stage\":\"vertex\"",
         "Gaussian vertex entry point mismatch");
@@ -417,7 +448,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
         "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":7",
+    RequireContains(manifest, "\"shader_abi_version\":8",
         "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
         "Slang toolchain series is not pinned");
@@ -433,14 +464,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 22,
+                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 23,
         "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 7);
+    static_assert(kVersion == 8);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -475,6 +506,12 @@ int main(int argc, char** argv) {
     static_assert(kGaussianSortDestination.binding == 1);
     static_assert(kGaussianSortScan.binding == 2);
     static_assert(kGaussianSortPreparedRecords.binding == 3);
+    // The gather binds the sort's set layout, so its slots stay in range.
+    static_assert(kGaussianRasterSorted.set == kGaussianSortSource.set);
+    static_assert(kGaussianRasterSorted.binding == 0);
+    static_assert(kGaussianRasterPreparedRecords.binding == 1);
+    static_assert(kGaussianRasterRecords.binding == 2);
+    static_assert(kGaussianRasterDraw.binding == 3);
     static_assert(GaussianSortWorkgroupCount(0) == 0);
     static_assert(GaussianSortWorkgroupCount(256) == 1);
     static_assert(GaussianSortWorkgroupCount(257) == 2);

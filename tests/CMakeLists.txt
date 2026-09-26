@@ -518,6 +518,7 @@ if(TARGET Merlin::Vulkan)
       "${MERLIN_GAUSSIAN_SORT_SCAN_ADD_COMPUTE_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}.reflection.json"
+      "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
       "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
