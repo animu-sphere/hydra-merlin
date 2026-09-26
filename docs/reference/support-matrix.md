@@ -25,7 +25,7 @@ check.
 | --- | --- | --- |
 | CMake | 3.24 | All builds |
 | C++ compiler | C++20 | All builds |
-| OpenStrata CLI | 0.21.0 | Managed build/validation, renderer viewport intents, redacted diagnostics, runtime provenance, and capability CI |
+| OpenStrata CLI | 0.23.8 | Managed build/test/validation, renderer viewport intents, producer-bound renderer evidence, redacted diagnostics, runtime provenance and resilient OCI pull, and capability CI |
 | Vulkan headers/loader/device | 1.4 | Vulkan/headless and Vulkan-backed Hydra |
 | Vulkan SDK `slangc` | Slang 2026.8.x; Vulkan SDK 1.4.350.0 in capability workflow | Shader build and SPIR-V/Metal compile gates |
 | GLFW | 3.4; pinned commit fallback recorded in release metadata | `merlin-viewport` window/input plus Vulkan and Cocoa/Metal presentation adapters |

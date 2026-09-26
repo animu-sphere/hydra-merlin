@@ -18,9 +18,11 @@ around that core.
 
 ## OpenStrata project
 
-The repository is an OpenStrata renderer project targeting `cy2026`. OST 0.21.0
+The repository is an OpenStrata renderer project targeting `cy2026`. OST 0.23.8
 or newer is required for managed-build progress and timeout diagnostics,
-profile-local preset generation, and the managed renderer launch lifecycle.
+profile-local preset generation, producer-bound renderer evidence that survives
+unchanged builds, build-directory-scoped viewport launch records, and resilient
+digest-verified runtime pulls.
 The default host-neutral lifecycle is:
 
 ```powershell
@@ -306,9 +308,10 @@ The manually dispatched `Vulkan and Hydra capability CI` workflow has separate
 headless and Hydra jobs. Both require only a self-hosted Windows x64 runner with
 the `vulkan-1.4` GPU/driver label. They download and checksum-verify LunarG
 Vulkan SDK 1.4.350.0 into a cached workspace prefix. Hydra also obtains the
-Animusphere OpenUSD 26.05/cy2026 runtime from its digest-pinned public GHCR
-package using pinned `ost` 0.21.0. No operator-managed SDK installation is
-required. The jobs run the 64-frame validation loop and install-tree usdview
+Animusphere OpenUSD 26.05 and 26.08 Vulkan runtimes for cy2026 from their
+digest-pinned public GHCR packages through pinned `ost` 0.23.8's native pull,
+which requires the approved Windows Vulkan OpenUSD cell and version, SBOM, and
+provenance before import. No operator-managed SDK installation is required. The jobs run the 64-frame validation loop and install-tree usdview
 stable-update regression, retaining dependency/runtime provenance, images,
 regression logs, and CTest logs as evidence artifacts.
 

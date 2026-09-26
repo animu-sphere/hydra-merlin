@@ -37,13 +37,13 @@ jobs:
         run: |
           vulkaninfoSDK --summary | Out-File -Encoding utf8 vulkaninfo-summary.txt
 
-      - name: Bootstrap pinned ost 0.21.0
+      - name: Bootstrap pinned ost 0.23.8
         shell: pwsh
-        run: .github/scripts/setup-ost.ps1 -Version 0.21.0
+        run: .github/scripts/setup-ost.ps1 -Version 0.23.8
 
       - name: Configure Vulkan headless
         shell: pwsh
-        run: cmake -S . -B build-native -G "Visual Studio 17 2022" -A x64
+        run: cmake -S . -B build-native -A x64
 
       - name: Build
         run: >-
@@ -106,6 +106,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "OpenStrata core runtime pull failed" }
           ost build --jobs 4 --progress plain
           if ($LASTEXITCODE -ne 0) { throw "OpenStrata renderer build failed" }
+          ost test
+          if ($LASTEXITCODE -ne 0) { throw "OpenStrata renderer tests failed" }
           ost validate --json |
             Tee-Object -FilePath .ost-ci/renderer-validate.json
           if ($LASTEXITCODE -ne 0) { throw "OpenStrata renderer validation failed" }
@@ -146,11 +148,11 @@ jobs:
       matrix:
         include:
           - openusd: "26.05"
-            artifact_digest: sha256:c69f605f5b2f6689badbb1ccb9e1fa4b0d65dd5aeaf22df5603b2e334f8103ea
-            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:6408e31c1906105e1523af6aa9f597286e5328bc7dc6e6d25e2a41ade7e082b5
+            artifact_digest: sha256:e6944385f7b53e5c029c258503b053a9ab1cab2ad7e0f676b403f3d79b17b4fd
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:44471d4b66caebc61af2ad69225102a01fc611056136fbffe6bc8e1a38dc1eda
           - openusd: "26.08"
-            artifact_digest: sha256:913446515149cb32e2dfe23114c09f58c8f23aeed491bcff377bd6a1de142375
-            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:0f8129aa905cb6db85895de36c5dfd1fc8e89c6d9de434d5ff55e6b32055ed54
+            artifact_digest: sha256:baa53948498586283d4ad0ee94d9b00357f885fe022b972d627de8ec6367592e
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:29118734a8048313cf7bd8774e23e3cc8477226eae7cdd85002f73af286f109a
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -170,21 +172,9 @@ jobs:
         run: |
           vulkaninfoSDK --summary | Out-Null
 
-      - name: Bootstrap pinned ost 0.21.0
+      - name: Bootstrap pinned ost 0.23.8
         shell: pwsh
-        run: .github/scripts/setup-ost.ps1 -Version 0.21.0
-
-      - name: Verify the OCI package clients
-        shell: pwsh
-        run: |
-          oras version
-          if ($LASTEXITCODE -ne 0) {
-            throw "ORAS is required to inspect the pinned Animu-sphere runtime package"
-          }
-          curl.exe --version
-          if ($LASTEXITCODE -ne 0) {
-            throw "curl is required to resume the pinned Animu-sphere runtime package"
-          }
+        run: .github/scripts/setup-ost.ps1 -Version 0.23.8
 
       - name: Restore the pinned runtime cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -202,18 +192,14 @@ jobs:
               Out-File -Encoding utf8 .ost-ci/runtime-cache-verify.json
             if ($LASTEXITCODE -ne 0) { throw "cached OpenUSD runtime verification failed" }
           } else {
-            $packageDir = ".ost-ci/runtime-package"
-            .github/scripts/pull-ghcr-oci-artifact.ps1 `
-              -Reference $env:OST_RUNTIME_REMOTE `
-              -OutputDirectory $packageDir 2>&1 |
-              Tee-Object -FilePath .ost-ci/runtime-package-pull.log
-            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime package pull failed" }
-            ost artifact import $packageDir --json |
-              Tee-Object -FilePath .ost-ci/runtime-import.json
-            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime package import failed" }
-            ost artifact verify $env:OST_RUNTIME_ARTIFACT --json |
-              Tee-Object -FilePath .ost-ci/runtime-pull-verify.json
-            if ($LASTEXITCODE -ne 0) { throw "pulled OpenUSD runtime verification failed" }
+            ost artifact pull $env:OST_RUNTIME_REMOTE `
+              --expect-artifact $env:OST_RUNTIME_ARTIFACT `
+              --require-kind runtime `
+              --require-openusd cy2026/windows/x86_64/vulkan `
+              --require-openusd-version ${{ matrix.openusd }} `
+              --require-sbom --require-provenance --json |
+              Tee-Object -FilePath .ost-ci/runtime-pull.json
+            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime pull failed" }
           }
           ost runtime pull cy2026 --profile usd `
             --from-artifact $env:OST_RUNTIME_ARTIFACT --force
@@ -232,7 +218,7 @@ jobs:
 
       - name: Configure Hydra
         shell: pwsh
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+        run: cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
 
       - name: Build
         run: >-

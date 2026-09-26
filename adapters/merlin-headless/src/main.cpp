@@ -19,7 +19,26 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace {
+
+// Direct runs are renderer-harness evidence. Only a managed OST command may
+// rebind a report it observed changing to an ost-* completion producer.
+constexpr std::string_view kProducerKind = "renderer-harness";
+constexpr std::string_view kProducerTarget = "merlin-headless";
+
+std::int64_t CurrentProcessId() {
+#if defined(_WIN32)
+  return static_cast<std::int64_t>(_getpid());
+#else
+  return static_cast<std::int64_t>(getpid());
+#endif
+}
 
 struct Arguments {
   std::filesystem::path output{"merlin.ppm"};
@@ -372,9 +391,11 @@ void WriteRendererReport(
   }
   stream << ",\n  \"producer\": {\n    \"id\": ";
   WriteJsonString(stream, producer.id);
-  stream << ",\n    \"kind\": \"managed\",\n"
-         << "    \"target\": \"hdMerlin 0.9.0\",\n"
-         << "    \"started_unix\": " << producer.started_unix
+  stream << ",\n    \"kind\": ";
+  WriteJsonString(stream, kProducerKind);
+  stream << ",\n    \"target\": ";
+  WriteJsonString(stream, kProducerTarget);
+  stream << ",\n    \"started_unix\": " << producer.started_unix
          << ",\n    \"completed_unix\": " << producer.completed_unix
          << ",\n    \"outcome\": ";
   WriteJsonString(stream, producer.outcome);
@@ -583,7 +604,10 @@ merlin::ChangeSet BuildSmokeWorld(merlin::RenderWorld& world) {
 int main(int argc, char** argv) {
   const auto producer_started_unix = CurrentUnixSeconds();
   const ProducerSession producer{
-      "managed-hdMerlin-" + std::to_string(producer_started_unix),
+      // Start time plus pid keeps concurrent direct runs distinct, so a later
+      // session supersedes an earlier one.
+      "merlin-headless-" + std::to_string(producer_started_unix) + "-" +
+          std::to_string(CurrentProcessId()),
       producer_started_unix,
       0,
       "failure"};

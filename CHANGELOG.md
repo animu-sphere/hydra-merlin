@@ -66,6 +66,23 @@ after its public API and release process are established.
   Batch selection rejects or falls back before dispatch when the required
   group count exceeds the device's `maxComputeWorkGroupCount[0]` limit.
 
+### Changed
+
+- OpenStrata CI and the documented operational baseline move to `ost` 0.23.8.
+  Hydra capability CI pulls the repinned OpenUSD 26.05 and 26.08 Windows Vulkan
+  runtime packages with the native resilient `ost artifact pull`. The pull
+  requires the approved `cy2026/windows/x86_64/vulkan` OpenUSD cell and exact
+  version, plus SBOM and provenance, before import. This replaces the
+  ORAS/curl download workaround. The headless lifecycle step runs `ost test`
+  before `ost validate`, so install-tree evidence is bound to the managed test
+  producer.
+
+### Fixed
+
+- Direct `merlin-headless` runs label their renderer report producer as
+  `renderer-harness` with a per-process session ID. They previously claimed a
+  `managed` producer with a stale project target.
+
 ## [0.15.0] - 2026-08-11
 
 ### Added

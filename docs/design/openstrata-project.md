@@ -23,10 +23,14 @@ layers.
 
 ## CLI and runtime policy
 
-OST 0.21.0 or newer is the operational baseline. It supplies atomic completion
+OST 0.23.8 or newer is the operational baseline. It supplies atomic completion
 records for managed builds, child/phase/log-tail timeout diagnostics,
-profile-local preset generation, strict runtime fingerprinting, and the managed
-renderer launch lifecycle used by this project.
+profile-local preset generation, strict runtime fingerprinting, the managed
+renderer launch lifecycle used by this project, renderer evidence retained
+across unchanged builds only when its producer binding and SHA-256 still match,
+viewport launch records scoped to their build directory, and OCI runtime pulls
+with separate timeouts, bounded retry, validated range resume, and per-layer
+transfer evidence.
 Confirm the selected executable before diagnosing project behavior:
 
 ```console
@@ -118,9 +122,12 @@ both modes.
 ## CI policy
 
 Capability CI bootstraps the exact OST version declared in the workflow and
-checksum-verifies its release asset. It materializes the digest-pinned OpenUSD
-runtime artifact, validates the runtime, runs normal renderer lifecycle checks,
-and retains runtime/build/render evidence. Local developer installations may be
+checksum-verifies its release asset. It pulls the digest-pinned OpenUSD runtime
+artifact with `ost artifact pull`, requiring the approved
+`cy2026/windows/x86_64/vulkan` OpenUSD cell and exact version plus SBOM and
+provenance before import, and caches only the verified digest-keyed registry.
+It then materializes and validates the runtime, runs normal renderer lifecycle
+checks, and retains runtime/build/render evidence. Local developer installations may be
 newer, but CLI behavior used by CI must be reproduced with the pinned version
 before changing operational claims.
 
@@ -134,3 +141,9 @@ Future template changes are reviewed as explicit migrations rather than
 regenerating project-owned source. OST 0.19.0 provides `ost renderer adopt` for
 new existing-renderer adoptions; this repository's already-reviewed manifest is
 not regenerated on routine CLI upgrades.
+
+Renderer template 0.5.3 (OST 0.23.8) changed generated install smoke scripts to
+merge the installed headless `renderer.install_tree` verdict into the primary
+build-tree report. hdMerlin needs no migration: its install consumer test
+already runs the installed `merlin-headless` against the primary
+`renderer-report.json`, so managed `ost test` binds that assertion directly.
