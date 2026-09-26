@@ -1510,7 +1510,7 @@ class Renderer::Impl {
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
           "begin frame command buffer");
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
-      vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0, 4);
+      vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0, 6);
       vkCmdWriteTimestamp(frame.command_buffer,
                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                           frame.timestamp_pool, 0);
@@ -1521,7 +1521,19 @@ class Renderer::Impl {
       RecordUploads(frame.command_buffer, false);
     }
     RecordGaussianGpuPreparation(frame.command_buffer, frame);
+    if (frame.timestamp_pool != VK_NULL_HANDLE &&
+        frame.gaussian_gpu_sort.selected) {
+      vkCmdWriteTimestamp(frame.command_buffer,
+                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                          frame.timestamp_pool, 4);
+    }
     RecordGaussianGpuSort(frame.command_buffer, frame);
+    if (frame.timestamp_pool != VK_NULL_HANDLE &&
+        frame.gaussian_gpu_sort.selected) {
+      vkCmdWriteTimestamp(frame.command_buffer,
+                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                          frame.timestamp_pool, 5);
+    }
     RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
                             request.gpu_driven_indexed);
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
@@ -1800,6 +1812,8 @@ class Renderer::Impl {
     result.cpu_timings.completion_wait_ns = wait_ns;
     result.cpu_timings.readback_ns = readback_ns;
     result.cpu_timings.gpu_execution_ns = ReadGpuExecutionNanoseconds(frame);
+    result.cpu_timings.gaussian_gpu_sort_ns =
+        ReadGaussianGpuSortNanoseconds(frame);
     result.cpu_timings.gaussian_raster_ns =
         ReadGaussianRasterNanoseconds(frame);
     result.cpu_timings.backend_total_ns += ElapsedNanoseconds(resolve_start);
@@ -2830,7 +2844,7 @@ class Renderer::Impl {
         VkQueryPoolCreateInfo query_info{
             VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        query_info.queryCount = 4;
+        query_info.queryCount = 6;
         Check(vkCreateQueryPool(device_, &query_info, nullptr,
                                 &frame.timestamp_pool),
               "create frame timestamp query pool");
@@ -8897,6 +8911,13 @@ class Renderer::Impl {
 
   std::uint64_t ReadGpuExecutionNanoseconds(const FrameContext& frame) const {
     return ReadGpuTimestampSpanNanoseconds(frame, 0, 1);
+  }
+
+  std::uint64_t ReadGaussianGpuSortNanoseconds(
+      const FrameContext& frame) const {
+    return frame.gaussian_gpu_sort.selected
+               ? ReadGpuTimestampSpanNanoseconds(frame, 4, 5)
+               : 0;
   }
 
   std::uint64_t ReadGaussianRasterNanoseconds(

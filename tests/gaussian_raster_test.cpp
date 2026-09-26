@@ -164,6 +164,10 @@ int main(int argc, char** argv) {
                 first.counters.gaussian_gpu_sort_pass_count == 5 &&
                 first.counters.gaussian_gpu_sort_dispatch_count == 17,
             "GPU Gaussian sort did not follow its bounded dispatch plan");
+    if (renderer->capabilities().timestamp_queries) {
+      Require(first.cpu_timings.gaussian_gpu_sort_ns != 0,
+              "GPU Gaussian sort did not publish device timing");
+    }
     Require(first.counters.gaussian_draw_count == 2,
             "Gaussian color and ID streams were not submitted as two draws");
     Require(first.counters.gaussian_upload_bytes == 104,
@@ -232,7 +236,8 @@ int main(int argc, char** argv) {
                 fallback.counters.gaussian_gpu_preparation_dispatch_count == 0,
             "preferred GPU Gaussian preparation did not retain CPU fallback");
     Require(fallback.counters.gaussian_gpu_sort_fallback_count == 1 &&
-                fallback.counters.gaussian_gpu_sort_dispatch_count == 0,
+                fallback.counters.gaussian_gpu_sort_dispatch_count == 0 &&
+                fallback.cpu_timings.gaussian_gpu_sort_ns == 0,
             "preferred GPU Gaussian sort ran without GPU preparation");
     Require(fallback.counters.gaussian_visible_count == 2 &&
                 fallback.counters.gaussian_draw_count == 2,
@@ -251,6 +256,8 @@ int main(int argc, char** argv) {
                 sort_fallback.counters.gaussian_gpu_preparation_dispatch_count ==
                     1,
             "missing Gaussian sort artifacts did not fall back independently");
+    Require(sort_fallback.cpu_timings.gaussian_gpu_sort_ns == 0,
+            "missing GPU Gaussian sort artifacts retained a device timing");
     request.gpu_driven_gaussian_sort =
         merlin::vulkan::GpuDrivenGaussianSortMode::Require;
     Require(ThrowsRendererError(

@@ -101,6 +101,10 @@ within four storage-buffer bindings. Passes are skipped only for low-word
 bytes the frame's candidate count cannot occupy. A verification kernel checks
 strict key order and each key against its record, and accumulates an
 order-sensitive identity checksum compared with the CPU reference.
+Vulkan timestamps bracket the selected GPU sort, from key generation through
+verification and counter readback. The separate sort duration is zero for
+fallback or devices without timestamp queries; CPU-sorted raster remains the
+reference until tile pairing and indirect raster consume the GPU stream.
 
 Tile pairing sorts only by tile identity with a stable sort, which preserves
 the verified depth order within every tile without widening the key. The

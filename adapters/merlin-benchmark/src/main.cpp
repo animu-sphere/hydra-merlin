@@ -47,6 +47,7 @@ struct FrameTimings {
   std::uint64_t gaussian_preparation_ns{};
   std::uint64_t gaussian_attribute_upload_ns{};
   std::uint64_t gaussian_prepared_upload_ns{};
+  std::uint64_t gaussian_gpu_sort_ns{};
   std::uint64_t gaussian_raster_ns{};
   std::uint64_t command_recording_ns{};
   std::uint64_t queue_submission_ns{};
@@ -366,6 +367,7 @@ FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
       timings.gaussian_attribute_upload_ns;
   result.gaussian_prepared_upload_ns =
       timings.gaussian_prepared_upload_ns;
+  result.gaussian_gpu_sort_ns = timings.gaussian_gpu_sort_ns;
   result.gaussian_raster_ns = timings.gaussian_raster_ns;
   result.command_recording_ns = timings.command_recording_ns;
   result.queue_submission_ns = timings.queue_submission_ns;
@@ -519,6 +521,7 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
                 &FrameTimings::gaussian_attribute_upload_ns},
       std::pair{"gaussian_prepared_upload",
                 &FrameTimings::gaussian_prepared_upload_ns},
+      std::pair{"gaussian_gpu_sort", &FrameTimings::gaussian_gpu_sort_ns},
       std::pair{"gaussian_raster", &FrameTimings::gaussian_raster_ns},
       std::pair{"command_recording", &FrameTimings::command_recording_ns},
       std::pair{"queue_submission", &FrameTimings::queue_submission_ns},
