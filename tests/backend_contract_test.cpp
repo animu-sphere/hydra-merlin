@@ -204,6 +204,32 @@ int main() {
          settings_error->code ==
              "renderer-settings.invalid-gpu-driven-indexed-mode");
   settings = {};
+  settings.gpu_driven_gaussian.mode = GpuDrivenGaussianMode::Require;
+  settings_error =
+      ValidateRendererSettings(settings, &backend->capabilities());
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.gpu-driven-gaussian-unsupported");
+  settings.gpu_driven_gaussian.mode = GpuDrivenGaussianMode::Prefer;
+  settings.gpu_driven_gaussian.raster = GaussianRasterPath::Tiled;
+  assert(!ValidateRendererSettings(settings, &backend->capabilities()));
+  auto gaussian_capabilities = backend->capabilities();
+  gaussian_capabilities.gpu_driven_gaussian = true;
+  settings.gpu_driven_gaussian.mode = GpuDrivenGaussianMode::Require;
+  assert(!ValidateRendererSettings(settings, &gaussian_capabilities));
+  settings.gpu_driven_gaussian.mode =
+      static_cast<GpuDrivenGaussianMode>(999);
+  settings_error = ValidateRendererSettings(settings);
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.invalid-gpu-driven-gaussian-mode");
+  settings.gpu_driven_gaussian.mode = GpuDrivenGaussianMode::Prefer;
+  settings.gpu_driven_gaussian.raster = static_cast<GaussianRasterPath>(999);
+  settings_error = ValidateRendererSettings(settings);
+  assert(settings_error &&
+         settings_error->code ==
+             "renderer-settings.invalid-gaussian-raster-path");
+  settings = {};
   settings.presentation_mode = PresentationMode::Native;
   auto offscreen_capabilities = backend->capabilities();
   offscreen_capabilities.external_presentation = false;

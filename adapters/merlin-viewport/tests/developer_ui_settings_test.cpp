@@ -117,12 +117,33 @@ int main() {
                     merlin::render::GpuDrivenIndexedMode::Prefer,
         "preferred GPU-driven setting was not retained");
 
+    request.contract.gpu_driven_gaussian.mode =
+        merlin::render::GpuDrivenGaussianMode::Require;
+    Require(!ApplyDeveloperUiRendererSettings(request, capabilities, settings,
+                feedback),
+        "required unavailable GPU Gaussian execution was accepted");
+    Require(settings.revision == 3 &&
+                feedback.message.find(
+                    "renderer-settings.gpu-driven-gaussian-unsupported") == 0,
+        "GPU Gaussian rejection mutated settings or lost its code");
+    request.contract.gpu_driven_gaussian.mode =
+        merlin::render::GpuDrivenGaussianMode::Prefer;
+    request.contract.gpu_driven_gaussian.raster =
+        merlin::render::GaussianRasterPath::Tiled;
+    Require(ApplyDeveloperUiRendererSettings(request, capabilities, settings,
+                feedback),
+        "preferred GPU Gaussian execution was rejected");
+    Require(settings.revision == 4 &&
+                settings.contract.gpu_driven_gaussian.raster ==
+                    merlin::render::GaussianRasterPath::Tiled,
+        "preferred GPU Gaussian setting was not retained");
+
     request.contract.schema_version =
         merlin::render::kRendererSettingsSchemaVersion + 1;
     Require(!ApplyDeveloperUiRendererSettings(request, capabilities, settings,
                 feedback),
         "unsupported renderer settings schema was accepted");
-    Require(settings.revision == 3 &&
+    Require(settings.revision == 4 &&
                 feedback.message.find(
                     "renderer-settings.unsupported-schema") == 0,
         "schema rejection did not preserve settings or report its code");

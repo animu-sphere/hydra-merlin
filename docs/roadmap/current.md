@@ -17,6 +17,10 @@ ownership, dependency, and fallback contracts.
 
 ### Work
 
+- ⬜ Expose the renderer settings v3 Gaussian execution policy to Hydra hosts
+  such as usdview through render setting descriptors, so GPU preparation,
+  sorting, and tile raster can be selected without the development viewport,
+  and measure the host-presentation cost on the GPU-sorted path.
 - ⬜ Make CPU Gaussian preparation and sorting a validation-only reference when
   the GPU path is selected, so camera motion no longer traverses every
   Gaussian on the CPU.

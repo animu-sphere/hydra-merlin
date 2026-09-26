@@ -349,6 +349,13 @@ constexpr std::array<render::GpuDrivenIndexedMode, 3>
     kGpuDrivenIndexedModes{render::GpuDrivenIndexedMode::Disabled,
         render::GpuDrivenIndexedMode::Prefer,
         render::GpuDrivenIndexedMode::Require};
+constexpr std::array<render::GpuDrivenGaussianMode, 3>
+    kGpuDrivenGaussianModes{render::GpuDrivenGaussianMode::Disabled,
+        render::GpuDrivenGaussianMode::Prefer,
+        render::GpuDrivenGaussianMode::Require};
+constexpr std::array<render::GaussianRasterPath, 2> kGaussianRasterPaths{
+    render::GaussianRasterPath::SortedStream,
+    render::GaussianRasterPath::Tiled};
 
 void DrawAovPreview(const DeveloperUiAovPreview& preview) {
   if (!preview.available || preview.preview_width == 0 ||
@@ -735,6 +742,8 @@ private:
             capabilities.generated_materials ? "yes" : "fallback");
         LabelValue("GPU-driven indexed",
             capabilities.gpu_driven_indexed ? "available" : "fallback");
+        LabelValue("GPU-driven Gaussian",
+            capabilities.gpu_driven_gaussian ? "available" : "fallback");
         LabelValue("Validation",
             capabilities.validation_enabled ? "enabled" : "disabled");
         LabelValue("External presentation",
@@ -779,6 +788,14 @@ private:
         LabelValue("GPU-driven indexed",
             render::GpuDrivenIndexedModeName(
                 contract.gpu_driven_indexed.mode)
+                .data());
+        LabelValue("GPU-driven Gaussian",
+            render::GpuDrivenGaussianModeName(
+                contract.gpu_driven_gaussian.mode)
+                .data());
+        LabelValue("Gaussian raster",
+            render::GaussianRasterPathName(
+                contract.gpu_driven_gaussian.raster)
                 .data());
         LabelValue("AOV", AovName(contract.aov).data());
         LabelValue("Lighting",
@@ -831,6 +848,50 @@ private:
       ImGui::TextDisabled(
           "Prefer falls back to conventional Forward; Require rejects an "
           "unavailable GPU-driven path.");
+
+      if (ImGui::BeginCombo(
+              "Gaussian execution",
+              render::GpuDrivenGaussianModeName(
+                  settings_contract_.gpu_driven_gaussian.mode)
+                  .data())) {
+        for (const auto mode : kGpuDrivenGaussianModes) {
+          const bool selected =
+              settings_contract_.gpu_driven_gaussian.mode == mode;
+          if (ImGui::Selectable(
+                  render::GpuDrivenGaussianModeName(mode).data(), selected)) {
+            settings_contract_.gpu_driven_gaussian.mode = mode;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::BeginDisabled(settings_contract_.gpu_driven_gaussian.mode ==
+                           render::GpuDrivenGaussianMode::Disabled);
+      if (ImGui::BeginCombo(
+              "Gaussian raster",
+              render::GaussianRasterPathName(
+                  settings_contract_.gpu_driven_gaussian.raster)
+                  .data())) {
+        for (const auto path : kGaussianRasterPaths) {
+          const bool selected =
+              settings_contract_.gpu_driven_gaussian.raster == path;
+          if (ImGui::Selectable(
+                  render::GaussianRasterPathName(path).data(), selected)) {
+            settings_contract_.gpu_driven_gaussian.raster = path;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::EndDisabled();
+      ImGui::TextDisabled(
+          "GPU execution prepares, sorts, and rasterizes Gaussians on the "
+          "GPU; tiled composites screen tiles in compute. Prefer falls back "
+          "to the CPU-sorted stream.");
 
       ImGui::ColorEdit4("Clear color", settings_clear_color_.data(),
           ImGuiColorEditFlags_Float);
@@ -1124,6 +1185,20 @@ private:
         LabelValue("Sorting fallbacks",
             snapshot.telemetry.gaussian_sorting_policy_fallback_count);
         LabelValue("Draws", snapshot.telemetry.gaussian_draw_count);
+        const auto& telemetry = snapshot.telemetry;
+        LabelValue("Raster path",
+            telemetry.gaussian_gpu_tile_raster_frame_count != 0
+                ? "GPU tiles"
+            : telemetry.gaussian_gpu_raster_instance_count != 0 ||
+                    telemetry.gaussian_gpu_tile_raster_overflow_fallback_count !=
+                        0
+                ? "GPU sorted stream"
+                : "CPU sorted stream");
+        LabelValue("GPU sorted", telemetry.gaussian_gpu_sorted_count);
+        LabelValue("GPU tile overflow fallbacks",
+            telemetry.gaussian_gpu_tile_raster_overflow_fallback_count);
+        LabelValue("GPU stage fallbacks",
+            telemetry.gaussian_gpu_fallback_count);
         LabelBytes("Attribute upload",
             snapshot.telemetry.gaussian_attribute_upload_bytes);
         LabelValue("Attribute ranges",

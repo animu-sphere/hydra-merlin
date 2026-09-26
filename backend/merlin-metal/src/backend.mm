@@ -733,6 +733,20 @@ public:
             render::RendererErrorCode::Unsupported, "submit Metal frame",
             "required GPU-driven indexed Forward execution is unavailable");
       }
+      if (render::GpuDrivenGaussianModeName(
+              request.gpu_driven_gaussian.mode) == "unknown" ||
+          render::GaussianRasterPathName(
+              request.gpu_driven_gaussian.raster) == "unknown") {
+        throw render::RendererError(
+            render::RendererErrorCode::InvalidRequest, "submit Metal frame",
+            "GPU-driven Gaussian execution settings are invalid");
+      }
+      if (request.gpu_driven_gaussian.mode ==
+          render::GpuDrivenGaussianMode::Require) {
+        throw render::RendererError(
+            render::RendererErrorCode::Unsupported, "submit Metal frame",
+            "required GPU-driven Gaussian execution is unavailable");
+      }
       if (request.presentation) {
         ValidatePresentation(request.presentation, "submit Metal frame");
         UpdatePresentationExtent(request.width, request.height);
@@ -837,6 +851,10 @@ public:
       if (request.gpu_driven_indexed.mode ==
           render::GpuDrivenIndexedMode::Prefer) {
         ++pending.result.telemetry.gpu_driven_fallback_count;
+      }
+      if (request.gpu_driven_gaussian.mode ==
+          render::GpuDrivenGaussianMode::Prefer) {
+        ++pending.result.telemetry.gaussian_gpu_fallback_count;
       }
       pending.result.timings.upload_ns = build.upload_ns;
       pending.result.timings.command_recording_ns =

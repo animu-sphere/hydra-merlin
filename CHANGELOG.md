@@ -10,6 +10,21 @@ after its public API and release process are established.
 
 ### Added
 
+- Renderer settings schema v3 and backend contract v3 add
+  `gpu_driven_gaussian`: one host-neutral policy (`disabled`, `prefer`,
+  `require`) that selects GPU Gaussian preparation, sorting, and raster, and
+  a raster path (`sorted-stream`, `tiled`) that draws the GPU-sorted stream or
+  composites screen tiles in compute. `RendererCapabilities` reports
+  `gpu_driven_gaussian`; `require` is rejected when it is unavailable and
+  `prefer` counts per-stage fallbacks. Frame telemetry reports the GPU-sorted
+  count, GPU raster instances, tile raster and overflow-fallback frames, and
+  Gaussian stage fallbacks. The Vulkan backend maps the policy onto its stage
+  modes, Metal rejects `require` and counts `prefer` as a fallback, and the
+  Hydra render delegate forwards it through
+  `HdMerlinRenderDelegate::SetGpuDrivenGaussianSettings`. The development
+  viewport exposes it in the renderer settings panel and through
+  `--gaussian-gpu` and `--gaussian-raster`, and shows the selected Gaussian
+  raster path.
 - Vulkan GPU tile raster composites the verified tile ranges front to back in
   compute, one 16x16 workgroup per tile and one thread per pixel, instead of
   the sorted-stream draws. Each batch of up to 256 records is staged in

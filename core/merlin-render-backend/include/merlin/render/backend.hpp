@@ -18,8 +18,8 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 2;
-inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 2;
+inline constexpr std::uint32_t kBackendContractVersion = 3;
+inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 3;
 
 enum class BackendKind { Vulkan,
   Metal };
@@ -35,6 +35,11 @@ enum class RenderPath { Forward,
 enum class GpuDrivenIndexedMode { Disabled,
   Prefer,
   Require };
+enum class GpuDrivenGaussianMode { Disabled,
+  Prefer,
+  Require };
+enum class GaussianRasterPath { SortedStream,
+  Tiled };
 enum class LightingMode { Diagnostic,
   Environment,
   Authored };
@@ -127,6 +132,43 @@ struct GpuDrivenIndexedSettings {
       const GpuDrivenIndexedSettings&) = default;
 };
 
+[[nodiscard]] constexpr std::string_view GpuDrivenGaussianModeName(
+    GpuDrivenGaussianMode mode) noexcept {
+  switch (mode) {
+  case GpuDrivenGaussianMode::Disabled:
+    return "disabled";
+  case GpuDrivenGaussianMode::Prefer:
+    return "prefer";
+  case GpuDrivenGaussianMode::Require:
+    return "require";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view GaussianRasterPathName(
+    GaussianRasterPath path) noexcept {
+  switch (path) {
+  case GaussianRasterPath::SortedStream:
+    return "sorted-stream";
+  case GaussianRasterPath::Tiled:
+    return "tiled";
+  }
+  return "unknown";
+}
+
+// Gaussian execution policy. Enabled, the GPU prepares, sorts, and
+// rasterizes the frame's Gaussians instead of the CPU-sorted reference
+// stream; the raster path draws the sorted stream or bins it into screen
+// tiles composited in compute. Prefer records an explicit fallback for any
+// stage the backend cannot select; Require reports Unsupported instead.
+struct GpuDrivenGaussianSettings {
+  GpuDrivenGaussianMode mode{GpuDrivenGaussianMode::Disabled};
+  GaussianRasterPath raster{GaussianRasterPath::SortedStream};
+
+  friend constexpr bool operator==(const GpuDrivenGaussianSettings&,
+      const GpuDrivenGaussianSettings&) = default;
+};
+
 [[nodiscard]] constexpr std::string_view LightingModeName(
     LightingMode mode) noexcept {
   switch (mode) {
@@ -207,6 +249,7 @@ struct RendererSettings {
   PresentationMode presentation_mode{PresentationMode::Automatic};
   RenderPath render_path{RenderPath::Forward};
   GpuDrivenIndexedSettings gpu_driven_indexed;
+  GpuDrivenGaussianSettings gpu_driven_gaussian;
   Aov aov{Aov::Color};
   LightingMode lighting_mode{LightingMode::Diagnostic};
   float exposure_ev{};
@@ -256,6 +299,10 @@ struct RendererCapabilities {
   // True only when this backend instance has the device features and
   // persistent GPU Scene configuration required by indexed-indirect Forward.
   bool gpu_driven_indexed{};
+  // True when this backend instance can prepare, sort, and rasterize
+  // Gaussians on the GPU. Tiled raster may still fall back per frame when
+  // the target formats cannot be storage images.
+  bool gpu_driven_gaussian{};
   RendererLimits limits;
 };
 
@@ -356,6 +403,17 @@ struct FrameTelemetry {
   std::uint64_t gaussian_attribute_copy_range_count{};
   std::uint64_t gaussian_attribute_generation_count{};
   std::uint64_t gaussian_upload_bytes{};
+  // GPU-driven Gaussian execution. sorted_count is the verified GPU sort
+  // output and raster_instance_count the records the GPU-sorted draws
+  // consumed; tile_raster_frame_count is one when compute tile raster
+  // produced the image, and tile_raster_overflow_fallback_count one when
+  // binning overflowed and the device kept the sorted-stream draws.
+  // fallback_count counts stages that could not be selected.
+  std::uint64_t gaussian_gpu_sorted_count{};
+  std::uint64_t gaussian_gpu_raster_instance_count{};
+  std::uint64_t gaussian_gpu_tile_raster_frame_count{};
+  std::uint64_t gaussian_gpu_tile_raster_overflow_fallback_count{};
+  std::uint64_t gaussian_gpu_fallback_count{};
   // ABI-v1 persistent GPU Scene payload copied from a caller-packed update.
   // Backends record one native copy for each packed dirty range. Staging
   // reservation/growth remains visible so a static frame can prove that it
@@ -470,6 +528,8 @@ struct RenderRequest {
   // fallback when the request or backend cannot select GPU-driven execution;
   // Require reports Unsupported instead.
   GpuDrivenIndexedSettings gpu_driven_indexed;
+  // Gaussian execution policy; see GpuDrivenGaussianSettings.
+  GpuDrivenGaussianSettings gpu_driven_gaussian;
   std::uint32_t width{512};
   std::uint32_t height{512};
   Vec4 clear_color{kDefaultClearColor};

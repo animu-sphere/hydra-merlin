@@ -160,6 +160,8 @@ public:
   void SetHgiProjectionYReflection(bool reflect);
   void SetGpuDrivenIndexedSettings(
       merlin::render::GpuDrivenIndexedSettings settings);
+  void SetGpuDrivenGaussianSettings(
+      merlin::render::GpuDrivenGaussianSettings settings);
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const;
 
 private:
