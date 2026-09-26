@@ -14,6 +14,9 @@ static const uint kGaussianCandidateFrustumCulled = 2u;
 static const uint kGaussianCandidateInvalidCulled = 3u;
 
 static const float kProjectionEpsilon = 1.0e-6f;
+// Matches the CPU reference: the 3DGS guard band bounds the perspective
+// Jacobian of close off-axis kernels.
+static const float kJacobianGuardBand = 1.3f;
 
 struct GaussianPrepareConstants
 {
@@ -176,8 +179,9 @@ GaussianProjectionJacobian ProjectionJacobian(float3 camera, float4 clip)
     float3 row_y = gaussian_prepare_constants.projection[1].xyz;
     float3 row_w = gaussian_prepare_constants.projection[3].xyz;
     float inverse_w_squared = 1.0f / (clip.w * clip.w);
-    float3 dx = (row_x * clip.w - clip.x * row_w) * inverse_w_squared;
-    float3 dy = (row_y * clip.w - clip.y * row_w) * inverse_w_squared;
+    float guard = kJacobianGuardBand * clip.w;
+    float3 dx = (row_x * clip.w - clamp(clip.x, -guard, guard) * row_w) * inverse_w_squared;
+    float3 dy = (row_y * clip.w - clamp(clip.y, -guard, guard) * row_w) * inverse_w_squared;
 
     if (gaussian_prepare_constants.projection_mode == kGaussianProjectionTangential &&
         dot(row_w, row_w) > kProjectionEpsilon * kProjectionEpsilon)
@@ -313,6 +317,14 @@ void gaussian_prepare_compact(uint3 dispatch_thread_id : SV_DispatchThreadID)
         return;
     }
     float3 ndc = clip.xyz / clip.w;
+    // Kernels centered in front of the near plane are clipped like Mesh
+    // geometry; their center-evaluated footprint would cover the view.
+    if (ndc.z < 0.0f)
+    {
+        RecordRejection(particle, kGaussianCandidateFrustumCulled,
+                        gaussian_prepare_counters[0].frustum_culled_count);
+        return;
+    }
     float3x3 local_linear = (float3x3)gaussian_prepare_constants.local_to_camera;
     float3x3 covariance = LoadCovariance(particle);
     float3x3 camera_covariance = mul(mul(local_linear, covariance), transpose(local_linear));
@@ -323,7 +335,7 @@ void gaussian_prepare_compact(uint3 dispatch_thread_id : SV_DispatchThreadID)
                         gaussian_prepare_counters[0].invalid_culled_count);
         return;
     }
-    if (ndc.z + depth_radius < 0.0f || ndc.z - depth_radius > 1.0f)
+    if (ndc.z - depth_radius > 1.0f)
     {
         RecordRejection(particle, kGaussianCandidateFrustumCulled,
                         gaussian_prepare_counters[0].frustum_culled_count);

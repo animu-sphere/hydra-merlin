@@ -205,6 +205,14 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Zooming into a Gaussian scene no longer floods the view with a single
+  color in usdview or the development viewport. CPU and GPU preparation
+  cull a kernel whose center lies in front of the camera's near plane, as
+  Mesh geometry is clipped. Previously a linearized depth bound kept every
+  kernel between the eye and the near plane, and its footprint grew as 1/w.
+  The perspective Jacobian also clamps the center to the 3DGS 1.3x guard
+  band, so close off-axis kernels no longer stretch across the view. The
+  far-plane bound stays conservative.
 - Direct `merlin-headless` runs label their renderer report producer as
   `renderer-harness` with a per-process session ID. They previously claimed a
   `managed` producer with a stale project target.

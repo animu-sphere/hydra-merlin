@@ -55,7 +55,13 @@ rather than reused.
 
 Projection/compaction reads the tightly packed attribute ranges, evaluates
 the selected projection and radiance, and retains a sort key with stable
-resource/particle identity. Reusable frame contexts own the output and
+resource/particle identity. A kernel is clipped by its center against the
+camera's near plane, as the 3DGS reference and Mesh geometry are. Its
+footprint is evaluated at the center, so a kernel between the eye and the near
+plane would otherwise cover the view. The far plane keeps a conservative
+three-sigma bound. The perspective Jacobian clamps the center to the reference
+1.3x guard band in normalized device coordinates, which bounds the footprint
+of close off-axis kernels. Reusable frame contexts own the output and
 counter-readback resources; completion validates candidate and rejection
 partitions before publishing telemetry.
 
