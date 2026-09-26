@@ -1,8 +1,6 @@
 # Gaussian ingestion through Hydra
 
-**Status:** accepted integration boundary  
-**Validated baseline:** OpenUSD 26.05  
-**Implementation milestone:** v0.14.1 Gaussian MVP
+**Validated interface:** OpenUSD 26.05 ParticleField schema and Hydra Rprim
 
 ## Decision
 
@@ -28,7 +26,7 @@ UsdVolParticleField3DGaussianSplat
     ↓ OpenUSD usdVolImaging adapter
 Hydra particleField Rprim / scene-index data sources
     ↓ hdMerlin adapter validation and normalization
-host-neutral GaussianResource (introduced in v0.14.1)
+host-neutral GaussianResource
     ↓ revisions and changed ranges
 Gaussian GPU resources and render pipeline
 ```
@@ -85,7 +83,7 @@ per-aspect revisions, and changed ranges.
 Terminal scene-index locators are the preferred invalidation signal. If an
 OpenUSD notice is coarser than one attribute, the adapter may fetch the enclosing
 data source but must compare it with cached values before advancing a semantic
-revision or uploading. This is the v0.6.0 Mesh primvar contract as well.
+revision or uploading. This is also the Mesh primvar contract.
 
 OpenUSD 26.05 and 26.08 do not transport `projectionModeHint` or
 `sortingModeHint` through the ParticleField scene-index data source. hdMerlin
@@ -96,7 +94,7 @@ that authored non-default policy survived the Hydra boundary.
 
 ## Compatibility and fallback policy
 
-- v0.14.1 adds `HdPrimTypeTokens->particleField` to the supported Rprim list and
+- `HdPrimTypeTokens->particleField` belongs in the supported Rprim list and
   creates an adapter-owned Rprim. No `usdVol` type crosses into Core.
 - Hydra's canonical ParticleField primvar names carry either float or half
   `VtValue` arrays. The adapter reads each canonical name once, then selects by
@@ -134,8 +132,6 @@ that authored non-default policy survived the Hydra boundary.
 
 The locally validated SDK contains `usd_usdVolImaging.dll`, registers the
 adapter with `includeDerivedPrimTypes`, publishes the `particleField` token, and
-includes the conversion scene index. The v0.14.1 implementation consumes that
-boundary into native resources and the CPU-sorted Vulkan reference path. The
-post-MVP GPU-driven,
-temporal, LOD, and streaming sequence is defined in the
-[Gaussian rendering roadmap](gaussian-rendering-roadmap.md).
+includes the conversion scene index. Current support evidence is in the
+[support matrix](../reference/support-matrix.md); the pipeline contract is in
+the [Gaussian rendering design](gaussian-rendering.md).

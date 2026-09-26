@@ -1,6 +1,5 @@
-# Gaussian rendering roadmap
+# Gaussian rendering design
 
-**Status:** accepted post-MVP direction
 **Primary backend:** Vulkan first; Metal parity follows
 **Scene interface:** Hydra 2 and the standard OpenUSD Gaussian representation
 
@@ -23,72 +22,38 @@ only mathematically safe rejection; `Balanced` is the interactive default;
 capability- and benchmark-proven variants. No approximation becomes the only
 path merely because an API exposes an optimization.
 
-## Delivery sequence
+## Pipeline and dependencies
 
-### v0.14.1 — Gaussian MVP
+Generation-checked persistent position, covariance, opacity, and
+spherical-harmonic ranges share the GPU Scene identity and completion rules.
+Transform and visibility revisions update resident metadata without copying
+unchanged attributes; exact particle edits copy only affected aspects and
+ranges. CPU preparation and sorting remain the deterministic image reference.
 
-The MVP follows HgiMetal presentation work. It adds standard Hydra ingestion,
-host-neutral resources, covariance evaluation, screen-space projection,
-procedural elliptical splats, opacity and spherical-harmonic appearance, CPU
-depth sorting, partial attribute upload, transform/visibility updates, mixed
-Mesh/Gaussian output, deterministic fixtures, and native-viewport performance
-evidence. It is a correctness baseline; GPU sorting, tiling, streaming, LOD,
-compression, and out-of-core residency are explicitly out of scope.
-
-### v0.15.0 — Persistent Gaussian resources and measurement (complete)
-
-Add generation-checked persistent GPU records for position, covariance or
-scale/rotation, opacity, spherical harmonics, primitive/instance identity,
-transform/visibility/attribute revisions, and residency generation. Support
-transform-, visibility-, opacity-, SH-, and changed-range-only updates; avoid
-rebuilding unchanged buffers; and integrate Gaussian state into immutable
-`FrameSnapshot` revisions.
-
-Exit requires zero steady-state Gaussian allocation/upload in static scenes,
-range-only partial uploads, stable IDs, deterministic CPU reference output,
-separate CPU/GPU stage timing, and 1M/5M/10M representative fixtures. The
-common persistent GPU Scene and draw identity work shares this foundation.
-
-Delivered evidence uses generation-checked resource slots and device-local
-Vulkan ranges for position, covariance, opacity, and spherical harmonics.
-Transform/visibility revisions update resident metadata without attribute
-transfer; exact particle edits retain range-only copies. The backend, Hydra
-diagnostics, viewport, and benchmark schema separately expose CPU preparation,
-attribute sync, prepared sync, and GPU raster time. Selectable deterministic
-`one-million-gaussians`, `five-million-gaussians`, and
-`ten-million-gaussians` fixtures provide the required scale inputs.
-
-### v0.16.0 — GPU-driven Gaussian baseline
-
-Replace camera-motion CPU traversal and CPU sorting with the canonical path:
+The GPU path follows this dependency order:
 
 ```text
 candidates -> projection -> conservative culling -> compaction -> depth key and bounds
-           -> Gaussian-tile pairs -> GPU radix sort -> tile ranges -> indirect raster
+           -> frame-wide GPU radix sort -> Gaussian-tile pairs -> stable tile grouping
+           -> tile ranges -> indirect raster
            -> front-to-back accumulation and early termination
 ```
 
-The baseline uses deterministic 32- or 64-bit keys as required, fixed
-benchmark-selected tile sizes, bounded GPU submissions, and independently
-switchable stages. CPU sorting, GPU projection plus CPU sort, and conservative
-flat tiling remain diagnostic fallbacks. It exits with reference-tolerance
-parity, timestamp ranges and observable candidate/visible/rejected/sorted/pair
-counts, and no CPU full traversal or sort during camera movement.
+The path uses deterministic keys, benchmark-selected tile sizes, bounded GPU
+submissions, and independently switchable stages. CPU sorting, GPU projection
+plus CPU sort, and conservative flat tiling remain diagnostic fallbacks.
+Validation requires reference-tolerance parity, timestamp ranges and observable
+candidate/visible/rejected/sorted/pair counts, with no CPU full traversal or
+sort during camera movement.
 
-The first delivered slice fixes and executes the
-projection/culling/compaction shader ABI. One 64-thread Vulkan compute dispatch
-per visible resident resource reads the existing tightly packed attribute arena
-ranges, evaluates perspective or tangential projection and degree 0–3
-radiance, records explicit opacity/frustum/invalid rejections, and atomically
-compacts 64-byte prepared records. Its two-matrix 176-byte constants use a
-uniform descriptor rather than exceeding Vulkan's guaranteed push-constant
-limit. Reusable frame contexts own the output, uniform, descriptor, and
+Projection/compaction reads the tightly packed attribute ranges, evaluates
+the selected projection and radiance, and retains a sort key with stable
+resource/particle identity. Reusable frame contexts own the output and
 counter-readback resources; completion validates candidate and rejection
-partitions and publishes native telemetry. Prepared records retain a sort key
-and stable resource/particle tie-break identity.
+partitions before publishing telemetry.
 
-The second slice sorts every prepared record of the frame once, before tile
-pairing. The 64-bit key is the order-inverted authored sort key in the high
+Sort every prepared record of the frame once, before tile pairing. The 64-bit
+key is the order-inverted authored sort key in the high
 word and a frame-global candidate index in the low word. Resources receive
 their index ranges in ascending identity, so the result reproduces the CPU
 reference's back-to-front, resource, particle order and never depends on
@@ -103,15 +68,16 @@ strict key order and each key against its record, and accumulates an
 order-sensitive identity checksum compared with the CPU reference.
 Vulkan timestamps bracket the selected GPU sort, from key generation through
 verification and counter readback. The separate sort duration is zero for
-fallback or devices without timestamp queries; CPU-sorted raster remains the
-reference until tile pairing and indirect raster consume the GPU stream.
+fallback or devices without timestamp queries.
 
 Tile pairing sorts only by tile identity with a stable sort, which preserves
 the verified depth order within every tile without widening the key. The
-tile/raster stages remain follow-up, and the CPU-sorted path is still the
-selected image reference and fallback.
+CPU-sorted path remains the image reference and fallback when tile/raster
+stages are unavailable. Delivery and support status live in the
+[current milestone](../roadmap/current.md) and
+[support matrix](../reference/support-matrix.md).
 
-### v0.17.0 — Contribution-aware culling and adaptive bounds
+### Contribution-aware culling and adaptive bounds
 
 Use conservative bounds for Gaussian and Gaussian-tile contribution to reduce
 sorting, pair generation, memory traffic, and blending. `Exact` remains the
@@ -120,7 +86,7 @@ early-termination depth, saturated tiles, and threshold hits. Versioned
 thresholds must meet declared image, alpha/transmittance, PSNR, SSIM, maximum
 error, and temporal-flicker tolerances without view-dependent popping.
 
-### v0.18.0 — High-resolution hierarchical tiles
+### High-resolution hierarchical tiles
 
 Classify a coarse grid into empty, light, and heavy tiles; render light tiles
 directly and subdivide heavy tiles for local pair generation and segmented or
@@ -129,7 +95,7 @@ overflow fallback, dynamic heavy-tile queues, and 1080p/1440p/4K/8K profiles.
 Choose flat versus hierarchical scheduling from measured p95/p99 benefit; do
 not impose high-resolution hierarchy on small viewports where it regresses.
 
-### v0.19.0 — Temporal Gaussian reuse
+### Temporal Gaussian reuse
 
 Classify camera, projection, scene, transform, attribute, visibility, and
 target changes before reusing visibility, compaction, projected bounds, sort
@@ -140,7 +106,7 @@ camera-delta margins, periodic full validation, and automatic invalidation.
 until it meets explicit temporal-error limits and is cheaper than the work it
 saves.
 
-### v0.20.0 — LOD, compression, and residency preparation
+### LOD, compression, and residency preparation
 
 Introduce chunk bounds, deterministic discrete LOD, versioned compressed
 attribute formats with full-precision fallback, and stable residency records.
@@ -148,7 +114,7 @@ LOD decisions use projected error, distance, motion, quality budget, VRAM, and
 frame budget. Report compression ratios/decode cost and ensure temporal caches
 invalidate LOD and residency changes safely.
 
-### v0.21.0 — Streaming and out-of-core Gaussian rendering
+### Streaming and out-of-core Gaussian rendering
 
 Add prioritized chunk requests, decoding/upload queues, completion-safe
 residency, budgeted eviction/prefetch, and temporal residency hysteresis. Only
@@ -156,7 +122,7 @@ resident chunks enter individual Gaussian work; missing data retains a coarser
 resident LOD or bounded proxy and never exposes uninitialized memory. The goal
 is bounded VRAM, hitches, and degradation rather than a universal FPS number.
 
-### v0.22.0 — Cross-backend optimization and hardening
+### Cross-backend optimization and hardening
 
 Bring Vulkan and Metal to shared Gaussian resource ABI, quality modes, sort-key
 meaning, AOV/picking semantics, telemetry names, and reference tolerances while
@@ -164,7 +130,7 @@ allowing native kernels. Add capability-gated backend optimizations,
 overflow/allocation/device-loss handling, cache persistence, reproducible
 benchmarks, DCC-host presentation validation, and conservative fallback modes.
 
-## Required evidence and targets
+## Required evidence
 
 Fixtures cover 100k–100M Gaussians, 1080p through 8K and nonstandard Hydra
 viewports, sparse/dense/overdraw-heavy/imbalanced/mixed/instanced scenes,
@@ -173,9 +139,6 @@ separate Hydra sync, dirty processing, uploads, projection, culling,
 compaction, sorting, pair generation, classification, raster, temporal work,
 streaming, CPU/GPU frame distributions, memory, quality, and temporal flicker.
 
-The roadmap targets are evidence goals, not guarantees: against the CPU-sorted
-MVP, 1M at 1080p targets 1.5–2.5x, 5M at 4K targets 3–5x, and 10M at 4K targets
-3–6x where CPU sorting dominates. Gains overlap and are never multiplied.
 Every advanced feature passes correctness, capability, performance, and product
 gates: deterministic reference comparison, safe fallback and diagnostics,
 repeatable hardware evidence including p95/p99, and versioned settings and

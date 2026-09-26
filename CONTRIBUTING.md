@@ -2,7 +2,7 @@
 
 Thank you for helping improve hdMerlin. The project is still establishing its
 foundation contracts, so changes should keep the renderer small, testable, and
-host-neutral.
+host-neutral. Participation is subject to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Before you start
 
@@ -11,6 +11,9 @@ host-neutral.
   [backlog](docs/roadmap/backlog.md) before starting substantial work.
 - For a larger design or a change to a public API, open an issue or draft pull
   request before investing in the full implementation.
+- Use the [bug report](.github/ISSUE_TEMPLATE/bug_report.yml) for reproducible
+  defects or the [feature request](.github/ISSUE_TEMPLATE/feature_request.yml)
+  for proposed work. Security issues use the private process below.
 
 ## Development setup
 
@@ -55,7 +58,8 @@ code must build without warnings in every configuration it affects.
 
 ## Pull requests
 
-Keep pull requests focused and describe:
+Keep pull requests focused. The
+[pull request template](.github/PULL_REQUEST_TEMPLATE.md) asks for:
 
 - the problem and chosen approach;
 - affected configurations (Core, Vulkan/headless, Hydra, MaterialX);

@@ -1,9 +1,5 @@
 # Hgi host presentation policy
 
-**Status:** accepted implementation policy
-**Applies from:** v0.13.0
-**Primary implementation order:** HgiVulkan, then HgiMetal
-
 ## Purpose and boundary
 
 Hydra presentation currently uses the universal Tier 0 path:
@@ -79,13 +75,12 @@ allow reuse. Per-frame `vkDeviceWaitIdle`, queue-wide idle waits, speculative
 host-target lifetimes, implicit layout transitions, and immediate destruction
 of in-flight resize targets are prohibited.
 
-## HgiVulkan delivery plan
+## HgiVulkan transfer contract
 
-### v0.13.0: Hgi-owned targets and GPU copy
+### Hgi-owned targets and GPU copy
 
-The Vulkan bridge is implemented first because the Vulkan backend, offscreen
-AOVs, completion model, viewport comparison path, and Hydra validation assets
-are already mature on Windows and Linux.
+The Vulkan bridge uses the backend's offscreen AOV and completion model while
+keeping the host destination and lifetime separately owned.
 
 1. Establish Hgi-owned destination textures and their format, usage, extent,
    sample-count, color-space, destruction, and frames-in-flight contracts.
@@ -96,8 +91,7 @@ are already mature on Windows and Linux.
 4. Report capability selection, source/destination metadata, bytes, encode and
    wait cost, fallbacks, target recreations, CPU transfers, and GPU-copy time.
 
-The implementation establishes the public host boundary used by both validated
-OpenUSD lines. `HdRenderDelegate::SetDrivers` discovers the application-owned
+The public host boundary uses `HdRenderDelegate::SetDrivers` to discover the application-owned
 Hgi render driver and `HdRenderBuffer::GetResource` publishes an Hgi-owned
 destination texture. Hgi blit commands provide the Tier 0 CPU-to-Hgi fallback
 without a queue- or device-idle wait. When the package also exports the
@@ -108,7 +102,7 @@ disabled bridge, missing native package target, or operational failure retains
 the CPU RenderBuffer path with a structured rejection. Merlin-owned Vulkan
 contexts remain on the Vulkan 1.4 product baseline.
 
-The slice publishes a target for the 8-bit color AOV alone. Color is the AOV a
+The bridge publishes a target for the 8-bit color AOV alone. Color is the AOV a
 host present task consumes as a texture, while depth, `primId`, and
 `instanceId` are read through `HdRenderBuffer::Map`; uploading those would
 spend bandwidth no consumer collects. A published target is bound to the Hgi
@@ -133,27 +127,24 @@ aspect, and sample count, records `vkCmdCopyImage`, restores the Hgi target
 layout, and returns the lease only from the Hgi command-buffer completion
 callback.
 
-The OpenUSD 26.05 and 26.08 runtime smokes exercise this native path across the
-full regression and resize sequence. Each baseline reports one exported color
-AOV and three CPU-readback AOVs, host trace evidence for GPU copy, no color
-RenderBuffer Map or CPU upload, non-zero bridge completion, and zero coarse
-waits. Unsupported package compositions continue to compile the public Tier 0
-fallback without a native HgiVulkan dependency.
+Runtime validation covers the regression and resize sequence: exported color,
+CPU-readback depth/ID AOVs, GPU-copy host traces, no color RenderBuffer Map or
+upload, bridge completion, and no coarse waits. Unsupported package
+compositions retain the public Tier 0 fallback without a native HgiVulkan
+dependency. The [release record](../releases/v0.13.0.md) retains the measured
+evidence.
 
-The paired comparison fixture executes the same 13 phases through Tier 0 and
-HgiVulkan, records bounded image differences plus performance evidence in
-`merlin-hydra-presentation-comparison/v1`, and verifies every named GPU-copy
-phase avoids color Map/upload. The OpenUSD 26.08 Windows evidence reduced
-baseline CPU readback by 1,289,520 bytes per frame and measured representative
-median readback-plus-transfer time from about 19.1 ms to 14.2 ms while the
-maximum changed pixel fraction stayed at 0.1862% on rasterized triangle edges.
+The paired comparison fixture runs Tier 0 and HgiVulkan through the same
+phases and verifies bounded image differences, transfer costs, and absence of
+color Map/upload in GPU-copy phases. Measured release evidence belongs in the
+[HgiVulkan release record](../releases/v0.13.0.md).
 
-The release exits only when color, depth, `primId`, and `instanceId` match Tier
+The bridge requires color, depth, `primId`, and `instanceId` to match Tier
 0 semantics; resize and target retirement are completion-safe; camera-only
 frames avoid CPU readback/upload; unsupported configurations retain Tier 0; and
 the bridge has measured Tier 0 comparison evidence without coarse device waits.
 
-### v0.13.1: optional direct-path hardening
+### Optional direct-path gates
 
 Direct sharing is a separately gated capability, not an automatic optimization.
 Before enabling it, the bridge verifies physical-device UUID, logical-device
@@ -167,7 +158,7 @@ External memory and semaphores are considered only when GPU copy is unavailable
 or materially slower, a supported host requires them, public APIs make the path
 maintainable, and recurring hardware evidence exists.
 
-The implemented capability evaluator keeps direct-share rejection independent
+The capability evaluator keeps direct-share rejection independent
 from the selected transfer fallback. It requires every gate affirmatively:
 physical and logical device identity, compatible queue ownership, API and
 extensions, format/usage, single sampling, tiling and memory constraints,
@@ -186,7 +177,7 @@ private `HgiVulkanTexture` cannot be a maintained adapter contract. Merlin
 therefore keeps GPU copy selected and records this rejection rather than
 publishing a handle with ambiguous destruction or frame-target reuse.
 
-The color AOV now declares sampled usage and exports usage, optimal tiling,
+The color AOV declares sampled usage and exports usage, optimal tiling,
 device-local memory, exclusive sharing, queue family, and the existing
 format/layout/access/completion metadata. GPU copy validates this expanded
 source contract as well, so the hardening does not create a less-checked
@@ -194,19 +185,12 @@ fallback. External memory/semaphores remain unjustified: GPU copy is available,
 and the missing public host import/consumption contract would not be repaired by
 adding cross-device handle transport.
 
-Self-hosted GPU capability
-[run 30655056809](https://github.com/animu-sphere/hydra-merlin/actions/runs/30655056809)
-validated this decision at commit `8a2b4a4`. The OpenUSD 26.05 and 26.08 jobs
-both passed bridge/RenderBuffer tests and the paired 13-phase Tier 0/HgiVulkan
-usdview regressions. Vulkan 1.4 Debug and Release also passed the headless,
-viewport, lifetime, validation, descriptor, packaging, and evidence gates.
-Both HgiVulkan jobs retained GPU copy with the direct-share rejection present;
-no direct-path performance claim is made because no public consumable resource
-can be constructed.
+Release-time validation evidence for direct-share rejection is in the
+[HgiVulkan direct-path release record](../releases/v0.13.1.md).
 
 ## HgiMetal follow-up
 
-v0.14.0 implements the same logical contract for Metal: Tier 0 CPU fallback,
+The same logical contract applies to Metal: Tier 0 CPU fallback,
 Metal-local texture copy, then optionally same-`MTLDevice` texture sharing.
 The adapter publishes an Hgi-owned color target, while the Metal renderer
 exports a leased AOV texture plus an `MTLSharedEvent`; the Hgi command buffer

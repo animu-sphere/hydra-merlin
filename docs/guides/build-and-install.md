@@ -285,10 +285,10 @@ Set `MERLIN_MATERIALX_SOURCE_DIR` instead of
 `MERLIN_FETCH_MATERIALX=ON` to reuse an existing compatible source tree.
 MaterialX source fallback builds require CMake 3.26 or newer. The build tests
 graph-only generation unconditionally and registers SPIR-V and Metal-target
-compile gates when the required `slangc` is available. Generated modules are
-not yet executed by Vulkan Forward; current and planned coverage is recorded in
-the [support matrix](../reference/support-matrix.md) and
-[v0.10.0 boundary](../design/materialxgenslang-boundary.md).
+compile gates when the required `slangc` is available. Consult the
+[support matrix](../reference/support-matrix.md) for current execution coverage
+and the [MaterialX boundary](../design/materialxgenslang-boundary.md) for
+ownership and ABI rules.
 
 ## Install
 
@@ -306,8 +306,8 @@ Vulkan-enabled builds also install the Vulkan library, `merlin-headless`,
 `<prefix>/<bindir>/shaders/v2` with SPIR-V, Metal compile-gate source,
 reflection JSON, and the deterministic artifact manifest. MaterialX-enabled
 builds also install the `Merlin::MaterialX` library, public compiler header, and
-CMake component. When `slangc` is available, they also install the retained
-v0.10.0 prototype and Standard Surface Slang, SPIR-V, Metal-target, and
+CMake component. When `slangc` is available, they also install generated
+material and Standard Surface Slang, SPIR-V, Metal-target, and
 reflection evidence below
 `<prefix>/<datadir>/merlin/shaders/v2/materialx`. Hydra-enabled builds install
 the `hdMerlin` plugin below

@@ -1,11 +1,9 @@
 # Renderer architecture
 
-**Status:** v0.9.0 backend/viewport implementation + accepted future direction
-
 **Last reviewed:** 2026-07-17
 
-hdMerlin is a lightweight, host-neutral raster renderer with Vulkan as its
-current and first backend and Metal as its planned second backend. It is not a
+hdMerlin is a lightweight, host-neutral raster renderer with independent
+Vulkan and Metal backends. It is not a
 DCC plugin by itself: the product is the composition of a renderer core,
 independently optimized GPU backends, a renderer-owned extraction layer, an
 independent material compiler, and thin Hydra/DCC adapters. The accepted
@@ -164,9 +162,8 @@ OpenUSD 26.05 already supplies the concrete
 `particleField` Rprim token. The accepted attribute, fallback, invalidation,
 and compatibility boundary is recorded in the
 [Gaussian ingestion through Hydra](gaussian-hydra-ingestion.md).
-`GaussianResource` and native rendering remain v0.14.1 work. The subsequent
-GPU-driven, temporal, LOD, and streaming sequence is in the
-[Gaussian rendering roadmap](gaussian-rendering-roadmap.md).
+The GPU-driven, temporal, LOD, and streaming dependencies are in the
+[Gaussian rendering design](gaussian-rendering.md).
 
 The Mesh pipeline evolves behind this boundary in measured stages: bindless
 resource tables, a persistent GPU Scene, GPU-driven indexed Forward, an opaque
@@ -261,7 +258,7 @@ MaterialIR + generated/built-in material module -> renderer pass module
 - Missing/stale texture or sampler bindings and unsupported alpha blending
   produce structured extraction fallbacks rather than silent corruption.
 
-The exact v0.10.0 generated-material contract is documented in the
+The generated-material contract is documented in the
 [MaterialXGenSlang material boundary](materialxgenslang-boundary.md).
 
 ## Performance contract

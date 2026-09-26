@@ -1,7 +1,6 @@
 # GPU-driven rendering policy
 
-**Status:** approved direction, not a complete implementation claim · **Last
-reviewed:** 2026-08-22
+**Last reviewed:** 2026-08-22
 
 This document is the design source of truth for bindless resources, the GPU
 Scene, GPU-driven indexed drawing, the opaque Visibility Buffer path, and
@@ -9,7 +8,7 @@ meshlet rendering. The [renderer architecture](renderer-architecture.md)
 defines the repository-wide dependency boundary; this document defines how the
 Mesh pipeline evolves inside that boundary.
 
-The implementation order is deliberately incremental:
+The design dependencies are incremental:
 
 ```text
 measurement and incremental sync
@@ -204,8 +203,8 @@ opacity, and spherical-harmonic payloads in separate device-local arena ranges;
 exact snapshot and particle deltas avoid unrelated traversal and preserve
 aspect/range-only copies. Transform, visibility, and policy revisions advance
 the resident resource generation without re-uploading source attributes.
-Camera-dependent projection and sorting remain a separate prepared stream until
-v0.16.0 moves those stages to compute.
+Camera-dependent projection and sorting use a separate prepared stream from
+persistent source attributes; the compute path preserves that boundary.
 
 A static frame performs no upload, descriptor allocation/update, shader
 compilation, or pipeline creation. Transform, visibility, material parameter,
@@ -412,7 +411,7 @@ Other content
     └─ selection, wireframe, gizmo → overlay path
 ```
 
-## Delivery mapping
+## Dependency gates
 
 The ordered release mapping is maintained in the
 [roadmap backlog](../roadmap/backlog.md). The design dependency gates are:

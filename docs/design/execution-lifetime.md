@@ -1,6 +1,6 @@
 # Execution and render-product lifetime
 
-**Status:** v0.9.0 implementation · **Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-07-17
 
 The backend-neutral boundary separates immutable input, GPU submission,
 completion, optional presentation, and CPU product resolution:

@@ -2,15 +2,11 @@
 
 [![Core CI](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml)
 
-hdMerlin is an OST-oriented, host-neutral raster renderer with Vulkan and native
-Metal backends. The current implementation provides a handle-based
-`RenderWorld`, deterministic extraction into an immutable resource-granular
-`FrameSnapshot`, a backend-neutral render contract, persistent Vulkan offscreen
-and GLFW-hosted swapchain presentation, and native Metal offscreen execution.
-Submission/completion lifetime and selectable color/depth/primId/instanceId CPU
-readback remain explicit. Its host-neutral `MaterialIR` supports revisioned
-texture/sampler bindings and basic directional-lit, textured, vertex-colored,
-opaque or alpha-masked shading.
+hdMerlin is an OST-oriented, host-neutral raster renderer with independent
+Vulkan and Metal backends. It provides a revisioned scene model, immutable
+snapshots, explicit submission/completion, native viewports, and a Hydra 2
+adapter. See the [support matrix](docs/reference/support-matrix.md) for current
+validated configurations and feature limits.
 
 The core library intentionally has no OpenUSD, Hydra, DCC, Qt, Vulkan, or Metal
 types in its public API. Hydra and host integrations remain thin adapters
@@ -18,11 +14,8 @@ around that core.
 
 ## OpenStrata project
 
-The repository is an OpenStrata renderer project targeting `cy2026`. OST 0.23.8
-or newer is required for managed-build progress and timeout diagnostics,
-profile-local preset generation, producer-bound renderer evidence that survives
-unchanged builds, build-directory-scoped viewport launch records, and resilient
-digest-verified runtime pulls.
+The repository is an OpenStrata renderer project targeting `cy2026`. See the
+[support matrix](docs/reference/support-matrix.md) for the validated CLI version.
 The default host-neutral lifecycle is:
 
 ```powershell
@@ -32,15 +25,10 @@ ost build --jobs auto
 ost validate --json
 ```
 
-The existing CMake targets remain project-owned renderer units; adopting OST
-does not split them into artificial packages or plugin bundles. Vulkan builds
-emit the renderer evidence consumed by `ost validate`. For Hydra inspection,
-materialize or adopt one real `usd`/`lookdev` OpenUSD runtime, then run `ost
-renderer view --profile usd`. With no `--build-dir`, OST requests the `hydra2`
-build intent, incrementally configures/builds a fingerprinted tree, stages the
-install, discovers `hdMerlin`, and launches usdview. `--build-dir` is reserved
-for an already configured and built external CMake tree; OST installs and
-inspects that tree but does not rebuild it or claim managed-build evidence.
+For Hydra inspection, materialize or adopt a compatible `usd`/`lookdev`
+OpenUSD runtime, then run `ost renderer view --profile usd`. See the
+[build and install guide](docs/guides/build-and-install.md) for runtime and
+external build-directory workflows.
 
 To build the Hydra-enabled standalone viewport and open a USD stage:
 
@@ -69,30 +57,16 @@ Render the headless smoke image:
 ./build/adapters/merlin-headless/Debug/merlin-headless.exe --frames 6 --output merlin.ppm
 ```
 
-Run the native Vulkan viewport. In a Hydra USD session, use `Open USD...` in
-the diagnostics panel to browse for a `.usd`, `.usda`, `.usdc`, or `.usdz`
-stage. The panel includes rolling host/GPU timings and, for Gaussian stages,
-particle, spherical-harmonic, projection, sorting, culling, cache, and upload
-diagnostics. Its camera section reports the active controller, position,
-target, orientation, projection, clipping range, and viewport aspect. Its
-renderer settings section applies clear-color and continuous color-readback
-changes through the host boundary and reports the applied revision or rejection
-reason. Its opt-in AOV inspector selects Color, Depth, Prim ID, or Instance ID,
-performs readback only while enabled, and shows a bounded diagnostic preview,
-value range, invalid-value count, and sampled source value on hover. Hydra USD
-navigation follows usdview: Alt+left tumbles, Alt+middle
-tracks, Alt+right and the wheel dolly, and `F` frames the stage. The benchmark
-section compares current CPU/GPU averages with the latest in-session saved
-baseline and marks recent timing samples that exceed its adjustable hitch
-threshold. Arrow keys pan, an unmodified left click reads picking IDs, and `S`
-writes a screenshot.
+The native viewport provides USD stage loading, camera navigation, picking,
+AOV inspection, screenshots, and timing and resource diagnostics. See the
+[build and install guide](docs/guides/build-and-install.md) for host setup.
 
-Hydra-enabled Windows developer builds generate a launcher beside the
+The Hydra-enabled Windows build below generates a launcher beside the
 executable. It supplies the configured OpenUSD SDK runtime path without
 changing the machine-wide `PATH`:
 
 ```powershell
-./build/adapters/merlin-viewport/Debug/run-merlin-viewport.cmd --vsync off
+./build-hydra2/adapters/merlin-viewport/Release/run-merlin-viewport.cmd --vsync off
 ```
 
 The default native scene also exposes `Open USD...`, so a stage path does not
@@ -113,36 +87,10 @@ Capture the reference-path performance baselines as deterministic JSON:
   --output benchmark.json
 ```
 
-The v3 report records build/machine metadata, CPU/GPU stage distributions,
-hitches, AOV selection, transfer/allocation/descriptor work, and structural
-counters for first-frame, steady-state, camera, per-aspect edits, and AOV
-combinations. Fixed million-triangle, 10,000-mesh, 1,000-instance, 1M/5M/10M
-Gaussian, and 4K fixtures are selectable explicitly. Gaussian reports separate
-CPU preparation, raw-attribute sync, prepared-stream sync, and GPU raster
-timing. See the
-[benchmark guide](docs/guides/benchmarking.md) for the schema and comparison
-rules.
-
-The renderer keeps three frame contexts by default and returns tightly packed
-top-left products under renderer-specific completion tokens. `RenderRequest`
-selects produced AOVs and CPU readback; `Submit` records and queues work without
-waiting, and timeout-aware `Resolve` transfers only the selected products. GPU geometry
-residency is resource-granular: per-mesh vertex/index ranges are suballocated
-from device-local arenas, staged through a persistently mapped upload ring,
-keyed by handle generation and revision, shared across instances, and retired
-deterministically after the last referencing frame completes. Static scenes
-perform zero upload, allocation, and pipeline work after warm-up, and
-transform-, visibility-, and material-only edits stage zero geometry bytes.
-Revisioned textures and samplers are cached independently, while material
-parameter edits reuse the existing shader/pipeline variant. On descriptor-
-indexing-capable devices, finite global sampled-image and deduplicated-sampler
-tables preserve unchanged slot identity, materialize the four reserved fallback
-images, update only dirty descriptor elements, and delay slot reuse and Vulkan
-object destruction until the last referencing completion. Conventional Forward
-remains the correctness fallback; negotiated devices automatically use the
-non-uniform-indexed bindless shader path with persistent per-frame material
-descriptors, so warmed static frames perform zero descriptor allocation or
-update.
+See the [benchmark guide](docs/guides/benchmarking.md) for fixtures, report
+fields, and comparison rules, and the
+[execution lifetime design](docs/design/execution-lifetime.md) for submission,
+residency, and readback contracts.
 
 ## Hydra 2 adapter
 
@@ -170,65 +118,19 @@ processing, RenderWorld/extraction, Vulkan CPU/GPU work, selected readback,
 RenderBuffer map/resolve, CPU-to-Hgi upload, host composite, and presentation;
 camera-only motion is gated against geometry/topology/primvar fetch or upload.
 
-The current mesh path normalizes indexed and face-varying normals, display
-color/opacity, and UVs, robustly triangulates concave polygonal faces, preserves
-authored material binding identity, and supports native Hydra instancing. The
-adapter translates a basic `UsdPreviewSurface` subset (constant parameters,
-diffuse image texture, wrap mode, opacity mask) and distant lights into the
-same `MaterialIR` used by headless rendering. The optional graph-only
-MaterialXGenSlang compiler and generated Vulkan Forward parameter/resource
-execution are present. Hydra MaterialX ingestion remains later integration
-work.
-Subdivision refinement remains future work. usdview presentation keeps Hydra's
-CPU RenderBuffer-to-Hgi upload as the universal reference and fallback, while
-v0.13.0 can select an HgiVulkan color GPU-copy path on validated OpenUSD
-packages and retains depth and ID AOVs on CPU readback. v0.13.1 released the
-direct-path hardening boundary: OpenUSD 26.05/26.08 report
-`public-texture-import-unavailable`, so GPU copy remains selected.
+The Hydra adapter translates scene data and a basic `UsdPreviewSurface`
+subset into renderer-neutral resources. See the
+[support matrix](docs/reference/support-matrix.md) for validated Hydra,
+MaterialX, and host-presentation paths.
 
 ## Capability boundaries and roadmap
 
-The current renderer intentionally does not yet provide:
-
-- Hydra MaterialX loading or general graph coverage beyond the optional
-  v0.10.0 compiler prototype and the existing `UsdPreviewSurface` subset;
-- the complete GPU Scene tables, GPU-driven indexed submission, an opaque
-  Visibility Buffer path, meshlet rendering, or a Mesh Shader backend;
-- advanced viewport features such as alpha blending, dome lighting, shadows,
-  selection, or production culling;
-- Vulkan/Hgi direct-share and external-interop presentation. HgiVulkan GPU copy
-  is available for color on validated packages, with Tier 0 CPU transfer as the
-  fallback; broader sharing paths remain capability- and evidence-gated rather
-  than implied by the Vulkan backend.
-
-These are roadmap boundaries, not implicit compatibility claims. See the
-[support matrix](docs/reference/support-matrix.md) for current platform and
-feature coverage.
-
-v0.5.0 released the host-neutral MaterialIR and basic textured shading slice.
-v0.6.0 released the measurement foundation and incremental Hydra sync work,
-making changed-scene costs and host presentation separately observable. v0.7.0
-released the persistent Mesh/future-Gaussian resource foundation, and v0.8.0
-moved the Forward shader source of truth to Slang with reflected artifacts and
-a Metal compile gate. The completed v0.9.0 work adds the minimum backend-neutral
-render contract and dedicated cross-backend `merlin-viewport` with validated
-Vulkan swapchain presentation and Hydra USD loading. v0.10.0 proved a
-MaterialXGenSlang material-function slice, and v0.11.0 released native Metal
-offscreen execution, heap residency, argument-buffer tables, and the matching
-backend-neutral AOV/readback contract. v0.12.0 released native Metal viewport
-presentation with GPU-only drawable output, resize-safe pacing, and the matching
-developer UI path. v0.13.0 adds HgiVulkan with safe GPU copy; optional direct
-sharing is a separate evidence gate, and v0.14.0 brings the equivalent HgiMetal
-bridge. v0.14.1 completes the CPU-sorted Gaussian MVP, then v0.15.0–v0.22.0
-advance persistent resources, GPU projection/sorting, contribution-aware and
-hierarchical tiling, temporal reuse, LOD/streaming, and Vulkan/Metal production
-hardening. Forward and Tier 0 CPU readback remain reference fallbacks. See the [current
-milestone](docs/roadmap/current.md), [ordered backlog](docs/roadmap/backlog.md),
-[multi-backend shader and presentation
-strategy](docs/design/multibackend-slang-materialx.md), [Hgi host presentation
-policy](docs/design/hgi-host-presentation.md), [Gaussian rendering roadmap](docs/design/gaussian-rendering-roadmap.md),
-and [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md) for
-scope, dependencies, and exit criteria.
+For present capabilities and limitations, use the
+[support matrix](docs/reference/support-matrix.md). The
+[current milestone](docs/roadmap/current.md) and
+[backlog](docs/roadmap/backlog.md) track incomplete work; the
+[changelog](CHANGELOG.md) records shipped changes. Architecture and fallback
+decisions are in the [renderer design](docs/design/renderer-architecture.md).
 
 Gaussian support consumes the standard Gaussian representation exposed by
 OpenUSD through Hydra. hdMerlin does not define a renderer-specific USD schema
@@ -245,7 +147,7 @@ OpenUSD 26.05 and 26.08.
 
 ## MaterialX prototype
 
-The v0.10.0 work adds an optional compiler boundary that turns a deliberate
+The optional compiler boundary turns a deliberate
 MaterialX graph subset into a renderer-consumable Slang material function. It
 uses the official MaterialXGenSlang implementation pinned at
 `38368ee04da84ce1f8837ecba7322dd6d81291f8`. A compatible prebuilt MaterialX
@@ -266,60 +168,23 @@ Source fallback builds require CMake 3.26 or newer. The generated module owns
 only graph evaluation; geometry, lighting, alpha policy, render passes,
 resources, and AOV writes remain renderer-owned.
 
-The current foundation deterministically generates renderer-owned material
-results for constants, image/UV0/world-normal, add/multiply/mix, and the minimum
-Standard Surface `base`, `base_color`, `metalness`, `specular_roughness`, and
-`normal` slice. Logical reflection, portable standard-library/include
-fingerprints, and a topology-only module key stay separate from typed parameter
-and resource state. Core carries the versioned logical module/layout contract
-and exact input-space requirements; the same generated sources compile for
-SPIR-V and Metal targets, keyed by the same Core target-artifact contract that
-keys handwritten Slang. Registered parameter-only and texture/sampler artifacts
-execute through a renderer-owned Forward fragment pipeline with ABI/reflection
-checks, pipeline reuse across value and texture-content edits, structured
-runtime fallback telemetry, and retained SPIR-V/Metal/reflection evidence. See
-the authoritative
-[MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
-and [current milestone](docs/roadmap/current.md).
+See the [MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
+for ownership and ABI rules and the
+[support matrix](docs/reference/support-matrix.md) for validated coverage.
 
 ## Supported configurations
 
-The host-neutral libraries require CMake 3.24 and a C++20 compiler. Vulkan and
-Hydra are optional dependency layers:
-
-| Configuration | CMake options | Required dependencies |
-|---|---|---|
-| Core-only | `MERLIN_ENABLE_VULKAN=OFF` | C++20 compiler |
-| Native Metal | `MERLIN_ENABLE_VULKAN=OFF`, `MERLIN_ENABLE_METAL=ON` | macOS, Apple Metal framework, and a Metal-capable device |
-| Headless Vulkan | `MERLIN_ENABLE_VULKAN=ON` | Vulkan 1.4 loader/headers/device and Slang 2026.8.x |
-| Vulkan viewport | `MERLIN_BUILD_VIEWPORT=ON` | Vulkan requirements; GLFW 3.4 or the pinned fetched fallback; pinned Dear ImGui 1.92.8 |
-| Hydra 2 | `MERLIN_ENABLE_HYDRA2=ON` | A native GPU backend, a compatible OpenUSD SDK, and pinned Native File Dialog Extended 1.3.0 for the viewport; Linux viewport builds additionally require D-Bus development files for the desktop portal |
-| MaterialX compiler | `MERLIN_ENABLE_MATERIALX=ON` | MaterialX 1.39.6 with MaterialXGenSlang; CMake 3.26+ for source fallback |
-
-Windows with Visual Studio 2022 and AppleClang on macOS are validated
-development paths. Core-only Debug and Release builds run on hosted Windows and
-Linux CI; Core plus Metal compiles and packages on hosted Apple Silicon macOS.
-GPU and
-Hydra tests remain capability jobs: missing validation/device capabilities are
-reported as skips where the test contract allows it, and OpenUSD build
-configuration and C++ runtime ABI must match the consumer.
-
-The manually dispatched `Vulkan and Hydra capability CI` workflow has separate
-headless and Hydra jobs. Both require only a self-hosted Windows x64 runner with
-the `vulkan-1.4` GPU/driver label. They download and checksum-verify LunarG
-Vulkan SDK 1.4.350.0 into a cached workspace prefix. Hydra also obtains the
-Animusphere OpenUSD 26.05 and 26.08 Vulkan runtimes for cy2026 from their
-digest-pinned public GHCR packages through pinned `ost` 0.23.8's native pull,
-which requires the approved Windows Vulkan OpenUSD cell and version, SBOM, and
-provenance before import. No operator-managed SDK installation is required. The jobs run the 64-frame validation loop and install-tree usdview
-stable-update regression, retaining dependency/runtime provenance, images,
-regression logs, and CTest logs as evidence artifacts.
+See the [support matrix](docs/reference/support-matrix.md) for validated
+platforms, dependencies, feature availability, and evidence level. Optional
+build configurations and SDK setup are documented in the
+[build and install guide](docs/guides/build-and-install.md).
 
 ## Install and consume
 
 Install a configured build into a staging prefix:
 
 ```powershell
+cmake --build build --config Release
 cmake --install build --config Release --prefix C:/merlin
 ```
 
@@ -373,6 +238,7 @@ argument buffers, completion, and readback.
 - [Releasing](docs/guides/releasing.md)
 - [Support matrix](docs/reference/support-matrix.md)
 - [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
 

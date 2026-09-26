@@ -1,7 +1,5 @@
 # Versioned renderer settings
 
-**Status:** v2 host-neutral contract
-
 **Last reviewed:** 2026-08-22
 
 `merlin::render::RendererSettings` is the configuration vocabulary shared by
