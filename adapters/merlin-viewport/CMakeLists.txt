@@ -1,50 +1,4 @@
-enable_language(C)
-
-find_package(glfw3 ${MERLIN_GLFW_MIN_VERSION} CONFIG QUIET)
-if(NOT TARGET glfw)
-  include(FetchContent)
-  set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-  set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-  set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-  FetchContent_Declare(glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG ${MERLIN_GLFW_PINNED_COMMIT}
-    GIT_SHALLOW FALSE
-  )
-  FetchContent_MakeAvailable(glfw)
-endif()
-
-FetchContent_Declare(imgui
-  GIT_REPOSITORY https://github.com/ocornut/imgui.git
-  GIT_TAG ${MERLIN_IMGUI_PINNED_COMMIT}
-  GIT_SHALLOW FALSE
-)
-FetchContent_MakeAvailable(imgui)
-
-if(MERLIN_ENABLE_HYDRA2)
-  if(APPLE)
-    enable_language(OBJC)
-  endif()
-  set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-  set(NFD_BUILD_SDL2_TESTS OFF CACHE BOOL "" FORCE)
-  set(NFD_BUILD_GLFW3_TESTS OFF CACHE BOOL "" FORCE)
-  set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
-  if(UNIX AND NOT APPLE)
-    # The portal delegates the chooser to the active desktop environment,
-    # which keeps the viewport usable under both X11 and Wayland without
-    # linking either display-server client into the dialog implementation.
-    set(NFD_PORTAL ON CACHE BOOL "" FORCE)
-    set(NFD_X11 OFF CACHE BOOL "" FORCE)
-    set(NFD_WAYLAND OFF CACHE BOOL "" FORCE)
-  endif()
-  FetchContent_Declare(nfd
-    GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
-    GIT_TAG ${MERLIN_NFD_PINNED_COMMIT}
-    GIT_SHALLOW FALSE
-  )
-  FetchContent_MakeAvailable(nfd)
-endif()
+merlin_find_viewport_dependencies()
 
 add_library(merlin-viewport-imgui STATIC
   "${imgui_SOURCE_DIR}/imgui.cpp"
@@ -95,6 +49,7 @@ add_executable(merlin-viewport
   src/main.cpp
   src/window_glfw.cpp
 )
+merlin_target_defaults(merlin-viewport)
 if(TARGET Merlin::Vulkan)
   target_sources(merlin-viewport PRIVATE src/presentation_glfw.cpp)
   target_compile_definitions(merlin-viewport PRIVATE
@@ -205,6 +160,7 @@ if(MERLIN_BUILD_TESTS)
     src/developer_ui_settings.cpp
     tests/developer_ui_settings_test.cpp
   )
+  merlin_target_defaults(merlin-viewport-settings-tests)
   target_include_directories(merlin-viewport-settings-tests PRIVATE src)
   target_link_libraries(merlin-viewport-settings-tests PRIVATE
     Merlin::RenderBackend

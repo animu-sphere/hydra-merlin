@@ -1,0 +1,214 @@
+{
+  "version": 4,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "merlin-base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MERLIN_BUILD_TESTS": true,
+        "MERLIN_ENABLE_VULKAN": false,
+        "MERLIN_ENABLE_METAL": false,
+        "MERLIN_ENABLE_HYDRA2": false,
+        "MERLIN_ENABLE_MATERIALX": false,
+        "MERLIN_FETCH_MATERIALX": false,
+        "MERLIN_BUILD_VIEWPORT": false
+      }
+    },
+    {
+      "name": "core",
+      "inherits": "merlin-base",
+      "displayName": "Host-neutral Core"
+    },
+    {
+      "name": "vulkan",
+      "inherits": "merlin-base",
+      "cacheVariables": {
+        "MERLIN_ENABLE_VULKAN": true
+      }
+    },
+    {
+      "name": "vulkan-hydra",
+      "inherits": "vulkan",
+      "cacheVariables": {
+        "MERLIN_ENABLE_HYDRA2": true
+      }
+    },
+    {
+      "name": "metal",
+      "inherits": "merlin-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "MERLIN_ENABLE_METAL": true
+      }
+    },
+    {
+      "name": "metal-hydra",
+      "inherits": "metal",
+      "cacheVariables": {
+        "MERLIN_ENABLE_HYDRA2": true
+      }
+    },
+    {
+      "name": "materialx",
+      "inherits": "merlin-base",
+      "cacheVariables": {
+        "MERLIN_ENABLE_MATERIALX": true
+      }
+    },
+    {
+      "name": "developer",
+      "inherits": "vulkan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MERLIN_BUILD_VIEWPORT": true
+      }
+    },
+    {
+      "name": "ci",
+      "inherits": "core"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "core",
+      "configurePreset": "core",
+      "configuration": "Release"
+    },
+    {
+      "name": "vulkan",
+      "configurePreset": "vulkan",
+      "configuration": "Release"
+    },
+    {
+      "name": "vulkan-hydra",
+      "configurePreset": "vulkan-hydra",
+      "configuration": "Release"
+    },
+    {
+      "name": "metal",
+      "configurePreset": "metal",
+      "configuration": "Release"
+    },
+    {
+      "name": "metal-hydra",
+      "configurePreset": "metal-hydra",
+      "configuration": "Release"
+    },
+    {
+      "name": "materialx",
+      "configurePreset": "materialx",
+      "configuration": "Release"
+    },
+    {
+      "name": "developer",
+      "configurePreset": "developer",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "core",
+      "configurePreset": "core",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "vulkan",
+      "configurePreset": "vulkan",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "vulkan-hydra",
+      "configurePreset": "vulkan-hydra",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "metal",
+      "configurePreset": "metal",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "metal-hydra",
+      "configurePreset": "metal-hydra",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "materialx",
+      "configurePreset": "materialx",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "developer",
+      "configurePreset": "developer",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

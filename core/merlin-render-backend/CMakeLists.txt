@@ -4,6 +4,7 @@ add_library(merlin-render-backend STATIC
   src/gpu_scene.cpp
   src/gpu_scene_packing.cpp
 )
+merlin_target_defaults(merlin-render-backend)
 
 add_library(Merlin::RenderBackend ALIAS merlin-render-backend)
 

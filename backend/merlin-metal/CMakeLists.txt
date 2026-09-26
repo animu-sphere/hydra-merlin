@@ -11,6 +11,7 @@ add_library(merlin-metal STATIC
   src/backend.mm
   src/resource_table.cpp
 )
+merlin_target_defaults(merlin-metal)
 add_library(Merlin::Metal ALIAS merlin-metal)
 
 set_target_properties(merlin-metal PROPERTIES

@@ -6,6 +6,7 @@ add_library(merlin-render-world STATIC
   src/render_world.cpp
   src/shader_artifact.cpp
 )
+merlin_target_defaults(merlin-render-world)
 
 add_library(Merlin::RenderWorld ALIAS merlin-render-world)
 

@@ -35,6 +35,7 @@ endif()
 add_executable(merlin-benchmark
   src/main.cpp
 )
+merlin_target_defaults(merlin-benchmark)
 
 target_link_libraries(merlin-benchmark
   PRIVATE
