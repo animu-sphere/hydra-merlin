@@ -17,9 +17,14 @@ ownership, dependency, and fallback contracts.
 
 ### Work
 
-- 🚧 Connect GPU-sorted Gaussian records to tile pairing/ranges and indirect
+- 🚧 Connect GPU-sorted Gaussian records to tile pairing/ranges and tile
   raster without losing stable IDs, deterministic order, or bounded overflow
-  behavior. Validate against CPU-sorted reference images.
+  behavior. Validate against CPU-sorted reference images. The verified sorted
+  stream already draws through indirect raster with exact reference parity;
+  tile pairing, ranges, and tile raster remain.
+- ⬜ Make CPU Gaussian preparation and sorting a validation-only reference when
+  the GPU path is selected, so camera motion no longer traverses every
+  Gaussian on the CPU.
 - ⬜ Remove per-draw CPU preparation from the steady-state Mesh submission path
   while preserving the indexed Forward image and fallback contracts.
 - ⬜ Capture controlled hardware evidence for Mesh command-recording and

@@ -1,6 +1,6 @@
 // Exercises the Vulkan Gaussian path end to end: GPU projection/culling
-// dispatch, the verified GPU radix sort, and counter readback beside the
-// CPU-sorted reference raster,
+// dispatch, the verified GPU radix sort, sorted-stream indirect raster and its
+// image parity with the CPU-sorted reference raster, counter readback,
 // prepared-stream upload, procedural ellipse rasterization, alpha compositing,
 // Mesh depth composition, ID output, and steady-state frame-local reuse.
 
@@ -8,6 +8,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -63,6 +64,61 @@ void RequireVerifiedSort(const merlin::vulkan::RenderResult& result,
                   0 &&
               result.counters.gaussian_gpu_sort_fallback_count == 0,
       message);
+}
+
+struct ImageDifference {
+  std::uint32_t max_color_channel{};
+  std::size_t color_pixels{};
+  std::size_t depth_pixels{};
+  std::size_t prim_id_pixels{};
+  std::size_t instance_id_pixels{};
+};
+
+// Pixel-wise comparison against the CPU-sorted reference. Both frames share
+// the viewport, so the readback pitches match.
+ImageDifference Compare(const merlin::vulkan::RenderResult& reference,
+    const merlin::vulkan::RenderResult& candidate) {
+  Require(reference.color.pixels.size() == candidate.color.pixels.size() &&
+              reference.depth.pixels.size() ==
+                  candidate.depth.pixels.size() &&
+              reference.prim_id.pixels.size() ==
+                  candidate.prim_id.pixels.size() &&
+              reference.instance_id.pixels.size() ==
+                  candidate.instance_id.pixels.size(),
+      "compared Gaussian frames do not share a readback shape");
+  ImageDifference difference;
+  for (std::size_t i = 0; i < reference.color.pixels.size(); i += 4U) {
+    std::uint32_t pixel_max{};
+    for (std::size_t channel = 0; channel < 4U; ++channel) {
+      const auto lhs = reference.color.pixels[i + channel];
+      const auto rhs = candidate.color.pixels[i + channel];
+      pixel_max = std::max<std::uint32_t>(pixel_max,
+          lhs > rhs ? lhs - rhs : rhs - lhs);
+    }
+    difference.max_color_channel =
+        std::max(difference.max_color_channel, pixel_max);
+    difference.color_pixels += pixel_max != 0U ? 1U : 0U;
+  }
+  for (std::size_t i = 0; i < reference.depth.pixels.size(); ++i) {
+    difference.depth_pixels +=
+        reference.depth.pixels[i] != candidate.depth.pixels[i] ? 1U : 0U;
+    difference.prim_id_pixels +=
+        reference.prim_id.pixels[i] != candidate.prim_id.pixels[i] ? 1U : 0U;
+    difference.instance_id_pixels +=
+        reference.instance_id.pixels[i] != candidate.instance_id.pixels[i]
+            ? 1U
+            : 0U;
+  }
+  return difference;
+}
+
+void Report(const char* label, const ImageDifference& difference) {
+  std::cout << label << ": max color channel delta "
+            << difference.max_color_channel << " over "
+            << difference.color_pixels << " pixels; depth "
+            << difference.depth_pixels << ", primId "
+            << difference.prim_id_pixels << ", instanceId "
+            << difference.instance_id_pixels << " differing pixels\n";
 }
 
 } // namespace
@@ -224,6 +280,90 @@ int main(int argc, char** argv) {
                 steady.counters.gaussian_gpu_preparation_visible_count == 2,
         "static Gaussian frame lost GPU preparation evidence");
     RequireVerifiedSort(steady, "static Gaussian frame lost its GPU sort");
+
+    // Sorted-stream raster draws the verified GPU order indirectly. It has to
+    // reproduce the CPU-sorted reference image above and upload no prepared
+    // stream from the CPU.
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
+    const auto gpu_raster = renderer->Resolve(renderer->Submit(request));
+    RequireVerifiedSort(gpu_raster, "GPU raster frame lost its GPU sort");
+    Require(gpu_raster.counters.gaussian_gpu_raster_dispatch_count == 1 &&
+                gpu_raster.counters.gaussian_gpu_raster_instance_count == 2 &&
+                gpu_raster.counters.gaussian_gpu_raster_indirect_draw_count ==
+                    2 &&
+                gpu_raster.counters.gaussian_gpu_raster_fallback_count == 0,
+        "GPU Gaussian raster did not draw the sorted stream indirectly");
+    Require(gpu_raster.counters.gaussian_draw_count == 2,
+        "GPU Gaussian raster lost the color or ID draw");
+    Require(gpu_raster.counters.gaussian_upload_bytes == 0,
+        "GPU Gaussian raster uploaded a CPU-prepared stream");
+    const auto gpu_difference = Compare(first, gpu_raster);
+    Report("sorted-stream raster vs CPU reference", gpu_difference);
+    Require(gpu_difference.max_color_channel <= 1U,
+        "GPU Gaussian raster color diverged from the CPU reference");
+    Require(gpu_difference.depth_pixels == 0 &&
+                gpu_difference.prim_id_pixels == 0 &&
+                gpu_difference.instance_id_pixels == 0,
+        "GPU Gaussian raster depth or IDs diverged from the CPU reference");
+    const auto gpu_steady = renderer->Resolve(renderer->Submit(request));
+    Require(gpu_steady.counters.allocation_count == 0 &&
+                gpu_steady.counters.upload_bytes == 0,
+        "static GPU Gaussian raster frame allocated or uploaded");
+    Require(gpu_steady.counters.gaussian_gpu_raster_instance_count == 2,
+        "static GPU Gaussian raster frame lost its instances");
+    const auto steady_difference = Compare(gpu_raster, gpu_steady);
+    Require(steady_difference.color_pixels == 0 &&
+                steady_difference.prim_id_pixels == 0 &&
+                steady_difference.instance_id_pixels == 0,
+        "static GPU Gaussian raster frames are not deterministic");
+
+    // The raster consumes the GPU-sorted stream, so it falls back without the
+    // sort when preferred and cannot be required alone.
+    request.gpu_driven_gaussian_sort =
+        merlin::vulkan::GpuDrivenGaussianSortMode::Disabled;
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Prefer;
+    const auto raster_fallback = renderer->Resolve(renderer->Submit(request));
+    Require(raster_fallback.counters.gaussian_gpu_raster_fallback_count == 1 &&
+                raster_fallback.counters.gaussian_gpu_raster_dispatch_count ==
+                    0 &&
+                raster_fallback.counters
+                        .gaussian_gpu_raster_indirect_draw_count == 0 &&
+                raster_fallback.counters.gaussian_draw_count == 2,
+        "preferred GPU Gaussian raster did not retain the CPU-sorted draws");
+    Require(Compare(first, raster_fallback).color_pixels == 0,
+        "GPU Gaussian raster fallback changed the reference image");
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
+    Require(ThrowsRendererError(
+                [&] { (void)renderer->Submit(request); },
+                merlin::vulkan::RendererErrorCode::Unsupported),
+        "required Gaussian raster accepted a CPU-sorted frame");
+    request.gpu_driven_gaussian_sort =
+        merlin::vulkan::GpuDrivenGaussianSortMode::Require;
+
+    // A missing gather artifact keeps the sort and falls back only the raster
+    // when preferred, and fails the frame when required.
+    request.shaders.gaussian_raster_gather_compute =
+        shader_dir / "missing-gaussian-raster-gather.comp.spv";
+    Require(ThrowsRendererError(
+                [&] { (void)renderer->Submit(request); },
+                merlin::vulkan::RendererErrorCode::InvalidRequest),
+        "required Gaussian raster accepted a missing gather artifact");
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Prefer;
+    const auto gather_fallback = renderer->Resolve(renderer->Submit(request));
+    Require(gather_fallback.counters.gaussian_gpu_raster_fallback_count == 1 &&
+                gather_fallback.counters.gaussian_gpu_raster_dispatch_count ==
+                    0 &&
+                gather_fallback.counters.gaussian_draw_count == 2,
+        "missing Gaussian raster gather did not fall back independently");
+    RequireVerifiedSort(gather_fallback,
+        "missing Gaussian raster gather disturbed the GPU sort");
+    request.shaders.gaussian_raster_gather_compute.clear();
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Disabled;
 
     request.gpu_driven_gaussian_preparation =
         merlin::vulkan::GpuDrivenGaussianPreparationMode::Prefer;
@@ -445,6 +585,27 @@ int main(int argc, char** argv) {
                 scaled.counters.gaussian_gpu_sort_pass_count == 6 &&
                 scaled.counters.gaussian_gpu_sort_dispatch_count == 33,
         "multi-workgroup GPU sort did not follow its dispatch plan");
+    // Thousands of overlapping splats that tie on depth make the composite
+    // order-sensitive, so the indirect raster must follow the reference order
+    // across workgroups, resources, and ties.
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
+    const auto scaled_raster = renderer->Resolve(renderer->Submit(request));
+    RequireVerifiedSort(scaled_raster, "scaled GPU raster lost its GPU sort");
+    Require(scaled_raster.counters.gaussian_gpu_raster_instance_count ==
+                    3200 &&
+                scaled_raster.counters.gaussian_upload_bytes == 0,
+        "scaled GPU raster did not draw every sorted record");
+    const auto scaled_difference = Compare(scaled, scaled_raster);
+    Report("scaled sorted-stream raster vs CPU reference", scaled_difference);
+    Require(scaled_difference.max_color_channel <= 1U,
+        "scaled GPU raster color diverged from the CPU reference");
+    Require(scaled_difference.depth_pixels == 0 &&
+                scaled_difference.prim_id_pixels == 0 &&
+                scaled_difference.instance_id_pixels == 0,
+        "scaled GPU raster depth or IDs diverged from the CPU reference");
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Disabled;
     for (const auto handle : scale_gaussians) {
       world.Remove(handle);
     }

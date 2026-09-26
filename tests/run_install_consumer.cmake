@@ -55,6 +55,7 @@ if(EXISTS "${_headless}")
       gaussian-sort-scan-add.comp.spv
       gaussian-sort-scatter.comp.spv
       gaussian-sort-verify.comp.spv
+      gaussian-raster-gather.comp.spv
       triangle.vert.metal triangle.frag.metal
       triangle.vert.spv.reflection.json triangle.frag.spv.reflection.json
       triangle.bindless.vert.spv.reflection.json
@@ -69,6 +70,7 @@ if(EXISTS "${_headless}")
       gaussian-sort-scan-add.comp.spv.reflection.json
       gaussian-sort-scatter.comp.spv.reflection.json
       gaussian-sort-verify.comp.spv.reflection.json
+      gaussian-raster-gather.comp.spv.reflection.json
       gaussian.vert.spv.reflection.json gaussian.frag.spv.reflection.json
       gaussian-id.vert.spv.reflection.json
       gaussian-id.frag.spv.reflection.json

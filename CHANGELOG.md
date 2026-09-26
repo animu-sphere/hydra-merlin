@@ -10,6 +10,23 @@ after its public API and release process are established.
 
 ### Added
 
+- Vulkan sorted-stream Gaussian raster draws the verified GPU sort output
+  instead of the CPU-sorted upload. A gather kernel copies each sorted
+  element's 64-byte prepared record into raster order and writes the instance
+  count of one `vkCmdDrawIndirect` command. The procedural color and ID
+  subpasses read those records through a stride-64 variant of the existing
+  Gaussian pipelines, so the frame uploads no prepared stream. Resolve reads
+  back the device-written draw arguments and fails the frame unless they cover
+  exactly the verified sorted records. The raster is selected through
+  `RenderRequest::gpu_driven_gaussian_raster` and requires the GPU sort for
+  the same frame; Prefer keeps the CPU-sorted draws, Require rejects
+  explicitly, and a missing gather artifact falls back independently of the
+  sort. Runtime coverage compares color, depth, primId, and instanceId with
+  the CPU-sorted reference on a mixed Mesh/Gaussian frame and a 3,200-splat
+  fixture with depth ties across resources; both match exactly on the
+  validation device. Static frames allocate and upload nothing. Shader ABI v8
+  reflection-checks and packages the gather kernel, and the benchmark JSON
+  reports gather dispatch, instance, indirect-draw, and fallback counters.
 - Hosted Windows/Linux Debug and Release CI jobs for GPU-free MaterialX graph
   generation, Core material ABI/diagnostics, and installed package consumers,
   retaining CTest/JUnit logs and generated Slang sources. MaterialX install-tree
@@ -35,8 +52,6 @@ after its public API and release process are established.
   `RenderRequest::gpu_driven_gaussian_sort`, falls back or fails explicitly
   when preparation or its artifacts are unavailable, and reports dispatch,
   pass, key, sorted, divergence, and fallback counters in the benchmark JSON.
-  Its output is not yet rasterized; the CPU-sorted raster path remains the
-  image-producing fallback until tiling and indirect raster land.
 - The first Vulkan GPU-driven Gaussian preparation contract reads the existing
   tightly packed position, covariance, opacity, and spherical-harmonic arena
   ranges directly in a 64-thread compute kernel. It projects covariance,

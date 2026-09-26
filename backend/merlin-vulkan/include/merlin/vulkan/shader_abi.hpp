@@ -14,7 +14,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 7;
+inline constexpr std::uint32_t kVersion = 8;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -251,6 +251,17 @@ struct GaussianSortVerification {
   std::uint32_t identity_checksum{};
 };
 
+// The raster gather copies the verified sorted stream into raster order and
+// publishes the instance count of one VkDrawIndirectCommand. It shares the
+// sort's descriptor-set layout, and its push constants fit inside the sort's.
+struct alignas(16) GaussianRasterGatherConstants {
+  std::uint32_t element_count{};
+  std::uint32_t padding[3]{};
+};
+
+// Six procedural corner vertices per sorted record.
+inline constexpr std::uint32_t kGaussianRasterVertexCount = 6U;
+
 static_assert(sizeof(DrawConstants) == 128);
 static_assert(alignof(DrawConstants) == 16);
 static_assert(offsetof(DrawConstants, model_view_projection) == 0);
@@ -325,6 +336,9 @@ static_assert(offsetof(GaussianSortConstants, candidate_base) == 28);
 static_assert(offsetof(GaussianSortConstants, visible_count_offset) == 36);
 static_assert(sizeof(GaussianSortVerification) ==
               kGaussianSortControlWordCount * sizeof(std::uint32_t));
+static_assert(sizeof(GaussianRasterGatherConstants) == 16);
+static_assert(sizeof(GaussianRasterGatherConstants) <=
+              sizeof(GaussianSortConstants));
 static_assert(kGaussianSortRadixBins == 1U << kGaussianSortRadixBits);
 static_assert(kGaussianSortWorkgroupSize == kGaussianSortRadixBins);
 static_assert(sizeof(render::GpuIndexedIndirectCommand) == 20);
@@ -394,6 +408,15 @@ inline constexpr ResourceBinding kGaussianSortDestination{
 inline constexpr ResourceBinding kGaussianSortScan{
     0, 2, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGaussianSortPreparedRecords{
+    0, 3, ResourceClass::StorageBuffer};
+// The raster gather reuses the sort's set layout with its own roles.
+inline constexpr ResourceBinding kGaussianRasterSorted{
+    0, 0, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianRasterPreparedRecords{
+    0, 1, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianRasterRecords{
+    0, 2, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianRasterDraw{
     0, 3, ResourceClass::StorageBuffer};
 
 inline constexpr ShaderCapability kConventionalCapabilities =
