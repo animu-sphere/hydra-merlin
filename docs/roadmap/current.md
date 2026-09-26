@@ -364,8 +364,12 @@ preferred sorting falls back when preparation or its artifacts are
 unavailable, and required sorting rejects explicitly. Validation-backed
 coverage exercises multiple workgroups, a two-level scan, two low-word passes,
 depth ties across resources, and fallback/rejection paths.
-Gaussian-tile pairing/ranges, indirect raster consuming the sorted stream,
-sort timestamps, and reference-image evidence still retain the CPU-sorted
+Vulkan timestamps now measure the selected GPU sort (including key generation,
+radix passes, verification, and readback copies) independently of GPU raster
+time. The duration is zero when sorting is not selected or device timestamps
+are unavailable; the backend contract, benchmark stages, Hydra log, and
+viewport expose it. Gaussian-tile pairing/ranges, indirect raster consuming
+the sorted stream, and reference-image evidence still retain the CPU-sorted
 raster path.
 
 The Gaussian compute path remains incomplete. These slices are therefore not

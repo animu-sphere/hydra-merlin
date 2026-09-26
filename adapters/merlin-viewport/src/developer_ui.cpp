@@ -1134,6 +1134,8 @@ class ImGuiDeveloperUi final : public DeveloperUi {
                           snapshot.timings.gaussian_attribute_upload_ns);
         LabelMilliseconds("Prepared sync",
                           snapshot.timings.gaussian_prepared_upload_ns);
+        LabelMilliseconds("GPU sort",
+              snapshot.timings.gaussian_gpu_sort_ns);
         LabelMilliseconds("GPU raster",
                           snapshot.timings.gaussian_raster_ns);
       });

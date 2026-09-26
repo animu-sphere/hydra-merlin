@@ -265,6 +265,7 @@ struct FrameTimings {
   std::uint64_t gaussian_preparation_ns{};
   std::uint64_t gaussian_attribute_upload_ns{};
   std::uint64_t gaussian_prepared_upload_ns{};
+  std::uint64_t gaussian_gpu_sort_ns{};
   std::uint64_t gaussian_raster_ns{};
   std::uint64_t command_recording_ns{};
   std::uint64_t queue_submission_ns{};
