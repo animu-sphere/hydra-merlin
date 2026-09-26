@@ -10,6 +10,11 @@ after its public API and release process are established.
 
 ### Added
 
+- Hosted Windows/Linux Debug and Release CI jobs for GPU-free MaterialX graph
+  generation, Core material ABI/diagnostics, and installed package consumers,
+  retaining CTest/JUnit logs and generated Slang sources. MaterialX install-tree
+  linking now runs even when optional Slang target artifacts are disabled, and
+  a missing expected MaterialX export fails the test.
 - A deterministic Vulkan GPU radix sort now orders every GPU-prepared Gaussian
   record of a frame. A 64-bit key places a larger authored sort key first and
   breaks ties by a frame-global candidate index assigned in ascending

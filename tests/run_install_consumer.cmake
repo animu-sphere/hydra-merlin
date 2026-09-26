@@ -7,6 +7,7 @@ if(NOT DEFINED MERLIN_CMAKE_COMMAND OR
    NOT DEFINED MERLIN_INSTALL_DATADIR OR
    NOT DEFINED MERLIN_EXECUTABLE_SUFFIX OR
    NOT DEFINED MERLIN_EXPECTED_VERSION OR
+   NOT DEFINED MERLIN_EXPECTED_MATERIALX OR
    NOT DEFINED MERLIN_EXPECTED_METAL OR
    NOT DEFINED MERLIN_GENERATOR OR
    NOT DEFINED MERLIN_MULTI_CONFIG)
@@ -232,27 +233,33 @@ endif()
 # sibling MaterialX package discovery without requiring a renderer backend.
 set(_materialx_targets
     "${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin/MerlinMaterialXTargets.cmake")
-if(EXISTS "${_materialx_targets}" AND
-   MERLIN_EXPECTED_MATERIALX_ARTIFACTS)
-  set(_materialx_artifact_dir
-      "${_stage_dir}/${MERLIN_INSTALL_DATADIR}/merlin/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/materialx")
-  foreach(_materialx_artifact
-      materialx-prototype.slang
-      materialx-prototype.spv
-      materialx-prototype.spv.reflection.json
-      materialx-prototype.metal
-      materialx-prototype.metal.reflection.json
-      materialx-standard-surface.slang
-      materialx-standard-surface.spv
-      materialx-standard-surface.spv.reflection.json
-      materialx-standard-surface.metal
-      materialx-standard-surface.metal.reflection.json)
-    if(NOT EXISTS "${_materialx_artifact_dir}/${_materialx_artifact}")
-      message(FATAL_ERROR
-        "installed MaterialX artifact is missing: "
-        "${_materialx_artifact_dir}/${_materialx_artifact}")
-    endif()
-  endforeach()
+if(MERLIN_EXPECTED_MATERIALX)
+  if(NOT EXISTS "${_materialx_targets}")
+    message(FATAL_ERROR "installed MaterialX export is missing: ${_materialx_targets}")
+  endif()
+  # Target compilation is optional; package consumption must also run on the
+  # GPU-free generation-only configuration where slangc is unavailable.
+  if(MERLIN_EXPECTED_MATERIALX_ARTIFACTS)
+    set(_materialx_artifact_dir
+        "${_stage_dir}/${MERLIN_INSTALL_DATADIR}/merlin/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/materialx")
+    foreach(_materialx_artifact
+        materialx-prototype.slang
+        materialx-prototype.spv
+        materialx-prototype.spv.reflection.json
+        materialx-prototype.metal
+        materialx-prototype.metal.reflection.json
+        materialx-standard-surface.slang
+        materialx-standard-surface.spv
+        materialx-standard-surface.spv.reflection.json
+        materialx-standard-surface.metal
+        materialx-standard-surface.metal.reflection.json)
+      if(NOT EXISTS "${_materialx_artifact_dir}/${_materialx_artifact}")
+        message(FATAL_ERROR
+          "installed MaterialX artifact is missing: "
+          "${_materialx_artifact_dir}/${_materialx_artifact}")
+      endif()
+    endforeach()
+  endif()
   set(_materialx_consumer_build_dir
       "${MERLIN_TEST_BINARY_DIR}/materialx-install-consumer-build")
   execute_process(
