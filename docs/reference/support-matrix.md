@@ -19,6 +19,13 @@ label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
 Release on demand; it is capability evidence rather than a per-commit required
 check.
 
+The hosted workflow also defines GPU-free MaterialX generation and installed
+consumer checks on Windows 2022 and Ubuntu 24.04, in Debug and Release. This
+Tier 1 configuration explicitly disables `slangc` target artifacts; it checks
+graph generation, the Core material ABI/diagnostics, and package linking.
+Hosted run evidence for this new matrix is pending and does not expand the
+Vulkan, Metal-target, or Hydra runtime claims above.
+
 ## Dependency contract
 
 | Dependency | Minimum or validated version | Required by |

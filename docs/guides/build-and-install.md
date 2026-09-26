@@ -64,6 +64,41 @@ ctest --test-dir build-core --output-on-failure
 
 Use `Release` in place of `Debug` to verify the release configuration.
 
+## GPU-free MaterialX generation gate
+
+The hosted CI workflow adds a separate MaterialX generation matrix for Windows
+and Linux in Debug and Release. It uses the source revision pinned in CMake,
+without a Vulkan/Metal backend or Slang target compiler. It runs the Core tests,
+MaterialX graph generation, material ABI and diagnostics, and an installed
+`Merlin::MaterialX` consumer. Logs, JUnit results, and generated Slang sources
+are uploaded as `materialx-generation-<os>-<configuration>` artifacts.
+
+To reproduce the Linux configuration (CMake 3.26 or newer for the source build):
+
+```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends -y libx11-dev libxt-dev
+cmake -S . -B build-materialx -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=OFF \
+  -DMERLIN_ENABLE_MATERIALX=ON -DMERLIN_FETCH_MATERIALX=ON \
+  -DMERLIN_MATERIALX_SLANGC_EXECUTABLE:FILEPATH=
+cmake --build build-materialx --parallel 4
+ctest --test-dir build-materialx --output-on-failure --no-tests=error \
+  --output-junit materialx-tests.xml
+```
+
+The pinned MaterialX package configuration requires X11 and Xt development
+files on Linux even with its render modules disabled. They are needed for
+installed package discovery; this generation gate does not need a display
+server or GPU.
+
+On Windows, use `-G "Visual Studio 17 2022" -A x64` and pass `--config Debug`
+to the build and `-C Debug` to CTest. The explicitly empty compiler cache entry
+disables optional Slang target artifacts even when an SDK is installed. Omit
+that argument in a fresh build tree to enable target compilation when `slangc`
+is available. This gate provides no SPIR-V/Metal target or GPU runtime evidence.
+
 ## Native Metal backend and viewport
 
 On macOS, `MERLIN_ENABLE_METAL=ON` (the Apple-platform default) builds the

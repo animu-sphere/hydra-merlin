@@ -42,3 +42,63 @@ jobs:
 
       - name: Test source and install-tree consumers
         run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure
+
+  materialx:
+    name: MaterialX generation / ${{ matrix.os }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        build_type: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Install MaterialX package dependencies (Linux)
+        if: runner.os == 'Linux'
+        # The pinned MaterialXConfig.cmake requires X11/Xt on Linux even when
+        # the MaterialX render modules are disabled. No display is needed.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libx11-dev libxt-dev
+
+      # FetchContent uses the authoritative MaterialXGenSlang commit in CMake.
+      # An empty slangc cache entry keeps this gate independent of GPU SDKs;
+      # SPIR-V/Metal target compilation belongs to a separate evidence gate.
+      - name: Configure MaterialX generation (Windows)
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S . -B build-materialx -G "Visual Studio 17 2022" -A x64
+          -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=OFF
+          -DMERLIN_ENABLE_MATERIALX=ON -DMERLIN_FETCH_MATERIALX=ON
+          -DMERLIN_MATERIALX_SLANGC_EXECUTABLE:FILEPATH=
+
+      - name: Configure MaterialX generation (Linux)
+        if: runner.os == 'Linux'
+        run: >-
+          cmake -S . -B build-materialx -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=OFF
+          -DMERLIN_ENABLE_MATERIALX=ON -DMERLIN_FETCH_MATERIALX=ON
+          -DMERLIN_MATERIALX_SLANGC_EXECUTABLE:FILEPATH=
+
+      - name: Build Core and MaterialX
+        run: cmake --build build-materialx --config ${{ matrix.build_type }} --parallel 4
+
+      - name: Test generation, ABI, diagnostics, and install-tree consumers
+        run: >-
+          ctest --test-dir build-materialx --build-config ${{ matrix.build_type }}
+          --output-on-failure --no-tests=error --output-junit materialx-tests.xml
+
+      - name: Upload MaterialX generation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: materialx-generation-${{ matrix.os }}-${{ matrix.build_type }}
+          if-no-files-found: warn
+          path: |
+            build-materialx/materialx-tests.xml
+            build-materialx/tests/materialx-*.slang
+            build-materialx/Testing/Temporary/LastTest.log

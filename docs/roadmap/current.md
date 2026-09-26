@@ -68,7 +68,7 @@ Current UI follow-up:
 These cross-cutting items should land alongside v0.10.x, before the
 implementation becomes substantially more backend-specific.
 
-### ⬜ Evidence-tier separation
+### 🚧 Evidence-tier separation
 
 - **Tier 1 — required hosted checks:** Core Debug/Release on Windows and Linux,
   shader compilation, SPIR-V validation/reflection, Metal-target compilation,
@@ -84,6 +84,18 @@ implementation becomes substantially more backend-specific.
 GPU timing does not become a universal pull-request gate until runner variance
 is controlled; missing hardware evidence remains distinguishable from a product
 failure.
+
+The first additional Tier 1 slice adds GPU-free MaterialX generation jobs to
+the pull-request/push workflow on hosted Windows and Linux, in Debug and
+Release. They build the pinned MaterialXGenSlang source, exercise Core ABI and
+diagnostics plus graph generation, and compile/link/run the installed MaterialX
+consumer even without `slangc`. CTest logs, JUnit results, and generated Slang
+sources are retained. Local Windows validation with MSVC 19.40 (v143 hosted by
+Visual Studio 2026) passes all 17 tests in both Debug and Release, including the
+generation-only installed consumer. Hosted execution evidence is pending;
+SPIR-V validation,
+Metal-target compilation, Hydra compilation, and Linux Vulkan runtime coverage
+remain separate open gates.
 
 ### ✅ Producer-session renderer evidence
 
