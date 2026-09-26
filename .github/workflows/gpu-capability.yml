@@ -43,7 +43,7 @@ jobs:
 
       - name: Configure Vulkan headless
         shell: pwsh
-        run: cmake -S . -B build-native -G "Visual Studio 17 2022" -A x64
+        run: cmake -S . -B build-native -A x64
 
       - name: Build
         run: >-
@@ -218,7 +218,7 @@ jobs:
 
       - name: Configure Hydra
         shell: pwsh
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+        run: cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
 
       - name: Build
         run: >-
