@@ -93,6 +93,9 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+TF_DEFINE_PUBLIC_TOKENS(HdMerlinRenderSettingsTokens,
+    HD_MERLIN_RENDER_SETTINGS_TOKENS);
+
 namespace {
 
 using CpuClock = std::chrono::steady_clock;
@@ -241,6 +244,125 @@ void ReportHydraDiagnostic(
       {merlin::kDiagnosticSchemaVersion, std::move(code),
           merlin::DiagnosticSeverity::Warning, disposition, source.GetString(),
           std::move(message), std::move(recovery)});
+}
+
+std::string GaussianSettingsName(
+    const merlin::render::GpuDrivenGaussianSettings& settings) {
+  return std::string(
+             merlin::render::GpuDrivenGaussianModeName(settings.mode)) +
+         "/" +
+         std::string(merlin::render::GaussianRasterPathName(settings.raster));
+}
+
+// The source is the render setting key rather than a scene path.
+void ReportRenderSettingRejection(const TfToken& key,
+    const merlin::render::RendererSettingsValidationError& error,
+    const merlin::render::GpuDrivenGaussianSettings& kept) {
+  g_diagnostic_sink.Report({merlin::kDiagnosticSchemaVersion, error.code,
+      merlin::DiagnosticSeverity::Warning,
+      merlin::DiagnosticDisposition::Rejected, key.GetString(), error.message,
+      "keep " + GaussianSettingsName(kept)});
+}
+
+std::optional<std::string> ReadRenderSettingString(const VtValue& value) {
+  if (value.IsHolding<std::string>()) {
+    return value.UncheckedGet<std::string>();
+  }
+  if (value.IsHolding<TfToken>()) {
+    return value.UncheckedGet<TfToken>().GetString();
+  }
+  return std::nullopt;
+}
+
+// Applies one Gaussian render setting to settings. Returns the rejection
+// when the value is not a name in the renderer settings vocabulary, or not a
+// bool for a flag.
+std::optional<merlin::render::RendererSettingsValidationError>
+ReadGaussianRenderSetting(const TfToken& key, const VtValue& value,
+    merlin::render::GpuDrivenGaussianSettings& settings) {
+  if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianEnabled) {
+    if (!value.IsHolding<bool>()) {
+      return merlin::render::RendererSettingsValidationError{
+          "renderer-settings.invalid-gpu-driven-gaussian-mode",
+          "GPU Gaussian execution must be on or off."};
+    }
+    // Turning the flag on keeps an explicit require.
+    if (!value.UncheckedGet<bool>()) {
+      settings.mode = merlin::render::GpuDrivenGaussianMode::Disabled;
+    } else if (settings.mode ==
+               merlin::render::GpuDrivenGaussianMode::Disabled) {
+      settings.mode = merlin::render::GpuDrivenGaussianMode::Prefer;
+    }
+    return std::nullopt;
+  }
+  if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled) {
+    if (!value.IsHolding<bool>()) {
+      return merlin::render::RendererSettingsValidationError{
+          "renderer-settings.invalid-gaussian-raster-path",
+          "Gaussian tile raster must be on or off."};
+    }
+    settings.raster = value.UncheckedGet<bool>()
+                          ? merlin::render::GaussianRasterPath::Tiled
+                          : merlin::render::GaussianRasterPath::SortedStream;
+    return std::nullopt;
+  }
+  const auto name = ReadRenderSettingString(value);
+  if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode) {
+    for (const auto mode : {merlin::render::GpuDrivenGaussianMode::Disabled,
+             merlin::render::GpuDrivenGaussianMode::Prefer,
+             merlin::render::GpuDrivenGaussianMode::Require}) {
+      if (name && *name == merlin::render::GpuDrivenGaussianModeName(mode)) {
+        settings.mode = mode;
+        return std::nullopt;
+      }
+    }
+    return merlin::render::RendererSettingsValidationError{
+        "renderer-settings.invalid-gpu-driven-gaussian-mode",
+        "GPU-driven Gaussian execution mode must be disabled, prefer, or "
+        "require."};
+  }
+  for (const auto path : {merlin::render::GaussianRasterPath::SortedStream,
+           merlin::render::GaussianRasterPath::Tiled}) {
+    if (name && *name == merlin::render::GaussianRasterPathName(path)) {
+      settings.raster = path;
+      return std::nullopt;
+    }
+  }
+  return merlin::render::RendererSettingsValidationError{
+      "renderer-settings.invalid-gaussian-raster-path",
+      "Gaussian raster path must be sorted-stream or tiled."};
+}
+
+// The policy names come before the flags, so a host that passes both at
+// creation has the flags refine the names.
+const std::array<TfToken, 4>& GaussianRenderSettingKeys() {
+  static const std::array<TfToken, 4> keys{
+      HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode,
+      HdMerlinRenderSettingsTokens->gpuDrivenGaussianRaster,
+      HdMerlinRenderSettingsTokens->gpuDrivenGaussianEnabled,
+      HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled};
+  return keys;
+}
+
+bool IsGaussianRenderSetting(const TfToken& key) {
+  const auto& keys = GaussianRenderSettingKeys();
+  return std::find(keys.begin(), keys.end(), key) != keys.end();
+}
+
+VtValue GaussianRenderSettingValue(const TfToken& key,
+    const merlin::render::GpuDrivenGaussianSettings& settings) {
+  if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianEnabled) {
+    return VtValue(
+        settings.mode != merlin::render::GpuDrivenGaussianMode::Disabled);
+  }
+  if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled) {
+    return VtValue(
+        settings.raster == merlin::render::GaussianRasterPath::Tiled);
+  }
+  return VtValue(std::string(
+      key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode
+          ? merlin::render::GpuDrivenGaussianModeName(settings.mode)
+          : merlin::render::GaussianRasterPathName(settings.raster)));
 }
 
 struct SceneIndexPrimvarSources {
@@ -1051,10 +1173,32 @@ public:
     gpu_driven_indexed_ = settings;
   }
 
-  void SetGpuDrivenGaussianSettings(
-      merlin::render::GpuDrivenGaussianSettings settings) {
+  // Applies settings when the backend accepts them. Without a backend the
+  // request stays pending and is validated before the first frame, so the
+  // returned rejection is only the immediate one.
+  [[nodiscard]] std::optional<merlin::render::RendererSettingsValidationError>
+  RequestGpuDrivenGaussianSettings(
+      merlin::render::GpuDrivenGaussianSettings settings,
+      const TfToken& source) {
     std::scoped_lock lock(mutex_);
-    gpu_driven_gaussian_ = settings;
+    if (!renderer_) {
+      pending_gpu_driven_gaussian_ = PendingGaussianSettings{settings, source};
+      return std::nullopt;
+    }
+    pending_gpu_driven_gaussian_.reset();
+    auto error = ValidateGpuDrivenGaussianSettingsLocked(settings);
+    if (!error) {
+      gpu_driven_gaussian_ = settings;
+    }
+    return error;
+  }
+
+  [[nodiscard]] merlin::render::GpuDrivenGaussianSettings
+  EffectiveGpuDrivenGaussianSettings() const {
+    std::scoped_lock lock(mutex_);
+    return pending_gpu_driven_gaussian_
+               ? pending_gpu_driven_gaussian_->settings
+               : gpu_driven_gaussian_;
   }
 
   [[nodiscard]] HdMerlinViewportFrame GetLatestViewportFrame() const {
@@ -1551,6 +1695,16 @@ public:
             "Hydra regression requested unavailable backend validation");
       }
     }
+    if (pending_gpu_driven_gaussian_) {
+      const auto pending = *std::exchange(pending_gpu_driven_gaussian_, {});
+      if (const auto error =
+              ValidateGpuDrivenGaussianSettingsLocked(pending.settings)) {
+        ReportRenderSettingRejection(
+            pending.source, *error, gpu_driven_gaussian_);
+      } else {
+        gpu_driven_gaussian_ = pending.settings;
+      }
+    }
     const auto snapshot = extractor_.snapshot();
     const auto snapshot_build_counters =
         changes.empty() ? merlin::extraction::SnapshotBuildCounters{}
@@ -1874,6 +2028,23 @@ public:
                << result.timings.gaussian_gpu_tile_ns
                << " gaussian_raster_ns="
                << result.timings.gaussian_raster_ns
+               << " gaussian_gpu_mode="
+               << merlin::render::GpuDrivenGaussianModeName(
+                      request.gpu_driven_gaussian.mode)
+               << " gaussian_raster_path="
+               << merlin::render::GaussianRasterPathName(
+                      request.gpu_driven_gaussian.raster)
+               << " gaussian_gpu_sorted_count="
+               << result.telemetry.gaussian_gpu_sorted_count
+               << " gaussian_gpu_raster_instance_count="
+               << result.telemetry.gaussian_gpu_raster_instance_count
+               << " gaussian_gpu_tile_raster_frame_count="
+               << result.telemetry.gaussian_gpu_tile_raster_frame_count
+               << " gaussian_gpu_tile_raster_overflow_fallback_count="
+               << result.telemetry
+                      .gaussian_gpu_tile_raster_overflow_fallback_count
+               << " gaussian_gpu_fallback_count="
+               << result.telemetry.gaussian_gpu_fallback_count
                << " buffers_written=" << buffers_written
                << " width=" << result.depth.product.width
                << " height=" << result.depth.product.height
@@ -2160,6 +2331,24 @@ private:
     return handle;
   }
 
+  // Binds only the Gaussian policy to the backend's capabilities: every
+  // other field of the contract keeps its default, and validation matches
+  // the backend's creation so it cannot be the rejected field.
+  [[nodiscard]] std::optional<merlin::render::RendererSettingsValidationError>
+  ValidateGpuDrivenGaussianSettingsLocked(
+      const merlin::render::GpuDrivenGaussianSettings& settings) const {
+    merlin::render::RendererSettings contract;
+    contract.validation = renderer_->capabilities().validation_enabled;
+    contract.gpu_driven_gaussian = settings;
+    return merlin::render::ValidateRendererSettings(
+        contract, &renderer_->capabilities());
+  }
+
+  struct PendingGaussianSettings {
+    merlin::render::GpuDrivenGaussianSettings settings;
+    TfToken source;
+  };
+
   mutable std::mutex mutex_;
   merlin::RenderWorld world_;
   merlin::FrontFaceWinding camera_front_face_{
@@ -2167,6 +2356,7 @@ private:
   bool reflect_hgi_projection_y_{};
   merlin::render::GpuDrivenIndexedSettings gpu_driven_indexed_;
   merlin::render::GpuDrivenGaussianSettings gpu_driven_gaussian_;
+  std::optional<PendingGaussianSettings> pending_gpu_driven_gaussian_;
   merlin::extraction::SceneExtractor extractor_;
   std::shared_ptr<merlin::render::Backend> renderer_;
   std::shared_ptr<HdMerlinHgiVulkanBridge> hgi_vulkan_bridge_;
@@ -4001,6 +4191,7 @@ HdMerlinRenderDelegate::HdMerlinRenderDelegate(
     : HdRenderDelegate(settings),
       impl_(std::make_unique<Impl>()),
       resources_(std::make_shared<HdResourceRegistry>()) {
+  ApplyInitialRenderSettings();
 }
 
 HdMerlinRenderDelegate::HdMerlinRenderDelegate(
@@ -4009,6 +4200,84 @@ HdMerlinRenderDelegate::HdMerlinRenderDelegate(
     : HdRenderDelegate(settings),
       impl_(std::make_unique<Impl>(std::move(backend))),
       resources_(std::make_shared<HdResourceRegistry>()) {
+  ApplyInitialRenderSettings();
+}
+
+void HdMerlinRenderDelegate::ApplyInitialRenderSettings() {
+  const merlin::render::GpuDrivenGaussianSettings defaults;
+  merlin::render::GpuDrivenGaussianSettings settings;
+  for (const auto& key : GaussianRenderSettingKeys()) {
+    const auto value = HdRenderDelegate::GetRenderSetting(key);
+    if (value.IsEmpty()) {
+      continue;
+    }
+    if (const auto error = ReadGaussianRenderSetting(key, value, settings)) {
+      ReportRenderSettingRejection(key, *error, defaults);
+    }
+  }
+  // Also replaces any rejected host value in the settings map with the
+  // canonical policy.
+  RequestGpuDrivenGaussianSettings(
+      settings, HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode);
+}
+
+// Hosts list only the flags. usdview's settings dialog re-sends every listed
+// setting as it was when the dialog opened, so listing the policy names as
+// well would let an untouched stale value undo an edited one. The names stay
+// settable for require and for scripts.
+HdRenderSettingDescriptorList
+HdMerlinRenderDelegate::GetRenderSettingDescriptors() const {
+  return {{"GPU Gaussian execution",
+              HdMerlinRenderSettingsTokens->gpuDrivenGaussianEnabled,
+              VtValue(false)},
+      {"Gaussian tile raster",
+          HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled,
+          VtValue(false)}};
+}
+
+void HdMerlinRenderDelegate::SetRenderSetting(
+    const TfToken& key, const VtValue& value) {
+  if (!IsGaussianRenderSetting(key)) {
+    HdRenderDelegate::SetRenderSetting(key, value);
+    return;
+  }
+  const auto effective = impl_->bridge->EffectiveGpuDrivenGaussianSettings();
+  auto settings = effective;
+  if (const auto error = ReadGaussianRenderSetting(key, value, settings)) {
+    ReportRenderSettingRejection(key, *error, effective);
+    return;
+  }
+  // Hosts such as usdview re-send every setting on apply; an unchanged
+  // policy neither revalidates nor reports again.
+  if (settings == effective) {
+    return;
+  }
+  RequestGpuDrivenGaussianSettings(settings, key);
+}
+
+VtValue HdMerlinRenderDelegate::GetRenderSetting(const TfToken& key) const {
+  if (!IsGaussianRenderSetting(key)) {
+    return HdRenderDelegate::GetRenderSetting(key);
+  }
+  return GaussianRenderSettingValue(
+      key, impl_->bridge->EffectiveGpuDrivenGaussianSettings());
+}
+
+void HdMerlinRenderDelegate::RequestGpuDrivenGaussianSettings(
+    merlin::render::GpuDrivenGaussianSettings settings,
+    const TfToken& source) {
+  const auto previous = impl_->bridge->EffectiveGpuDrivenGaussianSettings();
+  if (const auto error =
+          impl_->bridge->RequestGpuDrivenGaussianSettings(settings, source)) {
+    ReportRenderSettingRejection(source, *error, previous);
+    return;
+  }
+  // Stores the canonical values so the settings version advances only when
+  // the requested policy changes.
+  for (const auto& key : GaussianRenderSettingKeys()) {
+    HdRenderDelegate::SetRenderSetting(
+        key, GaussianRenderSettingValue(key, settings));
+  }
 }
 
 HdMerlinRenderDelegate::~HdMerlinRenderDelegate() = default;
@@ -4046,7 +4315,8 @@ void HdMerlinRenderDelegate::SetGpuDrivenIndexedSettings(
 
 void HdMerlinRenderDelegate::SetGpuDrivenGaussianSettings(
     merlin::render::GpuDrivenGaussianSettings settings) {
-  impl_->bridge->SetGpuDrivenGaussianSettings(settings);
+  RequestGpuDrivenGaussianSettings(
+      settings, HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode);
 }
 
 HdMerlinViewportFrame

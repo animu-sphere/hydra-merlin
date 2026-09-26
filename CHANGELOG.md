@@ -10,6 +10,33 @@ after its public API and release process are established.
 
 ### Added
 
+- Hydra hosts such as usdview can select the renderer settings v3 Gaussian
+  execution policy without the development viewport. The render delegate
+  lists two flag render settings, which usdview shows as Hydra Settings menu
+  checkboxes: `merlin:gpuDrivenGaussian:enabled` selects `prefer` (and keeps
+  `require`) and `merlin:gpuDrivenGaussian:tiled` selects the tile raster
+  path. The unlisted string settings `merlin:gpuDrivenGaussian:mode`
+  (`disabled`, `prefer`, `require`) and `merlin:gpuDrivenGaussian:raster`
+  (`sorted-stream`, `tiled`) edit the same policy; listing only flags keeps
+  usdview's settings dialog, which re-sends stale values, out of the way.
+  Values are checked with `ValidateRendererSettings` against the selected
+  backend: immediately once it exists, otherwise before the first frame. A
+  rejected value reports a `renderer-settings.*` diagnostic, keeps the applied
+  policy, and is not reported back by `GetRenderSetting`; settings passed at
+  delegate creation and `SetGpuDrivenGaussianSettings` take the same path.
+  The Hydra regression log records the applied policy and the GPU Gaussian
+  counters. New usdview smokes check the listed flags, select `require` by
+  name and each raster path by flag on the bundled 8192-Gaussian sample,
+  check that the GPU
+  stages replaced CPU preparation without fallback, and compare the image with
+  the CPU-sorted reference; tile raster is allowed the same 6-step rounding
+  bound as the renderer tile raster test. They also trace a camera-motion CPU
+  phase and a GPU phase for the Hydra performance report. Without validation
+  layers on the development GPU, the GPU-sorted frame's median render pass is
+  20.5 ms against 21.1 ms on the CPU path: GPU sort and raster take 0.13 ms in
+  place of 1.1 ms of CPU preparation, but CPU readback of the four 597x540
+  AOVs takes 19.3 ms, while RenderBuffer resolve and map, the HgiGL upload,
+  host composition, and presentation take 0.35 ms together.
 - Vulkan frames drawn from the GPU-sorted Gaussian stream no longer run the
   CPU reference preparation and sort unless
   `RenderRequest::gaussian_cpu_reference_validation` asks to compare the GPU

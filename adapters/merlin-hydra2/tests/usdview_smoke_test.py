@@ -14,6 +14,8 @@ def _read_events():
         "hgi_direct_share_rejection",
         "hgi_metal_transfer_mode",
         "hgi_metal_direct_share_rejection",
+        "gaussian_gpu_mode",
+        "gaussian_raster_path",
     }
     events = []
     with open(marker, encoding="utf-8") as stream:
