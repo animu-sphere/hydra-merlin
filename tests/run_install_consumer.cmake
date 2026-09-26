@@ -56,6 +56,10 @@ if(EXISTS "${_headless}")
       gaussian-sort-scatter.comp.spv
       gaussian-sort-verify.comp.spv
       gaussian-raster-gather.comp.spv
+      gaussian-tile-count.comp.spv
+      gaussian-tile-emit.comp.spv
+      gaussian-tile-ranges.comp.spv
+      gaussian-tile-verify.comp.spv
       triangle.vert.metal triangle.frag.metal
       triangle.vert.spv.reflection.json triangle.frag.spv.reflection.json
       triangle.bindless.vert.spv.reflection.json
@@ -71,6 +75,10 @@ if(EXISTS "${_headless}")
       gaussian-sort-scatter.comp.spv.reflection.json
       gaussian-sort-verify.comp.spv.reflection.json
       gaussian-raster-gather.comp.spv.reflection.json
+      gaussian-tile-count.comp.spv.reflection.json
+      gaussian-tile-emit.comp.spv.reflection.json
+      gaussian-tile-ranges.comp.spv.reflection.json
+      gaussian-tile-verify.comp.spv.reflection.json
       gaussian.vert.spv.reflection.json gaussian.frag.spv.reflection.json
       gaussian-id.vert.spv.reflection.json
       gaussian-id.frag.spv.reflection.json

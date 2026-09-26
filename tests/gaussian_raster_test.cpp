@@ -1,6 +1,7 @@
 // Exercises the Vulkan Gaussian path end to end: GPU projection/culling
 // dispatch, the verified GPU radix sort, sorted-stream indirect raster and its
-// image parity with the CPU-sorted reference raster, counter readback,
+// image parity with the CPU-sorted reference raster, verified tile binning
+// and its bounded pair overflow, counter readback,
 // prepared-stream upload, procedural ellipse rasterization, alpha compositing,
 // Mesh depth composition, ID output, and steady-state frame-local reuse.
 
@@ -63,6 +64,26 @@ void RequireVerifiedSort(const merlin::vulkan::RenderResult& result,
               result.counters.gaussian_gpu_sort_reference_divergence_count ==
                   0 &&
               result.counters.gaussian_gpu_sort_fallback_count == 0,
+      message);
+}
+
+// Tile binning must verify its own grouping, store every requested pair up
+// to its capacity, and reproduce the CPU reference replay of the same stream.
+void RequireVerifiedTiles(const merlin::vulkan::RenderResult& result,
+    const char* message) {
+  const auto& counters = result.counters;
+  Require(counters.gaussian_gpu_tile_fallback_count == 0 &&
+              counters.gaussian_gpu_tile_reference_divergence_count == 0 &&
+              counters.gaussian_gpu_tile_pair_count +
+                      counters.gaussian_gpu_tile_pair_overflow_count ==
+                  counters.gaussian_gpu_tile_requested_pair_count &&
+              counters.gaussian_gpu_tile_pair_count <=
+                  counters.gaussian_gpu_tile_pair_capacity &&
+              counters.gaussian_gpu_tile_occupied_count <=
+                  counters.gaussian_gpu_tile_count &&
+              counters.gaussian_gpu_tile_max_pair_count <=
+                  counters.gaussian_gpu_tile_pair_count &&
+              counters.gaussian_gpu_tile_clamped_record_count == 0,
       message);
 }
 
@@ -317,6 +338,88 @@ int main(int argc, char** argv) {
                 steady_difference.prim_id_pixels == 0 &&
                 steady_difference.instance_id_pixels == 0,
         "static GPU Gaussian raster frames are not deterministic");
+
+    // Tile binning groups the gathered stream into 16x16-pixel tiles and
+    // verifies the grouping on the device. The sorted-stream draws still
+    // produce the image, so every AOV must stay unchanged.
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Require;
+    const auto tiled = renderer->Resolve(renderer->Submit(request));
+    RequireVerifiedSort(tiled, "tiled frame lost its GPU sort");
+    RequireVerifiedTiles(tiled, "Gaussian tile binning failed verification");
+    // A 64x64 viewport is a 4x4 grid, so one radix pass orders the tile
+    // index. 256 padded records scan in one level and the 65536-pair default
+    // capacity in two: count, scan, emit, then histogram, two scans, one
+    // add, and scatter, then ranges and verification.
+    Require(tiled.counters.gaussian_gpu_tile_count == 16 &&
+                tiled.counters.gaussian_gpu_tile_pair_capacity == 65536 &&
+                tiled.counters.gaussian_gpu_tile_sort_pass_count == 1 &&
+                tiled.counters.gaussian_gpu_tile_dispatch_count == 10,
+        "Gaussian tile binning did not follow its bounded dispatch plan");
+    Require(tiled.counters.gaussian_gpu_tile_pair_count >= 2 &&
+                tiled.counters.gaussian_gpu_tile_pair_overflow_count == 0 &&
+                tiled.counters.gaussian_gpu_tile_occupied_count >= 1,
+        "Gaussian tile binning lost the visible splats");
+    if (renderer->capabilities().timestamp_queries) {
+      Require(tiled.cpu_timings.gaussian_gpu_tile_ns != 0,
+          "Gaussian tile binning did not publish device timing");
+    }
+    const auto tiled_difference = Compare(gpu_raster, tiled);
+    Require(tiled_difference.color_pixels == 0 &&
+                tiled_difference.depth_pixels == 0 &&
+                tiled_difference.prim_id_pixels == 0 &&
+                tiled_difference.instance_id_pixels == 0,
+        "Gaussian tile binning changed the sorted-stream image");
+    const auto tiled_steady = renderer->Resolve(renderer->Submit(request));
+    Require(tiled_steady.counters.allocation_count == 0 &&
+                tiled_steady.counters.upload_bytes == 0,
+        "static tiled Gaussian frame allocated or uploaded");
+    RequireVerifiedTiles(tiled_steady,
+        "static tiled Gaussian frame failed verification");
+    Require(tiled_steady.counters.gaussian_gpu_tile_pair_count ==
+                tiled.counters.gaussian_gpu_tile_pair_count,
+        "static tiled Gaussian frames are not deterministic");
+
+    // Tile binning consumes the gathered stream, so it falls back without
+    // sorted-stream raster when preferred and cannot be required alone.
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Disabled;
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Prefer;
+    const auto tile_fallback = renderer->Resolve(renderer->Submit(request));
+    Require(tile_fallback.counters.gaussian_gpu_tile_fallback_count == 1 &&
+                tile_fallback.counters.gaussian_gpu_tile_dispatch_count == 0,
+        "preferred Gaussian tile binning ran without sorted-stream raster");
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Require;
+    Require(ThrowsRendererError(
+                [&] { (void)renderer->Submit(request); },
+                merlin::vulkan::RendererErrorCode::Unsupported),
+        "required Gaussian tile binning accepted a CPU-sorted frame");
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
+
+    // Missing tile artifacts keep sorted-stream raster and fall back only
+    // the binning when preferred, and fail the frame when required.
+    request.shaders.gaussian_tile_directory = shader_dir / "missing-tiles";
+    Require(ThrowsRendererError(
+                [&] { (void)renderer->Submit(request); },
+                merlin::vulkan::RendererErrorCode::InvalidRequest),
+        "required Gaussian tile binning accepted missing artifacts");
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Prefer;
+    const auto artifact_fallback =
+        renderer->Resolve(renderer->Submit(request));
+    Require(artifact_fallback.counters.gaussian_gpu_tile_fallback_count ==
+                    1 &&
+                artifact_fallback.counters.gaussian_gpu_tile_dispatch_count ==
+                    0 &&
+                artifact_fallback.counters
+                        .gaussian_gpu_raster_instance_count == 2,
+        "missing Gaussian tile artifacts did not fall back independently");
+    request.shaders.gaussian_tile_directory.clear();
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Disabled;
 
     // The raster consumes the GPU-sorted stream, so it falls back without the
     // sort when preferred and cannot be required alone.
@@ -604,6 +707,62 @@ int main(int argc, char** argv) {
                 scaled_difference.prim_id_pixels == 0 &&
                 scaled_difference.instance_id_pixels == 0,
         "scaled GPU raster depth or IDs diverged from the CPU reference");
+
+    // Thousands of overlapping splats spread pairs over every tile. 3328
+    // padded records scan in two levels, which adds one scan and one add to
+    // the small-fixture plan.
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Require;
+    const auto scaled_tiles = renderer->Resolve(renderer->Submit(request));
+    RequireVerifiedTiles(scaled_tiles, "scaled tile binning failed");
+    Require(scaled_tiles.counters.gaussian_gpu_tile_dispatch_count == 12 &&
+                scaled_tiles.counters.gaussian_gpu_tile_pair_overflow_count ==
+                    0 &&
+                scaled_tiles.counters.gaussian_gpu_tile_max_pair_count > 1,
+        "scaled tile binning did not group overlapping splats");
+    Require(Compare(scaled_raster, scaled_tiles).color_pixels == 0,
+        "scaled tile binning changed the sorted-stream image");
+    std::cout << "scaled tile binning: "
+              << scaled_tiles.counters.gaussian_gpu_tile_pair_count
+              << " pairs over "
+              << scaled_tiles.counters.gaussian_gpu_tile_occupied_count
+              << " tiles, at most "
+              << scaled_tiles.counters.gaussian_gpu_tile_max_pair_count
+              << " per tile\n";
+
+    // A capacity below the requested pairs stores the record-major prefix,
+    // reports the rest as overflow, and still verifies against the reference
+    // replay of the same truncation.
+    request.gaussian_tile_pair_capacity = 256;
+    const auto overflowed = renderer->Resolve(renderer->Submit(request));
+    RequireVerifiedTiles(overflowed, "overflowing tile binning failed");
+    Require(overflowed.counters.gaussian_gpu_tile_pair_capacity == 256 &&
+                overflowed.counters.gaussian_gpu_tile_pair_count == 256 &&
+                overflowed.counters.gaussian_gpu_tile_requested_pair_count ==
+                    scaled_tiles.counters
+                        .gaussian_gpu_tile_requested_pair_count &&
+                overflowed.counters.gaussian_gpu_tile_pair_overflow_count ==
+                    scaled_tiles.counters.gaussian_gpu_tile_pair_count - 256,
+        "tile pair overflow was not bounded and reported");
+    Require(Compare(scaled_raster, overflowed).color_pixels == 0,
+        "tile pair overflow changed the sorted-stream image");
+    request.gaussian_tile_pair_capacity = 0;
+
+    // 320x240 is a 20x15 grid whose tile indices need two radix passes.
+    request.width = 320;
+    request.height = 240;
+    const auto wide_tiles = renderer->Resolve(renderer->Submit(request));
+    RequireVerifiedSort(wide_tiles, "wide tiled frame lost its GPU sort");
+    RequireVerifiedTiles(wide_tiles, "multi-pass tile binning failed");
+    Require(wide_tiles.counters.gaussian_gpu_tile_count == 300 &&
+                wide_tiles.counters.gaussian_gpu_tile_sort_pass_count == 2 &&
+                wide_tiles.counters.gaussian_gpu_tile_dispatch_count == 17 &&
+                wide_tiles.counters.gaussian_gpu_tile_occupied_count > 16,
+        "multi-pass tile binning did not follow its dispatch plan");
+    request.width = 64;
+    request.height = 64;
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Disabled;
     request.gpu_driven_gaussian_raster =
         merlin::vulkan::GpuDrivenGaussianRasterMode::Disabled;
     for (const auto handle : scale_gaussians) {

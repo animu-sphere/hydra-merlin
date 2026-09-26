@@ -18,6 +18,7 @@ static const uint kGaussianSortRadixBins = 256u;
 static const uint kGaussianSortScanElementsPerThread = 4u;
 static const uint kGaussianSortScanWorkgroupElements = 1024u;
 static const uint kGaussianSortInvalidValue = 0xFFFFFFFFu;
+static const uint kGaussianSortDynamicCount = 1u;
 
 // Verification words at the start of the scan/control buffer.
 static const uint kGaussianSortSortedCount = 0u;
@@ -27,7 +28,8 @@ static const uint kGaussianSortIdentityChecksum = 3u;
 
 struct GaussianSortConstants
 {
-    // Keys: segment length. Histogram, scatter, and verify: padded key count.
+    // Keys: segment length. Histogram, scatter, and verify: padded key count,
+    // or the buffer capacity when flags selects a dynamic count.
     uint element_count;
     uint block_count;
     uint digit_shift;
@@ -38,8 +40,10 @@ struct GaussianSortConstants
     uint candidate_base;
     uint prepared_base;
     uint visible_count_offset;
-    uint padding0;
-    uint padding1;
+    // Histogram and scatter: with kGaussianSortDynamicCount, only the first
+    // min(element_count, scan[count_word]) elements participate.
+    uint count_word;
+    uint flags;
 };
 
 struct GaussianSortElement
@@ -121,6 +125,16 @@ uint Digit(GaussianSortElement element)
     return (word >> gaussian_sort_constants.digit_shift) & (kGaussianSortRadixBins - 1u);
 }
 
+uint ActiveElementCount()
+{
+    uint count = gaussian_sort_constants.element_count;
+    if ((gaussian_sort_constants.flags & kGaussianSortDynamicCount) != 0u)
+    {
+        count = min(count, gaussian_sort_scan[gaussian_sort_constants.count_word]);
+    }
+    return count;
+}
+
 bool KeyLess(GaussianSortElement lhs, GaussianSortElement rhs)
 {
     return lhs.key_high < rhs.key_high ||
@@ -161,7 +175,7 @@ void gaussian_sort_histogram(uint3 group_id : SV_GroupID,
     uint lane = group_thread_id.x;
     gs_sort_bins[lane] = 0u;
     GroupMemoryBarrierWithGroupSync();
-    if (dispatch_thread_id.x < gaussian_sort_constants.element_count)
+    if (dispatch_thread_id.x < ActiveElementCount())
     {
         uint ignored;
         InterlockedAdd(gs_sort_bins[Digit(gaussian_sort_source[dispatch_thread_id.x])],
@@ -244,7 +258,7 @@ void gaussian_sort_scatter(uint3 group_id : SV_GroupID,
                            uint3 dispatch_thread_id : SV_DispatchThreadID)
 {
     uint lane = group_thread_id.x;
-    bool active = dispatch_thread_id.x < gaussian_sort_constants.element_count;
+    bool active = dispatch_thread_id.x < ActiveElementCount();
     GaussianSortElement element = SentinelElement();
     uint digit = kGaussianSortRadixBins;
     if (active)
