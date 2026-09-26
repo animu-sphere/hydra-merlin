@@ -1863,6 +1863,8 @@ public:
                << result.timings.gaussian_prepared_upload_ns
                << " gaussian_gpu_sort_ns="
                << result.timings.gaussian_gpu_sort_ns
+               << " gaussian_gpu_tile_ns="
+               << result.timings.gaussian_gpu_tile_ns
                << " gaussian_raster_ns="
                << result.timings.gaussian_raster_ns
                << " buffers_written=" << buffers_written

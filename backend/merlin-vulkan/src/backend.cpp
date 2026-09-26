@@ -285,6 +285,7 @@ public:
         native.cpu_timings.gaussian_attribute_upload_ns,
         native.cpu_timings.gaussian_prepared_upload_ns,
         native.cpu_timings.gaussian_gpu_sort_ns,
+        native.cpu_timings.gaussian_gpu_tile_ns,
         native.cpu_timings.gaussian_raster_ns,
         native.cpu_timings.command_recording_ns,
         native.cpu_timings.queue_submission_ns,

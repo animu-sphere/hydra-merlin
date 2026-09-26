@@ -143,7 +143,7 @@ std::size_t CountRegex(const std::string& text, const std::regex& pattern) {
 
 int main(int argc, char** argv) {
   try {
-    if (argc != 25) {
+    if (argc != 29) {
       throw std::runtime_error(
           "usage: shader-abi-test conventional.vert.json conventional.frag.json "
           "bindless.vert.json bindless.frag.json gpu-scene.vert.json "
@@ -152,7 +152,9 @@ int main(int argc, char** argv) {
           "gaussian-sort-keys.comp.json gaussian-sort-histogram.comp.json "
           "gaussian-sort-scan.comp.json gaussian-sort-scan-add.comp.json "
           "gaussian-sort-scatter.comp.json gaussian-sort-verify.comp.json "
-          "gaussian-raster-gather.comp.json gaussian.vert.json "
+          "gaussian-raster-gather.comp.json gaussian-tile-count.comp.json "
+          "gaussian-tile-emit.comp.json gaussian-tile-ranges.comp.json "
+          "gaussian-tile-verify.comp.json gaussian.vert.json "
           "gaussian-id.vert.json gaussian.frag.json gaussian-id.frag.json "
           "metal.vert.json "
           "metal.frag.json manifest.json");
@@ -182,13 +184,23 @@ int main(int argc, char** argv) {
       gaussian_sort[i] = CompactJson(Read(argv[11 + i]));
     }
     const auto gaussian_raster_gather = CompactJson(Read(argv[17]));
-    const auto gaussian_vertex = CompactJson(Read(argv[18]));
-    const auto gaussian_id_vertex = CompactJson(Read(argv[19]));
-    const auto gaussian_fragment = CompactJson(Read(argv[20]));
-    const auto gaussian_id_fragment = CompactJson(Read(argv[21]));
-    const auto metal_vertex = CompactJson(Read(argv[22]));
-    const auto metal_fragment = CompactJson(Read(argv[23]));
-    const auto manifest = CompactJson(Read(argv[24]));
+    const std::array<const char*, 4> gaussian_tile_entries{
+        "gaussian_tile_count",
+        "gaussian_tile_emit",
+        "gaussian_tile_ranges",
+        "gaussian_tile_verify",
+    };
+    std::array<std::string, gaussian_tile_entries.size()> gaussian_tile;
+    for (std::size_t i = 0; i < gaussian_tile.size(); ++i) {
+      gaussian_tile[i] = CompactJson(Read(argv[18 + i]));
+    }
+    const auto gaussian_vertex = CompactJson(Read(argv[22]));
+    const auto gaussian_id_vertex = CompactJson(Read(argv[23]));
+    const auto gaussian_fragment = CompactJson(Read(argv[24]));
+    const auto gaussian_id_fragment = CompactJson(Read(argv[25]));
+    const auto metal_vertex = CompactJson(Read(argv[26]));
+    const auto metal_fragment = CompactJson(Read(argv[27]));
+    const auto manifest = CompactJson(Read(argv[28]));
 
     RequireCommonAbi(conventional_vertex);
     RequireCommonAbi(conventional_fragment);
@@ -368,6 +380,8 @@ int main(int argc, char** argv) {
       RequireField(sort, "scan_sums_offset", 24, 4);
       RequireField(sort, "candidate_base", 28, 4);
       RequireField(sort, "visible_count_offset", 36, 4);
+      RequireField(sort, "count_word", 40, 4);
+      RequireField(sort, "flags", 44, 4);
       RequireContains(sort, "\"name\":\"GaussianSortElement\"",
           "Gaussian sort element is absent from reflection");
       RequireField(sort, "key_low", 0, 4);
@@ -388,6 +402,47 @@ int main(int argc, char** argv) {
       RequireBinding(sort, "gaussian_sort_prepared_records",
           "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
     }
+    for (std::size_t i = 0; i < gaussian_tile.size(); ++i) {
+      const auto& tile = gaussian_tile[i];
+      RequireContains(tile,
+          "\"name\":\"" + std::string(gaussian_tile_entries[i]) +
+              "\",\"stage\":\"compute\"",
+          "Gaussian tile compute entry point mismatch");
+      RequireContains(tile, "\"threadGroupSize\":[256,1,1]",
+          "Gaussian tile workgroup size is incorrect");
+      RequireBinding(tile, "gaussian_tile_constants",
+          "\"binding\":{\"kind\":\"pushConstantBuffer\",\"index\":0}");
+      RequireContains(tile, "\"name\":\"GaussianTileConstants\"",
+          "Gaussian tile constants are absent from reflection");
+      RequireField(tile, "record_bound", 0, 4);
+      RequireField(tile, "pair_capacity", 4, 4);
+      RequireField(tile, "tile_count_x", 8, 4);
+      RequireField(tile, "viewport_width", 16, 4);
+      RequireField(tile, "offsets_offset", 24, 4);
+      RequireField(tile, "ranges_offset", 28, 4);
+      RequireField(tile, "record_pair_limit", 32, 4);
+      // Tile pairs use the sort element layout, and the records are the
+      // gathered copies of the preparation's records.
+      RequireContains(tile, "\"name\":\"GaussianSortElement\"",
+          "Gaussian tile pairs do not use the sort element layout");
+      RequireField(tile, "key_low", 0, 4);
+      RequireField(tile, "value", 8, 4);
+      RequireField(tile, "center_pixels", 0, 8);
+      RequireField(tile, "radius_pixels", 8, 4);
+      RequireBinding(tile, "gaussian_tile_control",
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":2}");
+    }
+    // Each kernel reflects only the buffers it uses.
+    RequireBinding(gaussian_tile[0], "gaussian_tile_records",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
+    RequireBinding(gaussian_tile[1], "gaussian_tile_destination",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+    RequireBinding(gaussian_tile[2], "gaussian_tile_source",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
+    RequireBinding(gaussian_tile[3], "gaussian_tile_source",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
+    RequireBinding(gaussian_tile[3], "gaussian_tile_records",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
     RequireContains(gaussian_raster_gather,
         "\"name\":\"gaussian_raster_gather\",\"stage\":\"compute\"",
         "Gaussian raster gather entry point mismatch");
@@ -448,7 +503,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
         "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":8",
+    RequireContains(manifest, "\"shader_abi_version\":9",
         "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
         "Slang toolchain series is not pinned");
@@ -464,14 +519,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 23,
+                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 27,
         "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 8);
+    static_assert(kVersion == 9);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -512,6 +567,51 @@ int main(int argc, char** argv) {
     static_assert(kGaussianRasterPreparedRecords.binding == 1);
     static_assert(kGaussianRasterRecords.binding == 2);
     static_assert(kGaussianRasterDraw.binding == 3);
+    // Tile kernels bind the sort's descriptor sets with the same roles.
+    static_assert(kGaussianTileSource.set == kGaussianSortSource.set);
+    static_assert(kGaussianTileSource.binding ==
+                  kGaussianSortSource.binding);
+    static_assert(kGaussianTileDestination.binding ==
+                  kGaussianSortDestination.binding);
+    static_assert(kGaussianTileControl.binding == kGaussianSortScan.binding);
+    static_assert(kGaussianTileRecords.binding ==
+                  kGaussianSortPreparedRecords.binding);
+    static_assert(GaussianTileGridSize(0) == 0);
+    static_assert(GaussianTileGridSize(1) == 1);
+    static_assert(GaussianTileGridSize(16) == 1);
+    static_assert(GaussianTileGridSize(17) == 2);
+    static_assert(GaussianTilePairHash(1, 0) != GaussianTilePairHash(0, 1));
+    static_assert(GaussianTilePairHash(1, 0) != GaussianTilePairHash(2, 0));
+    {
+      // Bounds cover the tiles of the pixels whose centers lie inside the
+      // conservative square, clamped to the viewport.
+      GaussianTileRect rect;
+      Require(GaussianTileBounds({8.0F, 8.0F}, 1.0F, 64, 64, rect) &&
+                  rect.x0 == 0 && rect.x1 == 0 && rect.y0 == 0 &&
+                  rect.y1 == 0,
+          "a small square left its tile");
+      Require(GaussianTileBounds({16.0F, 16.0F}, 1.0F, 64, 64, rect) &&
+                  rect.x0 == 0 && rect.x1 == 1 && rect.y0 == 0 &&
+                  rect.y1 == 1,
+          "a square on a tile corner did not cover four tiles");
+      // Pixel 15's center is 15.5; a square ending at 15.5 still covers it.
+      Require(GaussianTileBounds({14.5F, 20.0F}, 1.0F, 64, 64, rect) &&
+                  rect.x0 == 0 && rect.x1 == 0 && rect.y0 == 1 &&
+                  rect.y1 == 1,
+          "a square touching a pixel center missed or overran its tile");
+      Require(GaussianTileBounds({-10.0F, 70.0F}, 20.0F, 64, 64, rect) &&
+                  rect.x0 == 0 && rect.x1 == 0 && rect.y0 == 3 &&
+                  rect.y1 == 3,
+          "a partially visible square was not clamped to the viewport");
+      Require(!GaussianTileBounds({-10.0F, 8.0F}, 5.0F, 64, 64, rect),
+          "an off-screen square produced tiles");
+      Require(!GaussianTileBounds({8.2F, 8.2F}, 0.1F, 64, 64, rect),
+          "a square covering no pixel center produced tiles");
+      Require(!GaussianTileBounds({8.0F, 8.0F}, 0.0F, 64, 64, rect) &&
+                  !GaussianTileBounds({8.0F, 8.0F},
+                      std::numeric_limits<float>::quiet_NaN(), 64, 64, rect),
+          "a degenerate radius produced tiles");
+    }
     static_assert(GaussianSortWorkgroupCount(0) == 0);
     static_assert(GaussianSortWorkgroupCount(256) == 1);
     static_assert(GaussianSortWorkgroupCount(257) == 2);

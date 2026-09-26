@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -14,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 8;
+inline constexpr std::uint32_t kVersion = 9;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -228,6 +230,11 @@ struct GaussianSortElement {
   std::uint32_t value{};
 };
 
+// Histogram and scatter bound their input by
+// min(element_count, scan[count_word]) instead of element_count alone, so a
+// device-written count can sort a prefix of a fixed-capacity buffer.
+inline constexpr std::uint32_t kGaussianSortDynamicCount = 1U << 0U;
+
 // One push-constant block shared by every sort kernel; each reads only the
 // fields its stage documents in gaussian-sort.slang.
 struct alignas(16) GaussianSortConstants {
@@ -241,7 +248,8 @@ struct alignas(16) GaussianSortConstants {
   std::uint32_t candidate_base{};
   std::uint32_t prepared_base{};
   std::uint32_t visible_count_offset{};
-  std::uint32_t padding[2]{};
+  std::uint32_t count_word{};
+  std::uint32_t flags{};
 };
 
 struct GaussianSortVerification {
@@ -261,6 +269,106 @@ struct alignas(16) GaussianRasterGatherConstants {
 
 // Six procedural corner vertices per sorted record.
 inline constexpr std::uint32_t kGaussianRasterVertexCount = 6U;
+
+// Tile binning pairs every sorted record with the fixed-size screen tiles its
+// conservative square can cover, then groups the pairs by tile with a stable
+// radix sort over the tile index alone, so each tile keeps the verified back-
+// to-front order. Pairs live in a fixed-capacity buffer; pairs past it are
+// dropped and reported, never written out of bounds.
+inline constexpr std::uint32_t kGaussianTileSize = 16U;
+inline constexpr std::uint32_t kGaussianTileWorkgroupSize = 256U;
+inline constexpr std::uint32_t kGaussianTileDefaultPairsPerRecord = 8U;
+inline constexpr std::uint32_t kGaussianTileMinimumPairCapacity = 65536U;
+// Control words at the start of the tile control buffer; the per-record pair
+// offsets, the pair histogram levels, and the tile ranges follow.
+inline constexpr std::uint32_t kGaussianTileControlWordCount = 10U;
+inline constexpr std::uint32_t kGaussianTileRecordCountWord = 0U;
+inline constexpr std::uint32_t kGaussianTileRequestedPairCountWord = 1U;
+
+[[nodiscard]] constexpr std::uint32_t GaussianTileGridSize(
+    std::uint32_t pixels) noexcept {
+  return pixels == 0U ? 0U : 1U + (pixels - 1U) / kGaussianTileSize;
+}
+
+// Inclusive tile bounds of the pixels whose centers the conservative square
+// center +/- radius covers. gaussian-tile.slang evaluates the same float
+// expressions, so CPU reference pairs match GPU pairs for identical records.
+struct GaussianTileRect {
+  std::uint32_t x0{};
+  std::uint32_t y0{};
+  std::uint32_t x1{};
+  std::uint32_t y1{};
+};
+
+[[nodiscard]] inline bool GaussianTileBounds(Vec2 center, float radius,
+    std::uint32_t width, std::uint32_t height,
+    GaussianTileRect& rect) noexcept {
+  if (width == 0U || height == 0U || !(radius > 0.0F) ||
+      !std::isfinite(radius) || !std::isfinite(center.x) ||
+      !std::isfinite(center.y)) {
+    return false;
+  }
+  const auto max_x = static_cast<float>(width - 1U);
+  const auto max_y = static_cast<float>(height - 1U);
+  const auto low_x = std::ceil(center.x - radius - 0.5F);
+  const auto low_y = std::ceil(center.y - radius - 0.5F);
+  const auto high_x = std::floor(center.x + radius - 0.5F);
+  const auto high_y = std::floor(center.y + radius - 0.5F);
+  if (!(high_x >= 0.0F) || !(high_y >= 0.0F) || !(low_x <= max_x) ||
+      !(low_y <= max_y) || low_x > high_x || low_y > high_y) {
+    return false;
+  }
+  const auto first_x = static_cast<std::uint32_t>(std::max(low_x, 0.0F));
+  const auto first_y = static_cast<std::uint32_t>(std::max(low_y, 0.0F));
+  const auto last_x = static_cast<std::uint32_t>(std::min(high_x, max_x));
+  const auto last_y = static_cast<std::uint32_t>(std::min(high_y, max_y));
+  rect = {first_x / kGaussianTileSize, first_y / kGaussianTileSize,
+      last_x / kGaussianTileSize, last_y / kGaussianTileSize};
+  return true;
+}
+
+// Order-sensitive verification: the tile verify kernel adds
+// (pair position + 1) * hash for every stored pair.
+[[nodiscard]] constexpr std::uint32_t GaussianTilePairHash(
+    std::uint32_t tile, std::uint32_t record) noexcept {
+  return GaussianSortMix(GaussianSortMix(tile * 0x85EBCA6BU) ^
+                         (record * 0x9E3779B9U));
+}
+
+// Tile kernels bind the sort's set layout and fit its push-constant block.
+// Count and emit run over records, ranges and verify over stored pairs.
+struct alignas(16) GaussianTileConstants {
+  // Padded sorted record count.
+  std::uint32_t record_bound{};
+  std::uint32_t pair_capacity{};
+  std::uint32_t tile_count_x{};
+  std::uint32_t tile_count_y{};
+  std::uint32_t viewport_width{};
+  std::uint32_t viewport_height{};
+  // Word offsets inside the control buffer.
+  std::uint32_t offsets_offset{};
+  std::uint32_t ranges_offset{};
+  // Pairs one record may emit, in row-major tile order; keeps every prefix
+  // sum of per-record counts within uint32.
+  std::uint32_t record_pair_limit{};
+  std::uint32_t padding[3]{};
+};
+
+struct GaussianTileVerification {
+  // Real records, copied from the sorted-stream draw arguments.
+  std::uint32_t record_count{};
+  // Pairs the records request after record_pair_limit; stored pairs are
+  // min(requested, capacity).
+  std::uint32_t requested_pair_count{};
+  std::uint32_t clamped_record_count{};
+  std::uint32_t verified_pair_count{};
+  std::uint32_t order_violation_count{};
+  std::uint32_t pair_mismatch_count{};
+  std::uint32_t range_violation_count{};
+  std::uint32_t occupied_tile_count{};
+  std::uint32_t max_tile_pair_count{};
+  std::uint32_t identity_checksum{};
+};
 
 static_assert(sizeof(DrawConstants) == 128);
 static_assert(alignof(DrawConstants) == 16);
@@ -336,9 +444,23 @@ static_assert(offsetof(GaussianSortConstants, candidate_base) == 28);
 static_assert(offsetof(GaussianSortConstants, visible_count_offset) == 36);
 static_assert(sizeof(GaussianSortVerification) ==
               kGaussianSortControlWordCount * sizeof(std::uint32_t));
+static_assert(offsetof(GaussianSortConstants, count_word) == 40);
+static_assert(offsetof(GaussianSortConstants, flags) == 44);
 static_assert(sizeof(GaussianRasterGatherConstants) == 16);
 static_assert(sizeof(GaussianRasterGatherConstants) <=
               sizeof(GaussianSortConstants));
+static_assert(sizeof(GaussianTileConstants) == 48);
+static_assert(alignof(GaussianTileConstants) == 16);
+static_assert(offsetof(GaussianTileConstants, tile_count_x) == 8);
+static_assert(offsetof(GaussianTileConstants, offsets_offset) == 24);
+static_assert(offsetof(GaussianTileConstants, record_pair_limit) == 32);
+static_assert(sizeof(GaussianTileConstants) <=
+              sizeof(GaussianSortConstants));
+static_assert(sizeof(GaussianTileVerification) ==
+              kGaussianTileControlWordCount * sizeof(std::uint32_t));
+static_assert(offsetof(GaussianTileVerification, requested_pair_count) ==
+              kGaussianTileRequestedPairCountWord * sizeof(std::uint32_t));
+static_assert(kGaussianTileWorkgroupSize == kGaussianSortWorkgroupSize);
 static_assert(kGaussianSortRadixBins == 1U << kGaussianSortRadixBits);
 static_assert(kGaussianSortWorkgroupSize == kGaussianSortRadixBins);
 static_assert(sizeof(render::GpuIndexedIndirectCommand) == 20);
@@ -417,6 +539,18 @@ inline constexpr ResourceBinding kGaussianRasterPreparedRecords{
 inline constexpr ResourceBinding kGaussianRasterRecords{
     0, 2, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGaussianRasterDraw{
+    0, 3, ResourceClass::StorageBuffer};
+// Tile kernels share the sort's set layout and roles, so the pair sort binds
+// the same descriptor sets: pairs ping-pong between source and destination,
+// control words and scans share one buffer, and records are the gathered
+// raster-order stream.
+inline constexpr ResourceBinding kGaussianTileSource{
+    0, 0, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianTileDestination{
+    0, 1, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianTileControl{
+    0, 2, ResourceClass::StorageBuffer};
+inline constexpr ResourceBinding kGaussianTileRecords{
     0, 3, ResourceClass::StorageBuffer};
 
 inline constexpr ShaderCapability kConventionalCapabilities =

@@ -10,6 +10,30 @@ after its public API and release process are established.
 
 ### Added
 
+- Vulkan GPU tile binning groups the gathered sorted Gaussian stream into
+  16x16-pixel tiles. A count kernel sizes each record's conservative square in
+  tiles, the sort's block scan turns the counts into pair offsets, and an emit
+  kernel writes record-major (tile, record) pairs. The sort's histogram, scan,
+  and stable scatter kernels then order the pairs by tile index alone, using
+  only the radix passes the tile grid needs, so every tile keeps the verified
+  back-to-front order. A ranges kernel records each tile's pair span, and a
+  verification kernel checks pair order, each pair against its record's tile
+  bounds, and range membership; resolve fails the frame on any violation or
+  lost pair. Pairs live in a fixed-capacity buffer, by default eight per
+  padded record and at least 65,536: pairs past it are dropped and reported as
+  overflow, never written out of bounds. A per-record pair limit keeps the pair
+  offsets within uint32. An order-sensitive checksum is compared with a CPU
+  replay of the same binning over the CPU-sorted stream and reported as
+  `gaussian_gpu_tile_reference_divergence_count`. Binning is selected through
+  `RenderRequest::gpu_driven_gaussian_tiles`, requires sorted-stream raster
+  for the same frame, and does not change the image yet; Prefer falls back and
+  Require rejects explicitly, and a missing tile artifact falls back
+  independently of the raster. Its dispatch count is fixed by the padded
+  record count, pair capacity, and tile grid. Vulkan timestamps report it as
+  `gaussian_gpu_tile_ns`, and the benchmark JSON reports dispatch, pass, tile,
+  occupancy, pair, capacity, overflow, divergence, and fallback counters.
+  Shader ABI v9 reflection-checks and packages the four tile kernels and adds a
+  device-written element count to the sort constants.
 - Vulkan sorted-stream Gaussian raster draws the verified GPU sort output
   instead of the CPU-sorted upload. A gather kernel copies each sorted
   element's 64-byte prepared record into raster order and writes the instance

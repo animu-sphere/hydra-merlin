@@ -1139,6 +1139,8 @@ private:
             snapshot.timings.gaussian_prepared_upload_ns);
         LabelMilliseconds("GPU sort",
             snapshot.timings.gaussian_gpu_sort_ns);
+        LabelMilliseconds("GPU tiles",
+            snapshot.timings.gaussian_gpu_tile_ns);
         LabelMilliseconds("GPU raster",
             snapshot.timings.gaussian_raster_ns);
       });

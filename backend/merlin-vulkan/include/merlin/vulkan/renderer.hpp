@@ -306,8 +306,8 @@ struct RendererStatistics {
 };
 
 // Backend-owned durations for one frame. Fields are CPU wall-clock durations
-// except gpu_execution_ns, gaussian_gpu_sort_ns, and gaussian_raster_ns, which
-// come from device timestamps. Nanoseconds keep the result machine-readable
+// except gpu_execution_ns, gaussian_gpu_sort_ns, gaussian_gpu_tile_ns, and
+// gaussian_raster_ns, which come from device timestamps. Nanoseconds keep the result machine-readable
 // without floating-point formatting differences between library implementations.
 struct FrameCpuTimings {
   // CPU work that reconciles immutable snapshot resources with GPU residency.
@@ -316,6 +316,7 @@ struct FrameCpuTimings {
   std::uint64_t gaussian_attribute_upload_ns{};
   std::uint64_t gaussian_prepared_upload_ns{};
   std::uint64_t gaussian_gpu_sort_ns{};
+  std::uint64_t gaussian_gpu_tile_ns{};
   std::uint64_t gaussian_raster_ns{};
   std::uint64_t command_recording_ns{};
   std::uint64_t queue_submission_ns{};
@@ -378,6 +379,24 @@ struct FrameCounters {
   std::uint64_t gaussian_gpu_raster_instance_count{};
   std::uint64_t gaussian_gpu_raster_indirect_draw_count{};
   std::uint64_t gaussian_gpu_raster_fallback_count{};
+  // Tile binning groups the gathered sorted stream by 16x16-pixel screen
+  // tile. requested pairs follow any per-record limit; pair_count is the
+  // verified stored prefix, min(requested, capacity), and overflow is the
+  // difference. clamped_record_count counts records whose coverage exceeded
+  // the per-record limit that keeps pair offsets within uint32. The stage
+  // does not change the image yet; the sorted-stream draws still raster.
+  std::uint64_t gaussian_gpu_tile_dispatch_count{};
+  std::uint64_t gaussian_gpu_tile_sort_pass_count{};
+  std::uint64_t gaussian_gpu_tile_count{};
+  std::uint64_t gaussian_gpu_tile_occupied_count{};
+  std::uint64_t gaussian_gpu_tile_max_pair_count{};
+  std::uint64_t gaussian_gpu_tile_pair_capacity{};
+  std::uint64_t gaussian_gpu_tile_requested_pair_count{};
+  std::uint64_t gaussian_gpu_tile_pair_count{};
+  std::uint64_t gaussian_gpu_tile_pair_overflow_count{};
+  std::uint64_t gaussian_gpu_tile_clamped_record_count{};
+  std::uint64_t gaussian_gpu_tile_reference_divergence_count{};
+  std::uint64_t gaussian_gpu_tile_fallback_count{};
   std::uint64_t gaussian_draw_count{};
   std::uint64_t gaussian_attribute_upload_bytes{};
   std::uint64_t gaussian_attribute_copy_range_count{};
@@ -511,6 +530,9 @@ struct ShaderPaths {
   // Empty resolves to gaussian-raster-gather.comp.spv in the effective sort
   // directory.
   std::filesystem::path gaussian_raster_gather_compute;
+  // Directory holding the packaged gaussian-tile-*.comp.spv kernels. Empty
+  // resolves to the effective sort directory.
+  std::filesystem::path gaussian_tile_directory;
 
   friend bool operator==(const ShaderPaths&, const ShaderPaths&) = default;
 };
@@ -534,6 +556,12 @@ enum class GpuDrivenGaussianSortMode {
 };
 
 enum class GpuDrivenGaussianRasterMode {
+  Disabled,
+  Prefer,
+  Require,
+};
+
+enum class GpuDrivenGaussianTileMode {
   Disabled,
   Prefer,
   Require,
@@ -598,6 +626,18 @@ struct RenderRequest {
   // cannot run; Require reports an actionable Unsupported error.
   GpuDrivenGaussianRasterMode gpu_driven_gaussian_raster{
       GpuDrivenGaussianRasterMode::Disabled};
+  // Tile binning groups the gathered sorted stream into per-tile pair ranges
+  // and verifies them; the sorted-stream draws still produce the image. It
+  // consumes the gather, so it requires sorted-stream raster for the same
+  // frame. Prefer counts a fallback when it cannot run; Require reports an
+  // actionable Unsupported error.
+  GpuDrivenGaussianTileMode gpu_driven_gaussian_tiles{
+      GpuDrivenGaussianTileMode::Disabled};
+  // Maximum stored (tile, record) pairs. Zero selects
+  // kGaussianTileDefaultPairsPerRecord per padded record, at least
+  // kGaussianTileMinimumPairCapacity. Pairs past the capacity are dropped and
+  // reported as overflow; the frame still succeeds.
+  std::uint32_t gaussian_tile_pair_capacity{};
 };
 
 enum class RendererErrorCode {

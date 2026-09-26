@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cmath>
 #include <chrono>
@@ -19,6 +20,7 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -163,6 +165,9 @@ constexpr std::uint32_t kMinimumBorrowedVulkanApiVersion = VK_API_VERSION_1_3;
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kIdFormat = VK_FORMAT_R32_UINT;
+// Frame timestamp pairs: 0/1 graphics submission, 2/3 Gaussian raster,
+// 4/5 Gaussian GPU sort, and 6/7 Gaussian tile binning.
+constexpr std::uint32_t kFrameTimestampQueryCount = 8;
 
 void Check(VkResult result, const char* operation) {
   if (result == VK_SUCCESS) {
@@ -1236,6 +1241,7 @@ public:
             frame.gaussian_gpu_preparation);
         DestroyGaussianGpuSortFrameResources(frame.gaussian_gpu_sort);
         DestroyGaussianGpuRasterFrameResources(frame.gaussian_gpu_raster);
+        DestroyGaussianGpuTileFrameResources(frame.gaussian_gpu_tiles);
         if (frame.image_available != VK_NULL_HANDLE) {
           vkDestroySemaphore(device_, frame.image_available, nullptr);
         }
@@ -1498,7 +1504,9 @@ public:
         PrepareGaussianGpuPreparation(frame, *request.snapshot, request);
     const auto gaussian_gpu_sort =
         PrepareGaussianGpuSort(frame, request, gaussian_gpu_preparation);
-    PrepareGaussianGpuRaster(frame, request, gaussian_gpu_sort);
+    const auto gaussian_gpu_raster =
+        PrepareGaussianGpuRaster(frame, request, gaussian_gpu_sort);
+    PrepareGaussianGpuTiles(frame, request, gaussian_gpu_raster);
     const auto gaussian_prepared_upload_start = CpuClock::now();
     // Sorted-stream raster draws the device-written order, so the frame
     // uploads no CPU-prepared stream.
@@ -1538,7 +1546,8 @@ public:
     Check(vkBeginCommandBuffer(frame.command_buffer, &begin),
         "begin frame command buffer");
     if (frame.timestamp_pool != VK_NULL_HANDLE) {
-      vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0, 6);
+      vkCmdResetQueryPool(frame.command_buffer, frame.timestamp_pool, 0,
+          kFrameTimestampQueryCount);
       vkCmdWriteTimestamp(frame.command_buffer,
           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
           frame.timestamp_pool, 0);
@@ -1563,6 +1572,19 @@ public:
           frame.timestamp_pool, 5);
     }
     RecordGaussianGpuRasterGather(frame.command_buffer, frame);
+    if (frame.timestamp_pool != VK_NULL_HANDLE &&
+        frame.gaussian_gpu_tiles.selected) {
+      vkCmdWriteTimestamp(frame.command_buffer,
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+          frame.timestamp_pool, 6);
+    }
+    RecordGaussianGpuTiles(frame.command_buffer, frame);
+    if (frame.timestamp_pool != VK_NULL_HANDLE &&
+        frame.gaussian_gpu_tiles.selected) {
+      vkCmdWriteTimestamp(frame.command_buffer,
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+          frame.timestamp_pool, 7);
+    }
     RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
         request.gpu_driven_indexed);
     RecordFrame(frame.command_buffer, frame, *request.snapshot,
@@ -1804,6 +1826,7 @@ public:
     ResolveGaussianGpuPreparationCounters(frame);
     ResolveGaussianGpuSortVerification(frame);
     ResolveGaussianGpuRasterDraw(frame);
+    ResolveGaussianGpuTiles(frame);
     ResolveGpuDrivenCounters(frame);
     latest_completed_value_ = std::max(latest_completed_value_, completion);
     staging_.Collect(completion);
@@ -1846,6 +1869,8 @@ public:
     result.cpu_timings.gpu_execution_ns = ReadGpuExecutionNanoseconds(frame);
     result.cpu_timings.gaussian_gpu_sort_ns =
         ReadGaussianGpuSortNanoseconds(frame);
+    result.cpu_timings.gaussian_gpu_tile_ns =
+        ReadGaussianGpuTileNanoseconds(frame);
     result.cpu_timings.gaussian_raster_ns =
         ReadGaussianRasterNanoseconds(frame);
     result.cpu_timings.backend_total_ns += ElapsedNanoseconds(resolve_start);
@@ -2136,6 +2161,43 @@ public:
     bool selected{};
   };
 
+  enum GaussianTileKernel : std::size_t {
+    kGaussianTileCount,
+    kGaussianTileEmit,
+    kGaussianTileRanges,
+    kGaussianTileVerify,
+    kGaussianTileKernelCount,
+  };
+
+  // Tile binning over the gathered raster-order records. Pairs ping-pong like
+  // the sort's keys: set 0 reads pairs[0] and writes pairs[1], set 1 the
+  // reverse. Emit writes through set 1 into pairs[0], so pair-sort pass p
+  // uses set p % 2 and the grouped pairs end in pairs[sort_pass_count % 2].
+  // The control buffer holds verification words, per-record pair offsets,
+  // the pair histogram, their scan levels, and two range words per tile.
+  struct GaussianGpuTileFrameResources {
+    shader_abi::GaussianTileConstants constants;
+    std::array<Buffer, 2> pairs;
+    Buffer control;
+    Buffer verification_readback;
+    VkDescriptorPool descriptor_pool{};
+    std::array<VkDescriptorSet, 2> descriptor_sets{};
+    VkDeviceSize pair_capacity_bytes{};
+    VkDeviceSize control_capacity_bytes{};
+    std::array<VkPipeline, kGaussianTileKernelCount> pipelines{};
+    std::array<VkPipeline, kGaussianSortKernelCount> sort_pipelines{};
+    std::vector<GaussianGpuSortScanLevel> offset_levels;
+    std::vector<GaussianGpuSortScanLevel> histogram_levels;
+    std::uint32_t record_blocks{};
+    std::uint32_t pair_blocks{};
+    std::uint32_t sort_pass_count{};
+    // CPU reference over the CPU-sorted stream, with the same bounds,
+    // per-record limit, and capacity truncation.
+    std::uint32_t reference_requested_pair_count{};
+    std::uint32_t reference_checksum{};
+    bool selected{};
+  };
+
   struct FrameContext {
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
@@ -2176,6 +2238,7 @@ public:
     GaussianGpuPreparationFrameResources gaussian_gpu_preparation;
     GaussianGpuSortFrameResources gaussian_gpu_sort;
     GaussianGpuRasterFrameResources gaussian_gpu_raster;
+    GaussianGpuTileFrameResources gaussian_gpu_tiles;
   };
 
   struct SwapchainState {
@@ -2897,7 +2960,7 @@ public:
         VkQueryPoolCreateInfo query_info{
             VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        query_info.queryCount = 6;
+        query_info.queryCount = kFrameTimestampQueryCount;
         Check(vkCreateQueryPool(device_, &query_info, nullptr,
                   &frame.timestamp_pool),
             "create frame timestamp query pool");
@@ -3017,6 +3080,19 @@ public:
     DestroyBuffer(resources.records);
     DestroyBuffer(resources.draw_arguments);
     DestroyBuffer(resources.draw_readback);
+    if (resources.descriptor_pool != VK_NULL_HANDLE) {
+      vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
+    }
+    resources = {};
+  }
+
+  void DestroyGaussianGpuTileFrameResources(
+      GaussianGpuTileFrameResources& resources) noexcept {
+    for (auto& pairs : resources.pairs) {
+      DestroyBuffer(pairs);
+    }
+    DestroyBuffer(resources.control);
+    DestroyBuffer(resources.verification_readback);
     if (resources.descriptor_pool != VK_NULL_HANDLE) {
       vkDestroyDescriptorPool(device_, resources.descriptor_pool, nullptr);
     }
@@ -4813,6 +4889,34 @@ public:
     frame_counters_.descriptor_update_count += writes.size();
   }
 
+  // Appends the exclusive-scan levels of `count` words starting at word
+  // `offset`; each level's workgroup totals become the next level's input.
+  // Returns the first word past the top level's total, or nothing when a
+  // level would leave uint32 word addressing.
+  static std::optional<std::uint64_t> AppendGaussianScanLevels(
+      std::uint64_t offset, std::uint64_t count,
+      std::vector<GaussianGpuSortScanLevel>& levels) {
+    while (true) {
+      if (count > std::numeric_limits<std::uint32_t>::max()) {
+        return std::nullopt;
+      }
+      const auto workgroups = shader_abi::GaussianSortScanWorkgroupCount(
+          static_cast<std::uint32_t>(count));
+      const auto sums_offset = offset + count;
+      if (sums_offset + workgroups > std::numeric_limits<std::uint32_t>::max()) {
+        return std::nullopt;
+      }
+      levels.push_back({static_cast<std::uint32_t>(offset),
+          static_cast<std::uint32_t>(count),
+          static_cast<std::uint32_t>(sums_offset)});
+      if (workgroups <= 1U) {
+        return sums_offset + 1U;
+      }
+      offset = sums_offset;
+      count = workgroups;
+    }
+  }
+
   GaussianGpuStageSelection PrepareGaussianGpuSort(FrameContext& frame,
       const RenderRequest& request, GaussianGpuStageSelection preparation) {
     auto& resources = frame.gaussian_gpu_sort;
@@ -4876,29 +4980,15 @@ public:
     // Scan/control words: verification, one visible count per resource,
     // then the digit-major histogram and each scan level's block totals.
     std::vector<GaussianGpuSortScanLevel> levels;
-    std::uint64_t level_offset =
-        shader_abi::kGaussianSortControlWordCount + prepared.batches.size();
-    std::uint64_t level_count = key_count;
-    while (true) {
-      const auto workgroups = shader_abi::GaussianSortScanWorkgroupCount(
-          static_cast<std::uint32_t>(level_count));
-      const auto sums_offset = level_offset + level_count;
-      if (sums_offset + workgroups > std::numeric_limits<std::uint32_t>::max()) {
-        unavailable("the Gaussian sort scan exceeds uint32 addressing");
-        return GaussianGpuStageSelection::Unavailable;
-      }
-      levels.push_back({static_cast<std::uint32_t>(level_offset),
-          static_cast<std::uint32_t>(level_count),
-          static_cast<std::uint32_t>(sums_offset)});
-      if (workgroups == 1U) {
-        break;
-      }
-      level_offset = sums_offset;
-      level_count = workgroups;
+    const auto scan_words = AppendGaussianScanLevels(
+        shader_abi::kGaussianSortControlWordCount + prepared.batches.size(),
+        key_count, levels);
+    if (!scan_words) {
+      unavailable("the Gaussian sort scan exceeds uint32 addressing");
+      return GaussianGpuStageSelection::Unavailable;
     }
     const auto scan_bytes =
-        (static_cast<VkDeviceSize>(levels.back().sums_offset) + 1U) *
-        sizeof(std::uint32_t);
+        static_cast<VkDeviceSize>(*scan_words) * sizeof(std::uint32_t);
     const auto key_bytes = static_cast<VkDeviceSize>(key_count) *
                            sizeof(shader_abi::GaussianSortElement);
     if (key_bytes > max_storage_buffer_range_ ||
@@ -5071,14 +5161,16 @@ public:
 
   // Selecting sorted-stream raster replaces the CPU-sorted upload for this
   // frame, so the choice is final before any prepared stream is written.
-  void PrepareGaussianGpuRaster(FrameContext& frame,
+  GaussianGpuStageSelection PrepareGaussianGpuRaster(FrameContext& frame,
       const RenderRequest& request, GaussianGpuStageSelection sort) {
     auto& resources = frame.gaussian_gpu_raster;
     resources.selected = false;
+    if (sort == GaussianGpuStageSelection::NoWork) {
+      return GaussianGpuStageSelection::NoWork;
+    }
     if (request.gpu_driven_gaussian_raster ==
-            GpuDrivenGaussianRasterMode::Disabled ||
-        sort == GaussianGpuStageSelection::NoWork) {
-      return;
+        GpuDrivenGaussianRasterMode::Disabled) {
+      return GaussianGpuStageSelection::NotRequested;
     }
     const auto unavailable = [&](std::string detail) {
       if (request.gpu_driven_gaussian_raster ==
@@ -5092,18 +5184,18 @@ public:
     if (sort == GaussianGpuStageSelection::NotRequested) {
       unavailable("GPU-driven Gaussian raster consumes the GPU-sorted stream "
                   "and requires GPU-driven Gaussian sorting");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     if (sort == GaussianGpuStageSelection::Unavailable) {
       unavailable("GPU-driven Gaussian sorting is unavailable");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     const auto& sorted = frame.gaussian_gpu_sort;
     const auto record_bytes = static_cast<VkDeviceSize>(sorted.key_count) *
                               sizeof(shader_abi::GaussianPreparedRecord);
     if (record_bytes > max_storage_buffer_range_) {
       unavailable("the sorted Gaussian stream exceeds maxStorageBufferRange");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     VkPipeline gather_pipeline{};
     try {
@@ -5118,7 +5210,7 @@ public:
       }
       unavailable("the packaged Gaussian raster gather artifact is "
                   "unavailable");
-      return;
+      return GaussianGpuStageSelection::Unavailable;
     }
     EnsureGaussianGpuRasterFrameResources(resources, record_bytes);
     UpdateGaussianGpuRasterDescriptors(resources,
@@ -5127,6 +5219,311 @@ public:
     resources.gather_pipeline = gather_pipeline;
     resources.element_count = sorted.key_count;
     resources.workgroup_count = sorted.block_count;
+    resources.selected = true;
+    return GaussianGpuStageSelection::Selected;
+  }
+
+  static std::filesystem::path GaussianTileDirectory(
+      const ShaderPaths& shaders) {
+    return shaders.gaussian_tile_directory.empty()
+               ? GaussianSortDirectory(shaders)
+               : shaders.gaussian_tile_directory;
+  }
+
+  std::array<VkPipeline, kGaussianTileKernelCount>
+  EnsureGaussianTileComputePipelines(const ShaderPaths& shaders) {
+    EnsureGaussianSortDescriptorAndPipelineLayouts();
+    static constexpr std::array<const char*, kGaussianTileKernelCount>
+        artifacts{
+            "gaussian-tile-count.comp.spv",
+            "gaussian-tile-emit.comp.spv",
+            "gaussian-tile-ranges.comp.spv",
+            "gaussian-tile-verify.comp.spv",
+    };
+    const auto directory = GaussianTileDirectory(shaders);
+    std::array<VkPipeline, kGaussianTileKernelCount> pipelines{};
+    for (std::size_t kernel = 0; kernel < artifacts.size(); ++kernel) {
+      pipelines[kernel] =
+          EnsureGaussianSortLayoutPipeline(directory / artifacts[kernel]);
+    }
+    return pipelines;
+  }
+
+  void EnsureGaussianGpuTileFrameResources(
+      GaussianGpuTileFrameResources& resources, VkDeviceSize pair_bytes,
+      VkDeviceSize control_bytes) {
+    if (resources.pair_capacity_bytes >= pair_bytes &&
+        resources.control_capacity_bytes >= control_bytes &&
+        resources.descriptor_pool != VK_NULL_HANDLE) {
+      return;
+    }
+    DestroyGaussianGpuTileFrameResources(resources);
+    resources.pair_capacity_bytes = pair_bytes;
+    resources.control_capacity_bytes = control_bytes;
+    for (auto& pairs : resources.pairs) {
+      pairs = CreateBuffer(pair_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    }
+    resources.control = CreateBuffer(
+        control_bytes,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    resources.verification_readback = CreateBuffer(
+        sizeof(shader_abi::GaussianTileVerification),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    constexpr std::uint32_t kSetCount = 2;
+    const VkDescriptorPoolSize pool_size{
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        kSetCount * kGaussianSortStorageBufferCount};
+    VkDescriptorPoolCreateInfo pool_info{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.maxSets = kSetCount;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &pool_size;
+    Check(vkCreateDescriptorPool(device_, &pool_info, nullptr,
+              &resources.descriptor_pool),
+        "create Gaussian tile descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+    const std::array layouts{gaussian_sort_descriptor_set_layout_,
+        gaussian_sort_descriptor_set_layout_};
+    VkDescriptorSetAllocateInfo allocate{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    allocate.descriptorPool = resources.descriptor_pool;
+    allocate.descriptorSetCount = kSetCount;
+    allocate.pSetLayouts = layouts.data();
+    Check(vkAllocateDescriptorSets(device_, &allocate,
+              resources.descriptor_sets.data()),
+        "allocate Gaussian tile descriptor sets");
+    frame_counters_.descriptor_allocation_count += kSetCount;
+  }
+
+  // Rewritten every selected frame: a recreated raster-record buffer may
+  // reuse a destroyed handle's value.
+  void UpdateGaussianGpuTileDescriptors(
+      const GaussianGpuTileFrameResources& resources, VkBuffer records) {
+    std::array<VkDescriptorBufferInfo,
+        2 * kGaussianSortStorageBufferCount>
+        buffer_infos{};
+    std::array<VkWriteDescriptorSet, buffer_infos.size()> writes{};
+    for (std::size_t set = 0; set < resources.descriptor_sets.size(); ++set) {
+      const std::array<VkBuffer, kGaussianSortStorageBufferCount> buffers{
+          resources.pairs[set].handle,
+          resources.pairs[1U - set].handle,
+          resources.control.handle,
+          records,
+      };
+      static constexpr std::array bindings{
+          shader_abi::kGaussianTileSource.binding,
+          shader_abi::kGaussianTileDestination.binding,
+          shader_abi::kGaussianTileControl.binding,
+          shader_abi::kGaussianTileRecords.binding,
+      };
+      static_assert(bindings.size() == kGaussianSortStorageBufferCount);
+      for (std::size_t binding = 0; binding < buffers.size(); ++binding) {
+        const auto index = set * kGaussianSortStorageBufferCount + binding;
+        buffer_infos[index] = {buffers[binding], 0, VK_WHOLE_SIZE};
+        writes[index] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[index].dstSet = resources.descriptor_sets[set];
+        writes[index].dstBinding = bindings[binding];
+        writes[index].descriptorCount = 1;
+        writes[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[index].pBufferInfo = &buffer_infos[index];
+      }
+    }
+    vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+        writes.data(), 0, nullptr);
+    frame_counters_.descriptor_update_count += writes.size();
+  }
+
+  // Replays tile binning over the CPU-sorted reference stream with the same
+  // bounds, per-record limit, capacity truncation, and stable tile grouping,
+  // so matching streams produce the GPU verification checksum.
+  void ComputeGaussianTileReference(GaussianGpuTileFrameResources& resources) {
+    const auto& constants = resources.constants;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs;
+    std::uint64_t requested{};
+    const auto& gaussians = prepared_gaussians_.gaussians;
+    for (std::size_t record = 0; record < gaussians.size(); ++record) {
+      shader_abi::GaussianTileRect rect;
+      if (!shader_abi::GaussianTileBounds(gaussians[record].center_pixels,
+              gaussians[record].radius_pixels, constants.viewport_width,
+              constants.viewport_height, rect)) {
+        continue;
+      }
+      std::uint32_t remaining = constants.record_pair_limit;
+      for (auto y = rect.y0; y <= rect.y1 && remaining != 0U; ++y) {
+        for (auto x = rect.x0; x <= rect.x1 && remaining != 0U; ++x) {
+          --remaining;
+          ++requested;
+          if (pairs.size() < constants.pair_capacity) {
+            pairs.emplace_back(y * constants.tile_count_x + x,
+                static_cast<std::uint32_t>(record));
+          }
+        }
+      }
+    }
+    std::stable_sort(pairs.begin(), pairs.end(),
+        [](const auto& lhs, const auto& rhs) {
+          return lhs.first < rhs.first;
+        });
+    std::uint32_t checksum{};
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+      checksum += static_cast<std::uint32_t>(i + 1U) *
+                  shader_abi::GaussianTilePairHash(
+                      pairs[i].first, pairs[i].second);
+    }
+    resources.reference_requested_pair_count =
+        static_cast<std::uint32_t>(requested);
+    resources.reference_checksum = checksum;
+  }
+
+  // Tile binning consumes the gathered raster-order records and the draw
+  // arguments' instance count, so it depends on sorted-stream raster for the
+  // same frame. Its dispatch plan is fixed by the padded record count, the
+  // pair capacity, and the tile grid.
+  void PrepareGaussianGpuTiles(FrameContext& frame,
+      const RenderRequest& request, GaussianGpuStageSelection raster) {
+    auto& resources = frame.gaussian_gpu_tiles;
+    resources.selected = false;
+    if (raster == GaussianGpuStageSelection::NoWork ||
+        request.gpu_driven_gaussian_tiles ==
+            GpuDrivenGaussianTileMode::Disabled) {
+      return;
+    }
+    const auto unavailable = [&](std::string detail) {
+      if (request.gpu_driven_gaussian_tiles ==
+          GpuDrivenGaussianTileMode::Require) {
+        throw RendererError(RendererErrorCode::Unsupported,
+            "select GPU-driven Gaussian tile binning",
+            std::move(detail));
+      }
+      ++frame_counters_.gaussian_gpu_tile_fallback_count;
+    };
+    if (raster == GaussianGpuStageSelection::NotRequested) {
+      unavailable("GPU-driven Gaussian tile binning consumes the gathered "
+                  "sorted stream and requires GPU-driven Gaussian raster");
+      return;
+    }
+    if (raster == GaussianGpuStageSelection::Unavailable) {
+      unavailable("GPU-driven Gaussian raster is unavailable");
+      return;
+    }
+    const auto& sorted = frame.gaussian_gpu_sort;
+    const auto tile_count_x = shader_abi::GaussianTileGridSize(request.width);
+    const auto tile_count_y = shader_abi::GaussianTileGridSize(request.height);
+    const auto tile_count =
+        static_cast<std::uint64_t>(tile_count_x) * tile_count_y;
+
+    // Default capacity scales with the padded record count; an explicit
+    // capacity must fit the device as requested.
+    constexpr auto kPairBytes = sizeof(shader_abi::GaussianSortElement);
+    const auto device_pairs =
+        std::min<std::uint64_t>(max_storage_buffer_range_ / kPairBytes,
+            std::numeric_limits<std::uint32_t>::max()) /
+        shader_abi::kGaussianTileWorkgroupSize *
+        shader_abi::kGaussianTileWorkgroupSize;
+    std::uint64_t pair_capacity{};
+    if (request.gaussian_tile_pair_capacity != 0U) {
+      pair_capacity = AlignUp(
+          std::uint64_t{request.gaussian_tile_pair_capacity},
+          shader_abi::kGaussianTileWorkgroupSize);
+      if (pair_capacity > device_pairs) {
+        unavailable("the Gaussian tile pair capacity exceeds "
+                    "maxStorageBufferRange");
+        return;
+      }
+    } else {
+      pair_capacity = std::min(device_pairs,
+          std::max<std::uint64_t>(
+              std::uint64_t{sorted.key_count} *
+                  shader_abi::kGaussianTileDefaultPairsPerRecord,
+              shader_abi::kGaussianTileMinimumPairCapacity));
+    }
+    const auto pair_blocks = pair_capacity /
+                             shader_abi::kGaussianTileWorkgroupSize;
+    if (pair_blocks == 0U || pair_blocks > max_compute_work_group_count_x_) {
+      unavailable("the Gaussian tile pairs exceed maxComputeWorkGroupCount[0]");
+      return;
+    }
+
+    // Control words, per-record offsets, the pair histogram (one entry per
+    // pair slot), then two range words per tile.
+    std::vector<GaussianGpuSortScanLevel> offset_levels;
+    std::vector<GaussianGpuSortScanLevel> histogram_levels;
+    const auto histogram_offset = AppendGaussianScanLevels(
+        shader_abi::kGaussianTileControlWordCount, sorted.key_count,
+        offset_levels);
+    const auto ranges_offset = histogram_offset
+                                   ? AppendGaussianScanLevels(
+                                         *histogram_offset, pair_capacity,
+                                         histogram_levels)
+                                   : std::nullopt;
+    if (!ranges_offset ||
+        *ranges_offset + 2U * tile_count >
+            std::numeric_limits<std::uint32_t>::max()) {
+      unavailable("the Gaussian tile control words exceed uint32 addressing");
+      return;
+    }
+    const auto control_bytes =
+        (*ranges_offset + 2U * tile_count) * sizeof(std::uint32_t);
+    const auto pair_bytes = pair_capacity * kPairBytes;
+    if (control_bytes > max_storage_buffer_range_) {
+      unavailable("a Gaussian tile binding exceeds maxStorageBufferRange");
+      return;
+    }
+
+    std::array<VkPipeline, kGaussianTileKernelCount> pipelines{};
+    try {
+      pipelines = EnsureGaussianTileComputePipelines(request.shaders);
+    } catch (const RendererError& error) {
+      if (request.gpu_driven_gaussian_tiles ==
+              GpuDrivenGaussianTileMode::Require ||
+          error.code() == RendererErrorCode::DeviceLost ||
+          error.code() == RendererErrorCode::ResourceExhausted ||
+          error.code() == RendererErrorCode::Timeout) {
+        throw;
+      }
+      unavailable("the packaged Gaussian tile artifacts are unavailable");
+      return;
+    }
+    EnsureGaussianGpuTileFrameResources(resources, pair_bytes, control_bytes);
+    UpdateGaussianGpuTileDescriptors(resources,
+        frame.gaussian_gpu_raster.records.handle);
+    resources.pipelines = pipelines;
+    resources.sort_pipelines = sorted.pipelines;
+    resources.offset_levels = std::move(offset_levels);
+    resources.histogram_levels = std::move(histogram_levels);
+    auto& constants = resources.constants;
+    constants = {};
+    constants.record_bound = sorted.key_count;
+    constants.pair_capacity = static_cast<std::uint32_t>(pair_capacity);
+    constants.tile_count_x = tile_count_x;
+    constants.tile_count_y = tile_count_y;
+    constants.viewport_width = request.width;
+    constants.viewport_height = request.height;
+    constants.offsets_offset = shader_abi::kGaussianTileControlWordCount;
+    constants.ranges_offset = static_cast<std::uint32_t>(*ranges_offset);
+    // Every per-record count stays within this limit, so the padded prefix
+    // sum of counts stays within uint32.
+    constants.record_pair_limit = static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(tile_count,
+            std::numeric_limits<std::uint32_t>::max() / sorted.key_count));
+    resources.record_blocks = sorted.block_count;
+    resources.pair_blocks = static_cast<std::uint32_t>(pair_blocks);
+    // Stable LSD passes over only the tile-index bytes the grid can occupy.
+    resources.sort_pass_count =
+        tile_count <= 1U
+            ? 0U
+            : (static_cast<std::uint32_t>(std::bit_width(tile_count - 1U)) +
+                  shader_abi::kGaussianSortRadixBits - 1U) /
+                  shader_abi::kGaussianSortRadixBits;
+    ComputeGaussianTileReference(resources);
+    frame_counters_.gaussian_gpu_tile_count = tile_count;
+    frame_counters_.gaussian_gpu_tile_pair_capacity = pair_capacity;
     resources.selected = true;
   }
 
@@ -8748,6 +9145,141 @@ public:
         resources.draw_readback.handle, 1, &copy);
   }
 
+  // Runs after the gather, whose barrier already made the draw arguments
+  // visible to transfer reads.
+  void RecordGaussianGpuTiles(VkCommandBuffer command,
+      const FrameContext& frame) {
+    const auto& resources = frame.gaussian_gpu_tiles;
+    if (!resources.selected) {
+      return;
+    }
+    const auto& constants = resources.constants;
+    vkCmdFillBuffer(command, resources.control.handle, 0,
+        sizeof(shader_abi::GaussianTileVerification), 0U);
+    vkCmdFillBuffer(command, resources.control.handle,
+        static_cast<VkDeviceSize>(constants.ranges_offset) *
+            sizeof(std::uint32_t),
+        static_cast<VkDeviceSize>(constants.tile_count_x) *
+            constants.tile_count_y * 2U * sizeof(std::uint32_t),
+        0U);
+    const VkBufferCopy record_count_copy{
+        offsetof(VkDrawIndirectCommand, instanceCount),
+        shader_abi::kGaussianTileRecordCountWord * sizeof(std::uint32_t),
+        sizeof(std::uint32_t)};
+    vkCmdCopyBuffer(command, frame.gaussian_gpu_raster.draw_arguments.handle,
+        resources.control.handle, 1, &record_count_copy);
+    // Gathered records come from the gather dispatch; control words from the
+    // clears and the record-count copy above.
+    VkMemoryBarrier input_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    input_barrier.srcAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    input_barrier.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(command,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+        &input_barrier, 0, nullptr, 0, nullptr);
+    const auto compute_barrier = [&] {
+      VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      barrier.dstAccessMask =
+          VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+          &barrier, 0, nullptr, 0, nullptr);
+    };
+    const auto dispatch = [&](VkPipeline pipeline, std::size_t set,
+                              const void* values, std::uint32_t size,
+                              std::uint32_t workgroups) {
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+      vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE,
+          gaussian_sort_pipeline_layout_, 0, 1,
+          &resources.descriptor_sets[set], 0, nullptr);
+      vkCmdPushConstants(command, gaussian_sort_pipeline_layout_,
+          VK_SHADER_STAGE_COMPUTE_BIT, 0, size, values);
+      vkCmdDispatch(command, workgroups, 1, 1);
+      ++frame_counters_.gaussian_gpu_tile_dispatch_count;
+    };
+    const auto tile_dispatch = [&](GaussianTileKernel kernel, std::size_t set,
+                                   std::uint32_t workgroups) {
+      dispatch(resources.pipelines[kernel], set, &constants,
+          sizeof(constants), workgroups);
+    };
+    const auto sort_dispatch = [&](GaussianSortKernel kernel, std::size_t set,
+                                   const shader_abi::GaussianSortConstants&
+                                       values,
+                                   std::uint32_t workgroups) {
+      dispatch(resources.sort_pipelines[kernel], set, &values,
+          sizeof(values), workgroups);
+    };
+    // The top level fits one workgroup, so its scan is already global.
+    const auto scan = [&](const std::vector<GaussianGpuSortScanLevel>& levels,
+                          std::size_t set,
+                          shader_abi::GaussianSortConstants values) {
+      for (const auto& level : levels) {
+        values.scan_offset = level.offset;
+        values.scan_count = level.count;
+        values.scan_sums_offset = level.sums_offset;
+        sort_dispatch(kGaussianSortScanBlocks, set, values,
+            shader_abi::GaussianSortScanWorkgroupCount(level.count));
+        compute_barrier();
+      }
+      for (auto level = levels.rbegin() + 1; level != levels.rend(); ++level) {
+        values.scan_offset = level->offset;
+        values.scan_count = level->count;
+        values.scan_sums_offset = level->sums_offset;
+        sort_dispatch(kGaussianSortScanAdd, set, values,
+            shader_abi::GaussianSortScanWorkgroupCount(level->count));
+        compute_barrier();
+      }
+    };
+
+    tile_dispatch(kGaussianTileCount, 0, resources.record_blocks);
+    compute_barrier();
+    scan(resources.offset_levels, 0, {});
+    // Set 1 writes pairs[0], where the first pair-sort pass reads.
+    tile_dispatch(kGaussianTileEmit, 1, resources.record_blocks);
+    compute_barrier();
+    for (std::uint32_t pass = 0; pass < resources.sort_pass_count; ++pass) {
+      const std::size_t set = pass % 2U;
+      shader_abi::GaussianSortConstants values;
+      values.element_count = constants.pair_capacity;
+      values.block_count = resources.pair_blocks;
+      values.digit_shift = pass * shader_abi::kGaussianSortRadixBits;
+      values.digit_word = 0U;
+      values.count_word = shader_abi::kGaussianTileRequestedPairCountWord;
+      values.flags = shader_abi::kGaussianSortDynamicCount;
+      values.scan_offset = resources.histogram_levels.front().offset;
+      sort_dispatch(kGaussianSortHistogram, set, values,
+          resources.pair_blocks);
+      compute_barrier();
+      scan(resources.histogram_levels, set, values);
+      values.scan_offset = resources.histogram_levels.front().offset;
+      values.scan_count = 0;
+      values.scan_sums_offset = 0;
+      sort_dispatch(kGaussianSortScatter, set, values, resources.pair_blocks);
+      compute_barrier();
+    }
+    const std::size_t grouped = resources.sort_pass_count % 2U;
+    tile_dispatch(kGaussianTileRanges, grouped, resources.pair_blocks);
+    compute_barrier();
+    tile_dispatch(kGaussianTileVerify, grouped, resources.pair_blocks);
+    frame_counters_.gaussian_gpu_tile_sort_pass_count +=
+        resources.sort_pass_count;
+
+    VkMemoryBarrier output_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    output_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
+        &output_barrier, 0, nullptr, 0, nullptr);
+    const VkBufferCopy copy{0, 0,
+        sizeof(shader_abi::GaussianTileVerification)};
+    vkCmdCopyBuffer(command, resources.control.handle,
+        resources.verification_readback.handle, 1, &copy);
+  }
+
   void RecordGpuDrivenDispatch(VkCommandBuffer command,
       const FrameContext& frame,
       const extraction::FrameSnapshot& snapshot,
@@ -9246,6 +9778,13 @@ public:
                : 0;
   }
 
+  std::uint64_t ReadGaussianGpuTileNanoseconds(
+      const FrameContext& frame) const {
+    return frame.gaussian_gpu_tiles.selected
+               ? ReadGpuTimestampSpanNanoseconds(frame, 6, 7)
+               : 0;
+  }
+
   std::uint64_t ReadGaussianRasterNanoseconds(
       const FrameContext& frame) const {
     return ReadGpuTimestampSpanNanoseconds(frame, 2, 3);
@@ -9414,6 +9953,57 @@ public:
           "the indirect draw does not cover exactly the sorted records");
     }
     frame_counters_.gaussian_gpu_raster_instance_count = draw.instanceCount;
+  }
+
+  // Runs after the raster draw resolve, which has already checked that the
+  // gathered stream covers exactly the verified sorted records.
+  void ResolveGaussianGpuTiles(FrameContext& frame) {
+    const auto& resources = frame.gaussian_gpu_tiles;
+    if (!resources.selected) {
+      return;
+    }
+    shader_abi::GaussianTileVerification verification;
+    void* mapped{};
+    Check(vkMapMemory(device_, resources.verification_readback.memory, 0,
+              sizeof(verification), 0, &mapped),
+        "map Gaussian tile verification");
+    std::memcpy(&verification, mapped, sizeof(verification));
+    vkUnmapMemory(device_, resources.verification_readback.memory);
+    if (verification.order_violation_count != 0U ||
+        verification.pair_mismatch_count != 0U ||
+        verification.range_violation_count != 0U) {
+      throw RendererError(RendererErrorCode::BackendFailure,
+          "resolve Gaussian tile verification",
+          "tile pairs are out of order, disagree with their records, or "
+          "escape their tile ranges");
+    }
+    const auto stored = std::min(verification.requested_pair_count,
+        resources.constants.pair_capacity);
+    if (verification.record_count !=
+            frame_counters_.gaussian_gpu_raster_instance_count ||
+        verification.verified_pair_count != stored) {
+      throw RendererError(RendererErrorCode::BackendFailure,
+          "resolve Gaussian tile verification",
+          "tile binning did not retain every stored pair of the sorted "
+          "stream exactly once");
+    }
+    frame_counters_.gaussian_gpu_tile_requested_pair_count =
+        verification.requested_pair_count;
+    frame_counters_.gaussian_gpu_tile_pair_count =
+        verification.verified_pair_count;
+    frame_counters_.gaussian_gpu_tile_pair_overflow_count =
+        verification.requested_pair_count - stored;
+    frame_counters_.gaussian_gpu_tile_clamped_record_count =
+        verification.clamped_record_count;
+    frame_counters_.gaussian_gpu_tile_occupied_count =
+        verification.occupied_tile_count;
+    frame_counters_.gaussian_gpu_tile_max_pair_count =
+        verification.max_tile_pair_count;
+    if (verification.requested_pair_count !=
+            resources.reference_requested_pair_count ||
+        verification.identity_checksum != resources.reference_checksum) {
+      ++frame_counters_.gaussian_gpu_tile_reference_divergence_count;
+    }
   }
 
   void ResolveGpuDrivenCounters(FrameContext& frame) {

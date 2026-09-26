@@ -81,9 +81,24 @@ and the image matches the CPU reference whenever the orders match. Resolve
 rejects a draw whose instance count differs from the verified sorted count.
 
 Tile pairing sorts only by tile identity with a stable sort, which preserves
-the verified depth order within every tile without widening the key. The
-CPU-sorted path remains the image reference, and sorted-stream raster the GPU
-fallback, when tile stages are unavailable. Delivery and support status live in the
+the verified depth order within every tile without widening the key. Tiles
+are 16x16 pixels. A record covers the tiles of every pixel whose center lies
+inside its conservative square, clamped to the viewport; the CPU and GPU
+evaluate the same float expressions. Counts become pair offsets through the
+sort's block scan, and emission writes record-major pairs whose value is the
+record's sorted position, so the unsorted list is already back to front. The
+sort's histogram, scan, and stable scatter kernels then run only the passes
+the tile grid's index bits need, bounding their input by a device-written
+element count instead of sentinel padding. A ranges pass writes each tile's
+`[begin, end)` span, cleared to empty beforehand. Pairs live in a fixed
+capacity; emission stops at it, so overflow drops the record-major tail and
+is reported, never written out of bounds. A per-record limit, the tile count
+or less, keeps every pair offset within uint32. Verification checks strict
+(tile, record) order, each pair against its record's bounds and limit, and
+range membership, and an order-sensitive checksum is compared with a CPU
+replay of the same binning and truncation. The CPU-sorted path remains the
+image reference, and sorted-stream raster the GPU fallback, when tile stages
+are unavailable; binning does not yet change the image. Delivery and support status live in the
 [current milestone](../roadmap/current.md) and
 [support matrix](../reference/support-matrix.md).
 

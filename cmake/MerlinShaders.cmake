@@ -39,6 +39,14 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-sort-verify.comp.spv")
   set(MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV
       "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-raster-gather.comp.spv")
+  set(MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV
+      "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-tile-count.comp.spv")
+  set(MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV
+      "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-tile-emit.comp.spv")
+  set(MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV
+      "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-tile-ranges.comp.spv")
+  set(MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV
+      "${MERLIN_SHADER_OUTPUT_DIR}/gaussian-tile-verify.comp.spv")
   set(MERLIN_GAUSSIAN_VERTEX_SPV
       "${MERLIN_SHADER_OUTPUT_DIR}/gaussian.vert.spv")
   set(MERLIN_GAUSSIAN_FRAGMENT_SPV
@@ -69,6 +77,8 @@ macro(merlin_add_vulkan_shaders)
       "${_merlin_shader_source_dir}/gaussian-sort.slang")
   set(_merlin_shader_gaussian_raster_gather
       "${_merlin_shader_source_dir}/gaussian-raster-gather.slang")
+  set(_merlin_shader_gaussian_tile
+      "${_merlin_shader_source_dir}/gaussian-tile.slang")
   set(_merlin_gpu_scene_abi
       "${PROJECT_SOURCE_DIR}/core/merlin-render-backend/shaders/gpu-scene-abi.slang")
   set(_merlin_shader_gaussian
@@ -198,6 +208,22 @@ macro(merlin_add_vulkan_shaders)
     gaussian-raster-gather.slang gaussian_raster_gather compute spirv
     "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-raster-gather
     "sorted_prepared_records+indirect_draw_arguments")
+  _merlin_compile_shader("${MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV}"
+    gaussian-tile.slang gaussian_tile_count compute spirv
+    "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-tile-count
+    "sorted_record_tile_counts")
+  _merlin_compile_shader("${MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV}"
+    gaussian-tile.slang gaussian_tile_emit compute spirv
+    "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-tile-emit
+    "record_major_tile_pairs")
+  _merlin_compile_shader("${MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV}"
+    gaussian-tile.slang gaussian_tile_ranges compute spirv
+    "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-tile-ranges
+    "tile_ranges")
+  _merlin_compile_shader("${MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV}"
+    gaussian-tile.slang gaussian_tile_verify compute spirv
+    "${_merlin_slang_spirv_profile}" spirv_1_5 gaussian-tile-verify
+    "tile_order_verification+identity_checksum")
   _merlin_compile_shader("${MERLIN_GAUSSIAN_VERTEX_SPV}" gaussian.slang
     gaussian_vertex vertex spirv "${_merlin_slang_spirv_profile}"
     spirv_1_5 gaussian-mvp "prepared_stream+procedural_quad")
@@ -243,6 +269,10 @@ macro(merlin_add_vulkan_shaders)
     "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}.reflection.json"
+    "${MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV}.reflection.json"
+    "${MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV}.reflection.json"
+    "${MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV}.reflection.json"
+    "${MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}.reflection.json"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}.reflection.json"
@@ -284,6 +314,10 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}" "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
       "${MERLIN_GAUSSIAN_ID_FRAGMENT_SPV}"
@@ -296,6 +330,7 @@ macro(merlin_add_vulkan_shaders)
       "${_merlin_shader_gaussian_prepare}"
       "${_merlin_shader_gaussian_sort}"
       "${_merlin_shader_gaussian_raster_gather}"
+      "${_merlin_shader_gaussian_tile}"
       "${_merlin_shader_gaussian}"
       "${_merlin_shader_common}"
       "${MERLIN_ENVIRONMENT_HDR}"
@@ -324,6 +359,10 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV}"
+      "${MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV}"
       "${MERLIN_GAUSSIAN_VERTEX_SPV}"
       "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
       "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -353,6 +392,10 @@ macro(merlin_add_vulkan_shaders)
     "${MERLIN_GAUSSIAN_SORT_SCATTER_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV}"
+    "${MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV}"
     "${MERLIN_GAUSSIAN_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_ID_VERTEX_SPV}"
     "${MERLIN_GAUSSIAN_FRAGMENT_SPV}"
@@ -398,6 +441,14 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_GAUSSIAN_SORT_VERIFY_COMPUTE_SPV}" PARENT_SCOPE)
   set(MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV
       "${MERLIN_GAUSSIAN_RASTER_GATHER_COMPUTE_SPV}" PARENT_SCOPE)
+  set(MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV
+      "${MERLIN_GAUSSIAN_TILE_COUNT_COMPUTE_SPV}" PARENT_SCOPE)
+  set(MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV
+      "${MERLIN_GAUSSIAN_TILE_EMIT_COMPUTE_SPV}" PARENT_SCOPE)
+  set(MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV
+      "${MERLIN_GAUSSIAN_TILE_RANGES_COMPUTE_SPV}" PARENT_SCOPE)
+  set(MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV
+      "${MERLIN_GAUSSIAN_TILE_VERIFY_COMPUTE_SPV}" PARENT_SCOPE)
   set(MERLIN_GAUSSIAN_VERTEX_SPV
       "${MERLIN_GAUSSIAN_VERTEX_SPV}" PARENT_SCOPE)
   set(MERLIN_GAUSSIAN_ID_VERTEX_SPV

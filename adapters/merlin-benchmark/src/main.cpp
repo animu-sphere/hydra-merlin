@@ -48,6 +48,7 @@ struct FrameTimings {
   std::uint64_t gaussian_attribute_upload_ns{};
   std::uint64_t gaussian_prepared_upload_ns{};
   std::uint64_t gaussian_gpu_sort_ns{};
+  std::uint64_t gaussian_gpu_tile_ns{};
   std::uint64_t gaussian_raster_ns{};
   std::uint64_t command_recording_ns{};
   std::uint64_t queue_submission_ns{};
@@ -368,6 +369,7 @@ FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
   result.gaussian_prepared_upload_ns =
       timings.gaussian_prepared_upload_ns;
   result.gaussian_gpu_sort_ns = timings.gaussian_gpu_sort_ns;
+  result.gaussian_gpu_tile_ns = timings.gaussian_gpu_tile_ns;
   result.gaussian_raster_ns = timings.gaussian_raster_ns;
   result.command_recording_ns = timings.command_recording_ns;
   result.queue_submission_ns = timings.queue_submission_ns;
@@ -565,6 +567,7 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       std::pair{"gaussian_prepared_upload",
           &FrameTimings::gaussian_prepared_upload_ns},
       std::pair{"gaussian_gpu_sort", &FrameTimings::gaussian_gpu_sort_ns},
+      std::pair{"gaussian_gpu_tile", &FrameTimings::gaussian_gpu_tile_ns},
       std::pair{"gaussian_raster", &FrameTimings::gaussian_raster_ns},
       std::pair{"command_recording", &FrameTimings::command_recording_ns},
       std::pair{"queue_submission", &FrameTimings::queue_submission_ns},
@@ -669,6 +672,30 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       count.gaussian_gpu_raster_indirect_draw_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_raster_fallback_count",
       count.gaussian_gpu_raster_fallback_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_dispatch_count",
+      count.gaussian_gpu_tile_dispatch_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_sort_pass_count",
+      count.gaussian_gpu_tile_sort_pass_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_count",
+      count.gaussian_gpu_tile_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_occupied_count",
+      count.gaussian_gpu_tile_occupied_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_max_pair_count",
+      count.gaussian_gpu_tile_max_pair_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_pair_capacity",
+      count.gaussian_gpu_tile_pair_capacity);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_requested_pair_count",
+      count.gaussian_gpu_tile_requested_pair_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_pair_count",
+      count.gaussian_gpu_tile_pair_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_pair_overflow_count",
+      count.gaussian_gpu_tile_pair_overflow_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_clamped_record_count",
+      count.gaussian_gpu_tile_clamped_record_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_reference_divergence_count",
+      count.gaussian_gpu_tile_reference_divergence_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_fallback_count",
+      count.gaussian_gpu_tile_fallback_count);
   WriteCounter(stream, counter_indent, "gaussian_draw_count",
       count.gaussian_draw_count);
   WriteCounter(stream, counter_indent, "gaussian_attribute_upload_bytes",
