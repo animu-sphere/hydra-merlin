@@ -19,7 +19,7 @@ also requires a compatible OpenUSD SDK; OpenUSD 26.05 and 26.08 are currently
 validated.
 
 The viewport uses GLFW 3.4. CMake first accepts an installed `glfw3` package;
-otherwise it fetches the commit pinned in the top-level build and release
+otherwise it fetches the commit pinned in `cmake/MerlinVersions.cmake` and release
 metadata. GLFW is private to the viewport and never becomes a Core dependency.
 The viewport also fetches the pinned Dear ImGui 1.92.8 revision and compiles
 only its core plus the required official GLFW, Vulkan, and Metal backends.
@@ -38,6 +38,55 @@ Core-only Debug and Release builds with Ninja. Hosted Apple Silicon macOS CI
 compiles and packages Core plus Metal in Debug and Release; local runtime
 evidence exercises an Apple GPU. See the
 [support matrix](../reference/support-matrix.md) for the exact coverage.
+
+## Shared CMake presets
+
+The checked-in presets work without OpenStrata. They select existing feature
+options; dependency locations still come from the environment, `CMAKE_PREFIX_PATH`,
+or explicit cache entries. OpenStrata-generated presets in `CMakeUserPresets.json`
+can coexist with these presets.
+
+```sh
+cmake --preset core
+cmake --build --preset core --parallel
+ctest --preset core
+```
+
+`core`, `vulkan`, `vulkan-hydra`, `metal`, `metal-hydra`, and `materialx` select
+the corresponding SDK layers. Metal presets are available only on macOS.
+`developer` selects a Debug Vulkan viewport build; `ci` selects Release Core.
+Other presets use Release. Supply `-G` at configure time to choose a generator.
+The binary directory is `build/<preset-name>`.
+
+SDK presets disable the viewport and MaterialX fetching. The MaterialX preset
+requires an installed compatible package or `-DMERLIN_MATERIALX_SOURCE_DIR=...`;
+fetching the pinned source requires explicit `-DMERLIN_FETCH_MATERIALX=ON`.
+The developer viewport retains its existing GLFW/ImGui/NFD fetching behavior.
+To override the build configuration, use `-DCMAKE_BUILD_TYPE=Debug` for a
+single-config generator and `--config Debug` / `-C Debug` for build / test.
+
+## CMake maintenance
+
+The top-level file assembles the target graph. `MerlinOptions.cmake` owns feature
+defaults, `MerlinVersions.cmake` owns compatibility pins, and
+`MerlinCompiler.cmake` applies private build-only policy through
+`merlin_target_defaults()`. Call that helper for each new Merlin C++ target;
+third-party targets must not use it. Public C++20 requirements remain on the
+SDK targets.
+
+Dependency discovery lives in `MerlinDependencies.cmake` and
+`MerlinMaterialX.cmake`. The directory-scoped dependency macros preserve OpenUSD
+import visibility and detected-version propagation. `MerlinShaders.cmake` owns
+Slang artifact generation and installation, including the retained MaterialX
+pipeline. `MerlinInstall.cmake` owns SDK exports, `MerlinPackaging.cmake` owns
+release metadata and notices, and `MerlinOpenStrata.cmake` owns project-identity
+validation and renderer report hooks. None requires the OpenStrata CLI/runtime.
+
+Installed consumers can request `Core`, `RenderWorld`, `RenderExtraction`,
+`RenderBackend`, `Vulkan`, `Metal`, or `MaterialX`. `Core` loads the three core
+targets without discovering optional dependencies. Hydra remains a plugin,
+not an exported SDK component. Existing component-free discovery retains its
+optional backend discovery behavior; request `COMPONENTS Core` to avoid it.
 
 ## Core-only
 

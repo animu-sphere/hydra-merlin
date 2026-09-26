@@ -10,6 +10,7 @@ endforeach()
 add_executable(merlin-render-world-tests
   render_world_test.cpp
 )
+merlin_target_defaults(merlin-render-world-tests)
 
 target_link_libraries(merlin-render-world-tests PRIVATE Merlin::RenderWorld)
 
@@ -18,6 +19,7 @@ add_test(NAME merlin-render-world COMMAND merlin-render-world-tests)
 add_executable(merlin-gaussian-resource-tests
   gaussian_resource_test.cpp
 )
+merlin_target_defaults(merlin-gaussian-resource-tests)
 target_link_libraries(merlin-gaussian-resource-tests
   PRIVATE Merlin::RenderExtraction)
 add_test(NAME merlin-gaussian-resource COMMAND merlin-gaussian-resource-tests)
@@ -27,6 +29,7 @@ set_tests_properties(merlin-gaussian-resource PROPERTIES
 add_executable(merlin-shader-contract-tests
   shader_contract_test.cpp
 )
+merlin_target_defaults(merlin-shader-contract-tests)
 target_link_libraries(merlin-shader-contract-tests
   PRIVATE Merlin::RenderWorld)
 add_test(NAME merlin-shader-contract COMMAND merlin-shader-contract-tests)
@@ -34,6 +37,7 @@ add_test(NAME merlin-shader-contract COMMAND merlin-shader-contract-tests)
 add_executable(merlin-material-diagnostic-tests
   material_diagnostic_test.cpp
 )
+merlin_target_defaults(merlin-material-diagnostic-tests)
 target_link_libraries(merlin-material-diagnostic-tests
   PRIVATE Merlin::RenderWorld)
 add_test(NAME merlin-material-diagnostic
@@ -44,6 +48,7 @@ set_tests_properties(merlin-material-diagnostic PROPERTIES
 add_executable(merlin-material-abi-tests
   material_abi_test.cpp
 )
+merlin_target_defaults(merlin-material-abi-tests)
 target_link_libraries(merlin-material-abi-tests PRIVATE Merlin::RenderWorld)
 add_test(NAME merlin-material-abi COMMAND merlin-material-abi-tests)
 set_tests_properties(merlin-material-abi PROPERTIES LABELS "materials;abi")
@@ -51,6 +56,7 @@ set_tests_properties(merlin-material-abi PROPERTIES LABELS "materials;abi")
 add_executable(merlin-identity-tests
   identity_test.cpp
 )
+merlin_target_defaults(merlin-identity-tests)
 target_link_libraries(merlin-identity-tests PRIVATE Merlin::RenderWorld)
 add_test(NAME merlin-identity COMMAND merlin-identity-tests)
 set_tests_properties(merlin-identity PROPERTIES LABELS "cache")
@@ -58,6 +64,7 @@ set_tests_properties(merlin-identity PROPERTIES LABELS "cache")
 add_executable(merlin-render-extraction-tests
   render_extraction_test.cpp
 )
+merlin_target_defaults(merlin-render-extraction-tests)
 
 target_link_libraries(merlin-render-extraction-tests
   PRIVATE Merlin::RenderExtraction)
@@ -67,12 +74,14 @@ add_test(NAME merlin-render-extraction COMMAND merlin-render-extraction-tests)
 add_executable(merlin-render-backend-tests
   backend_contract_test.cpp
 )
+merlin_target_defaults(merlin-render-backend-tests)
 target_link_libraries(merlin-render-backend-tests PRIVATE Merlin::RenderBackend)
 add_test(NAME merlin-render-backend COMMAND merlin-render-backend-tests)
 
 add_executable(merlin-gpu-scene-slot-tests
   gpu_scene_slot_test.cpp
 )
+merlin_target_defaults(merlin-gpu-scene-slot-tests)
 target_link_libraries(merlin-gpu-scene-slot-tests
   PRIVATE Merlin::RenderBackend)
 add_test(NAME merlin-gpu-scene-slots COMMAND merlin-gpu-scene-slot-tests)
@@ -82,6 +91,7 @@ set_tests_properties(merlin-gpu-scene-slots PROPERTIES
 add_executable(merlin-gpu-scene-packing-tests
   gpu_scene_packing_test.cpp
 )
+merlin_target_defaults(merlin-gpu-scene-packing-tests)
 target_link_libraries(merlin-gpu-scene-packing-tests
   PRIVATE Merlin::RenderBackend)
 add_test(NAME merlin-gpu-scene-packing
@@ -92,6 +102,7 @@ set_tests_properties(merlin-gpu-scene-packing PROPERTIES
 add_executable(merlin-gpu-driven-indexed-tests
   gpu_driven_test.cpp
 )
+merlin_target_defaults(merlin-gpu-driven-indexed-tests)
 target_link_libraries(merlin-gpu-driven-indexed-tests
   PRIVATE Merlin::RenderBackend)
 add_test(NAME merlin-gpu-driven-indexed
@@ -162,6 +173,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-gpu-scene-abi-tests
     gpu_scene_abi_test.cpp
   )
+  merlin_target_defaults(merlin-gpu-scene-abi-tests)
   target_link_libraries(merlin-gpu-scene-abi-tests
     PRIVATE Merlin::RenderBackend)
   add_dependencies(merlin-gpu-scene-abi-tests
@@ -180,6 +192,7 @@ if(TARGET Merlin::Metal)
   add_executable(merlin-metal-resource-table-tests
     metal_resource_table_test.cpp
   )
+  merlin_target_defaults(merlin-metal-resource-table-tests)
   target_link_libraries(merlin-metal-resource-table-tests
     PRIVATE Merlin::Metal)
   add_test(NAME merlin-metal-resource-table
@@ -190,6 +203,7 @@ if(TARGET Merlin::Metal)
   add_executable(merlin-metal-backend-tests
     metal_backend_test.mm
   )
+  merlin_target_defaults(merlin-metal-backend-tests)
   set_target_properties(merlin-metal-backend-tests PROPERTIES
     OBJCXX_STANDARD 20
     OBJCXX_STANDARD_REQUIRED ON
@@ -221,6 +235,7 @@ if(TARGET Merlin::MaterialX)
   add_executable(merlin-materialx-compiler-tests
     materialx_compiler_test.cpp
   )
+  merlin_target_defaults(merlin-materialx-compiler-tests)
   target_link_libraries(merlin-materialx-compiler-tests
     PRIVATE Merlin::MaterialX)
   # The pass-neutrality wiring is internal to the integration and unreachable
@@ -398,6 +413,7 @@ if(TARGET Merlin::MaterialX)
     add_executable(merlin-material-target-reflection-tests
       material_target_reflection_test.cpp
     )
+    merlin_target_defaults(merlin-material-target-reflection-tests)
     target_link_libraries(merlin-material-target-reflection-tests
       PRIVATE Merlin::MaterialX Merlin::RenderWorld)
     add_test(
@@ -422,6 +438,7 @@ endif()
 add_executable(merlin-mesh-scale-regression-tests
   mesh_scale_regression_test.cpp
 )
+merlin_target_defaults(merlin-mesh-scale-regression-tests)
 target_link_libraries(merlin-mesh-scale-regression-tests
   PRIVATE Merlin::RenderExtraction)
 add_test(NAME merlin-mesh-scale-regression
@@ -434,6 +451,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-gaussian-preparation-tests
     gaussian_preparation_test.cpp
   )
+  merlin_target_defaults(merlin-gaussian-preparation-tests)
   target_include_directories(merlin-gaussian-preparation-tests PRIVATE
     "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/src"
   )
@@ -447,6 +465,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-gaussian-raster-tests
     gaussian_raster_test.cpp
   )
+  merlin_target_defaults(merlin-gaussian-raster-tests)
   target_link_libraries(merlin-gaussian-raster-tests
     PRIVATE Merlin::RenderWorld Merlin::RenderExtraction Merlin::Vulkan)
   add_dependencies(merlin-gaussian-raster-tests merlin-vulkan-shaders)
@@ -464,6 +483,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-borrowed-vulkan-context-tests
     borrowed_vulkan_context_test.cpp
   )
+  merlin_target_defaults(merlin-borrowed-vulkan-context-tests)
   target_link_libraries(merlin-borrowed-vulkan-context-tests
     PRIVATE Merlin::Vulkan)
   add_test(NAME merlin-vulkan-borrowed-context
@@ -476,6 +496,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-shader-abi-tests
     shader_abi_test.cpp
   )
+  merlin_target_defaults(merlin-shader-abi-tests)
   target_link_libraries(merlin-shader-abi-tests PRIVATE Merlin::Vulkan)
   add_dependencies(merlin-shader-abi-tests merlin-vulkan-shaders)
   add_test(
@@ -510,6 +531,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-shader-artifact-key-tests
     shader_artifact_key_test.cpp
   )
+  merlin_target_defaults(merlin-shader-artifact-key-tests)
   target_link_libraries(merlin-shader-artifact-key-tests
     PRIVATE Merlin::RenderWorld)
   add_dependencies(merlin-shader-artifact-key-tests merlin-vulkan-shaders)
@@ -523,6 +545,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-environment-lighting-tests
     environment_lighting_test.cpp
   )
+  merlin_target_defaults(merlin-environment-lighting-tests)
   target_include_directories(merlin-environment-lighting-tests PRIVATE
     "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/src"
   )
@@ -539,6 +562,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-bindless-resource-table-tests
     bindless_resource_table_test.cpp
   )
+  merlin_target_defaults(merlin-bindless-resource-table-tests)
   target_link_libraries(merlin-bindless-resource-table-tests
     PRIVATE Merlin::Vulkan)
   add_test(NAME merlin-bindless-resource-table
@@ -547,6 +571,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-descriptor-indexing-tests
     descriptor_indexing_test.cpp
   )
+  merlin_target_defaults(merlin-descriptor-indexing-tests)
   target_link_libraries(merlin-descriptor-indexing-tests
     PRIVATE Merlin::Vulkan)
   add_test(NAME merlin-descriptor-indexing
@@ -555,6 +580,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-render-product-contract-tests
     render_product_contract_test.cpp
   )
+  merlin_target_defaults(merlin-render-product-contract-tests)
   target_link_libraries(merlin-render-product-contract-tests
     PRIVATE Merlin::Vulkan)
   add_test(NAME merlin-render-product-contract
@@ -563,6 +589,7 @@ if(TARGET Merlin::Vulkan)
   add_executable(merlin-render-artifact-tests
     render_artifact_test.cpp
   )
+  merlin_target_defaults(merlin-render-artifact-tests)
   target_link_libraries(merlin-render-artifact-tests
     PRIVATE Merlin::Vulkan)
   add_test(NAME merlin-render-artifacts
@@ -575,6 +602,7 @@ if(TARGET merlin-headless)
     add_executable(merlin-generated-material-vulkan-tests
       generated_material_vulkan_test.cpp
     )
+    merlin_target_defaults(merlin-generated-material-vulkan-tests)
     target_link_libraries(merlin-generated-material-vulkan-tests
       PRIVATE Merlin::RenderWorld Merlin::RenderExtraction
               Merlin::MaterialX Merlin::Vulkan)
@@ -600,6 +628,7 @@ if(TARGET merlin-headless)
   add_executable(merlin-execution-lifetime-tests
     execution_lifetime_test.cpp
   )
+  merlin_target_defaults(merlin-execution-lifetime-tests)
   target_link_libraries(merlin-execution-lifetime-tests
     PRIVATE Merlin::RenderWorld Merlin::RenderExtraction Merlin::Vulkan)
   add_test(
@@ -616,6 +645,7 @@ if(TARGET merlin-headless)
   add_executable(merlin-resource-update-tests
     resource_update_test.cpp
   )
+  merlin_target_defaults(merlin-resource-update-tests)
   target_link_libraries(merlin-resource-update-tests
     PRIVATE Merlin::RenderExtraction Merlin::Vulkan)
   add_test(
@@ -632,6 +662,7 @@ if(TARGET merlin-headless)
   add_executable(merlin-gpu-scene-vulkan-upload-tests
     gpu_scene_vulkan_upload_test.cpp
   )
+  merlin_target_defaults(merlin-gpu-scene-vulkan-upload-tests)
   target_link_libraries(merlin-gpu-scene-vulkan-upload-tests
     PRIVATE Merlin::RenderExtraction Merlin::Vulkan)
   add_dependencies(merlin-gpu-scene-vulkan-upload-tests merlin-headless)
@@ -649,6 +680,7 @@ if(TARGET merlin-headless)
   add_executable(merlin-material-resource-tests
     material_resource_test.cpp
   )
+  merlin_target_defaults(merlin-material-resource-tests)
   target_link_libraries(merlin-material-resource-tests
     PRIVATE Merlin::RenderExtraction Merlin::Vulkan)
   add_test(
@@ -665,6 +697,7 @@ if(TARGET merlin-headless)
   add_executable(merlin-bindless-residency-tests
     bindless_residency_test.cpp
   )
+  merlin_target_defaults(merlin-bindless-residency-tests)
   target_link_libraries(merlin-bindless-residency-tests
     PRIVATE Merlin::RenderWorld Merlin::RenderExtraction Merlin::Vulkan)
   add_test(

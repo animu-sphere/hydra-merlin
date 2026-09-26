@@ -2,6 +2,7 @@ add_library(merlin-materialx STATIC
   src/compiler.cpp
   src/diagnostic_bridge.cpp
 )
+merlin_target_defaults(merlin-materialx)
 
 add_library(Merlin::MaterialX ALIAS merlin-materialx)
 
@@ -35,6 +36,7 @@ target_compile_definitions(merlin-materialx PRIVATE
 add_executable(merlin-materialx-artifact-generator EXCLUDE_FROM_ALL
   tools/artifact_generator.cpp
 )
+merlin_target_defaults(merlin-materialx-artifact-generator)
 target_link_libraries(merlin-materialx-artifact-generator
   PRIVATE Merlin::MaterialX
 )

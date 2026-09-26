@@ -14,28 +14,39 @@ concurrency:
 
 jobs:
   core:
-    name: Core / ${{ matrix.os }} / ${{ matrix.build_type }}
+    name: ${{ matrix.preset }} / ${{ matrix.os }} / ${{ matrix.build_type }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-2022, macos-14]
         build_type: [Debug, Release]
+        preset: [core]
+        viewport: ["OFF"]
+        include:
+          - os: macos-14
+            build_type: Debug
+            preset: metal
+            viewport: "ON"
+          - os: macos-14
+            build_type: Release
+            preset: metal
+            viewport: "ON"
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Configure Core-only (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DMERLIN_ENABLE_VULKAN=OFF
+        run: cmake --preset ${{ matrix.preset }} -B build -G "Visual Studio 17 2022" -A x64
 
       - name: Configure Core-only (Linux)
         if: runner.os == 'Linux'
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_ENABLE_VULKAN=OFF
+        run: cmake --preset ${{ matrix.preset }} -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_BUILD_VIEWPORT=${{ matrix.viewport }}
 
-      - name: Configure Core + Metal (macOS)
+      - name: Configure Core or Metal (macOS)
         if: runner.os == 'macOS'
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=ON
+        run: cmake --preset ${{ matrix.preset }} -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_BUILD_VIEWPORT=${{ matrix.viewport }}
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
@@ -70,18 +81,16 @@ jobs:
       - name: Configure MaterialX generation (Windows)
         if: runner.os == 'Windows'
         run: >-
-          cmake -S . -B build-materialx -G "Visual Studio 17 2022" -A x64
-          -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=OFF
-          -DMERLIN_ENABLE_MATERIALX=ON -DMERLIN_FETCH_MATERIALX=ON
+          cmake --preset materialx -B build-materialx -G "Visual Studio 17 2022" -A x64
+          -DMERLIN_FETCH_MATERIALX=ON
           -DMERLIN_MATERIALX_SLANGC_EXECUTABLE:FILEPATH=
 
       - name: Configure MaterialX generation (Linux)
         if: runner.os == 'Linux'
         run: >-
-          cmake -S . -B build-materialx -G Ninja
+          cmake --preset materialx -B build-materialx -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_METAL=OFF
-          -DMERLIN_ENABLE_MATERIALX=ON -DMERLIN_FETCH_MATERIALX=ON
+          -DMERLIN_FETCH_MATERIALX=ON
           -DMERLIN_MATERIALX_SLANGC_EXECUTABLE:FILEPATH=
 
       - name: Build Core and MaterialX

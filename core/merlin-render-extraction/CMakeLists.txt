@@ -1,6 +1,7 @@
 add_library(merlin-render-extraction STATIC
   src/scene_extractor.cpp
 )
+merlin_target_defaults(merlin-render-extraction)
 
 add_library(Merlin::RenderExtraction ALIAS merlin-render-extraction)
 

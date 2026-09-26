@@ -198,11 +198,34 @@ execute_process(
           ${_generator_args}
           "-DMerlin_DIR=${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin"
           -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=TRUE
+          -DCMAKE_DISABLE_FIND_PACKAGE_MaterialX=TRUE
   RESULT_VARIABLE _configure_result
 )
 if(NOT _configure_result EQUAL 0)
   message(FATAL_ERROR "Merlin consumer configure failed: ${_configure_result}")
 endif()
+
+# Unknown components and the intentionally unexported Hydra adapter must fail
+# as required components, while optional requests above keep Core usable.
+foreach(_unsupported IN ITEMS UnknownComponent Hydra)
+  execute_process(
+    COMMAND "${MERLIN_CMAKE_COMMAND}"
+      -S "${MERLIN_SOURCE_DIR}/tests/install-consumer"
+      -B "${MERLIN_TEST_BINARY_DIR}/required-${_unsupported}-consumer"
+      ${_generator_args}
+      "-DMerlin_DIR=${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin"
+      "-DMERLIN_TEST_REQUIRED_COMPONENT=${_unsupported}"
+    RESULT_VARIABLE _unsupported_result
+    OUTPUT_VARIABLE _unsupported_output
+    ERROR_VARIABLE _unsupported_error
+  )
+  if(_unsupported_result EQUAL 0 OR
+     NOT "${_unsupported_output}${_unsupported_error}" MATCHES "Merlin_FOUND.*FALSE")
+    message(FATAL_ERROR
+      "Required ${_unsupported} was not rejected by the package: "
+      "${_unsupported_output}${_unsupported_error}")
+  endif()
+endforeach()
 
 execute_process(
   COMMAND "${MERLIN_CMAKE_COMMAND}" --build "${_consumer_build_dir}"
