@@ -419,6 +419,8 @@ public:
         native.counters.gpu_driven_indirect_draw_count;
     result.telemetry.gpu_driven_candidate_upload_bytes =
         native.counters.gpu_driven_candidate_upload_bytes;
+    result.telemetry.mesh_cpu_draw_visit_count =
+        native.counters.mesh_cpu_draw_visit_count;
     result.telemetry.gpu_driven_fallback_count =
         native.counters.gpu_driven_fallback_count;
     result.telemetry.presentation_copy_bytes =

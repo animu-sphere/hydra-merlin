@@ -200,6 +200,45 @@ void TestStaticUpdateCopiesNothing() {
   assert(update.copy_bytes == 0);
 }
 
+void TestCameraRevisionRetainsMapping() {
+  auto snapshot = MakeSnapshot();
+  GpuScenePackingState state(GpuScenePackingCapacities{2, 2, 2, 2});
+  const std::vector placements{GpuGeometryPlacement{0, 0}};
+  const std::vector identities{GpuInstanceIdentity{1, 2}};
+  const std::vector bindings{GpuMaterialBinding{7, 11}};
+  const GpuScenePackingInputs inputs{placements, identities, bindings};
+  const auto first = state.Apply(snapshot, 0, 0, inputs);
+  snapshot.delta.emplace();
+  snapshot.delta->base_revision = snapshot.revision++;
+  snapshot.delta->camera_changed = true;
+  snapshot.view.values[12] = 0.2F;
+  const auto camera = state.Apply(snapshot, 1, 0, {});
+  assert(camera.copy_bytes == 0);
+  assert(camera.draw_slot_indices == first.draw_slot_indices);
+  assert(camera.geometry_plan.indexed_snapshot_records == 0);
+  assert(camera.instance_plan.indexed_snapshot_records == 0);
+  assert(camera.material_plan.indexed_snapshot_records == 0);
+  assert(camera.draw_plan.indexed_snapshot_draws == 0);
+  assert(state.revision() == snapshot.revision);
+
+  // Sharing roots alone cannot bypass a skipped revision's reconciliation.
+  auto gap = snapshot;
+  gap.revision += 2;
+  gap.delta->base_revision = gap.revision - 1;
+  bool rejected{};
+  try {
+    (void)state.Apply(gap, 1, 1, {});
+  } catch (const merlin::render::GpuScenePackingError&) {
+    rejected = true;
+  }
+  assert(rejected);
+  assert(state.revision() == snapshot.revision);
+  const auto recovered = state.Apply(gap, 1, 1, inputs);
+  assert(recovered.draw_plan.full_reconciliation);
+  assert(recovered.draw_plan.indexed_snapshot_draws == snapshot.draws.size());
+  assert(*recovered.draw_slot_indices == *first.draw_slot_indices);
+}
+
 void TestCommittedCandidatePreservesSlotGenerations() {
   auto initial = MakeSnapshot();
   GpuScenePackingState state(GpuScenePackingCapacities{1, 1, 1, 1});
@@ -319,6 +358,7 @@ void TestRejectedUpdateIsAtomicAndRetryable() {
 int main() {
   TestPackedRecordsAndRanges();
   TestStaticUpdateCopiesNothing();
+  TestCameraRevisionRetainsMapping();
   TestCommittedCandidatePreservesSlotGenerations();
   TestInFlightDrawMappingRemainsImmutable();
   TestRejectedUpdateIsAtomicAndRetryable();

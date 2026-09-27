@@ -196,6 +196,11 @@ current owner/generation, and publishes all candidates only after every table
 succeeds. A rejection cannot advance residency or leave an unwritten record
 classified as static on retry. The unchanged-source/revision path bypasses
 candidate cloning and packing-input traversal entirely.
+An exact continuous revision whose geometry, instance, material, and draw
+tables retain their immutable roots and whose corresponding deltas are empty
+also advances without cloning or rebuilding the draw-slot map. Camera and
+lighting changes therefore do not re-traverse Mesh residency. Source changes,
+revision gaps, and changed table roots retain the transactional packing path.
 
 Gaussian resource identity now participates in the same finite generation-
 checked slot boundary. Vulkan retains source-space position, covariance,
@@ -273,12 +278,26 @@ slots, so command order within a batch is not stable, while `firstInstance`
 preserves persistent draw identity. Frame-shared candidate, result, command,
 counter, and readback buffers plus one descriptor pool avoid per-batch native
 allocation. Each batch executes one `vkCmdDrawIndexedIndirectCount` call.
+CPU draw statistics and drawn-material membership are cached by immutable
+draw/geometry roots and material count. Frames without generated materials
+skip per-draw generated-pipeline preflight. Each frame context also retains
+its batch layout keyed by source identity, immutable draw/geometry/material
+roots, physical draw-slot map, front-face winding, and geometry residency
+generation. Only successful submissions publish a reusable batch key, and
+geometry reconciliation invalidates placement before it can mutate ranges.
+Camera-only changes reuse these batches while dispatch constants still carry
+the current camera and culling policy. `mesh_cpu_draw_visit_count` counts
+summary, generated-pipeline preflight, and batch-selection visits; conventional
+draw recording is excluded. Command recording still scales with the number of
+arena/pipeline batches, and material preparation with material count.
 The host-neutral renderer-settings v2 contract selects disabled,
 preferred-with-fallback, or required execution and forwards the visibility
 mask plus both culling switches through the backend-neutral request. Vulkan
 maps that policy to the native runtime; Metal rejects `require` and records an
-explicit fallback for `prefer`. Draw-count-independent CPU command-recording
-evidence remains required before the completion criteria above are claimed.
+explicit fallback for `prefer`. The shared-geometry/material scale fixture
+checks zero steady CPU draw visits, zero uploads, and Forward parity at 1k,
+10k, and 100k draws, including camera motion. Evidence across diverse geometry
+and materials remains required before the completion criteria above are claimed.
 
 ## Opaque Visibility Buffer
 

@@ -25,8 +25,12 @@ ownership, dependency, and fallback contracts.
   usdview/HgiGL display was also checked with a 5.8-million-Gaussian stage
   using the lookdev runtime. Capture a controlled host motion comparison
   and evaluate whether every bound AOV needs a per-frame CPU readback.
-- ⬜ Remove per-draw CPU preparation from the steady-state Mesh submission path
-  while preserving the indexed Forward image and fallback contracts.
+- 🚧 Remove per-draw CPU preparation from the steady-state Mesh submission path
+  while preserving the indexed Forward image and fallback contracts. Vulkan
+  now reuses draw summaries, GPU Scene slot maps, and indirect batches on
+  static/camera-only frames. The 1k/10k/100k shared-geometry fixture verifies
+  zero CPU draw visits and uploads with exact Forward color/depth/ID parity;
+  broader geometry/material diversity and batch-count scaling remain open.
 - ⬜ Capture controlled hardware evidence for Mesh command-recording and
   Gaussian preparation/sort/raster costs, including diverse geometry and
   materials, camera motion, and static zero-upload frames.

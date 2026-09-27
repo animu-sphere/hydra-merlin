@@ -171,6 +171,10 @@ private:
   std::unique_ptr<GpuSceneResourceSlots> materials_;
   std::unique_ptr<GpuSceneDrawSlots> draws_;
   std::shared_ptr<const std::vector<std::uint32_t>> draw_slot_indices_;
+  extraction::PersistentTable<extraction::GeometryRecord> geometry_source_;
+  extraction::PersistentTable<extraction::InstanceRecord> instance_source_;
+  extraction::PersistentTable<extraction::MaterialRecord> material_source_;
+  extraction::PersistentTable<extraction::DrawRecord> draw_source_;
 };
 
 } // namespace merlin::render

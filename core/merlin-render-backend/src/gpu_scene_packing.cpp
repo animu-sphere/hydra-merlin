@@ -505,7 +505,34 @@ GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
       materials_->revision() == snapshot.revision &&
       draws_->source_id() == snapshot.source_id &&
       draws_->revision() == snapshot.revision;
-  if (unchanged) {
+  const auto empty_delta = [](const extraction::ResourceDelta& delta) {
+    return delta.upserts.empty() && delta.upsert_indices.empty() &&
+           delta.removals.empty();
+  };
+  // Camera/light-only revisions retain all four immutable table roots. An
+  // exact, empty delta can advance the mappings in place without cloning
+  // residency, traversing packing inputs, or rebuilding the draw-slot map.
+  // Require both the roots and delta boundary; a gap still reconciles fully.
+  const bool unchanged_tables =
+      snapshot.source_id != 0 && snapshot.delta &&
+      snapshot.revision > geometries_->revision() &&
+      geometries_->source_id() == snapshot.source_id &&
+      instances_->source_id() == snapshot.source_id &&
+      materials_->source_id() == snapshot.source_id &&
+      draws_->source_id() == snapshot.source_id &&
+      snapshot.delta->base_revision == geometries_->revision() &&
+      snapshot.delta->base_revision == instances_->revision() &&
+      snapshot.delta->base_revision == materials_->revision() &&
+      snapshot.delta->base_revision == draws_->revision() &&
+      geometry_source_.table_identity() == snapshot.geometries.table_identity() &&
+      instance_source_.table_identity() == snapshot.instances.table_identity() &&
+      material_source_.table_identity() == snapshot.materials.table_identity() &&
+      draw_source_.table_identity() == snapshot.draws.table_identity() &&
+      empty_delta(snapshot.delta->geometries) &&
+      empty_delta(snapshot.delta->instances) &&
+      empty_delta(snapshot.delta->materials) &&
+      empty_delta(snapshot.delta->draws);
+  if (unchanged || unchanged_tables) {
     GpuScenePackedFrameUpdate update;
     update.geometry_plan = geometries_->Apply(
         snapshot, last_completion_value, completed_value);
@@ -557,6 +584,10 @@ GpuScenePackedFrameUpdate GpuScenePackingState::Apply(
   materials_ = std::move(candidate_materials);
   draws_ = std::move(candidate_draws);
   draw_slot_indices_ = update.draw_slot_indices;
+  geometry_source_ = snapshot.geometries;
+  instance_source_ = snapshot.instances;
+  material_source_ = snapshot.materials;
+  draw_source_ = snapshot.draws;
   return update;
 }
 
