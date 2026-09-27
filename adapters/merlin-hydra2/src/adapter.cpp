@@ -726,8 +726,8 @@ bool ValidationRequested() {
 }
 
 #ifdef MERLIN_HYDRA2_ENABLE_METAL
-std::optional<std::uint64_t> MetalHeapCapacityBytesFromEnvironment() {
-  const char* value = std::getenv("MERLIN_METAL_HEAP_MIB");
+std::optional<std::uint64_t> MetalCapacityBytesFromEnvironment(const char* name) {
+  const char* value = std::getenv(name);
   if (value == nullptr || *value == '\0') {
     return std::nullopt;
   }
@@ -741,7 +741,7 @@ std::optional<std::uint64_t> MetalHeapCapacityBytesFromEnvironment() {
       capacity_mib > std::numeric_limits<std::uint64_t>::max() /
                          bytes_per_mib) {
     throw std::invalid_argument(
-        "MERLIN_METAL_HEAP_MIB must be a positive in-range integer");
+        std::string(name) + " must be a positive in-range integer");
   }
   return capacity_mib * bytes_per_mib;
 }
@@ -1678,8 +1678,17 @@ public:
           merlin::render::CreateBackend(create_info, factories));
 #elif defined(MERLIN_HYDRA2_ENABLE_METAL)
       merlin::metal::BackendOptions backend_options;
-      if (const auto capacity = MetalHeapCapacityBytesFromEnvironment()) {
+      if (const auto capacity =
+              MetalCapacityBytesFromEnvironment("MERLIN_METAL_HEAP_MIB")) {
         backend_options.heap_capacity_bytes = *capacity;
+      }
+      if (const auto capacity =
+              MetalCapacityBytesFromEnvironment("MERLIN_METAL_GAUSSIAN_RESIDENCY_MIB")) {
+        backend_options.gaussian_residency_budget_bytes = *capacity;
+      }
+      if (const auto capacity =
+              MetalCapacityBytesFromEnvironment("MERLIN_METAL_GAUSSIAN_SCRATCH_MIB")) {
+        backend_options.gaussian_scratch_budget_bytes = *capacity;
       }
       merlin::metal::BackendFactory factory(backend_options);
       std::vector<merlin::render::BackendFactory*> factories{&factory};

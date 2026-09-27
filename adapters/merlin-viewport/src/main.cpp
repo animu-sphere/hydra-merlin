@@ -48,6 +48,8 @@ struct Arguments {
   std::uint32_t height{720};
   std::uint64_t frame_limit{};
   std::uint64_t metal_heap_capacity_bytes{kDefaultMetalHeapBytes};
+  std::uint64_t metal_gaussian_residency_bytes{1024ULL * 1024ULL * 1024ULL};
+  std::uint64_t metal_gaussian_scratch_bytes{1024ULL * 1024ULL * 1024ULL};
   merlin::render::BackendRequest backend{
       merlin::render::BackendRequest::Automatic};
   merlin::render::GpuDrivenGaussianSettings gpu_driven_gaussian;
@@ -144,16 +146,25 @@ Arguments ParseArguments(int argc, char** argv) {
       result.height = ReadUnsigned32(next(), option);
     } else if (option == "--frames") {
       result.frame_limit = ReadUnsigned(next(), option);
-    } else if (option == "--metal-heap-mib") {
+    } else if (option == "--metal-heap-mib" ||
+               option == "--metal-gaussian-residency-mib" ||
+               option == "--metal-gaussian-scratch-mib") {
       constexpr std::uint64_t bytes_per_mib = 1024ULL * 1024ULL;
       const auto capacity_mib = ReadUnsigned(next(), option);
       if (capacity_mib == 0 ||
           capacity_mib >
               std::numeric_limits<std::uint64_t>::max() / bytes_per_mib) {
         throw std::invalid_argument(
-            "--metal-heap-mib must be a positive in-range integer");
+            std::string(option) + " must be a positive in-range integer");
       }
-      result.metal_heap_capacity_bytes = capacity_mib * bytes_per_mib;
+      const auto bytes = capacity_mib * bytes_per_mib;
+      if (option == "--metal-heap-mib") {
+        result.metal_heap_capacity_bytes = bytes;
+      } else if (option == "--metal-gaussian-residency-mib") {
+        result.metal_gaussian_residency_bytes = bytes;
+      } else {
+        result.metal_gaussian_scratch_bytes = bytes;
+      }
     } else if (option == "--backend") {
       result.backend = ReadBackend(next());
     } else if (option == "--gaussian-gpu") {
@@ -188,6 +199,8 @@ Arguments ParseArguments(int argc, char** argv) {
              "  --backend automatic|vulkan|metal\n"
              "  --width N --height N --vsync on|off --validate\n"
              "  --metal-heap-mib N (default 64)\n"
+             "  --metal-gaussian-residency-mib N (default 1024)\n"
+             "  --metal-gaussian-scratch-mib N (default 1024)\n"
              "  --gaussian-gpu disabled|prefer|require\n"
              "  --gaussian-raster sorted-stream|tiled\n"
              "  --frames N --benchmark report.json --screenshot image.ppm\n"
@@ -297,6 +310,8 @@ merlin::viewport::HydraViewportOptions MakeHydraViewportOptions(
   options.height = arguments.height;
   options.frame_limit = arguments.frame_limit;
   options.metal_heap_capacity_bytes = arguments.metal_heap_capacity_bytes;
+  options.metal_gaussian_residency_bytes = arguments.metal_gaussian_residency_bytes;
+  options.metal_gaussian_scratch_bytes = arguments.metal_gaussian_scratch_bytes;
   options.backend = arguments.backend;
   options.gpu_driven_gaussian = arguments.gpu_driven_gaussian;
   options.validation = arguments.validation;
@@ -462,6 +477,8 @@ int main(int argc, char** argv) {
       merlin::metal::BackendOptions metal_options;
       metal_options.heap_capacity_bytes =
           arguments.metal_heap_capacity_bytes;
+      metal_options.gaussian_residency_budget_bytes = arguments.metal_gaussian_residency_bytes;
+      metal_options.gaussian_scratch_budget_bytes = arguments.metal_gaussian_scratch_bytes;
       auto metal_presentation =
           merlin::viewport::MakeGlfwMetalPresentation(*window,
               arguments.vsync);

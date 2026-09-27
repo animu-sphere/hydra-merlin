@@ -5,6 +5,7 @@
 #include <merlin/metal/backend.hpp>
 #include "gaussian_metallib.hpp"
 #include "gaussian_raster_abi.hpp"
+#include "gaussian_execution.hpp"
 #include <merlin/extraction/gaussian_preparation.hpp>
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <mutex>
 #include <sstream>
@@ -698,6 +700,8 @@ public:
     }
     result.texture_slots = texture_slots_.telemetry();
     result.sampler_slots = sampler_slots_.telemetry();
+    result.gaussian_resident_live_bytes = gaussian_residency_ ? gaussian_residency_->live_bytes() : 0;
+    result.gaussian_scratch_live_bytes = gaussian_execution_ ? gaussian_execution_->live_bytes() : 0;
     return result;
   }
 
@@ -714,174 +718,207 @@ public:
   }
 
   render::CompletionToken Submit(const render::RenderRequest& request) {
+    // @autoreleasepool does not drain on C++ exception unwinding. Catch inside
+    // the pool so abandoned commands release their residency/scratch leases
+    // before reporting a failed submission to the caller.
+    std::exception_ptr failure;
+    render::CompletionToken token;
     @autoreleasepool {
-      const auto submit_begin = Clock::now();
-      if (!request.snapshot) {
-        throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-            "submit Metal frame", "snapshot is null");
+      try {
+        token = SubmitFrame(request);
+      } catch (...) {
+        failure = std::current_exception();
       }
-      if (request.width == 0 || request.height == 0 ||
-          request.width > capabilities_.limits.max_image_dimension_2d ||
-          request.height > capabilities_.limits.max_image_dimension_2d) {
-        throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-            "submit Metal frame",
-            "render extent is invalid");
-      }
-      if (render::GpuDrivenIndexedModeName(
-              request.gpu_driven_indexed.mode) == "unknown") {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest, "submit Metal frame",
-            "GPU-driven indexed submission mode is invalid");
-      }
-      if (request.gpu_driven_indexed.mode ==
-          render::GpuDrivenIndexedMode::Require) {
-        throw render::RendererError(
-            render::RendererErrorCode::Unsupported, "submit Metal frame",
-            "required GPU-driven indexed Forward execution is unavailable");
-      }
-      if (render::GpuDrivenGaussianModeName(
-              request.gpu_driven_gaussian.mode) == "unknown" ||
-          render::GaussianRasterPathName(
-              request.gpu_driven_gaussian.raster) == "unknown") {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest, "submit Metal frame",
-            "GPU-driven Gaussian execution settings are invalid");
-      }
-      if (request.gpu_driven_gaussian.mode ==
-          render::GpuDrivenGaussianMode::Require) {
-        throw render::RendererError(
-            render::RendererErrorCode::Unsupported, "submit Metal frame",
-            "required GPU-driven Gaussian execution is unavailable");
-      }
-      if (request.presentation) {
-        ValidatePresentation(request.presentation, "submit Metal frame");
-        UpdatePresentationExtent(request.width, request.height);
-      }
-
-      std::vector<Aov> readbacks;
-      auto rendered = ValidateProducts(request.products, &readbacks);
-      CollectRetirements();
-      if (RecordGpuSceneFailureThrough(submitted_value_)) {
-        ++statistics_.validation_messages;
-        throw render::RendererError(
-            render::RendererErrorCode::BackendFailure,
-            "submit Metal frame", gpu_scene_failure_detail_,
-            gpu_scene_failure_native_code_);
-      }
-
-      auto context_index = next_context_;
-      std::size_t searched{};
-      while (searched < frames_.size() && frames_[context_index].busy) {
-        context_index = (context_index + 1U) % frames_.size();
-        ++searched;
-      }
-      if (searched == frames_.size()) {
-        throw render::RendererError(render::RendererErrorCode::ResourceBusy,
-            "submit Metal frame",
-            "all frames-in-flight are unresolved");
-      }
-      auto& frame = frames_[context_index];
-      next_context_ = (context_index + 1U) % frames_.size();
-
-      FrameBuild build;
-      Reconcile(*request.snapshot, build);
-      EnsureTargets(frame, request.width, request.height, build);
-      if (bindless_) {
-        EncodeArgumentBuffer(frame, build);
-      }
-      PrepareGaussians(request, frame, build);
-      PrepareGpuSceneUpdate(*request.snapshot,
-          request.gpu_scene_update.get(), frame, build);
-
-      id<MTLCommandBuffer> command = [queue_ commandBuffer];
-      if (command == nil) {
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "create Metal command buffer",
-            "commandBuffer returned nil");
-      }
-      command.label = @"hdMerlin offscreen frame";
-
-      const auto record_begin = Clock::now();
-      EncodeGpuSceneUpdate(command, build);
-      EncodeRender(command, frame, request, build);
-      id<CAMetalDrawable> drawable;
-      if (request.presentation) {
-        const auto presentation_begin = Clock::now();
-        drawable = [layer_ nextDrawable];
-        if (drawable == nil) {
-          throw render::RendererError(
-              render::RendererErrorCode::ResourceBusy,
-              "acquire Metal drawable",
-              "CAMetalLayer returned no drawable before its timeout");
-        }
-        EncodePresentation(command, frame, drawable, build);
-        [command presentDrawable:drawable];
-        build.presentation_ns =
-            DurationNs(presentation_begin, Clock::now());
-      }
-      EncodeReadback(command, frame, readbacks);
-      const auto record_end = Clock::now();
-
-      const auto value = ++submitted_value_;
-      dispatch_semaphore_t completion = dispatch_semaphore_create(0);
-      auto* completed = &completed_value_;
-      [command addCompletedHandler:^(id<MTLCommandBuffer>) {
-        completed->store(value, std::memory_order_release);
-        dispatch_semaphore_signal(completion);
-      }];
-      if (completion_event_ != nil) {
-        [command encodeSignalEvent:completion_event_ value:value];
-      }
-
-      const auto queue_begin = Clock::now();
-      [command commit];
-      const auto queue_end = Clock::now();
-      CommitGpuSceneUpdate(build);
-
-      frame.busy = true;
-      frame.completion_value = value;
-
-      Pending pending;
-      pending.command = command;
-      pending.completion = completion;
-      pending.context_index = context_index;
-      pending.snapshot = request.snapshot;
-      pending.width = request.width;
-      pending.height = request.height;
-      pending.rendered_aovs = std::move(rendered);
-      pending.readback_aovs = std::move(readbacks);
-      pending.drawable = drawable;
-      pending.has_gpu_scene_copies = !build.gpu_scene_copies.empty();
-      pending.result.scene_revision = request.snapshot->revision;
-      pending.result.completion_value = value;
-      pending.result.telemetry = build.telemetry;
-      if (request.gpu_driven_indexed.mode ==
-          render::GpuDrivenIndexedMode::Prefer) {
-        ++pending.result.telemetry.gpu_driven_fallback_count;
-      }
-      if (request.gpu_driven_gaussian.mode ==
-          render::GpuDrivenGaussianMode::Prefer) {
-        ++pending.result.telemetry.gaussian_gpu_fallback_count;
-      }
-      pending.result.timings.upload_ns = build.upload_ns;
-      pending.result.timings.gaussian_preparation_ns = build.gaussian_preparation_ns;
-      pending.result.timings.gaussian_prepared_upload_ns = build.gaussian_upload_ns;
-      pending.result.timings.gaussian_raster_ns = build.gaussian_raster_ns;
-      pending.result.timings.command_recording_ns =
-          DurationNs(record_begin, record_end);
-      pending.result.timings.presentation_ns = build.presentation_ns;
-      pending.result.timings.queue_submission_ns =
-          DurationNs(queue_begin, queue_end);
-      pending.result.timings.backend_total_ns =
-          DurationNs(submit_begin, queue_end);
-      pending.result.material_diagnostics =
-          std::move(build.material_diagnostics);
-      pending_.emplace(value, std::move(pending));
-
-      ++statistics_.frames_submitted;
-      uploaded_bytes_ += build.telemetry.upload_bytes;
-      return render::CompletionToken(owner_, value);
     }
+    if (failure) std::rethrow_exception(failure);
+    return token;
+  }
+
+  render::CompletionToken SubmitFrame(const render::RenderRequest& request) {
+    const auto submit_begin = Clock::now();
+    if (!request.snapshot) {
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+          "submit Metal frame", "snapshot is null");
+    }
+    if (request.width == 0 || request.height == 0 ||
+        request.width > capabilities_.limits.max_image_dimension_2d ||
+        request.height > capabilities_.limits.max_image_dimension_2d) {
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+          "submit Metal frame",
+          "render extent is invalid");
+    }
+    if (render::GpuDrivenIndexedModeName(
+            request.gpu_driven_indexed.mode) == "unknown") {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest, "submit Metal frame",
+          "GPU-driven indexed submission mode is invalid");
+    }
+    if (request.gpu_driven_indexed.mode ==
+        render::GpuDrivenIndexedMode::Require) {
+      throw render::RendererError(
+          render::RendererErrorCode::Unsupported, "submit Metal frame",
+          "required GPU-driven indexed Forward execution is unavailable");
+    }
+    if (render::GpuDrivenGaussianModeName(
+            request.gpu_driven_gaussian.mode) == "unknown" ||
+        render::GaussianRasterPathName(
+            request.gpu_driven_gaussian.raster) == "unknown") {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest, "submit Metal frame",
+          "GPU-driven Gaussian execution settings are invalid");
+    }
+    if (request.gpu_driven_gaussian.mode ==
+            render::GpuDrivenGaussianMode::Require &&
+        (!capabilities_.gpu_driven_gaussian ||
+            request.gpu_driven_gaussian.raster == render::GaussianRasterPath::Tiled)) {
+      throw render::RendererError(
+          render::RendererErrorCode::Unsupported, "submit Metal frame",
+          "required Metal Gaussian path is unavailable; use sorted-stream or prefer mode");
+    }
+    if (request.presentation) {
+      ValidatePresentation(request.presentation, "submit Metal frame");
+      UpdatePresentationExtent(request.width, request.height);
+    }
+
+    std::vector<Aov> readbacks;
+    auto rendered = ValidateProducts(request.products, &readbacks);
+    CollectRetirements();
+    if (RecordResidentSceneFailureThrough(submitted_value_)) {
+      ++statistics_.validation_messages;
+      throw render::RendererError(
+          render::RendererErrorCode::BackendFailure,
+          "submit Metal frame", gpu_scene_failure_detail_,
+          gpu_scene_failure_native_code_);
+    }
+
+    auto context_index = next_context_;
+    std::size_t searched{};
+    while (searched < frames_.size() && frames_[context_index].busy) {
+      context_index = (context_index + 1U) % frames_.size();
+      ++searched;
+    }
+    if (searched == frames_.size()) {
+      throw render::RendererError(render::RendererErrorCode::ResourceBusy,
+          "submit Metal frame",
+          "all frames-in-flight are unresolved");
+    }
+    auto& frame = frames_[context_index];
+    next_context_ = (context_index + 1U) % frames_.size();
+
+    FrameBuild build;
+    Reconcile(*request.snapshot, build);
+    EnsureTargets(frame, request.width, request.height, build);
+    if (bindless_) {
+      EncodeArgumentBuffer(frame, build);
+    }
+    frame.gaussian_execution.reset();
+    frame.gaussian_instances = nil;
+    frame.gaussian_count = 0;
+    struct UnsubmittedGaussianFrame {
+      FrameContext& frame;
+      bool submitted{};
+      ~UnsubmittedGaussianFrame() {
+        if (!submitted) frame.gaussian_execution.reset();
+      }
+    } gaussian_frame_guard{frame};
+    PrepareGpuSceneUpdate(*request.snapshot,
+        request.gpu_scene_update.get(), frame, build);
+
+    id<MTLCommandBuffer> command = [queue_ commandBuffer];
+    if (command == nil) {
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "create Metal command buffer",
+          "commandBuffer returned nil");
+    }
+    command.label = @"hdMerlin offscreen frame";
+
+    const auto record_begin = Clock::now();
+    PrepareGaussianExecution(request, command, frame, build);
+    EncodeGpuSceneUpdate(command, build);
+    EncodeRender(command, frame, request, build);
+    id<CAMetalDrawable> drawable;
+    if (request.presentation) {
+      const auto presentation_begin = Clock::now();
+      drawable = [layer_ nextDrawable];
+      if (drawable == nil) {
+        throw render::RendererError(
+            render::RendererErrorCode::ResourceBusy,
+            "acquire Metal drawable",
+            "CAMetalLayer returned no drawable before its timeout");
+      }
+      EncodePresentation(command, frame, drawable, build);
+      [command presentDrawable:drawable];
+      build.presentation_ns =
+          DurationNs(presentation_begin, Clock::now());
+    }
+    EncodeReadback(command, frame, readbacks);
+    const auto record_end = Clock::now();
+
+    const auto value = ++submitted_value_;
+    dispatch_semaphore_t completion = dispatch_semaphore_create(0);
+    auto* completed = &completed_value_;
+    [command addCompletedHandler:^(id<MTLCommandBuffer>) {
+      completed->store(value, std::memory_order_release);
+      dispatch_semaphore_signal(completion);
+    }];
+    if (completion_event_ != nil) {
+      [command encodeSignalEvent:completion_event_ value:value];
+    }
+
+    const auto queue_begin = Clock::now();
+    [command commit];
+    gaussian_frame_guard.submitted = true;
+    const auto queue_end = Clock::now();
+    CommitGpuSceneUpdate(build);
+    if (build.gaussian_attributes) {
+      gaussian_residency_->Commit(build.gaussian_attributes);
+      metal_statistics_.gaussian_compute_dispatch_count += frame.gaussian_execution->dispatch_count;
+      metal_statistics_.gaussian_attribute_device_copy_bytes += build.gaussian_attributes->device_copy_bytes;
+    }
+
+    frame.busy = true;
+    frame.completion_value = value;
+
+    Pending pending;
+    pending.command = command;
+    pending.completion = completion;
+    pending.context_index = context_index;
+    pending.snapshot = request.snapshot;
+    pending.width = request.width;
+    pending.height = request.height;
+    pending.rendered_aovs = std::move(rendered);
+    pending.readback_aovs = std::move(readbacks);
+    pending.drawable = drawable;
+    pending.has_gpu_scene_copies = !build.gpu_scene_copies.empty();
+    pending.has_gaussian_uploads = build.gaussian_attributes &&
+        build.gaussian_attributes->upload_bytes != 0;
+    pending.result.scene_revision = request.snapshot->revision;
+    pending.result.completion_value = value;
+    pending.result.telemetry = build.telemetry;
+    if (request.gpu_driven_indexed.mode ==
+        render::GpuDrivenIndexedMode::Prefer) {
+      ++pending.result.telemetry.gpu_driven_fallback_count;
+    }
+    pending.result.timings.upload_ns = build.upload_ns;
+    pending.result.timings.gaussian_preparation_ns = build.gaussian_preparation_ns;
+    pending.result.timings.gaussian_prepared_upload_ns = build.gaussian_upload_ns;
+    pending.result.timings.gaussian_attribute_upload_ns = build.gaussian_attribute_upload_ns;
+    pending.result.timings.gaussian_raster_ns = build.gaussian_raster_ns;
+    pending.result.timings.command_recording_ns =
+        DurationNs(record_begin, record_end) - build.gaussian_preparation_ns -
+        build.gaussian_upload_ns - build.gaussian_attribute_upload_ns;
+    pending.result.timings.presentation_ns = build.presentation_ns;
+    pending.result.timings.queue_submission_ns =
+        DurationNs(queue_begin, queue_end);
+    pending.result.timings.backend_total_ns =
+        DurationNs(submit_begin, queue_end);
+    pending.result.material_diagnostics =
+        std::move(build.material_diagnostics);
+    pending_.emplace(value, std::move(pending));
+
+    ++statistics_.frames_submitted;
+    uploaded_bytes_ += build.telemetry.upload_bytes;
+    return render::CompletionToken(owner_, value);
   }
 
   bool IsComplete(render::CompletionToken token) const {
@@ -1007,7 +1044,7 @@ public:
       pending.result.timings.completion_wait_ns =
           DurationNs(wait_begin, Clock::now());
 
-      RecordGpuSceneFailureThrough(token.value());
+      RecordResidentSceneFailureThrough(token.value());
 
       const bool command_failed =
           pending.command.status == MTLCommandBufferStatusError;
@@ -1023,6 +1060,7 @@ public:
                                                     .localizedDescription))
                                 : gpu_scene_failure_detail_;
         auto& failed_frame = frames_[pending.context_index];
+        failed_frame.gaussian_execution.reset();
         // A bridge blit may still be waiting on this frame's completion event.
         // Keep the frame identified until that lease callback releases it.
         failed_frame.busy = failed_frame.exported_aov_mask != 0;
@@ -1044,6 +1082,17 @@ public:
       pending.result.rendered_aovs = pending.rendered_aovs;
       pending.result.cpu_readback_aovs = pending.readback_aovs;
       CopyReadbacks(frame, pending);
+      try {
+        ResolveGaussianTelemetry(frame, pending.result);
+      } catch (...) {
+        frame.gaussian_execution.reset();
+        frame.busy = frame.exported_aov_mask != 0;
+        if (!frame.busy) frame.completion_value = 0;
+        pending_.erase(token.value());
+        CollectRetirements();
+        throw;
+      }
+      frame.gaussian_execution.reset();
       pending.result.timings.readback_ns =
           DurationNs(readback_begin, Clock::now());
       if (pending.command.GPUEndTime >= pending.command.GPUStartTime) {
@@ -1148,6 +1197,8 @@ private:
     // scene edit allocates a new stream without overwriting in-flight frames.
     id<MTLBuffer> gaussian_instances = nil;
     NSUInteger gaussian_count{};
+    std::shared_ptr<const GaussianExecution::Frame> gaussian_execution;
+    id<MTLBuffer> gaussian_telemetry = nil;
     std::vector<std::uint64_t> encoded_textures;
     std::vector<std::uint64_t> encoded_texture_revisions;
     std::vector<std::uint64_t> encoded_samplers;
@@ -1165,6 +1216,7 @@ private:
     std::vector<Aov> rendered_aovs;
     std::vector<Aov> readback_aovs;
     bool has_gpu_scene_copies{};
+    bool has_gaussian_uploads{};
     render::RenderResult result;
   };
 
@@ -1175,6 +1227,8 @@ private:
     std::uint64_t gaussian_preparation_ns{};
     std::uint64_t gaussian_upload_ns{};
     std::uint64_t gaussian_raster_ns{};
+    std::uint64_t gaussian_attribute_upload_ns{};
+    std::shared_ptr<GaussianResidency::Update> gaussian_attributes;
     bool has_gpu_scene_update{};
     std::uint64_t gpu_scene_source_id{};
     std::uint64_t gpu_scene_revision{};
@@ -1184,14 +1238,14 @@ private:
     std::vector<MaterialDiagnostic> material_diagnostics;
   };
 
-  bool RecordGpuSceneFailureThrough(std::uint64_t completion_value) {
-    // One Metal command queue preserves submission order. If a table upload
-    // fails, every already-submitted update chained after it is based on
-    // table contents that may only be partially resident.
+  bool RecordResidentSceneFailureThrough(std::uint64_t completion_value) {
+    // One Metal command queue preserves submission order. A failed table or
+    // Gaussian attribute upload invalidates later submissions that may depend
+    // on partially resident contents or immutable version copies.
     std::uint64_t failed_value{};
     Pending* failed_pending{};
     for (auto& [value, candidate] : pending_) {
-      if (value <= completion_value && candidate.has_gpu_scene_copies &&
+      if (value <= completion_value && (candidate.has_gpu_scene_copies || candidate.has_gaussian_uploads) &&
           candidate.command.status == MTLCommandBufferStatusError &&
           value > failed_value) {
         failed_value = value;
@@ -1207,11 +1261,13 @@ private:
         std::max(gpu_scene_invalid_through_value_, submitted_value_);
     gpu_scene_failure_detail_ =
         failed_pending->command.error == nil
-            ? std::string("Metal GPU Scene upload failed")
+            ? std::string("Metal resident scene upload failed")
             : String(failed_pending->command.error.localizedDescription);
     gpu_scene_failure_native_code_ =
         static_cast<std::int32_t>(failed_pending->command.error.code);
     InvalidateGpuSceneUpdate();
+    if (gaussian_residency_) gaussian_residency_->Reset();
+    if (gaussian_execution_) gaussian_execution_->Reset();
     return true;
   }
 
@@ -1679,6 +1735,17 @@ private:
           "create Metal Gaussian pipeline",
           error == nil ? "newRenderPipelineState returned nil" : String(error.localizedDescription),
           static_cast<std::int32_t>(error.code));
+    }
+    try {
+      gaussian_execution_ = std::make_unique<GaussianExecution>(device_, gaussian_library,
+          options_.gaussian_scratch_budget_bytes);
+      gaussian_residency_ = std::make_unique<GaussianResidency>(device_,
+          options_.gaussian_residency_budget_bytes);
+      capabilities_.gpu_driven_gaussian = true;
+    } catch (const render::RendererError& error) {
+      if (error.code() != render::RendererErrorCode::Unsupported) throw;
+      // Keep the CPU reference available on devices below the kernel limits.
+      gaussian_execution_.reset();
     }
     if (options_.presentation) {
       id<MTLFunction> presentation_vertex =
@@ -2285,6 +2352,109 @@ private:
     return result;
   }
 
+  void PrepareGaussianExecution(const render::RenderRequest& request,
+      id<MTLCommandBuffer> __strong& command, FrameContext& frame, FrameBuild& build) {
+    const auto mode = request.gpu_driven_gaussian.mode;
+    if (mode == render::GpuDrivenGaussianMode::Disabled) {
+      PrepareGaussians(request, frame, build);
+      return;
+    }
+    if (!capabilities_.gpu_driven_gaussian) {
+      ++build.telemetry.gaussian_gpu_fallback_count;
+      PrepareGaussians(request, frame, build);
+      return;
+    }
+    if (request.gpu_driven_gaussian.raster == render::GaussianRasterPath::Tiled)
+      ++build.telemetry.gaussian_gpu_fallback_count;
+    const auto begin = Clock::now();
+    try {
+      auto attributes = gaussian_residency_->Prepare(*request.snapshot);
+      gaussian_residency_->Encode(attributes, command);
+      const auto uploaded = Clock::now();
+      auto execution = gaussian_execution_->Encode(attributes,
+          request.snapshot->view, request.snapshot->projection,
+          request.width, request.height, command, false, capabilities_.validation_enabled);
+      // Read only bounded per-resource counters and draw arguments after all
+      // compute stages. They never schedule GPU work from a CPU visible count.
+      const auto bytes = 32ULL + execution->resource_count * sizeof(gaussian_compute::PrepareCounters);
+      if (!frame.gaussian_telemetry || frame.gaussian_telemetry.length < bytes) {
+        auto buffer = [device_ newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+        if (!buffer)
+          throw render::RendererError(render::RendererErrorCode::ResourceExhausted,
+              "allocate Metal Gaussian telemetry", "newBuffer returned nil");
+        frame.gaussian_telemetry = buffer;
+        ++build.telemetry.allocation_count;
+      }
+      auto blit = [command blitCommandEncoder];
+      if (!blit)
+        throw render::RendererError(render::RendererErrorCode::BackendFailure,
+            "copy Metal Gaussian telemetry", "blitCommandEncoder returned nil");
+      [blit copyFromBuffer:execution->scratch->draw sourceOffset:0
+          toBuffer:frame.gaussian_telemetry destinationOffset:0 size:16];
+      [blit copyFromBuffer:execution->scratch->control sourceOffset:0
+          toBuffer:frame.gaussian_telemetry destinationOffset:16 size:16];
+      if (execution->resource_count)
+        [blit copyFromBuffer:execution->scratch->counters sourceOffset:0
+            toBuffer:frame.gaussian_telemetry destinationOffset:32 size:bytes - 32];
+      [blit endEncoding];
+      build.telemetry.readback_bytes += bytes;
+      build.telemetry.allocation_count += attributes->allocation_count + execution->allocation_count;
+      build.telemetry.gaussian_attribute_upload_bytes = attributes->upload_bytes;
+      build.telemetry.gaussian_attribute_copy_range_count = attributes->upload_range_count;
+      build.telemetry.gaussian_attribute_generation_count = attributes->generation_count;
+      build.telemetry.upload_bytes += attributes->upload_bytes;
+      build.telemetry.gaussian_candidate_count = execution->particle_count;
+      build.telemetry.gaussian_sorting_policy_fallback_count = execution->sorting_policy.fallback_resource_count;
+      for (const auto& resource : attributes->resources)
+        if (!resource.record.visible)
+          build.telemetry.gaussian_hidden_count += resource.record.positions->size();
+      frame.gaussian_execution = std::move(execution);
+      build.gaussian_attributes = std::move(attributes);
+      build.gaussian_attribute_upload_ns = DurationNs(begin, uploaded);
+      build.upload_ns += build.gaussian_attribute_upload_ns;
+    } catch (const render::RendererError& error) {
+      if (mode != render::GpuDrivenGaussianMode::Prefer ||
+          (error.code() != render::RendererErrorCode::Unsupported &&
+              error.code() != render::RendererErrorCode::ResourceExhausted)) throw;
+      // Discard all partially encoded uploads/compute, retaining the previous
+      // committed scene. No other frame work has been encoded yet.
+      command = nil;
+      frame.gaussian_execution.reset();
+      command = [queue_ commandBuffer];
+      if (!command)
+        throw render::RendererError(render::RendererErrorCode::BackendFailure,
+            "create Metal fallback command", "commandBuffer returned nil");
+      command.label = @"hdMerlin CPU Gaussian fallback frame";
+      ++build.telemetry.gaussian_gpu_fallback_count;
+      PrepareGaussians(request, frame, build);
+    }
+  }
+
+  void ResolveGaussianTelemetry(const FrameContext& frame, render::RenderResult& result) {
+    if (!frame.gaussian_execution) return;
+    const auto* words = static_cast<const std::uint32_t*>(frame.gaussian_telemetry.contents);
+    const auto& execution = *frame.gaussian_execution;
+    auto& telemetry = result.telemetry;
+    const auto* counters = reinterpret_cast<const gaussian_compute::PrepareCounters*>(words + 8);
+    for (std::uint32_t i = 0; i < execution.resource_count; ++i) {
+      telemetry.gaussian_visible_count += counters[i].visible_count;
+      telemetry.gaussian_opacity_culled_count += counters[i].opacity_culled_count;
+      telemetry.gaussian_frustum_culled_count += counters[i].frustum_culled_count;
+      telemetry.gaussian_invalid_culled_count += counters[i].invalid_culled_count;
+    }
+    if (words[0] != 6 || words[1] != telemetry.gaussian_visible_count ||
+        words[1] > execution.particle_count || words[2] || words[3] ||
+        (capabilities_.validation_enabled &&
+            (words[4] != words[1] || words[5] || words[6]))) {
+      ++statistics_.validation_messages;
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "resolve Metal Gaussian telemetry", "GPU sort/count or indirect arguments are inconsistent");
+    }
+    telemetry.gaussian_sorted_count = words[1];
+    telemetry.gaussian_gpu_sorted_count = words[1];
+    telemetry.gaussian_gpu_raster_instance_count = words[1];
+  }
+
   void PrepareGaussians(const render::RenderRequest& request,
       FrameContext& frame, FrameBuild& build) {
     const auto& snapshot = *request.snapshot;
@@ -2597,20 +2767,28 @@ private:
       build.telemetry.triangle_count += geometry->second.index_count / 3U;
       ++build.telemetry.visible_primitive_count;
     }
-    if (frame.gaussian_count != 0) {
+    if (frame.gaussian_execution || frame.gaussian_count != 0) {
       const auto begin = Clock::now();
       [encoder setRenderPipelineState:gaussian_pipeline_];
       [encoder setDepthStencilState:gaussian_depth_state_];
       [encoder setCullMode:MTLCullModeNone];
-      [encoder setVertexBuffer:frame.gaussian_instances offset:0 atIndex:MERLIN_GAUSSIAN_INSTANCES_BINDING];
+      auto instances = frame.gaussian_execution
+                           ? frame.gaussian_execution->scratch->instances
+                           : frame.gaussian_instances;
+      [encoder setVertexBuffer:instances offset:0 atIndex:MERLIN_GAUSSIAN_INSTANCES_BINDING];
       const Vec2 inverse_extent{1.0F / request.width, 1.0F / request.height};
       [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
       // Color blends back-to-front; integer IDs retain the nearest contributing
       // particle. Test against opaque mesh depth without replacing that depth.
-      [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+      if (frame.gaussian_execution) {
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                indirectBuffer:frame.gaussian_execution->scratch->draw indirectBufferOffset:0];
+      } else {
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                   vertexStart:0
                   vertexCount:6
                 instanceCount:frame.gaussian_count];
+      }
       ++build.telemetry.gaussian_draw_count;
       ++build.telemetry.draw_count;
       build.gaussian_raster_ns = DurationNs(begin, Clock::now());
@@ -2835,6 +3013,8 @@ private:
   id<MTLRenderPipelineState> gaussian_pipeline_;
   id<MTLDepthStencilState> gaussian_depth_state_;
   id<MTLBuffer> gaussian_buffer_ = nil;
+  std::unique_ptr<GaussianResidency> gaussian_residency_;
+  std::unique_ptr<GaussianExecution> gaussian_execution_;
   extraction::PersistentTable<extraction::GaussianRecord> gaussian_source_;
   extraction::GaussianPreparationCounters gaussian_counters_;
   Mat4 gaussian_view_;
