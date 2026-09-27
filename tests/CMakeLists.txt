@@ -448,6 +448,15 @@ set_tests_properties(merlin-mesh-scale-regression PROPERTIES
   TIMEOUT 60)
 
 if(TARGET Merlin::Vulkan)
+  add_executable(merlin-vulkan-memory-type-tests vulkan_memory_type_test.cpp)
+  merlin_target_defaults(merlin-vulkan-memory-type-tests)
+  target_include_directories(merlin-vulkan-memory-type-tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/src")
+  target_link_libraries(merlin-vulkan-memory-type-tests PRIVATE Merlin::Vulkan)
+  add_test(NAME merlin-vulkan-memory-type COMMAND merlin-vulkan-memory-type-tests)
+  set_tests_properties(merlin-vulkan-memory-type PROPERTIES
+    LABELS "vulkan;memory")
+
   add_executable(merlin-gaussian-preparation-tests
     gaussian_preparation_test.cpp
   )

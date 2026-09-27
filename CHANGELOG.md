@@ -10,6 +10,17 @@ after its public API and release process are established.
 
 ### Added
 
+- Vulkan AOV readback buffers prefer host-cached, coherent memory, falling back
+  to the first compatible coherent type when cached memory is unavailable.
+  Upload and device-local allocations keep their existing selection. This
+  removes the uncached CPU-copy bottleneck without changing AOV requests,
+  completion waits, or image contents. On an RTX A5000 at 597x540 with one
+  million Gaussians and all four AOVs, a 40-frame camera-motion comparison
+  reduced median CPU readback from 19.06 ms to 0.92 ms and GPU sorted-stream
+  total frame time from 26.51 ms to 6.00 ms. These are local headless measurements,
+  not a usdview or cross-device performance guarantee. Memory-selection tests
+  cover cached preference, compatibility masks, coherent fallback, and
+  rejection of cached noncoherent memory.
 - Hydra hosts such as usdview can select the renderer settings v3 Gaussian
   execution policy without the development viewport. The render delegate
   lists two flag render settings, which usdview shows as Hydra Settings menu
