@@ -71,6 +71,7 @@ Select a fixture with `--fixture`:
 | `ten-thousand-meshes` | 10,000 independently handled one-triangle meshes and instances |
 | `thousand-instances` | 1,000 instances sharing one mesh |
 | `gpu-driven-small-objects` | The same shared indexed triangle at 1,000, 10,000, and 100,000 instances, measured through conventional and required GPU-driven indexed submission |
+| `gpu-driven-diverse-objects` | 16 differently sized triangle/quad meshes and eight untextured basic materials, at the same 1k/10k/100k instance tiers, with conventional/GPU-driven and camera-motion comparisons |
 | `one-million-gaussians` | One deterministic degree-0 Gaussian resource with 1,000,000 particles |
 | `five-million-gaussians` | The same deterministic distribution scaled to 5,000,000 particles |
 | `ten-million-gaussians` | The same deterministic distribution scaled to 10,000,000 particles |
@@ -98,6 +99,29 @@ representative capture command is:
   --fixture gpu-driven-small-objects --width 64 --height 64 `
   --steady-frames 10 --output gpu-driven-small-objects.json
 ```
+
+`gpu-driven-diverse-objects` uses the same phases and exact four-AOV comparison.
+It alternates triangle and quad geometry, varies base color and roughness, and
+alternates single/double-sided materials. Instance creation assigns a material
+every 256 instances; four materials are used at 1k and all eight at later tiers.
+The extractor's material/mesh ordering determines native batches, so this
+fixture requires multiple indirect calls bounded by the 128 resource pairs,
+independent of instance count. Static and moving phases still require zero CPU
+draw visits and uploads. The final fixture totals are 16 meshes, 100,000 instances,
+and 150,000 triangles. Geometry fits in one vertex/index arena block; textures,
+generated materials, and arena-block scaling remain separate evidence.
+
+Run both GPU-driven fixtures with structural and JSON schema checks explicitly
+on a capable GPU (they are not universal CTest or timing gates):
+
+```powershell
+cmake -DMERLIN_BENCHMARK=C:/path/to/merlin-benchmark.exe `
+  -DMERLIN_BENCHMARK_OUTPUT_DIR=build/gpu-driven-check `
+  -P tests/run_gpu_driven_benchmark_test.cmake
+```
+
+This uses three samples at 256x256 for correctness. For timing captures, run the
+selected fixture directly with `--steady-frames 30` or more at a fixed extent.
 
 ### Reference baselines
 
@@ -214,7 +238,9 @@ implementation:
   pipeline preflight, and batch-selection visits, excluding conventional draw
   command recording. It must be zero in warmed static and camera-motion GPU
   phases; GPU execution and readback costs can still grow with scene size.
-  Broader material, texture, and geometry diversity remains follow-up evidence.
+  `gpu-driven-diverse-objects` extends this to 16 triangle/quad resources and
+  eight basic materials with multiple batches. Texture, generated-material,
+  and multiple-arena-block diversity remain follow-up evidence.
 - Visibility reports selected derivative mode, visibility-raster and material-
   resolve time separately, supported/fallback draw counts, and Forward
   differential-image metadata for each material feature.

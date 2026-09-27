@@ -29,8 +29,10 @@ ownership, dependency, and fallback contracts.
   while preserving the indexed Forward image and fallback contracts. Vulkan
   now reuses draw summaries, GPU Scene slot maps, and indirect batches on
   static/camera-only frames. The 1k/10k/100k shared-geometry fixture verifies
-  zero CPU draw visits and uploads with exact Forward color/depth/ID parity;
-  broader geometry/material diversity and batch-count scaling remain open.
+  zero CPU draw visits and uploads with exact Forward color/depth/ID parity.
+  The diverse-objects fixture extends those checks to 16 triangle/quad meshes,
+  eight basic materials, and multiple batches. Texture/generated-material
+  diversity and multiple-arena-block batch scaling remain open.
 - ⬜ Capture controlled hardware evidence for Mesh command-recording and
   Gaussian preparation/sort/raster costs, including diverse geometry and
   materials, camera motion, and static zero-upload frames.

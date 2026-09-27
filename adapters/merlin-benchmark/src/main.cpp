@@ -99,6 +99,7 @@ struct SceneFixture {
 struct ScaleFixture {
   merlin::RenderWorld world;
   merlin::MaterialHandle material;
+  std::vector<merlin::MaterialHandle> materials;
   std::vector<merlin::MeshHandle> meshes;
   std::vector<merlin::InstanceHandle> instances;
   std::vector<merlin::GaussianHandle> gaussians;
@@ -150,6 +151,7 @@ bool IsFixture(std::string_view value) {
       std::string_view("ten-thousand-meshes"),
       std::string_view("thousand-instances"),
       std::string_view("gpu-driven-small-objects"),
+      std::string_view("gpu-driven-diverse-objects"),
       std::string_view("one-million-gaussians"),
       std::string_view("five-million-gaussians"),
       std::string_view("ten-million-gaussians"),
@@ -190,6 +192,7 @@ Arguments ParseArguments(int argc, char** argv) {
              "[--width N] [--height N] [--steady-frames N]\n"
              "Fixtures: reference, million-triangles, ten-thousand-meshes, "
              "thousand-instances, gpu-driven-small-objects, "
+             "gpu-driven-diverse-objects, "
              "one-million-gaussians, "
              "five-million-gaussians, ten-million-gaussians, "
              "aov-combinations, 4k\n";
@@ -343,21 +346,48 @@ FixtureSummary PopulateScaleFixture(std::string_view name,
   return summary;
 }
 
-FixtureSummary PopulateGpuDrivenSmallObjects(ScaleFixture& fixture,
-    std::uint32_t target_count) {
-  if (fixture.meshes.empty()) {
-    merlin::MaterialDescriptor material;
-    material.label = "gpu-driven-small-object-material";
-    material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
-    fixture.material = fixture.world.CreateMaterial(std::move(material));
+constexpr std::uint32_t kDiverseMeshCount = 16;
+constexpr std::uint32_t kDiverseMaterialCount = 8;
+constexpr std::uint32_t kDiverseMaterialRunLength = 256;
 
-    merlin::MeshDescriptor mesh;
-    mesh.label = "gpu-driven-small-object-mesh";
-    mesh.positions = {{-0.002F, -0.002F, 0.0F},
-        {0.002F, -0.002F, 0.0F},
-        {0.0F, 0.002F, 0.0F}};
-    mesh.indices = {0, 1, 2};
-    fixture.meshes.push_back(fixture.world.CreateMesh(std::move(mesh)));
+FixtureSummary PopulateGpuDrivenObjects(ScaleFixture& fixture,
+    std::uint32_t target_count, bool diverse) {
+  if (fixture.meshes.empty()) {
+    const auto material_count = diverse ? kDiverseMaterialCount : 1U;
+    for (std::uint32_t index = 0; index < material_count; ++index) {
+      merlin::MaterialDescriptor material;
+      material.label = "gpu-driven-material-" + std::to_string(index);
+      material.parameters.base_color = {0.18F, 0.78F, 1.0F, 1.0F};
+      if (diverse) {
+        const auto factor = static_cast<float>(index) / material_count;
+        material.parameters.base_color = {0.2F + 0.7F * factor,
+            0.8F - 0.6F * factor, 0.3F + 0.4F * factor, 1.0F};
+        material.parameters.roughness = 0.15F + 0.8F * factor;
+        material.double_sided = index % 2U != 0;
+      }
+      fixture.materials.push_back(
+          fixture.world.CreateMaterial(std::move(material)));
+    }
+
+    const auto mesh_count = diverse ? kDiverseMeshCount : 1U;
+    for (std::uint32_t index = 0; index < mesh_count; ++index) {
+      merlin::MeshDescriptor mesh;
+      mesh.label = "gpu-driven-mesh-" + std::to_string(index);
+      mesh.positions = {{-0.002F, -0.002F, 0.0F},
+          {0.002F, -0.002F, 0.0F},
+          {0.0F, 0.002F, 0.0F}};
+      mesh.indices = {0, 1, 2};
+      if (diverse) {
+        const auto extent = 0.0015F + 0.00003F * static_cast<float>(index);
+        mesh.positions = {{-extent, -extent, 0.0F},
+            {extent, -extent, 0.0F}, {extent, extent, 0.0F},
+            {-extent, extent, 0.0F}};
+        if (index % 2U != 0) {
+          mesh.indices = {0, 1, 2, 0, 2, 3};
+        }
+      }
+      fixture.meshes.push_back(fixture.world.CreateMesh(std::move(mesh)));
+    }
   }
 
   if (target_count < fixture.instances.size()) {
@@ -370,8 +400,9 @@ FixtureSummary PopulateGpuDrivenSmallObjects(ScaleFixture& fixture,
       index < target_count; ++index) {
     merlin::InstanceDescriptor instance;
     instance.label = "gpu-driven-instance-" + std::to_string(index);
-    instance.mesh = fixture.meshes.front();
-    instance.material = fixture.material;
+    instance.mesh = fixture.meshes[index % fixture.meshes.size()];
+    instance.material = fixture.materials[
+        (index / kDiverseMaterialRunLength) % fixture.materials.size()];
     const auto column = index % 320U;
     const auto row = (index / 320U) % 320U;
     instance.transform.values[12] = static_cast<float>(column) * 0.0056F - 0.9F;
@@ -380,7 +411,9 @@ FixtureSummary PopulateGpuDrivenSmallObjects(ScaleFixture& fixture,
         fixture.world.CreateInstance(std::move(instance)));
   }
 
-  return {"gpu-driven-small-objects", 1, target_count, target_count};
+  return {diverse ? "gpu-driven-diverse-objects" : "gpu-driven-small-objects",
+      fixture.meshes.size(), target_count,
+      diverse ? target_count + target_count / 2U : target_count};
 }
 
 FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
@@ -1201,15 +1234,19 @@ int main(int argc, char** argv) {
         shader_dir / "environment.hdr",
         shader_dir / "gaussian.vert.spv",
         shader_dir / "gaussian.frag.spv"};
-    const bool gpu_driven_fixture =
+    const bool diverse_fixture =
+        arguments.fixture == "gpu-driven-diverse-objects";
+    const bool gpu_driven_fixture = diverse_fixture ||
         arguments.fixture == "gpu-driven-small-objects";
     constexpr std::uint32_t kGpuDrivenMaximumDrawCount = 100'000;
-    constexpr merlin::render::GpuScenePackingCapacities
-        kGpuDrivenCapacities{1, kGpuDrivenMaximumDrawCount, 1,
+    const merlin::render::GpuScenePackingCapacities
+        gpu_driven_capacities{diverse_fixture ? kDiverseMeshCount : 1U,
+            kGpuDrivenMaximumDrawCount,
+            diverse_fixture ? kDiverseMaterialCount : 1U,
             kGpuDrivenMaximumDrawCount};
     merlin::vulkan::RendererOptions renderer_options;
     if (gpu_driven_fixture) {
-      renderer_options.gpu_scene_capacities = kGpuDrivenCapacities;
+      renderer_options.gpu_scene_capacities = gpu_driven_capacities;
     }
     merlin::vulkan::Renderer renderer(renderer_options);
     merlin::extraction::SceneExtractor extractor;
@@ -1225,11 +1262,20 @@ int main(int argc, char** argv) {
     if (gpu_driven_fixture) {
       gpu_scene_packing =
           std::make_unique<merlin::render::GpuScenePackingState>(
-              kGpuDrivenCapacities);
-      // The fixture owns one immutable mesh. It is the first allocation in
-      // both native geometry arenas, so its block-local placement is stable.
-      gpu_geometry_placements.push_back({0, 0});
-      gpu_material_bindings.push_back({});
+              gpu_driven_capacities);
+      // These immutable fixtures are the first allocations in both arenas.
+      // Vulkan reserves geometry ranges at 16-byte boundaries; four packed
+      // vertices already meet that alignment. Exact Forward parity below
+      // guards these fixture-specific placement assumptions.
+      static_assert((4U * sizeof(merlin::extraction::DrawVertex)) % 16U == 0);
+      std::uint64_t index_offset{};
+      for (std::uint32_t index = 0;
+          index < gpu_driven_capacities.geometries; ++index) {
+        gpu_geometry_placements.push_back(
+            {index * 4U * sizeof(merlin::extraction::DrawVertex), index_offset});
+        index_offset += index % 2U == 0 ? 16U : 32U;
+      }
+      gpu_material_bindings.resize(gpu_driven_capacities.materials);
     }
 
     const auto render = [&](const Products& products = AllProducts()) {
@@ -1422,7 +1468,7 @@ int main(int argc, char** argv) {
           fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
               merlin::ChangeAspect::Camera);
           fixture_summary =
-              PopulateGpuDrivenSmallObjects(fixture, draw_count);
+              PopulateGpuDrivenObjects(fixture, draw_count, diverse_fixture);
         });
 
         warm_path(merlin::vulkan::GpuDrivenIndexedMode::Disabled);
@@ -1438,16 +1484,25 @@ int main(int argc, char** argv) {
         const auto gpu_driven =
             steady("gpu-driven-" + std::to_string(draw_count));
         const auto& counters = baselines.back().counters;
+        // Extraction orders draws by material/mesh sort key. Repeated
+        // instances of each pair stay contiguous, so resource diversity
+        // bounds batch count independently of the number of instances.
+        const auto maximum_batches = diverse_fixture
+            ? kDiverseMeshCount * kDiverseMaterialCount : 1U;
         if (counters.gpu_driven_candidate_draw_count != draw_count ||
             counters.gpu_driven_visible_draw_count != draw_count ||
-            counters.gpu_driven_indirect_draw_count != 1 ||
+            counters.gpu_driven_indirect_draw_count > maximum_batches ||
+            counters.gpu_driven_indirect_draw_count < (diverse_fixture ? 2U : 1U) ||
             counters.mesh_cpu_draw_visit_count != 0 ||
             counters.gpu_driven_candidate_upload_bytes != 0 ||
             counters.gpu_driven_fallback_count != 0) {
           throw std::runtime_error(
               "GPU-driven scale baseline violated bounded steady-state "
-              "submission");
+              "submission at " + std::to_string(draw_count) + " draws: " +
+              "batches=" + std::to_string(counters.gpu_driven_indirect_draw_count) +
+              ", CPU visits=" + std::to_string(counters.mesh_cpu_draw_visit_count));
         }
+        const auto expected_batches = counters.gpu_driven_indirect_draw_count;
         RequireSameOutput(conventional, gpu_driven, draw_count);
 
         std::vector<FrameTimings> motion_samples;
@@ -1471,7 +1526,7 @@ int main(int argc, char** argv) {
           AssertStatic(motion_result.counters);
           if (motion_result.counters.mesh_cpu_draw_visit_count != 0 ||
               motion_result.counters.gpu_driven_candidate_draw_count != draw_count ||
-              motion_result.counters.gpu_driven_indirect_draw_count != 1 ||
+              motion_result.counters.gpu_driven_indirect_draw_count != expected_batches ||
               motion_result.counters.gpu_driven_fallback_count != 0) {
             throw std::runtime_error(
                 "camera motion rebuilt GPU-driven Mesh submission");
