@@ -3,6 +3,8 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <merlin/metal/backend.hpp>
+#include "gaussian_metallib.hpp"
+#include "../../../core/merlin-render-backend/shaders/gaussian-raster-abi.slang"
 #include <merlin/extraction/gaussian_preparation.hpp>
 
 #include <algorithm>
@@ -141,8 +143,8 @@ static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
 static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
 
-// Matches the packed MSL storage record below (float3 has 16-byte alignment
-// in MSL unless explicitly packed). IDs follow the existing Vulkan AOV ABI.
+// Scalar layout consumed by gaussian-metal.slang byte-address loads.
+// IDs follow the existing Vulkan AOV ABI.
 struct GaussianInstance {
   Vec2 center;
   Vec3 conic;
@@ -153,10 +155,15 @@ struct GaussianInstance {
   std::uint32_t resource;
   std::uint32_t particle;
 };
-static_assert(sizeof(GaussianInstance) == 52);
-static_assert(offsetof(GaussianInstance, conic) == 8);
-static_assert(offsetof(GaussianInstance, radiance) == 20);
-static_assert(offsetof(GaussianInstance, resource) == 44);
+static_assert(sizeof(GaussianInstance) == MERLIN_GAUSSIAN_STRIDE);
+static_assert(offsetof(GaussianInstance, center) == MERLIN_GAUSSIAN_CENTER);
+static_assert(offsetof(GaussianInstance, conic) == MERLIN_GAUSSIAN_CONIC);
+static_assert(offsetof(GaussianInstance, radiance) == MERLIN_GAUSSIAN_RADIANCE);
+static_assert(offsetof(GaussianInstance, opacity) == MERLIN_GAUSSIAN_OPACITY);
+static_assert(offsetof(GaussianInstance, radius) == MERLIN_GAUSSIAN_RADIUS);
+static_assert(offsetof(GaussianInstance, depth) == MERLIN_GAUSSIAN_DEPTH);
+static_assert(offsetof(GaussianInstance, resource) == MERLIN_GAUSSIAN_RESOURCE);
+static_assert(offsetof(GaussianInstance, particle) == MERLIN_GAUSSIAN_PARTICLE);
 
 const char* kShaderSource = R"METAL(
 #include <metal_stdlib>
@@ -447,58 +454,6 @@ fragment float4 merlin_presentation_fragment(
   return result;
 }
 
-struct GaussianInstance {
-  packed_float2 center;
-  packed_float3 conic;
-  packed_float3 radiance;
-  float opacity;
-  float radius;
-  float depth;
-  uint resource;
-  uint particle;
-};
-struct GaussianVertexOutput {
-  float4 position [[position]];
-  float2 delta;
-  float3 conic [[flat]];
-  float3 radiance [[flat]];
-  float opacity [[flat]];
-  uint resource [[flat]];
-  uint particle [[flat]];
-};
-vertex GaussianVertexOutput merlin_gaussian_vertex(
-    uint vertex_id [[vertex_id]], uint instance_id [[instance_id]],
-    device const GaussianInstance* instances [[buffer(0)]],
-    constant float2& inverse_extent [[buffer(1)]]) {
-  const float2 corners[6] = {float2(-1,-1), float2(1,-1), float2(1,1),
-      float2(-1,-1), float2(1,1), float2(-1,1)};
-  GaussianInstance g = instances[instance_id];
-  GaussianVertexOutput o;
-  o.delta = corners[vertex_id] * g.radius;
-  float2 ndc = (float2(g.center) + o.delta) * (2.0f * inverse_extent) - 1.0f;
-  // Preparation uses the supplied projection's NDC axes. Metal's viewport
-  // flips Y for both the center and ellipse, just as it does for meshes.
-  o.position = float4(ndc, g.depth, 1.0f);
-  o.conic = g.conic;
-  o.radiance = g.radiance;
-  o.opacity = g.opacity;
-  o.resource = g.resource;
-  o.particle = g.particle;
-  return o;
-}
-fragment FragmentOutput merlin_gaussian_fragment(GaussianVertexOutput i [[stage_in]]) {
-  float power = dot(i.delta, float2(
-      i.conic.x * i.delta.x + i.conic.y * i.delta.y,
-      i.conic.y * i.delta.x + i.conic.z * i.delta.y));
-  if (power > 9.0f) discard_fragment();
-  float alpha = i.opacity * exp(-0.5f * power);
-  if (alpha < 1.0f / 255.0f) discard_fragment();
-  FragmentOutput o;
-  o.color = float4(max(i.radiance, float3(0)), alpha);
-  o.prim_id = i.resource;
-  o.instance_id = i.particle;
-  return o;
-}
 )METAL";
 
 std::uint64_t AovBit(Aov aov) {
@@ -1714,10 +1669,21 @@ private:
             "fragment argument encoder is unavailable");
       }
     }
+    // The Gaussian library is compiled at build time and embedded so installed
+    // static-library consumers do not depend on the build tree or working directory.
+    dispatch_data_t gaussian_data = dispatch_data_create(kGaussianMetalLibrary,
+        sizeof(kGaussianMetalLibrary), nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+    id<MTLLibrary> gaussian_library = [device_ newLibraryWithData:gaussian_data error:&error];
+    if (gaussian_library == nil) {
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "load Metal Gaussian library",
+          error == nil ? "newLibraryWithData returned nil" : String(error.localizedDescription),
+          static_cast<std::int32_t>(error.code));
+    }
     MTLRenderPipelineDescriptor* gaussian = [MTLRenderPipelineDescriptor new];
     gaussian.label = @"hdMerlin Gaussian";
-    gaussian.vertexFunction = [library_ newFunctionWithName:@"merlin_gaussian_vertex"];
-    gaussian.fragmentFunction = [library_ newFunctionWithName:@"merlin_gaussian_fragment"];
+    gaussian.vertexFunction = [gaussian_library newFunctionWithName:@"gaussian_metal_vertex"];
+    gaussian.fragmentFunction = [gaussian_library newFunctionWithName:@"gaussian_metal_fragment"];
     gaussian.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
     gaussian.colorAttachments[0].blendingEnabled = YES;
     gaussian.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
@@ -2354,10 +2320,11 @@ private:
           snapshot, {request.width, request.height});
       build.gaussian_preparation_ns = DurationNs(begin, Clock::now());
       const auto count = prepared.gaussians.size();
-      if (count > std::numeric_limits<std::uint32_t>::max() ||
+      // ByteAddressBuffer loads use 32-bit byte offsets in the shader.
+      if (count > std::numeric_limits<std::uint32_t>::max() / sizeof(GaussianInstance) ||
           count > device_.maxBufferLength / sizeof(GaussianInstance)) {
         throw render::RendererError(render::RendererErrorCode::Unsupported,
-            "prepare Metal Gaussians", "prepared stream exceeds the Metal buffer limit");
+            "prepare Metal Gaussians", "prepared stream exceeds the Metal buffer or shader address limit");
       }
       const auto upload_begin = Clock::now();
       id<MTLBuffer> buffer = nil;
@@ -2654,9 +2621,9 @@ private:
       [encoder setRenderPipelineState:gaussian_pipeline_];
       [encoder setDepthStencilState:gaussian_depth_state_];
       [encoder setCullMode:MTLCullModeNone];
-      [encoder setVertexBuffer:frame.gaussian_instances offset:0 atIndex:0];
+      [encoder setVertexBuffer:frame.gaussian_instances offset:0 atIndex:MERLIN_GAUSSIAN_INSTANCES_BINDING];
       const Vec2 inverse_extent{1.0F / request.width, 1.0F / request.height};
-      [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:1];
+      [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
       // Color blends back-to-front; integer IDs retain the nearest contributing
       // particle. Test against opaque mesh depth without replacing that depth.
       [encoder drawPrimitives:MTLPrimitiveTypeTriangle

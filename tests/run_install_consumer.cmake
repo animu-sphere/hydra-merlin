@@ -160,6 +160,19 @@ if(NOT MERLIN_MULTI_CONFIG AND NOT "${MERLIN_CONFIG}" STREQUAL "")
 endif()
 
 if(MERLIN_EXPECTED_METAL)
+  set(_metal_shader_dir "${_stage_dir}/${MERLIN_INSTALL_BINDIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/metal")
+  foreach(_artifact manifest.json gaussian.metallib gaussian.metallib.sha256
+      gaussian.vertex.metal gaussian.fragment.metal
+      gaussian.vertex.metal.reflection.json gaussian.fragment.metal.reflection.json)
+    if(NOT EXISTS "${_metal_shader_dir}/${_artifact}")
+      message(FATAL_ERROR "Metal install is missing ${_artifact}")
+    endif()
+  endforeach()
+  file(SHA256 "${_metal_shader_dir}/gaussian.metallib" _metal_library_hash)
+  file(READ "${_metal_shader_dir}/gaussian.metallib.sha256" _metal_library_checksum)
+  if(NOT _metal_library_checksum STREQUAL "${_metal_library_hash}  gaussian.metallib\n")
+    message(FATAL_ERROR "Installed metallib checksum differs")
+  endif()
   set(_metal_targets
       "${_stage_dir}/${MERLIN_INSTALL_LIBDIR}/cmake/Merlin/MerlinMetalTargets.cmake")
   if(NOT EXISTS "${_metal_targets}")

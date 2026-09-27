@@ -27,7 +27,7 @@ if(NOT DEFINED MERLIN_SHADER_MANIFEST OR
   message(FATAL_ERROR "Missing shader manifest generation argument")
 endif()
 
-foreach(_required_file MERLIN_SHADER_RECORDS_FILE MERLIN_ENVIRONMENT_HDR)
+foreach(_required_file MERLIN_SHADER_RECORDS_FILE)
   if(NOT EXISTS "${${_required_file}}")
     message(FATAL_ERROR
       "Shader manifest input ${_required_file} is missing: ${${_required_file}}")
@@ -60,7 +60,11 @@ macro(_merlin_identity_field _record_variable _name _value)
     "=${_merlin_identity_value_length}:${_value}\n")
 endmacro()
 
-file(SHA256 "${MERLIN_ENVIRONMENT_HDR}" _environment_hash)
+set(_environment_json "null")
+if(NOT MERLIN_ENVIRONMENT_HDR STREQUAL "")
+  file(SHA256 "${MERLIN_ENVIRONMENT_HDR}" _environment_hash)
+  set(_environment_json "{\n    \"path\": \"environment.hdr\",\n    \"sha256\": \"${_environment_hash}\",\n    \"representation\": \"diffuse-sh-l2\"\n  }")
+endif()
 
 # The include closure comes from the depfile slangc emitted for the artifact, so
 # an added `#include` reaches the module identity without anyone restating it
@@ -269,9 +273,16 @@ endforeach()
 
 _merlin_json_escape("${MERLIN_CMAKE_GENERATOR}" _generator)
 _merlin_json_escape("${MERLIN_VULKAN_SDK_VERSION}" _sdk_version)
+# Vulkan Forward artifacts retain their known target limitation. A package
+# containing only Gaussian entry points does not advertise a Forward fallback.
+set(_unsupported_features "[]")
+if(NOT DEFINED MERLIN_SHADER_FORWARD_FALLBACK OR MERLIN_SHADER_FORWARD_FALLBACK)
+  set(_unsupported_features "[\n    {\n      \"target\": \"metal\",\n      \"feature\": \"non_uniform_resource_indexing\",\n      \"diagnostic\": \"Slang reports NonUniformResourceIndex unavailable for the Metal fragment target\",\n      \"fallback\": \"forward-conventional\"\n    }\n  ]")
+endif()
+
 _merlin_json_escape("${MERLIN_SLANG_VERSION}" _slang_version)
 set(_manifest
-"{\n  \"schema_version\": ${MERLIN_SHADER_SCHEMA_VERSION},\n  \"shader_abi_version\": ${MERLIN_SHADER_ABI_VERSION},\n  \"cache_compatibility\": {\n    \"algorithm\": \"sha256\",\n    \"rule\": \"all artifact-key inputs must match exactly\",\n    \"module_identity_schema\": \"${MERLIN_SHADER_MODULE_IDENTITY_SCHEMA}\",\n    \"artifact_key_schema\": \"${MERLIN_SHADER_ARTIFACT_KEY_SCHEMA}\"\n  },\n  \"toolchain\": {\n    \"compiler\": \"slangc\",\n    \"compiler_version\": \"${_slang_version}\",\n    \"required_series\": \"${MERLIN_SLANG_REQUIRED_SERIES}\",\n    \"vulkan_sdk_version\": \"${_sdk_version}\",\n    \"generator\": \"CMake ${CMAKE_VERSION} / ${_generator}\"\n  },\n  \"policy\": {\n    \"matrix_layout\": \"${MERLIN_SLANG_MATRIX_LAYOUT}\",\n    \"optimization\": \"${MERLIN_SLANG_OPTIMIZATION}\",\n    \"debug_info\": ${MERLIN_SLANG_DEBUG_INFO}\n  },\n  \"sources\": [\n${_sources}\n  ],\n  \"environment\": {\n    \"path\": \"environment.hdr\",\n    \"sha256\": \"${_environment_hash}\",\n    \"representation\": \"diffuse-sh-l2\"\n  },\n  \"artifacts\": [\n${_artifacts}\n  ],\n  \"unsupported_features\": [\n    {\n      \"target\": \"metal\",\n      \"feature\": \"non_uniform_resource_indexing\",\n      \"diagnostic\": \"Slang reports NonUniformResourceIndex unavailable for the Metal fragment target\",\n      \"fallback\": \"forward-conventional\"\n    }\n  ]\n}\n")
+"{\n  \"schema_version\": ${MERLIN_SHADER_SCHEMA_VERSION},\n  \"shader_abi_version\": ${MERLIN_SHADER_ABI_VERSION},\n  \"cache_compatibility\": {\n    \"algorithm\": \"sha256\",\n    \"rule\": \"all artifact-key inputs must match exactly\",\n    \"module_identity_schema\": \"${MERLIN_SHADER_MODULE_IDENTITY_SCHEMA}\",\n    \"artifact_key_schema\": \"${MERLIN_SHADER_ARTIFACT_KEY_SCHEMA}\"\n  },\n  \"toolchain\": {\n    \"compiler\": \"slangc\",\n    \"compiler_version\": \"${_slang_version}\",\n    \"required_series\": \"${MERLIN_SLANG_REQUIRED_SERIES}\",\n    \"vulkan_sdk_version\": \"${_sdk_version}\",\n    \"generator\": \"CMake ${CMAKE_VERSION} / ${_generator}\"\n  },\n  \"policy\": {\n    \"matrix_layout\": \"${MERLIN_SLANG_MATRIX_LAYOUT}\",\n    \"optimization\": \"${MERLIN_SLANG_OPTIMIZATION}\",\n    \"debug_info\": ${MERLIN_SLANG_DEBUG_INFO}\n  },\n  \"sources\": [\n${_sources}\n  ],\n  \"environment\": ${_environment_json},\n  \"artifacts\": [\n${_artifacts}\n  ],\n  \"unsupported_features\": ${_unsupported_features}\n}\n")
 
 get_filename_component(_manifest_dir "${MERLIN_SHADER_MANIFEST}" DIRECTORY)
 file(MAKE_DIRECTORY "${_manifest_dir}")

@@ -10,5 +10,10 @@ int main() {
   assert(table.telemetry().in_use == 1);
   merlin::metal::BackendFactory factory;
   assert(factory.kind() == merlin::render::BackendKind::Metal);
+  // Exercise the embedded library from an installed target without shader paths.
+  if (factory.availability().available) {
+    auto backend = factory.Create({});
+    assert(backend);
+  }
   return 0;
 }

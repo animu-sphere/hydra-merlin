@@ -6,10 +6,7 @@ if(MERLIN_ENABLE_MATERIALX)
   include(MerlinMaterialX)
 endif()
 
-macro(merlin_find_vulkan_dependencies)
-  find_package(Vulkan ${MERLIN_VULKAN_MIN_VERSION} REQUIRED)
-  set(MERLIN_VULKAN_DETECTED_VERSION "${Vulkan_VERSION}" PARENT_SCOPE)
-
+macro(merlin_find_slang_dependencies)
   find_program(MERLIN_SLANGC_EXECUTABLE
     NAMES slangc
     HINTS
@@ -50,6 +47,12 @@ macro(merlin_find_vulkan_dependencies)
   endif()
   set(MERLIN_SLANG_DETECTED_VERSION
       "${_merlin_slang_version}" PARENT_SCOPE)
+endmacro()
+
+macro(merlin_find_vulkan_dependencies)
+  find_package(Vulkan ${MERLIN_VULKAN_MIN_VERSION} REQUIRED)
+  set(MERLIN_VULKAN_DETECTED_VERSION "${Vulkan_VERSION}" PARENT_SCOPE)
+  merlin_find_slang_dependencies()
 
   set(_merlin_vulkan_sdk_version "unknown")
   if(DEFINED ENV{VULKAN_SDK})

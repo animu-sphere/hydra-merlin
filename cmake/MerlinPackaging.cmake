@@ -12,14 +12,6 @@ if(MERLIN_ENABLE_VULKAN)
     set(_merlin_metadata_vulkan_sdk_version
         "\"${MERLIN_VULKAN_SDK_DETECTED_VERSION}\"")
   endif()
-  set(_merlin_metadata_slang_version "null")
-  if(DEFINED MERLIN_SLANG_DETECTED_VERSION AND
-     MERLIN_SLANG_DETECTED_VERSION MATCHES "^[0-9]+[.][0-9]+([.][0-9]+)?$")
-    set(_merlin_metadata_slang_version
-        "\"${MERLIN_SLANG_DETECTED_VERSION}\"")
-  endif()
-  set(_merlin_metadata_shader_artifact_schema
-      "${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
   set(_merlin_metadata_exported_vulkan
       ",\n      \"Merlin::Vulkan\"")
   set(_merlin_metadata_runtime_products
@@ -28,10 +20,18 @@ else()
   set(_merlin_metadata_vulkan_enabled false)
   set(_merlin_metadata_vulkan_version "null")
   set(_merlin_metadata_vulkan_sdk_version "null")
-  set(_merlin_metadata_slang_version "null")
-  set(_merlin_metadata_shader_artifact_schema "null")
   set(_merlin_metadata_exported_vulkan "")
   set(_merlin_metadata_runtime_products "")
+endif()
+
+set(_merlin_metadata_slang_version "null")
+set(_merlin_metadata_shader_artifact_schema "null")
+if(MERLIN_ENABLE_VULKAN OR MERLIN_ENABLE_METAL)
+  if(DEFINED MERLIN_SLANG_DETECTED_VERSION AND
+     MERLIN_SLANG_DETECTED_VERSION MATCHES "^[0-9]+[.][0-9]+([.][0-9]+)?$")
+    set(_merlin_metadata_slang_version "\"${MERLIN_SLANG_DETECTED_VERSION}\"")
+  endif()
+  set(_merlin_metadata_shader_artifact_schema "${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
 endif()
 
 if(MERLIN_ENABLE_METAL)
