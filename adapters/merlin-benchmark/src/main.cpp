@@ -777,6 +777,8 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       count.gpu_driven_indirect_draw_count);
   WriteCounter(stream, counter_indent, "gpu_driven_candidate_upload_bytes",
       count.gpu_driven_candidate_upload_bytes);
+  WriteCounter(stream, counter_indent, "mesh_cpu_draw_visit_count",
+      count.mesh_cpu_draw_visit_count);
   WriteCounter(stream, counter_indent, "gpu_driven_fallback_count",
       count.gpu_driven_fallback_count);
   WriteCounter(stream, counter_indent, "upload_ring_reserved_bytes",
@@ -1391,6 +1393,11 @@ int main(int argc, char** argv) {
       });
     } else if (gpu_driven_fixture) {
       ScaleFixture fixture;
+      merlin::CameraDescriptor camera;
+      camera.label = "mesh-motion-camera";
+      fixture.camera = fixture.world.CreateCamera(std::move(camera));
+      extractor.Apply(fixture.world, fixture.world.Commit());
+      extractor.SetActiveCamera(fixture.camera);
       const auto warm_path = [&](merlin::vulkan::GpuDrivenIndexedMode mode) {
         gpu_driven_mode = mode;
         for (std::uint32_t frame = 0;
@@ -1410,6 +1417,10 @@ int main(int argc, char** argv) {
 
         gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Disabled;
         measure("update-" + std::to_string(draw_count), fixture.world, [&] {
+          auto descriptor = fixture.world.Get(fixture.camera);
+          descriptor.view.values[12] = 0.0F;
+          fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
+              merlin::ChangeAspect::Camera);
           fixture_summary =
               PopulateGpuDrivenSmallObjects(fixture, draw_count);
         });
@@ -1430,6 +1441,7 @@ int main(int argc, char** argv) {
         if (counters.gpu_driven_candidate_draw_count != draw_count ||
             counters.gpu_driven_visible_draw_count != draw_count ||
             counters.gpu_driven_indirect_draw_count != 1 ||
+            counters.mesh_cpu_draw_visit_count != 0 ||
             counters.gpu_driven_candidate_upload_bytes != 0 ||
             counters.gpu_driven_fallback_count != 0) {
           throw std::runtime_error(
@@ -1437,6 +1449,40 @@ int main(int argc, char** argv) {
               "submission");
         }
         RequireSameOutput(conventional, gpu_driven, draw_count);
+
+        std::vector<FrameTimings> motion_samples;
+        motion_samples.reserve(arguments.steady_frames);
+        merlin::vulkan::RenderResult motion_result;
+        for (std::uint32_t frame = 0; frame < arguments.steady_frames; ++frame) {
+          const auto start = CpuClock::now();
+          const auto extraction_start = CpuClock::now();
+          auto descriptor = fixture.world.Get(fixture.camera);
+          descriptor.view.values[12] =
+              0.05F * std::sin(0.1F * static_cast<float>(frame + 1));
+          fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
+              merlin::ChangeAspect::Camera);
+          extractor.Apply(fixture.world, fixture.world.Commit());
+          const auto extraction_ns = ElapsedNanoseconds(extraction_start);
+          motion_result = render();
+          auto timing = FromBackend(motion_result.cpu_timings);
+          timing.extraction_ns = extraction_ns;
+          timing.total_frame_ns = ElapsedNanoseconds(start);
+          motion_samples.push_back(timing);
+          AssertStatic(motion_result.counters);
+          if (motion_result.counters.mesh_cpu_draw_visit_count != 0 ||
+              motion_result.counters.gpu_driven_candidate_draw_count != draw_count ||
+              motion_result.counters.gpu_driven_indirect_draw_count != 1 ||
+              motion_result.counters.gpu_driven_fallback_count != 0) {
+            throw std::runtime_error(
+                "camera motion rebuilt GPU-driven Mesh submission");
+          }
+        }
+        baselines.push_back({"camera-motion-gpu-driven-" +
+                                 std::to_string(draw_count),
+            std::move(motion_samples), motion_result.counters,
+            extractor.snapshot()->build_counters});
+        gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Disabled;
+        RequireSameOutput(render(), motion_result, draw_count);
       }
     } else {
       ScaleFixture fixture;

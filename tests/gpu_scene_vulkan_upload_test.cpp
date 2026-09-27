@@ -200,7 +200,7 @@ merlin::vulkan::RenderResult Submit(
 
 } // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
   if (argc != 2) {
     std::cerr << "usage: gpu_scene_vulkan_upload_test SHADER_DIR\n";
     return 1;
@@ -385,6 +385,8 @@ int main(int argc, char** argv) {
   assert(gpu_driven_static.counters.descriptor_allocation_count == 0);
   assert(gpu_driven_static.counters.descriptor_update_count == 0);
   assert(gpu_driven_static.counters.upload_bytes == 0);
+  Require(gpu_driven_static.counters.mesh_cpu_draw_visit_count == 0,
+      "static GPU-driven frame traversed Mesh draws on the CPU");
   gpu_driven_completion = gpu_driven_static.completion_value;
 
   const auto statistics = renderer->statistics();
@@ -658,5 +660,100 @@ int main(int argc, char** argv) {
   Require(parallel.counters.gpu_driven_fallback_count == 0,
       "parallel batch unexpectedly fell back");
 
+  // Camera revisions share immutable scene tables and the physical slot map.
+  // Culling must see the new camera even though CPU batch preparation is reused.
+  auto camera_snapshot =
+      std::make_shared<FrameSnapshot>(*single_batch_snapshot);
+  auto camera_completion = single_batch.completion_value;
+  for (std::uint32_t frame = 0;
+      frame < single_batch_renderer.statistics().frame_context_count + 2;
+      ++frame) {
+    const auto previous_revision = camera_snapshot->revision;
+    camera_snapshot = std::make_shared<FrameSnapshot>(*camera_snapshot);
+    ++camera_snapshot->revision;
+    camera_snapshot->delta.emplace();
+    camera_snapshot->delta->base_revision = previous_revision;
+    camera_snapshot->delta->camera_changed = true;
+    camera_snapshot->view.values[12] = frame % 2 == 0 ? 4.0F : 0.0F;
+    auto camera_update =
+        std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+            single_batch_packing.Apply(*camera_snapshot,
+                camera_completion, camera_completion, {}));
+    const auto camera = Submit(single_batch_renderer, camera_snapshot,
+        shaders, camera_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
+    camera_completion = camera.completion_value;
+    Require(camera.counters.mesh_cpu_draw_visit_count == 0,
+        "camera-only frame traversed Mesh draws on the CPU");
+    Require(camera.counters.upload_bytes == 0,
+        "camera-only frame uploaded unchanged Mesh resources");
+    Require(camera.counters.gpu_driven_visible_draw_count ==
+                (frame % 2 == 0 ? 0 : alternating_batch_count),
+        "cached batches did not cull with the current camera");
+  }
+
+  // Winding is frame state, not a draw-table or physical-slot change.
+  // It must invalidate the pipeline batch cache without uploading candidates.
+  auto winding_snapshot = std::make_shared<FrameSnapshot>(*camera_snapshot);
+  winding_snapshot->view.values[12] = 0.0F;
+  winding_snapshot->front_face = merlin::FrontFaceWinding::CounterClockwise;
+  const auto winding_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          single_batch_packing.Apply(*winding_snapshot,
+              camera_completion, camera_completion, {}));
+  const auto winding = Submit(single_batch_renderer, winding_snapshot,
+      shaders, winding_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
+  Require(winding.counters.mesh_cpu_draw_visit_count == alternating_batch_count,
+      "front-face change did not rebuild indirect batches");
+  Require(winding.counters.gpu_driven_candidate_upload_bytes == 0,
+      "front-face change uploaded an unchanged candidate list");
+  const auto winding_reference = Submit(single_batch_renderer, winding_snapshot,
+      shaders, winding_update);
+  Require(winding.color.pixels == winding_reference.color.pixels &&
+              winding.prim_id.pixels == winding_reference.prim_id.pixels &&
+              winding.instance_id.pixels == winding_reference.instance_id.pixels,
+      "cached batch winding disagrees with conventional Forward");
+
+  // Material pipeline state and newly packed physical slots invalidate the
+  // cached layout even when draw identities and geometry remain unchanged.
+  auto material_snapshot = std::make_shared<FrameSnapshot>(*winding_snapshot);
+  ++material_snapshot->revision;
+  material_snapshot->delta.reset();
+  auto changed_material = material_snapshot->materials[0];
+  ++changed_material.revision;
+  changed_material.double_sided = true;
+  changed_material.parameters.base_color = {0.8F, 0.1F, 0.2F, 1.0F};
+  material_snapshot->materials.replace(0, changed_material);
+  for (std::size_t i = 0; i < material_snapshot->draws.size(); ++i) {
+    auto draw = material_snapshot->draws[i];
+    ++draw.revision;
+    material_snapshot->draws.replace(i, draw);
+  }
+  const auto material_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          single_batch_packing.Apply(*material_snapshot,
+              winding_reference.completion_value, winding_reference.completion_value,
+              {alternating_placements, alternating_identities, alternating_bindings}));
+  const auto material_changed = Submit(single_batch_renderer, material_snapshot,
+      shaders, material_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
+  Require(material_changed.counters.mesh_cpu_draw_visit_count > 0,
+      "material and slot change reused stale indirect batches");
+  const auto material_static_update =
+      std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+          single_batch_packing.Apply(*material_snapshot,
+              material_changed.completion_value, material_changed.completion_value, {}));
+  const auto material_steady = Submit(single_batch_renderer, material_snapshot,
+      shaders, material_static_update, merlin::vulkan::GpuDrivenIndexedMode::Require);
+  Require(material_steady.counters.mesh_cpu_draw_visit_count == 0,
+      "changed material did not reach steady batch reuse");
+  const auto material_reference = Submit(single_batch_renderer, material_snapshot,
+      shaders, material_static_update);
+  Require(material_steady.color.pixels == material_reference.color.pixels &&
+              material_steady.prim_id.pixels == material_reference.prim_id.pixels &&
+              material_steady.instance_id.pixels == material_reference.instance_id.pixels,
+      "cached material batches disagree with conventional Forward");
+
   std::cout << "Vulkan GPU Scene dirty-range upload tests passed\n";
+} catch (const std::exception& error) {
+  std::cerr << error.what() << '\n';
+  return 1;
 }

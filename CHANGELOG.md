@@ -10,6 +10,18 @@ after its public API and release process are established.
 
 ### Added
 
+- Vulkan GPU-driven Mesh submission reuses CPU draw summaries and per-frame
+  arena/pipeline batches across static and camera-only frames. The cache checks
+  immutable draw, geometry, and material tables, physical draw slots, winding,
+  and geometry residency; replacement batches become reusable only after a
+  successful submission. Camera-only GPU Scene updates also retain the slot
+  map without cloning all four resident mappings. The benchmark now checks
+  zero `mesh_cpu_draw_visit_count` and zero uploads during static and moving
+  camera phases, with exact Forward color/depth/ID parity. A local RTX A5000
+  capture at 256x256 reduces the 100,000-draw steady Mesh preparation median
+  from 705 microseconds to about 5 microseconds. This one-geometry/material
+  fixture does not establish bounded cost for arbitrary pipeline or material
+  diversity; conventional and generated-material submission remain available.
 - Vulkan AOV readback buffers prefer host-cached, coherent memory, falling back
   to the first compatible coherent type when cached memory is unavailable.
   Upload and device-local allocations keep their existing selection. This

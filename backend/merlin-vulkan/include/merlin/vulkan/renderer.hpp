@@ -443,6 +443,9 @@ struct FrameCounters {
   std::uint64_t gpu_driven_frustum_culled_count{};
   std::uint64_t gpu_driven_indirect_draw_count{};
   std::uint64_t gpu_driven_candidate_upload_bytes{};
+  // Draw visits for Mesh summary, generated-pipeline preflight and indirect
+  // batch preparation. Excludes conventional draw command recording.
+  std::uint64_t mesh_cpu_draw_visit_count{};
   std::uint64_t gpu_driven_fallback_count{};
   // Aligned space reserved from the persistent mapped geometry-upload ring.
   // Texture uploads currently use completion-retired staging buffers and are

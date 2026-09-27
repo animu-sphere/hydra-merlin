@@ -431,6 +431,8 @@ struct FrameTelemetry {
   std::uint64_t gpu_driven_indirect_draw_count{};
   // Zero when the backend reuses an unchanged resident candidate sequence.
   std::uint64_t gpu_driven_candidate_upload_bytes{};
+  // Vulkan Mesh CPU preparation visits; excludes conventional draw recording.
+  std::uint64_t mesh_cpu_draw_visit_count{};
   std::uint64_t gpu_driven_fallback_count{};
   std::uint64_t requested_aov_mask{};
   std::uint64_t rendered_aov_mask{};

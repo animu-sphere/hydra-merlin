@@ -85,9 +85,12 @@ bindless GPU Scene tables, `drawIndirectFirstInstance`, indirect count, and
 shader draw parameters; it fails explicitly instead of silently comparing a
 fallback on unsupported devices. For each draw-count tier it emits an `update`
 baseline followed by warmed `conventional` and `gpu-driven` steady-state
-baselines. Candidate lists are warmed in every reusable frame context, so the
+baselines and a `camera-motion-gpu-driven` phase. Candidate lists are warmed
+in every reusable frame context, so the
 steady GPU-driven baselines require zero candidate upload, descriptor rewrite,
-and first-use allocation, isolating command recording from residency setup. A
+first-use allocation, and `mesh_cpu_draw_visit_count`. Camera motion checks
+those same invariants on every sample and compares its final color/depth/ID
+images with conventional Forward at the same camera. A
 representative capture command is:
 
 ```powershell
@@ -205,9 +208,12 @@ implementation:
   `gpu-driven-small-objects` fixture establishes that narrowly scoped slope and
   bounded native indirect submission for one shared geometry/material. It also
   requires exact color, depth, primitive-ID, and instance-ID parity with the
-  conventional baseline at every tier. GPU-driven batch preparation remains in
-  `gpu_scene_update`; inspect it and `total_frame` independently because this
-  fixture does not yet claim draw-count-independent total CPU preparation.
+  conventional baseline at every tier and after camera motion. GPU-driven
+  batch preparation remains in `gpu_scene_update`; inspect it and `total_frame`
+  independently. `mesh_cpu_draw_visit_count` covers draw-summary, generated
+  pipeline preflight, and batch-selection visits, excluding conventional draw
+  command recording. It must be zero in warmed static and camera-motion GPU
+  phases; GPU execution and readback costs can still grow with scene size.
   Broader material, texture, and geometry diversity remains follow-up evidence.
 - Visibility reports selected derivative mode, visibility-raster and material-
   resolve time separately, supported/fallback draw counts, and Forward

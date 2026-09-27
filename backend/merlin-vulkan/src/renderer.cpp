@@ -1448,15 +1448,12 @@ public:
     material_records_.Sync(request.snapshot->materials);
     instance_records_.Sync(request.snapshot->instances);
     draw_records_.Sync(request.snapshot->draws);
+    PrepareMeshDrawSummary(*request.snapshot);
     SelectGeneratedMaterials();
     PreflightGeneratedMaterialPipelines(*request.snapshot);
-    for (std::size_t i = 0; i < draw_records_.size(); ++i) {
-      const auto& draw = draw_records_[i];
-      ++frame_counters_.draw_count;
-      ++frame_counters_.visible_primitive_count;
-      frame_counters_.triangle_count +=
-          geometry_records_[draw.geometry_index].indices->size() / 3U;
-    }
+    frame_counters_.draw_count = draw_records_.size();
+    frame_counters_.visible_primitive_count = draw_records_.size();
+    frame_counters_.triangle_count = mesh_triangle_count_;
     const auto resource_sync_mode =
         SelectResourceSyncMode(*request.snapshot);
     // Resource sync mutates residency before queue submission. Leave this set
@@ -2025,6 +2022,14 @@ public:
     bool candidate_upload_pending{};
   };
 
+  struct GpuDrivenBatchSource {
+    std::uint64_t source_id{};
+    extraction::PersistentTable<extraction::DrawRecord> draws;
+    extraction::PersistentTable<extraction::GeometryRecord> geometries;
+    extraction::PersistentTable<extraction::MaterialRecord> materials;
+    FrontFaceWinding front_face{};
+  };
+
   struct GpuDrivenFrameResources {
     Buffer candidate_draw_slots;
     Buffer candidate_results;
@@ -2040,6 +2045,13 @@ public:
     std::uint32_t batch_capacity{};
     std::uint32_t candidate_count{};
     bool selected{};
+    // Retain immutable roots/slots until the next successful submission; a
+    // camera-only snapshot can reuse the batch layout without visiting draws.
+    std::shared_ptr<const GpuDrivenBatchSource> batch_snapshot;
+    std::shared_ptr<const GpuDrivenBatchSource> pending_batch_snapshot;
+    std::shared_ptr<const std::vector<std::uint32_t>> batch_draw_slots;
+    std::shared_ptr<const std::vector<std::uint32_t>> pending_batch_draw_slots;
+    std::uint64_t geometry_generation{};
   };
 
   struct GaussianGpuPreparationBatch {
@@ -3372,6 +3384,8 @@ public:
     auto& resources = frame.gpu_driven;
     resources.selected = false;
     resources.candidate_count = 0;
+    resources.pending_batch_snapshot.reset();
+    resources.pending_batch_draw_slots.reset();
     for (auto& batch : resources.batches) {
       batch.candidate_upload_pending = false;
     }
@@ -3423,6 +3437,31 @@ public:
       return;
     }
 
+    const auto& cached = resources.batch_snapshot;
+    if (cached && cached->source_id == snapshot.source_id &&
+        cached->draws.table_identity() == snapshot.draws.table_identity() &&
+        cached->geometries.table_identity() ==
+            snapshot.geometries.table_identity() &&
+        cached->materials.table_identity() ==
+            snapshot.materials.table_identity() &&
+        cached->front_face == snapshot.front_face &&
+        resources.batch_draw_slots == draw_slots &&
+        resources.geometry_generation == geometry_residency_generation_) {
+      const auto compute_pipeline =
+          EnsureGpuDrivenComputePipeline(request.shaders);
+      for (auto& batch : resources.batches) {
+        batch.compute_pipeline = compute_pipeline;
+      }
+      frame_counters_.gpu_driven_candidate_draw_count = draw_slots->size();
+      resources.candidate_count =
+          static_cast<std::uint32_t>(draw_slots->size());
+      resources.selected = true;
+      return;
+    }
+    // Any failure while replacing batches must leave the old cache unusable.
+    resources.batch_snapshot.reset();
+    resources.batch_draw_slots.reset();
+
     constexpr auto pipeline_state_mask =
         kMaskedAlphaFlag | kDoubleSidedFlag |
         kCounterClockwiseFrontFaceFlag;
@@ -3439,6 +3478,7 @@ public:
     std::vector<BatchSelection> selections;
     selections.reserve(draw_records_.size());
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+      ++frame_counters_.mesh_cpu_draw_visit_count;
       const auto& draw = draw_records_[i];
       const auto& geometry = geometry_records_[draw.geometry_index];
       const auto& slot = geometry_slots_.at(geometry.mesh);
@@ -3594,6 +3634,11 @@ public:
     frame_counters_.gpu_driven_candidate_draw_count = draw_slots->size();
     resources.candidate_count =
         static_cast<std::uint32_t>(draw_slots->size());
+    resources.pending_batch_snapshot = std::make_shared<GpuDrivenBatchSource>(
+        snapshot.source_id, snapshot.draws, snapshot.geometries,
+        snapshot.materials, snapshot.front_face);
+    resources.pending_batch_draw_slots = draw_slots;
+    resources.geometry_generation = geometry_residency_generation_;
     resources.selected = true;
   }
 
@@ -3796,10 +3841,18 @@ public:
           batch.pending_candidate_draw_slot_shadow_offset;
       batch.candidate_upload_pending = false;
     }
+    if (resources.pending_batch_snapshot) {
+      resources.batch_snapshot = std::move(resources.pending_batch_snapshot);
+      resources.batch_draw_slots = std::move(resources.pending_batch_draw_slots);
+    }
   }
 
   static void InvalidateGpuDrivenCandidates(FrameContext& frame) noexcept {
     auto& resources = frame.gpu_driven;
+    resources.batch_snapshot.reset();
+    resources.pending_batch_snapshot.reset();
+    resources.batch_draw_slots.reset();
+    resources.pending_batch_draw_slots.reset();
     for (auto& batch : resources.batches) {
       batch.candidate_draw_slot_shadow.clear();
       batch.pending_candidate_draw_slot_shadow.clear();
@@ -6313,20 +6366,37 @@ public:
            remaining / stride;
   }
 
+  void PrepareMeshDrawSummary(const extraction::FrameSnapshot& snapshot) {
+    if (mesh_summary_draws_.table_identity() == snapshot.draws.table_identity() &&
+        mesh_summary_geometries_.table_identity() ==
+            snapshot.geometries.table_identity() &&
+        mesh_material_is_drawn_.size() == material_records_.size()) {
+      return;
+    }
+    std::vector<bool> material_is_drawn(material_records_.size(), false);
+    std::uint64_t triangle_count{};
+    for (std::size_t draw_index = 0; draw_index < draw_records_.size();
+        ++draw_index) {
+      ++frame_counters_.mesh_cpu_draw_visit_count;
+      const auto& draw = draw_records_[draw_index];
+      triangle_count +=
+          geometry_records_[draw.geometry_index].indices->size() / 3U;
+      if (draw.material_index < material_is_drawn.size()) {
+        material_is_drawn[draw.material_index] = true;
+      }
+    }
+    mesh_summary_draws_ = snapshot.draws;
+    mesh_summary_geometries_ = snapshot.geometries;
+    mesh_material_is_drawn_ = std::move(material_is_drawn);
+    mesh_triangle_count_ = triangle_count;
+  }
+
   void SelectGeneratedMaterials() {
     selected_material_artifacts_.assign(material_records_.size(), nullptr);
     frame_material_diagnostics_.clear();
-    std::vector<bool> material_is_drawn(material_records_.size(), false);
-    for (std::size_t draw_index = 0; draw_index < draw_records_.size();
-        ++draw_index) {
-      const auto material_index = draw_records_[draw_index].material_index;
-      if (material_index < material_is_drawn.size()) {
-        material_is_drawn[material_index] = true;
-      }
-    }
     for (std::size_t index = 0; index < material_records_.size(); ++index) {
       const auto& material = material_records_[index];
-      if (!material.module || !material_is_drawn[index]) {
+      if (!material.module || !mesh_material_is_drawn_[index]) {
         continue;
       }
       const auto& module = *material.module;
@@ -7359,6 +7429,14 @@ public:
       frame_counters_.geometry_cache_hits += snapshot.geometries.size();
       ++frame_counters_.scene_cache_hits;
       return;
+    }
+
+    // Invalidate batch placement before any operation that can replace arena
+    // ranges, including failed residency updates and full reconciliation.
+    if (mode != ResourceSyncMode::Incremental ||
+        !snapshot.delta->geometries.upserts.empty() ||
+        !snapshot.delta->geometries.removals.empty()) {
+      ++geometry_residency_generation_;
     }
 
     bool structural_change = false;
@@ -9320,8 +9398,14 @@ public:
 
   void PreflightGeneratedMaterialPipelines(
       const extraction::FrameSnapshot& snapshot) {
+    if (std::none_of(selected_material_artifacts_.begin(),
+            selected_material_artifacts_.end(),
+            [](const auto* artifact) { return artifact != nullptr; })) {
+      return;
+    }
     std::set<std::string> failed_modules;
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+      ++frame_counters_.mesh_cpu_draw_visit_count;
       const auto& draw = draw_records_[i];
       const auto* artifact =
           selected_material_artifacts_[draw.material_index];
@@ -10722,6 +10806,11 @@ public:
   IndexedTableView<extraction::MaterialRecord> material_records_;
   IndexedTableView<extraction::InstanceRecord> instance_records_;
   DenseTableView<extraction::DrawRecord> draw_records_;
+  extraction::PersistentTable<extraction::DrawRecord> mesh_summary_draws_;
+  extraction::PersistentTable<extraction::GeometryRecord> mesh_summary_geometries_;
+  std::vector<bool> mesh_material_is_drawn_;
+  std::uint64_t mesh_triangle_count_{};
+  std::uint64_t geometry_residency_generation_{};
   detail::GaussianPreparationResult prepared_gaussians_;
   extraction::PersistentTable<extraction::GaussianRecord>
       gaussian_preparation_source_;
