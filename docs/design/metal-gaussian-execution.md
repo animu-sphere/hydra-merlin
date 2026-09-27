@@ -88,8 +88,8 @@ projection/sort policies, transforms, multiple resources, hidden/all-rejected
 input, workgroup boundaries, asymmetric alpha composition and a prefilled opaque
 depth attachment. They do not establish general scene or host-presentation
 parity. This remains a correctness harness, not renderer GPU execution:
-persistent attributes, completion-safe frame scheduling and telemetry
-integration remain Phase 2 work. Controlled performance captures
+renderer integration of persistent attributes, completion-safe frame scheduling
+and telemetry remain Phase 2 work. Controlled performance captures
 and updated native viewport/HgiMetal comparisons remain unfinished; this is
 not completion of the phase gate below.
 
@@ -129,6 +129,30 @@ revisions. Apply only changed attribute ranges; transform and visibility edits
 update metadata. Replaced buffers and slots remain alive until their last GPU
 consumer completes. Bound resident and scratch allocation and report failures
 through the existing diagnostic/fallback contract.
+
+The private Metal attribute store now supplies the compute/image harness with
+immutable device-local position, covariance, opacity and SH buffers. It keys
+reuse by source identity, the complete resource handle, attribute revisions and
+shared payload identity. Camera, transform and visibility changes reuse those
+buffers. Matching particle-base revisions and unchanged layouts permit staged
+range updates; a GPU copy creates the new attribute version before patching it,
+so earlier submissions can continue reading the old version. Revision gaps,
+source changes, count changes and SH layout changes upload complete affected
+attributes. Unchanged attributes retain their original buffers.
+
+Preparation is transactional, and a separate commit publishes the resident
+scene only after submission. Command completion retains staging and old
+versions, including their contribution to an explicit live-byte budget.
+Allocation failure leaves the previous scene usable. The caller must invalidate
+residency and report a failed upload command before scheduling dependent work.
+The harness checks actual bytes, partial SH ranges, removal/generation reuse,
+abandoned/invalid updates, budget exhaustion and multiple blocked submissions.
+Continuous image comparisons check static, camera, transform, localized edits,
+visibility, removal and reintroduction with the existing color/depth/ID tolerance.
+This is a backend-private building block: renderer scheduling, scratch reuse,
+error recovery and public telemetry integration are still unfinished. It scans
+resource metadata, and partial updates currently copy the full changed attribute
+on the GPU; it does not yet implement a resource-delta fast path or an arena.
 
 Connect the complete frame path on the GPU:
 

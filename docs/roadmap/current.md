@@ -23,8 +23,11 @@ ownership, dependency, and fallback contracts.
   GPU preparation/SH/radix-sort kernels are also shared and checked against the
   CPU reference on Apple GPU. The offscreen harness now connects GPU gather
   and indirect raster with color/depth/ID comparisons and no intermediate CPU
-  readback. Controlled static/motion/edit captures, native viewport/HgiMetal
-  rechecks, persistent attribute residency and renderer scheduling through
+  readback. A private attribute store now supplies that harness with immutable
+  resident buffers, range uploads and completion-safe versions. Continuous
+  camera/transform/edit images and in-flight byte-budget checks cover the store.
+  Controlled static/motion/edit captures, native viewport/HgiMetal rechecks,
+  and renderer integration of residency, frame scheduling and telemetry through
   raster remain open.
 
 - 🚧 Recheck the Hydra CPU-readback floor in usdview after preferring

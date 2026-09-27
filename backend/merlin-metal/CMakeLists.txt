@@ -9,6 +9,7 @@ find_library(MERLIN_COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
 
 add_library(merlin-metal STATIC
   src/backend.mm
+  src/gaussian_residency.mm
   src/resource_table.cpp
 )
 merlin_target_defaults(merlin-metal)
