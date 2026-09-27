@@ -104,6 +104,28 @@ For large Hydra2 stages opened through usdview, set
 `MERLIN_METAL_HEAP_MIB=N` to raise the Metal scene heap from its 64 MiB default;
 the native Merlin viewport exposes the equivalent `--metal-heap-mib N` option.
 
+Metal Gaussian GPU execution is opt-in. The native viewport accepts
+`--backend metal --gaussian-gpu require --gaussian-raster sorted-stream`;
+use `prefer` to permit CPU fallback when a device or allocation limit prevents
+GPU execution. Tiled raster is not implemented on Metal: `prefer` uses GPU
+SortedStream and `require` rejects it. Hydra exposes the same policy through
+`merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster`.
+The GPU path has offscreen renderer coverage and local Garden display checks
+in the native viewport and usdview/HgiMetal. Broader host parity and controlled
+performance checks remain open. Metal `BackendOptions` has independent
+`gaussian_residency_budget_bytes` and `gaussian_scratch_budget_bytes` limits
+(1 GiB each by default), separate from the mesh/texture heap setting above.
+Hydra hosts can override these with `MERLIN_METAL_GAUSSIAN_RESIDENCY_MIB` and
+`MERLIN_METAL_GAUSSIAN_SCRATCH_MIB` (positive integer MiB). Residency includes
+upload staging and versions retained by unfinished commands; a full first
+upload therefore needs more than just the final attribute size.
+The native viewport accepts `--metal-gaussian-residency-mib N` and
+`--metal-gaussian-scratch-mib N` for the same limits.
+For local Release measurements, run `merlin-metal-gaussian-tests --benchmark`:
+it emits per-frame CSV for deterministic 64K/1M scenes, including static,
+camera and localized-edit frames. Static GPU frames still recompute, so CPU
+cached rendering can be faster; these measurements are not CI timing gates.
+
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
 Core-only Debug and Release builds with Ninja. Hosted Apple Silicon macOS CI
 compiles and packages Core plus Metal in Debug and Release; local runtime

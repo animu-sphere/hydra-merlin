@@ -46,6 +46,7 @@ public:
     std::uint64_t upload_range_count{};
     std::uint64_t device_copy_bytes{};
     std::uint64_t allocation_count{};
+    std::uint64_t generation_count{};
 
   private:
     friend class GaussianResidency;

@@ -136,6 +136,9 @@ std::shared_ptr<GaussianResidency::Update> GaussianResidency::Prepare(
         old ? old->record.spherical_harmonics_coefficients : nullptr,
         record.radiance_revision, old ? old->record.radiance_revision : 0,
         old ? old->radiance : nullptr, coefficients);
+    if (!old || next.positions != old->positions || next.covariances != old->covariances ||
+        next.opacities != old->opacities || next.radiance != old->radiance)
+      ++update->generation_count;
     update->resources.push_back(std::move(next));
   }
   std::sort(update->resources.begin(), update->resources.end(),

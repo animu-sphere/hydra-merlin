@@ -118,6 +118,10 @@ struct BackendOptions {
   // through completion-safe per-frame shared buffers.
   std::optional<render::GpuScenePackingCapacities> gpu_scene_capacities;
   std::optional<PresentationOptions> presentation;
+  // Separate bounded pools, including versions retained by in-flight commands.
+  // These private buffers are not charged to the mesh/texture heap above.
+  std::uint64_t gaussian_residency_budget_bytes{1024ULL * 1024ULL * 1024ULL};
+  std::uint64_t gaussian_scratch_budget_bytes{1024ULL * 1024ULL * 1024ULL};
 };
 
 struct MetalStatistics {
@@ -136,6 +140,10 @@ struct MetalStatistics {
   std::uint64_t gpu_scene_staging_capacity_bytes{};
   std::uint64_t gpu_scene_staging_peak_capacity_bytes{};
   std::uint64_t gpu_scene_staging_growth_count{};
+  std::uint64_t gaussian_resident_live_bytes{};
+  std::uint64_t gaussian_scratch_live_bytes{};
+  std::uint64_t gaussian_compute_dispatch_count{};
+  std::uint64_t gaussian_attribute_device_copy_bytes{};
   ResourceTableTelemetry texture_slots;
   ResourceTableTelemetry sampler_slots;
 };

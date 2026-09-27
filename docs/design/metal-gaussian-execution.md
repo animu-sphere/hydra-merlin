@@ -1,7 +1,7 @@
 # Metal Gaussian execution plan
 
-**Status:** Phase 1 validation and Phase 2 kernel work in progress; renderer GPU execution remains unsupported.
-**Last reviewed:** 2026-09-27
+**Status:** Phase 2 sorted-stream renderer integration available; host validation, broader measurements and Phase 3 tile raster remain open.
+**Last reviewed:** 2026-09-28
 
 Move Gaussian projection, culling, sorting and rasterization onto the Metal GPU
 without making CPU work proportional to particle count during camera motion.
@@ -87,9 +87,8 @@ resource/particle IDs. These fixture-specific image checks cover SH degrees,
 projection/sort policies, transforms, multiple resources, hidden/all-rejected
 input, workgroup boundaries, asymmetric alpha composition and a prefilled opaque
 depth attachment. They do not establish general scene or host-presentation
-parity. This remains a correctness harness, not renderer GPU execution:
-renderer integration of persistent attributes, completion-safe frame scheduling
-and telemetry remain Phase 2 work. Controlled performance captures
+parity. The harness isolates kernel correctness; Phase 2 below now also connects this
+path to renderer frame contexts, persistent attributes and completion telemetry. Controlled performance captures
 and updated native viewport/HgiMetal comparisons remain unfinished; this is
 not completion of the phase gate below.
 
@@ -149,8 +148,8 @@ The harness checks actual bytes, partial SH ranges, removal/generation reuse,
 abandoned/invalid updates, budget exhaustion and multiple blocked submissions.
 Continuous image comparisons check static, camera, transform, localized edits,
 visibility, removal and reintroduction with the existing color/depth/ID tolerance.
-This is a backend-private building block: renderer integration,
-error recovery and public telemetry integration are still unfinished. It scans
+This backend-private store is now consumed by renderer GPU submissions with
+post-submit publication and upload-failure invalidation. It scans
 resource metadata, and partial updates currently copy the full changed attribute
 on the GPU; it does not yet implement a resource-delta fast path or an arena.
 
@@ -161,8 +160,8 @@ classification/counter buffers, raster instances and indirect arguments. The
 caller encodes attribute uploads first, then execution and raster in the same
 retaining command buffer, and publishes residency only after submission. The
 helper does not submit, wait, read counts back or traverse particle payloads.
-It reports scratch allocation and compute dispatch counts separately; these are
-not yet connected to public renderer telemetry.
+Scratch allocations contribute to frame allocation telemetry; cumulative
+compute dispatches and live resident/scratch bytes are exposed by Metal statistics.
 
 Scratch reuse requires both GPU completion and release of the caller's frame
 lease. Cached, externally retained and in-flight allocations share a bounded
@@ -175,8 +174,55 @@ order checks and poisoned output guards without CPU-dependent scheduling.
 The image harness now uses this helper and checks zero new GPU allocations on
 static/camera frames, reuse across extent changes, concurrent output isolation,
 retained completed outputs, abandoned commands, reset and budget exhaustion.
-This establishes backend encoding and scratch lifetime, not integration with
-the renderer's frame contexts, failure recovery or capability selection.
+The renderer now retains output leases until resolve, while command completion
+retains independent GPU leases. Small per-resource counters and indirect
+arguments are copied to shared frame buffers and inspected only after completion;
+no prepared records or particle attributes are read back. Normal execution does
+not run the CPU preparation reference. Validation enables GPU order checks.
+
+`Disabled` preserves the CPU reference and its static prepared-stream cache.
+`Prefer` and `Require` select GPU sorted-stream execution on devices meeting the
+portable workgroup limits. Tiled is still unavailable: Prefer falls back to
+GPU sorted-stream and counts the stage fallback; Require returns Unsupported.
+Attribute/scratch address limits or exhausted configured budgets select CPU
+fallback in Prefer and raise the original error in Require. Failed partial
+encoding discards the unsubmitted command; submission catches C++ exceptions
+inside its autorelease pool so abandoned command leases are released.
+
+Attribute and scratch pools each default to a separate 1 GiB live-byte budget,
+configurable through Metal BackendOptions. These are independent of the
+mesh/texture heap and include retained/in-flight allocations. Frame telemetry
+reports attribute bytes/ranges/generations, allocation counts, candidate/cull/
+sorted/indirect counts and fallback counts. Metal statistics additionally expose
+live pool bytes, cumulative compute dispatches and GPU attribute-version copy
+bytes. Telemetry readback is 32 bytes plus 32 bytes per resource, separate from
+requested image readback, and is included in readback bytes. CPU preparation,
+attribute synchronization, prepared-stream writing and command recording times
+are separated; Gaussian raster time still measures CPU encoding.
+
+A failed attribute-upload command invalidates residency and dependent queued
+frames before the next use, using the existing serial-queue failure boundary.
+Renderer image tests cover partial edits, camera motion, transforms, resize,
+visibility, removal/reintroduction, multiple unresolved frames and AOV leases.
+Budget failures test both policy modes and recovery on the same backend;
+actual device command failure injection remains unverified.
+
+Local Release captures on Apple M3 cover public deterministic 65,536- and
+1,048,576-particle fixtures at 1024x768, with cold, static, camera and range-edit
+frames and no image readback. GPU camera/edit frames avoid CPU particle
+preparation and full uploads; warmed camera frames allocate no GPU buffers.
+Static GPU frames still recompute, so the CPU cached stream may be faster.
+Run `merlin-metal-gaussian-tests --benchmark` for CSV samples; this is optional
+hardware evidence rather than a timing-sensitive CTest gate. A local
+5,834,784-particle, SH-degree-3 Garden stage was also displayed through the native
+Metal viewport and usdview/HgiMetal GPU copy, with zero CPU preparation and
+steady attribute uploads. Its initial attribute upload needs a 3 GiB residency
+budget including staging. Hydra environment variables and native viewport CLI
+options expose the independent residency/scratch limits; see the build guide.
+The usdview check also exercised Tiled Prefer fallback to GPU sorted-stream.
+These interactive checks do not establish general host image parity or
+controlled performance. Public corpus comparisons, stage GPU timestamps and
+wider hardware evidence remain open.
 
 Connect the complete frame path on the GPU:
 

@@ -456,6 +456,8 @@ std::shared_ptr<render::Backend> CreateRenderer(
   if (options.backend != render::BackendRequest::Vulkan) {
     metal::BackendOptions metal_options;
     metal_options.heap_capacity_bytes = options.metal_heap_capacity_bytes;
+    metal_options.gaussian_residency_budget_bytes = options.metal_gaussian_residency_bytes;
+    metal_options.gaussian_scratch_budget_bytes = options.metal_gaussian_scratch_bytes;
     auto presentation = MakeGlfwMetalPresentation(window, options.vsync);
     developer_ui.ConfigurePresentation(presentation);
     metal_options.presentation = std::move(presentation);

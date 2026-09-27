@@ -16,34 +16,24 @@ after its public API and release process are established.
 
 ### Added
 
-- Metal Gaussian preparation, radix sort and gather now use a backend-private
-  executor with reusable device-local scratch. Frame leases prevent reuse
-  before GPU completion or while outputs are retained, and a live-byte budget
-  covers in-flight and cached allocations. CPU-reference image checks exercise
-  this executor, including zero-allocation camera frames, empty-frame resets,
-  abandoned commands and blocked submissions. Renderer selection, public
-  telemetry and error recovery remain open; GPU mode support is unchanged.
-
-- Metal Gaussian compute/image tests now consume a backend-private persistent
-  attribute store. Camera and metadata changes reuse buffers; matching revision
-  ranges upload only edited attributes, with GPU version copies protecting
-  in-flight readers. Transactional updates, source/handle identity, SH layout
-  changes and a live-byte budget have Apple GPU coverage. Renderer scheduling
-  and telemetry integration remain open; GPU mode support is unchanged.
-
-- Metal Gaussian gather packs GPU-sorted records into the scalar raster stream
-  and writes indirect draw arguments, including empty-frame resets. The Apple
-  GPU harness runs preparation through indirect raster in one submission and
-  compares color/depth/IDs with CPU-prepared direct draws; ABI, artifact identity
-  and install checks include the new kernel. Renderer integration remains open;
-  `prefer` still falls back and `require` rejects.
-
-- Shared Slang Gaussian projection, covariance, SH, culling/compaction and
-  deterministic radix-sort kernels now compile into the Metal Gaussian library.
-  Native Metal buffer bindings and a scalar 64-byte prepared-record ABI have
-  reflection, install-package and Apple GPU comparisons against the CPU
-  reference. These kernels are not yet connected to Metal renderer scheduling;
-  interactive rendering still uses CPU preparation and sorting.
+- Metal Gaussian GPU execution now connects persistent attributes, shared Slang
+  preparation/SH/culling, frame-wide radix sort, gather and indirect raster to
+  renderer frame contexts. SortedStream supports `prefer` and `require`;
+  unsupported Tiled falls back to GPU SortedStream in `prefer` and rejects
+  `require`. CPU reference rendering remains the default and capacity fallback.
+  Camera frames avoid CPU particle preparation, prepared-stream uploads and
+  warmed GPU allocation; localized edits stage only changed attribute ranges.
+  Separate configurable live-byte budgets, completion-safe immutable versions
+  and scratch leases, upload-failure invalidation, and exception-safe abandoned
+  command cleanup preserve frame lifetime. Frame counters and Metal pool/
+  dispatch/copy statistics expose actual execution. Local Apple GPU renderer
+  tests compare color/depth/IDs through motion, edits, resize, opaque meshes,
+  frames in flight, AOV leases and budget recovery; installed consumers execute
+  the GPU path. An optional 64K/1M fixture captures cold/static/motion/edit costs.
+  Hydra environment variables and native viewport CLI options expose both
+  Gaussian budgets. Local Garden GPU display was checked in the native viewport
+  and usdview/HgiMetal, including preferred tiled fallback. Tile raster, broader
+  host parity/performance checks and per-stage GPU timestamps remain open.
 
 - Metal Gaussian reference rasterization now uses shared Slang ellipse/alpha
   math with Vulkan. Slang 2026.8.x and Xcode compile an embedded metallib during
@@ -56,8 +46,8 @@ after its public API and release process are established.
   evaluation and sorting reference with Vulkan, and adds native ellipse
   rasterization, alpha blending, opaque-mesh depth tests and picking IDs.
   Immutable prepared streams are reused across static frames and retained
-  safely across in-flight camera/scene edits. GPU preparation remains
-  unsupported on Metal (`prefer` falls back, `require` rejects).
+  safely across in-flight camera/scene edits; this remains the CPU reference
+  when GPU Gaussian execution is disabled.
 - Metal Gaussian image tests cover orientation, anisotropy, compositing,
   AOVs, camera/resize changes, visibility and in-flight stream lifetime.
   The CPU Gaussian preparation suite now also runs without Vulkan.
