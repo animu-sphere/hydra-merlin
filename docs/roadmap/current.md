@@ -20,8 +20,10 @@ ownership, dependency, and fallback contracts.
 - 🚧 Advance the [Metal Gaussian execution plan](../design/metal-gaussian-execution.md).
   Reference raster math is shared through Slang and an embedded metallib, with
   ABI, artifact identity, install-consumer and local Apple GPU image checks.
-  Controlled static/motion/edit captures, shared GPU preparation/sort shaders,
-  native viewport/HgiMetal rechecks, and complete GPU execution remain open.
+  GPU preparation/SH/radix-sort kernels are also shared and checked against the
+  CPU reference on Apple GPU. Controlled static/motion/edit captures, native
+  viewport/HgiMetal rechecks, persistent attribute residency and complete GPU
+  execution through raster remain open.
 
 - 🚧 Recheck the Hydra CPU-readback floor in usdview after preferring
   host-cached coherent Vulkan AOV buffers. Local RTX A5000 headless evidence

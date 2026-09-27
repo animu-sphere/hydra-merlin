@@ -13,19 +13,39 @@ macro(merlin_add_metal_shaders)
   set(_metal_artifacts "")
   set(_metal_air "")
   set(_metal_records "")
-  foreach(_stage vertex fragment)
-    set(_entry "gaussian_metal_${_stage}")
-    set(_msl "${_metal_output}/gaussian.${_stage}.metal")
+  set(_metal_entries
+    "gaussian-metal.slang|gaussian_metal_vertex|vertex|gaussian.vertex|gaussian-reference|prepared_stream+ellipse+color+ids"
+    "gaussian-metal.slang|gaussian_metal_fragment|fragment|gaussian.fragment|gaussian-reference|prepared_stream+ellipse+color+ids"
+    "gaussian-prepare-metal.slang|gaussian_prepare_compact|compute|gaussian.prepare|gaussian-prepare|projection+sh+compaction")
+  foreach(_sort keys histogram scan_blocks scan_add scatter verify)
+    list(APPEND _metal_entries
+      "gaussian-sort-metal.slang|gaussian_sort_${_sort}|compute|gaussian.sort-${_sort}|gaussian-sort-${_sort}|deterministic_radix_sort")
+  endforeach()
+  foreach(_record IN LISTS _metal_entries)
+    string(REPLACE "|" ";" _fields "${_record}")
+    list(GET _fields 0 _source)
+    list(GET _fields 1 _entry)
+    list(GET _fields 2 _stage)
+    list(GET _fields 3 _name)
+    list(GET _fields 4 _permutation)
+    list(GET _fields 5 _features)
+    set(_msl "${_metal_output}/${_name}.metal")
     set(_reflection "${_msl}.reflection.json")
     set(_depfile "${_msl}.d")
+    set(_metal_compile_options "")
+    if(_stage STREQUAL "compute")
+      # Preparation classifies non-finite inputs. Preserve those checks.
+      # Slang emits unused temporaries for the return value of atomics.
+      set(_metal_compile_options -fno-fast-math -Wno-unused-variable -Werror)
+    endif()
     add_custom_command(
       OUTPUT "${_msl}" "${_reflection}"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${_metal_output}"
-      COMMAND "${MERLIN_SLANGC_EXECUTABLE}" gaussian-metal.slang
+      COMMAND "${MERLIN_SLANGC_EXECUTABLE}" "${_source}"
         -entry "${_entry}" -stage "${_stage}" -target metal -profile metallib_2_4
         -matrix-layout-column-major -O2 -warnings-as-errors all
         -reflection-json "${_reflection}" -depfile "${_depfile}" -o "${_msl}"
-      DEPENDS "${_metal_source}/gaussian-metal.slang"
+      DEPENDS "${_metal_source}/${_source}"
         "${_metal_shared}/gaussian-raster-common.slang"
         "${_metal_shared}/gaussian-raster-abi.slang"
       DEPFILE "${_depfile}"
@@ -35,6 +55,7 @@ macro(merlin_add_metal_shaders)
       OUTPUT "${_msl}.air"
       COMMAND "${MERLIN_XCRUN_EXECUTABLE}" -sdk macosx metal
         -std=macos-metal2.4
+        ${_metal_compile_options}
         "-mmacosx-version-min=${_metal_deployment_target}"
         "-fmodules-cache-path=${CMAKE_CURRENT_BINARY_DIR}/metal-module-cache"
         -c "${_msl}" -o "${_msl}.air"
@@ -43,7 +64,7 @@ macro(merlin_add_metal_shaders)
     list(APPEND _metal_artifacts "${_msl}" "${_reflection}")
     list(APPEND _metal_air "${_msl}.air")
     string(APPEND _metal_records
-      "${_msl}|${_reflection}|${_depfile}|gaussian-metal.slang|${_entry}|${_stage}|metal|metallib_2_4|none|gaussian-reference|prepared_stream+ellipse+color+ids\n")
+      "${_msl}|${_reflection}|${_depfile}|${_source}|${_entry}|${_stage}|metal|metallib_2_4|none|${_permutation}|${_features}\n")
   endforeach()
   set(_metal_library "${_metal_output}/gaussian.metallib")
   add_custom_command(

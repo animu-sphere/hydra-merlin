@@ -51,10 +51,29 @@ with Vulkan through Slang. Metal-specific entry points preserve the scalar
 52-byte stream, Y convention and combined color/ID attachments. Slang 2026.8.x
 emits MSL/reflection, Xcode produces an embedded metallib, and the versioned
 install package retains those artifacts and their identity/checksum evidence.
-Host layout assertions, generated binding checks and local Apple GPU image tests
-cover this first step. Projection/SH/sort shader sharing, controlled performance
-captures and updated native viewport/HgiMetal comparisons remain unfinished;
-this is not completion of the phase gate below.
+Projection, covariance, SH evaluation, culling/compaction and portable radix-sort
+kernels now also live in shared Slang sources, with backend-owned bindings and
+record access. Metal uses explicit buffer slots and byte-addressed 64-byte
+prepared records because native MSL `float3` storage has different padding.
+The embedded/installed library includes these compute entry points. Preparation
+preserves non-finite classification with native Metal fast math disabled.
+
+Host layout assertions, generated binding checks and local Apple GPU tests
+compare preparation and sorting with the CPU reference, including SH degrees
+0–3, projection/sorting policies, nonidentity transforms, culling boundaries,
+multiple resources, hierarchical scans, device-written counts and empty input.
+The kernel harness allows absolute error of `2e-4 * max(1, abs(reference))`
+per floating-point field; classifications, counters, identities and sentinel
+placement must match exactly. Intentional distance ties use binary-exact input
+coordinates so rounding of nearly equal CPU/GPU keys is not mistaken for a
+radix-sort error. These checks do not establish renderer image parity or a
+general exact ordering guarantee for numerically near-equal keys.
+The compute test submits preparation through sorting without an intermediate
+CPU readback. It is a kernel correctness harness, not renderer GPU execution:
+persistent attributes, completion-safe frame scheduling, gather/indirect raster
+and telemetry integration remain Phase 2 work. Controlled performance captures
+and updated native viewport/HgiMetal comparisons remain unfinished; this is
+not completion of the phase gate below.
 
 Establish repeatable static, camera-motion and particle-edit captures before
 changing execution. Use the existing public Gaussian corpus and deterministic
