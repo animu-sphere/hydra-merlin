@@ -17,11 +17,14 @@ ownership, dependency, and fallback contracts.
 
 ### Work
 
-- ⬜ Reduce the Hydra CPU-readback floor on GPU-sorted Gaussian frames. In
-  usdview over HgiGL, reading back the four AOVs (5.2 MB at 597x540) takes
-  about 19 ms of a 20 ms frame while the GPU Gaussian stages take under 0.5 ms,
-  so the GPU path cannot be faster than that readback. Investigate the readback
-  bandwidth and whether every bound AOV needs a per-frame CPU readback.
+- 🚧 Recheck the Hydra CPU-readback floor in usdview after preferring
+  host-cached coherent Vulkan AOV buffers. Local RTX A5000 headless evidence
+  at 597x540 with one million Gaussians reduces the four-AOV CPU readback
+  median from 19.06 ms to 0.92 ms and GPU sorted-stream frame time from
+  26.51 ms to 6.00 ms, without reducing the 5.2 MB payload. Interactive
+  usdview/HgiGL display was also checked with a 5.8-million-Gaussian stage
+  using the lookdev runtime. Capture a controlled host motion comparison
+  and evaluate whether every bound AOV needs a per-frame CPU readback.
 - ⬜ Remove per-draw CPU preparation from the steady-state Mesh submission path
   while preserving the indexed Forward image and fallback contracts.
 - ⬜ Capture controlled hardware evidence for Mesh command-recording and

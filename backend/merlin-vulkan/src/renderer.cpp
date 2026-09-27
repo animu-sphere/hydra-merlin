@@ -1,6 +1,7 @@
 #include <merlin/vulkan/renderer.hpp>
 #include "environment_lighting.hpp"
 #include "gaussian_preparation.hpp"
+#include "memory_type.hpp"
 
 #include <merlin/vulkan/shader_abi.hpp>
 
@@ -553,16 +554,10 @@ private:
 
 std::uint32_t FindMemoryTypeRaw(VkPhysicalDevice physical_device,
     std::uint32_t bits,
-    VkMemoryPropertyFlags properties) {
+    VkMemoryPropertyFlags properties, VkMemoryPropertyFlags preferred = 0) {
   VkPhysicalDeviceMemoryProperties memory{};
   vkGetPhysicalDeviceMemoryProperties(physical_device, &memory);
-  for (std::uint32_t index = 0; index < memory.memoryTypeCount; ++index) {
-    if ((bits & (1U << index)) != 0U &&
-        (memory.memoryTypes[index].propertyFlags & properties) == properties) {
-      return index;
-    }
-  }
-  throw std::runtime_error("no compatible Vulkan memory type");
+  return detail::FindMemoryType(memory, bits, properties, preferred);
 }
 
 void DestroyBufferRaw(VkDevice device, Buffer& buffer,
@@ -585,7 +580,8 @@ Buffer CreateBufferRaw(VkDevice device, VkPhysicalDevice physical_device,
     VkMemoryPropertyFlags properties,
     DeviceMemoryBudget* memory_budget = nullptr,
     std::uint32_t first_queue_family = VK_QUEUE_FAMILY_IGNORED,
-    std::uint32_t second_queue_family = VK_QUEUE_FAMILY_IGNORED) {
+    std::uint32_t second_queue_family = VK_QUEUE_FAMILY_IGNORED,
+    VkMemoryPropertyFlags preferred = 0) {
   Buffer result;
   result.size = size;
   VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -606,9 +602,9 @@ Buffer CreateBufferRaw(VkDevice device, VkPhysicalDevice physical_device,
       "create buffer");
   VkMemoryRequirements requirements{};
   vkGetBufferMemoryRequirements(device, result.handle, &requirements);
-  const auto memory_type =
-      FindMemoryTypeRaw(physical_device, requirements.memoryTypeBits, properties);
   try {
+    const auto memory_type = FindMemoryTypeRaw(physical_device,
+        requirements.memoryTypeBits, properties, preferred);
     if (memory_budget != nullptr) {
       result.memory = memory_budget->Allocate(requirements.size, memory_type,
           "allocate buffer memory");
@@ -2978,6 +2974,7 @@ public:
 
   Buffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
       VkMemoryPropertyFlags properties,
+      VkMemoryPropertyFlags preferred = 0,
       std::uint32_t first_queue_family =
           VK_QUEUE_FAMILY_IGNORED,
       std::uint32_t second_queue_family =
@@ -2987,7 +2984,7 @@ public:
     frame_counters_.buffer_allocation_bytes += size;
     return CreateBufferRaw(device_, physical_device_, size, usage, properties,
         &memory_budget_, first_queue_family,
-        second_queue_family);
+        second_queue_family, preferred);
   }
 
   void DestroyBuffer(Buffer& buffer) noexcept {
@@ -4498,7 +4495,7 @@ public:
     resources.candidate_draw_slots = CreateBuffer(
         resources.candidate_capacity_bytes,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, queue_family_,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, queue_family_,
         transfer_queue_family_);
     resources.candidate_results = CreateBuffer(
         resources.candidate_capacity_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -8145,9 +8142,13 @@ public:
       const auto create_readback = [&](Aov aov, Buffer& buffer,
                                        VkDeviceSize bytes) {
         if (HasAov(cpu_readback_aovs, aov)) {
+          // Uncached coherent memory can make the CPU memcpy dominate a frame.
+          // Prefer cached memory, but keep coherence required so the existing
+          // completion wait and map/read path need no cache invalidation.
           buffer = CreateBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+              VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
         }
       };
       create_readback(Aov::Color, active_target_->color_readback, color_bytes);

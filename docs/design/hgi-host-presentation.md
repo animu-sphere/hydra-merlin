@@ -45,6 +45,16 @@ The bridge transfers only requested AOVs. Color, depth, `primId`, and
 contracts. SDR sRGB is the initial color baseline; unsupported HDR or target
 formats produce a structured rejection and select Tier 0 where possible.
 
+Vulkan Tier 0 AOV buffers require host-visible, host-coherent memory and prefer
+host-cached memory within the resource's compatible memory-type mask. When no
+compatible cached coherent type exists, allocation retains the first compatible
+coherent type. Cached noncoherent memory is not selected: the existing CPU read
+path waits for renderer completion and relies on coherence without explicit
+cache invalidation. The preference does not change requested AOVs, payloads,
+target lifetime, or upload-buffer placement. Vulkan defines host caching and
+coherence as separate properties; see the
+[memory property reference](https://docs.vulkan.org/refpages/latest/refpages/source/VkMemoryPropertyFlagBits.html).
+
 ## Common contract
 
 Each bridge exposes a host-neutral result model equivalent to:
