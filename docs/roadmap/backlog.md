@@ -108,6 +108,12 @@ scene output or uninitialized memory.
 **Goal:** Align Vulkan/Metal Gaussian ABI, quality, AOV/picking, telemetry, and
 reference tolerances while allowing backend-specific kernels.
 
+The [Metal Gaussian execution plan](../design/metal-gaussian-execution.md)
+describes the proposed dependency order: shared Slang/reference validation,
+persistent attributes and GPU execution through raster, then tile raster and
+measured Apple GPU tuning. These steps may land earlier when their gates are
+met; the version label does not defer prerequisite correctness work.
+
 **Depends on:** Validated Gaussian optimization and fallback modes.
 
 **Exit:** Comparable backend images and costs, overflow/device-loss diagnostics,
