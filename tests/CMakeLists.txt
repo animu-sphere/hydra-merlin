@@ -235,6 +235,17 @@ if(TARGET Merlin::Metal)
     LABELS "metal;gaussian;gpu;compute;cpu-reference;image;aov;indirect"
     SKIP_RETURN_CODE 77 TIMEOUT 60)
 
+  add_executable(merlin-metal-gaussian-residency-tests metal_gaussian_residency_test.mm)
+  merlin_target_defaults(merlin-metal-gaussian-residency-tests)
+  target_link_libraries(merlin-metal-gaussian-residency-tests PRIVATE Merlin::Metal)
+  target_compile_options(merlin-metal-gaussian-residency-tests PRIVATE -fobjc-arc)
+  set_target_properties(merlin-metal-gaussian-residency-tests PROPERTIES
+    OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+  add_test(NAME merlin-metal-gaussian-residency COMMAND merlin-metal-gaussian-residency-tests)
+  set_tests_properties(merlin-metal-gaussian-residency PROPERTIES
+    LABELS "metal;gaussian;gpu;residency;lifetime"
+    SKIP_RETURN_CODE 77 TIMEOUT 60)
+
   add_executable(merlin-metal-resource-table-tests
     metal_resource_table_test.cpp
   )
@@ -267,7 +278,7 @@ if(TARGET Merlin::Metal)
     SKIP_RETURN_CODE 77)
   # Enable Apple's validation before device creation, so ABI and argument-buffer
   # mistakes fail the runtime suite instead of depending on a local shell setup.
-  set_tests_properties(merlin-metal-gaussian merlin-metal-gaussian-compute merlin-metal-backend
+  set_tests_properties(merlin-metal-gaussian merlin-metal-gaussian-compute merlin-metal-gaussian-residency merlin-metal-backend
     PROPERTIES ENVIRONMENT "MTL_DEBUG_LAYER=1;MTL_SHADER_VALIDATION=1")
 endif()
 

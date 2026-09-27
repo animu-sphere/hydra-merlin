@@ -1,5 +1,6 @@
 #include "../backend/merlin-metal/src/gaussian_compute_abi.hpp"
 #include "../backend/merlin-metal/src/gaussian_raster_abi.hpp"
+#include "../backend/merlin-metal/src/gaussian_residency.hpp"
 #include <merlin/extraction/gaussian_preparation.hpp>
 #include <merlin/metal/backend.hpp>
 
@@ -40,6 +41,16 @@ void Near(float actual, float expected, const char* field) {
 
 std::uint32_t Groups(std::uint32_t count, std::uint32_t size) {
   return (count + size - 1) / size;
+}
+
+merlin::Mat4 Multiply(const merlin::Mat4& a, const merlin::Mat4& b) {
+  merlin::Mat4 result;
+  result.values.fill(0);
+  for (std::size_t column = 0; column < 4; ++column)
+    for (std::size_t row = 0; row < 4; ++row)
+      for (std::size_t k = 0; k < 4; ++k)
+        result.values[column * 4 + row] += a.values[k * 4 + row] * b.values[column * 4 + k];
+  return result;
 }
 
 id<MTLBuffer> Buffer(id<MTLDevice> device, std::size_t bytes, const void* data = nullptr) {
@@ -169,7 +180,8 @@ std::array<id<MTLBuffer>, 4> Raster(id<MTLDevice> device,
 // submission. No intermediate readback schedules subsequent GPU stages.
 std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& kernels,
     FrameSnapshot snapshot, bool dynamic_count = false, bool compare_image = false,
-    float opaque_depth = 1.0F) {
+    float opaque_depth = 1.0F, merlin::metal::GaussianResidency* persistent = nullptr,
+    std::uint64_t* attribute_upload_bytes = nullptr) {
   std::vector<merlin::extraction::GaussianRecord> ordered(snapshot.gaussians.begin(), snapshot.gaussians.end());
   std::sort(ordered.begin(), ordered.end(),
       [](const auto& a, const auto& b) { return a.gaussian < b.gaussian; });
@@ -187,6 +199,11 @@ std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> q
   auto control = Buffer(device, (histogram_offset + padded * 2U + 16U) * sizeof(std::uint32_t));
   auto command = [queue commandBuffer];
   Require(command != nil, "Metal command allocation failed");
+  merlin::metal::GaussianResidency local_residency(device, 64 * 1024 * 1024);
+  auto& residency = persistent ? *persistent : local_residency;
+  auto attributes = residency.Prepare(snapshot);
+  residency.Encode(attributes, command);
+  if (attribute_upload_bytes) *attribute_upload_bytes = attributes->upload_bytes;
   std::vector<id<MTLBuffer>> counters;
   std::vector<id<MTLBuffer>> classifications;
   const auto policy = merlin::extraction::SelectGaussianSortingPolicy(snapshot);
@@ -208,7 +225,7 @@ std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> q
     const auto& record = snapshot.gaussians[i];
     const auto count = static_cast<std::uint32_t>(record.positions->size());
     PrepareConstants constants;
-    constants.local_to_camera = record.transform; // Fixtures use identity view.
+    constants.local_to_camera = Multiply(snapshot.view, record.transform);
     constants.projection = snapshot.projection;
     constants.viewport_size = {320, 192};
     constants.resource_id_low = static_cast<std::uint32_t>(record.gaussian);
@@ -224,10 +241,11 @@ std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> q
     if (count && record.visible) {
       auto encoder = [command computeCommandEncoder];
       [encoder setComputePipelineState:kernels.prepare];
-      [encoder setBuffer:Upload(device, *record.positions) offset:0 atIndex:0];
-      [encoder setBuffer:Upload(device, *record.covariances) offset:0 atIndex:1];
-      [encoder setBuffer:Upload(device, *record.opacities) offset:0 atIndex:2];
-      [encoder setBuffer:Upload(device, *record.spherical_harmonics_coefficients) offset:0 atIndex:3];
+      const auto& resident = attributes->resources[i];
+      [encoder setBuffer:resident.positions->metal offset:0 atIndex:0];
+      [encoder setBuffer:resident.covariances->metal offset:0 atIndex:1];
+      [encoder setBuffer:resident.opacities->metal offset:0 atIndex:2];
+      [encoder setBuffer:resident.radiance->metal offset:0 atIndex:3];
       [encoder setBuffer:classifications.back() offset:0 atIndex:4];
       [encoder setBuffer:prepared offset:base * sizeof(PreparedRecord) atIndex:5];
       [encoder setBuffer:counters.back() offset:0 atIndex:6];
@@ -323,6 +341,7 @@ std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> q
         static_cast<std::uint32_t>(cpu_instances.size()), opaque_depth);
   }
   [command commit];
+  residency.Commit(attributes);
   [command waitUntilCompleted];
   if (command.status != MTLCommandBufferStatusCompleted)
     throw std::runtime_error(command.error.localizedDescription.UTF8String);
@@ -478,6 +497,64 @@ FrameSnapshot RasterFixture(std::uint32_t count) {
   snapshot.gaussians.assign({record});
   return snapshot;
 }
+void CompareResidentFrames(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& kernels) {
+  merlin::metal::GaussianResidency residency(device, 64 * 1024 * 1024);
+  auto snapshot = RasterFixture(3);
+  snapshot.source_id = 17;
+  auto record = snapshot.gaussians[0];
+  record.revision = 1;
+  snapshot.gaussians.assign({record});
+  std::uint64_t bytes = 0;
+  const auto compare = [&] {
+    Compare(device, queue, kernels, snapshot, false, true, 1.0F, &residency, &bytes);
+  };
+  compare();
+  const auto initial_bytes = bytes;
+  Require(initial_bytes == 3 * (2 * sizeof(merlin::Vec3) + sizeof(merlin::Covariance3) + sizeof(float)),
+      "Initial resident upload differs from source attributes");
+  compare();
+  Require(bytes == 0, "Static frame reuploaded source attributes");
+  snapshot.view.values[12] = 0.125F;
+  compare();
+  Require(bytes == 0, "Camera motion reuploaded source attributes");
+  record.revision = 2;
+  record.transform.values[13] = -0.125F;
+  snapshot.gaussians.assign({record});
+  compare();
+  Require(bytes == 0, "Transform edit reuploaded source attributes");
+
+  record.revision = record.opacity_revision = record.covariance_revision = 3;
+  record.particle_base_revision = 2;
+  record.particle_ranges = {{1, 1}};
+  auto opacity = std::make_shared<std::vector<float>>(*record.opacities);
+  (*opacity)[1] = 0.25F;
+  record.opacities = opacity;
+  auto covariance = std::make_shared<std::vector<merlin::Covariance3>>(*record.covariances);
+  (*covariance)[1].xx *= 2;
+  record.covariances = covariance;
+  snapshot.gaussians.assign({record});
+  compare();
+  const auto partial_bytes = bytes;
+  Require(partial_bytes == sizeof(float) + sizeof(merlin::Covariance3),
+      "Localized edit did not upload only changed attribute ranges");
+  compare();
+  Require(bytes == 0, "Repeated partial-update snapshot uploaded again");
+  record.visible = false;
+  record.revision = 4;
+  snapshot.gaussians.assign({record});
+  compare();
+  Require(bytes == 0, "Visibility edit reuploaded source attributes");
+  snapshot.gaussians.assign({});
+  compare();
+  Require(bytes == 0, "Empty frame uploaded source attributes");
+  record.visible = true;
+  record.gaussian += 1ULL << 32;
+  snapshot.gaussians.assign({record});
+  compare();
+  Require(bytes == initial_bytes, "New resource generation reused removed attributes");
+  std::cout << "Resident image sequence: initial=" << initial_bytes
+            << " static/camera/transform/visibility=0 partial=" << partial_bytes << " upload bytes\n";
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -509,6 +586,7 @@ int main(int argc, char** argv) {
           Pipeline(device, library, @"gaussian_sort_verify"),
           Pipeline(device, library, @"gaussian_metal_gather"),
           RasterPipeline(device, library), DepthState(device)};
+      CompareResidentFrames(device, queue, kernels);
       Compare(device, queue, kernels, {}, false, true);
       const auto image = Compare(device, queue, kernels, RasterFixture(3), false, true);
       const auto* color = static_cast<const std::uint8_t*>(image[0].contents);

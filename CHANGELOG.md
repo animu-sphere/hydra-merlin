@@ -16,13 +16,19 @@ after its public API and release process are established.
 
 ### Added
 
+- Metal Gaussian compute/image tests now consume a backend-private persistent
+  attribute store. Camera and metadata changes reuse buffers; matching revision
+  ranges upload only edited attributes, with GPU version copies protecting
+  in-flight readers. Transactional updates, source/handle identity, SH layout
+  changes and a live-byte budget have Apple GPU coverage. Renderer scheduling
+  and telemetry integration remain open; GPU mode support is unchanged.
+
 - Metal Gaussian gather packs GPU-sorted records into the scalar raster stream
   and writes indirect draw arguments, including empty-frame resets. The Apple
   GPU harness runs preparation through indirect raster in one submission and
   compares color/depth/IDs with CPU-prepared direct draws; ABI, artifact identity
-  and install checks include the new kernel. Renderer integration and persistent
-  Gaussian attribute residency remain open; `prefer` still falls back and
-  `require` rejects.
+  and install checks include the new kernel. Renderer integration remains open;
+  `prefer` still falls back and `require` rejects.
 
 - Shared Slang Gaussian projection, covariance, SH, culling/compaction and
   deterministic radix-sort kernels now compile into the Metal Gaussian library.
