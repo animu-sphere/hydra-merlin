@@ -1,6 +1,7 @@
 #include "../backend/merlin-metal/src/gaussian_compute_abi.hpp"
 #include "../backend/merlin-metal/src/gaussian_raster_abi.hpp"
 #include <merlin/extraction/gaussian_preparation.hpp>
+#include <merlin/metal/backend.hpp>
 
 #import <Metal/Metal.h>
 
@@ -483,8 +484,16 @@ int main(int argc, char** argv) {
   @autoreleasepool {
     try {
       Require(argc == 2, "Expected compiled Metal library path");
+      // Use the same renderer capability gate as the other Metal image tests.
+      // A non-null device alone does not establish native backend support.
+      const auto availability = merlin::metal::BackendFactory{}.availability();
+      if (!availability.available) {
+        std::cerr << "skip: " << availability.detail << '\n';
+        return 77;
+      }
       auto device = MTLCreateSystemDefaultDevice();
       if (!device) { std::cerr << "skip: no Metal device\n"; return 77; }
+      std::cout << "Metal compute device: " << device.name.UTF8String << std::endl;
       NSError* error = nil;
       auto library = [device newLibraryWithURL:[NSURL fileURLWithPath:@(argv[1])] error:&error];
       if (!library) throw std::runtime_error(error.localizedDescription.UTF8String);

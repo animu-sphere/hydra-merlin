@@ -107,7 +107,11 @@ the native Merlin viewport exposes the equivalent `--metal-heap-mib N` option.
 Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
 Core-only Debug and Release builds with Ninja. Hosted Apple Silicon macOS CI
 compiles and packages Core plus Metal in Debug and Release; local runtime
-evidence exercises an Apple GPU. See the
+evidence exercises an Apple GPU. Metal Gaussian compute/image tests use the
+backend availability probe, including scene-heap support, before GPU execution;
+a non-null Metal device alone is insufficient. Hosted Metal jobs retain CTest
+logs and JUnit results with capability skip reasons. A skipped runtime test
+does not establish GPU coverage. See the
 [support matrix](../reference/support-matrix.md) for the exact coverage.
 
 ## Shared CMake presets
