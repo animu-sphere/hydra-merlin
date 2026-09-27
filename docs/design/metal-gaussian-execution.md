@@ -149,10 +149,34 @@ The harness checks actual bytes, partial SH ranges, removal/generation reuse,
 abandoned/invalid updates, budget exhaustion and multiple blocked submissions.
 Continuous image comparisons check static, camera, transform, localized edits,
 visibility, removal and reintroduction with the existing color/depth/ID tolerance.
-This is a backend-private building block: renderer scheduling, scratch reuse,
+This is a backend-private building block: renderer integration,
 error recovery and public telemetry integration are still unfinished. It scans
 resource metadata, and partial updates currently copy the full changed attribute
 on the GPU; it does not yet implement a resource-delta fast path or an arena.
+
+The private execution helper now owns preparation, key generation, hierarchical
+radix passes and gather encoding. It consumes immutable residency metadata and
+camera constants, and returns a lease on device-local prepared/sorted records,
+classification/counter buffers, raster instances and indirect arguments. The
+caller encodes attribute uploads first, then execution and raster in the same
+retaining command buffer, and publishes residency only after submission. The
+helper does not submit, wait, read counts back or traverse particle payloads.
+It reports scratch allocation and compute dispatch counts separately; these are
+not yet connected to public renderer telemetry.
+
+Scratch reuse requires both GPU completion and release of the caller's frame
+lease. Cached, externally retained and in-flight allocations share a bounded
+live-byte budget, including after reset or helper destruction. Allocation
+failure releases partial scratch, and an encoding failure requires discarding
+the unsubmitted command. An abandoned command releases its completion lease
+when destroyed. GPU clears reset counters before reuse; gather always writes
+all indirect arguments, including empty frames. Diagnostic mode adds sorted
+order checks and poisoned output guards without CPU-dependent scheduling.
+The image harness now uses this helper and checks zero new GPU allocations on
+static/camera frames, reuse across extent changes, concurrent output isolation,
+retained completed outputs, abandoned commands, reset and budget exhaustion.
+This establishes backend encoding and scratch lifetime, not integration with
+the renderer's frame contexts, failure recovery or capability selection.
 
 Connect the complete frame path on the GPU:
 

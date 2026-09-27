@@ -16,6 +16,14 @@ after its public API and release process are established.
 
 ### Added
 
+- Metal Gaussian preparation, radix sort and gather now use a backend-private
+  executor with reusable device-local scratch. Frame leases prevent reuse
+  before GPU completion or while outputs are retained, and a live-byte budget
+  covers in-flight and cached allocations. CPU-reference image checks exercise
+  this executor, including zero-allocation camera frames, empty-frame resets,
+  abandoned commands and blocked submissions. Renderer selection, public
+  telemetry and error recovery remain open; GPU mode support is unchanged.
+
 - Metal Gaussian compute/image tests now consume a backend-private persistent
   attribute store. Camera and metadata changes reuse buffers; matching revision
   ranges upload only edited attributes, with GPU version copies protecting

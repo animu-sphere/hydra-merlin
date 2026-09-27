@@ -26,6 +26,8 @@ ownership, dependency, and fallback contracts.
   readback. A private attribute store now supplies that harness with immutable
   resident buffers, range uploads and completion-safe versions. Continuous
   camera/transform/edit images and in-flight byte-budget checks cover the store.
+  The harness now uses a backend executor with completion-safe scratch reuse,
+  zero-allocation camera frames and blocked-submission/budget coverage.
   Controlled static/motion/edit captures, native viewport/HgiMetal rechecks,
   and renderer integration of residency, frame scheduling and telemetry through
   raster remain open.

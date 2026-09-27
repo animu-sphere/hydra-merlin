@@ -232,7 +232,7 @@ if(TARGET Merlin::Metal)
     COMMAND merlin-metal-gaussian-compute-tests
       "${MERLIN_METAL_SHADER_OUTPUT_DIR}/gaussian.metallib")
   set_tests_properties(merlin-metal-gaussian-compute PROPERTIES
-    LABELS "metal;gaussian;gpu;compute;cpu-reference;image;aov;indirect"
+    LABELS "metal;gaussian;gpu;compute;cpu-reference;image;aov;indirect;lifetime"
     SKIP_RETURN_CODE 77 TIMEOUT 60)
 
   add_executable(merlin-metal-gaussian-residency-tests metal_gaussian_residency_test.mm)

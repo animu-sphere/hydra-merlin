@@ -1,4 +1,4 @@
-#include "../backend/merlin-metal/src/gaussian_compute_abi.hpp"
+#include "../backend/merlin-metal/src/gaussian_execution.hpp"
 #include "../backend/merlin-metal/src/gaussian_raster_abi.hpp"
 #include "../backend/merlin-metal/src/gaussian_residency.hpp"
 #include <merlin/extraction/gaussian_preparation.hpp>
@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <source_location>
 #include <vector>
 
 namespace {
@@ -39,20 +40,6 @@ void Near(float actual, float expected, const char* field) {
   }
 }
 
-std::uint32_t Groups(std::uint32_t count, std::uint32_t size) {
-  return (count + size - 1) / size;
-}
-
-merlin::Mat4 Multiply(const merlin::Mat4& a, const merlin::Mat4& b) {
-  merlin::Mat4 result;
-  result.values.fill(0);
-  for (std::size_t column = 0; column < 4; ++column)
-    for (std::size_t row = 0; row < 4; ++row)
-      for (std::size_t k = 0; k < 4; ++k)
-        result.values[column * 4 + row] += a.values[k * 4 + row] * b.values[column * 4 + k];
-  return result;
-}
-
 id<MTLBuffer> Buffer(id<MTLDevice> device, std::size_t bytes, const void* data = nullptr) {
   auto buffer = [device newBufferWithLength:std::max(bytes, std::size_t{16})
                                    options:MTLResourceStorageModeShared];
@@ -68,29 +55,10 @@ id<MTLBuffer> Upload(id<MTLDevice> device, const std::vector<T>& values) {
 }
 
 struct Kernels {
-  id<MTLComputePipelineState> prepare;
-  id<MTLComputePipelineState> keys;
-  id<MTLComputePipelineState> histogram;
-  id<MTLComputePipelineState> scan;
-  id<MTLComputePipelineState> add;
-  id<MTLComputePipelineState> scatter;
-  id<MTLComputePipelineState> verify;
-  id<MTLComputePipelineState> gather;
+  merlin::metal::GaussianExecution& execution;
   id<MTLRenderPipelineState> raster;
   id<MTLDepthStencilState> depth;
 };
-
-id<MTLComputePipelineState> Pipeline(id<MTLDevice> device, id<MTLLibrary> library,
-    NSString* name) {
-  auto function = [library newFunctionWithName:name];
-  Require(function != nil, "Missing Metal compute entry point");
-  NSError* error = nil;
-  auto pipeline = [device newComputePipelineStateWithFunction:function error:&error];
-  if (!pipeline) throw std::runtime_error(error.localizedDescription.UTF8String);
-  Require(pipeline.maxTotalThreadsPerThreadgroup >= 256,
-      "Metal device cannot run the portable radix workgroup");
-  return pipeline;
-}
 
 id<MTLRenderPipelineState> RasterPipeline(id<MTLDevice> device, id<MTLLibrary> library) {
   auto descriptor = [MTLRenderPipelineDescriptor new];
@@ -181,22 +149,12 @@ std::array<id<MTLBuffer>, 4> Raster(id<MTLDevice> device,
 std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& kernels,
     FrameSnapshot snapshot, bool dynamic_count = false, bool compare_image = false,
     float opaque_depth = 1.0F, merlin::metal::GaussianResidency* persistent = nullptr,
-    std::uint64_t* attribute_upload_bytes = nullptr) {
+    std::uint64_t* attribute_upload_bytes = nullptr, std::uint64_t* scratch_allocations = nullptr) {
   std::vector<merlin::extraction::GaussianRecord> ordered(snapshot.gaussians.begin(), snapshot.gaussians.end());
   std::sort(ordered.begin(), ordered.end(),
       [](const auto& a, const auto& b) { return a.gaussian < b.gaussian; });
   snapshot.gaussians.assign(std::move(ordered));
   const auto reference = merlin::extraction::PrepareGaussianFrame(snapshot, {320, 192});
-  std::uint32_t total = 0;
-  for (const auto& record : snapshot.gaussians)
-    total += static_cast<std::uint32_t>(record.positions->size());
-  const std::uint32_t padded = std::max(256U, Groups(total, 256) * 256);
-  auto prepared = Buffer(device, padded * sizeof(PreparedRecord));
-  auto source = Buffer(device, padded * sizeof(SortElement));
-  auto destination = Buffer(device, padded * sizeof(SortElement));
-  // Four verification words, then per-resource counts, then hierarchical scan.
-  const auto histogram_offset = 4U + static_cast<std::uint32_t>(snapshot.gaussians.size());
-  auto control = Buffer(device, (histogram_offset + padded * 2U + 16U) * sizeof(std::uint32_t));
   auto command = [queue commandBuffer];
   Require(command != nil, "Metal command allocation failed");
   merlin::metal::GaussianResidency local_residency(device, 64 * 1024 * 1024);
@@ -204,132 +162,15 @@ std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> q
   auto attributes = residency.Prepare(snapshot);
   residency.Encode(attributes, command);
   if (attribute_upload_bytes) *attribute_upload_bytes = attributes->upload_bytes;
-  std::vector<id<MTLBuffer>> counters;
-  std::vector<id<MTLBuffer>> classifications;
-  const auto policy = merlin::extraction::SelectGaussianSortingPolicy(snapshot);
-  auto sort_dispatch = [&](id<MTLComputePipelineState> pipeline,
-                           const SortConstants& constants, std::uint32_t groups) {
-    auto encoder = [command computeCommandEncoder];
-    [encoder setComputePipelineState:pipeline];
-    [encoder setBuffer:source offset:0 atIndex:0];
-    [encoder setBuffer:destination offset:0 atIndex:1];
-    [encoder setBuffer:control offset:0 atIndex:2];
-    [encoder setBuffer:prepared offset:0 atIndex:3];
-    [encoder setBytes:&constants length:sizeof(constants) atIndex:4];
-    [encoder dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
-            threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
-    [encoder endEncoding];
-  };
-  std::uint32_t base = 0;
-  for (std::size_t i = 0; i < snapshot.gaussians.size(); ++i) {
-    const auto& record = snapshot.gaussians[i];
-    const auto count = static_cast<std::uint32_t>(record.positions->size());
-    PrepareConstants constants;
-    constants.local_to_camera = Multiply(snapshot.view, record.transform);
-    constants.projection = snapshot.projection;
-    constants.viewport_size = {320, 192};
-    constants.resource_id_low = static_cast<std::uint32_t>(record.gaussian);
-    constants.resource_id_high = static_cast<std::uint32_t>(record.gaussian >> 32U);
-    constants.particle_count = count;
-    constants.spherical_harmonics_degree = record.spherical_harmonics_degree;
-    constants.coefficients_per_particle = (record.spherical_harmonics_degree + 1U) *
-        (record.spherical_harmonics_degree + 1U);
-    constants.projection_mode = static_cast<std::uint32_t>(record.projection_mode);
-    constants.sorting_mode = static_cast<std::uint32_t>(policy.mode);
-    counters.push_back(Buffer(device, sizeof(PrepareCounters)));
-    classifications.push_back(Buffer(device, count * sizeof(std::uint32_t)));
-    if (count && record.visible) {
-      auto encoder = [command computeCommandEncoder];
-      [encoder setComputePipelineState:kernels.prepare];
-      const auto& resident = attributes->resources[i];
-      [encoder setBuffer:resident.positions->metal offset:0 atIndex:0];
-      [encoder setBuffer:resident.covariances->metal offset:0 atIndex:1];
-      [encoder setBuffer:resident.opacities->metal offset:0 atIndex:2];
-      [encoder setBuffer:resident.radiance->metal offset:0 atIndex:3];
-      [encoder setBuffer:classifications.back() offset:0 atIndex:4];
-      [encoder setBuffer:prepared offset:base * sizeof(PreparedRecord) atIndex:5];
-      [encoder setBuffer:counters.back() offset:0 atIndex:6];
-      [encoder setBytes:&constants length:sizeof(constants) atIndex:7];
-      [encoder dispatchThreadgroups:MTLSizeMake(Groups(count, 64), 1, 1)
-              threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
-      [encoder endEncoding];
-    }
-    auto blit = [command blitCommandEncoder];
-    [blit copyFromBuffer:counters.back() sourceOffset:offsetof(PrepareCounters, visible_count)
-               toBuffer:control destinationOffset:(4 + i) * sizeof(std::uint32_t)
-                   size:sizeof(std::uint32_t)];
-    [blit endEncoding];
-    SortConstants keys;
-    keys.element_count = i + 1 == snapshot.gaussians.size() ? padded - base : count;
-    keys.candidate_base = base;
-    keys.prepared_base = base;
-    keys.visible_count_offset = 4U + static_cast<std::uint32_t>(i);
-    if (keys.element_count) sort_dispatch(kernels.keys, keys, Groups(keys.element_count, 256));
-    base += count;
-  }
-  // A resource-free frame still initializes the sentinel stream on the GPU.
-  if (snapshot.gaussians.empty()) {
-    SortConstants keys;
-    keys.element_count = padded;
-    sort_dispatch(kernels.keys, keys, Groups(padded, 256));
-  }
-  std::swap(source, destination);
-  for (std::uint32_t digit = 0; digit < 8; ++digit) {
-    SortConstants constants;
-    constants.element_count = padded;
-    constants.block_count = Groups(padded, 256);
-    constants.digit_word = digit / 4;
-    constants.digit_shift = (digit % 4) * 8;
-    constants.scan_offset = histogram_offset;
-    if (dynamic_count) {
-      // Single-resource fixtures use the GPU-written visible count. Padding
-      // remains in the buffers but does not participate in this sort.
-      Require(snapshot.gaussians.size() == 1, "Dynamic-count fixture must use one resource");
-      constants.flags = 1;
-      constants.count_word = 4;
-    }
-    sort_dispatch(kernels.histogram, constants, constants.block_count);
-    std::vector<SortConstants> levels;
-    auto level = constants;
-    level.scan_count = padded;
-    for (;;) {
-      level.scan_sums_offset = level.scan_offset + level.scan_count;
-      const auto groups = Groups(level.scan_count, 1024);
-      sort_dispatch(kernels.scan, level, groups);
-      levels.push_back(level);
-      if (groups == 1) break;
-      level.scan_offset = level.scan_sums_offset;
-      level.scan_count = groups;
-    }
-    for (std::size_t i = levels.size() - 1; i > 0; --i)
-      sort_dispatch(kernels.add, levels[i - 1], Groups(levels[i - 1].scan_count, 1024));
-    sort_dispatch(kernels.scatter, constants, constants.block_count);
-    std::swap(source, destination);
-  }
-  SortConstants verify;
-  verify.element_count = dynamic_count ? static_cast<std::uint32_t>(reference.gaussians.size()) : padded;
-  if (verify.element_count) sort_dispatch(kernels.verify, verify, Groups(verify.element_count, 256));
-  auto instances = Buffer(device, (padded + 1U) * sizeof(GaussianInstance));
-  auto draw = Buffer(device, sizeof(MTLDrawPrimitivesIndirectArguments));
-  // Poison every argument and the output tail to catch missing initialization,
-  // stale empty-frame counts, sentinel reads and out-of-bounds stores.
-  std::memset(instances.contents, 0xA5, instances.length);
-  std::memset(draw.contents, 0xA5, draw.length);
-  GatherConstants gather;
-  gather.element_count = total == 0 ? 0 : padded;
-  gather.count_word = 4;
-  gather.flags = dynamic_count ? 1U : 0U;
-  auto encoder = [command computeCommandEncoder];
-  [encoder setComputePipelineState:kernels.gather];
-  [encoder setBuffer:source offset:0 atIndex:0];
-  [encoder setBuffer:prepared offset:0 atIndex:1];
-  [encoder setBuffer:instances offset:0 atIndex:2];
-  [encoder setBuffer:draw offset:0 atIndex:3];
-  [encoder setBytes:&gather length:sizeof(gather) atIndex:4];
-  [encoder setBuffer:control offset:0 atIndex:5];
-  [encoder dispatchThreadgroups:MTLSizeMake(Groups(padded, 256), 1, 1)
-          threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
-  [encoder endEncoding];
+  const auto frame = kernels.execution.Encode(attributes, snapshot.view, snapshot.projection,
+      320, 192, command, dynamic_count, true);
+  if (scratch_allocations) *scratch_allocations = frame->allocation_count;
+  const auto& scratch = *frame->scratch;
+  const auto total = frame->particle_count;
+  const auto padded = frame->padded_count;
+  const auto policy = frame->sorting_policy;
+  auto instances = scratch.instances;
+  auto draw = scratch.draw;
   std::array<id<MTLBuffer>, 4> gpu_image{}, cpu_image{};
   if (compare_image) {
     gpu_image = Raster(device, command, kernels, instances, draw, 0, opaque_depth);
@@ -340,6 +181,28 @@ std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> q
     cpu_image = Raster(device, command, kernels, Upload(device, cpu_instances), nil,
         static_cast<std::uint32_t>(cpu_instances.size()), opaque_depth);
   }
+  // Diagnostic copies happen after all compute and raster work. Production
+  // scheduling consumes only device buffers, including the indirect count.
+  auto readback = [command blitCommandEncoder];
+  const auto read = [&](id<MTLBuffer> source, std::size_t offset, std::size_t bytes) {
+    auto target = Buffer(device, bytes);
+    if (bytes) [readback copyFromBuffer:source sourceOffset:offset toBuffer:target destinationOffset:0 size:bytes];
+    return target;
+  };
+  auto prepared = read(scratch.prepared, 0, scratch.prepared.length);
+  auto source = read(scratch.sort[1], 0, scratch.sort[1].length);
+  auto control = read(scratch.control, 0, scratch.control.length);
+  instances = read(scratch.instances, 0, scratch.instances.length);
+  draw = read(scratch.draw, 0, scratch.draw.length);
+  std::vector<id<MTLBuffer>> counters, classifications;
+  std::size_t base = 0;
+  for (std::size_t i = 0; i < snapshot.gaussians.size(); ++i) {
+    const auto count = snapshot.gaussians[i].positions->size();
+    counters.push_back(read(scratch.counters, i * sizeof(PrepareCounters), sizeof(PrepareCounters)));
+    classifications.push_back(read(scratch.classifications, base * sizeof(std::uint32_t), count * sizeof(std::uint32_t)));
+    base += count;
+  }
+  [readback endEncoding];
   [command commit];
   residency.Commit(attributes);
   [command waitUntilCompleted];
@@ -497,6 +360,150 @@ FrameSnapshot RasterFixture(std::uint32_t count) {
   snapshot.gaussians.assign({record});
   return snapshot;
 }
+template <typename Function>
+void Reject(Function function, merlin::render::RendererErrorCode code,
+    std::source_location location = std::source_location::current()) {
+  try {
+    function();
+  } catch (const merlin::render::RendererError& error) {
+    Require(error.code() == code, "Wrong execution error code");
+    return;
+  }
+  throw std::runtime_error("Expected execution rejection at line " + std::to_string(location.line()));
+}
+
+void TestExecutionLifetime(id<MTLDevice> device, id<MTLCommandQueue> queue, id<MTLLibrary> library) {
+  using merlin::metal::GaussianExecution;
+  using merlin::metal::GaussianResidency;
+  using merlin::render::RendererErrorCode;
+  GaussianResidency residency(device, 1024 * 1024);
+  auto snapshot = RasterFixture(3);
+  auto attributes = residency.Prepare(snapshot);
+  auto upload = [queue commandBuffer];
+  residency.Encode(attributes, upload);
+  [upload commit];
+  residency.Commit(attributes);
+  [upload waitUntilCompleted];
+  Require(upload.status == MTLCommandBufferStatusCompleted, "Lifetime fixture upload failed");
+  const auto encode = [&](GaussianExecution& execution, id<MTLCommandBuffer> command) {
+    return execution.Encode(attributes, snapshot.view, snapshot.projection, 320, 192, command);
+  };
+  std::uint64_t bytes = 0;
+  GaussianExecution probe(device, library, 1024 * 1024);
+  @autoreleasepool {
+    // An encoded but abandoned command must release its lease when destroyed.
+    auto command = [queue commandBuffer];
+    auto frame = encode(probe, command);
+    bytes = frame->scratch->bytes;
+    Require(frame->allocation_count == 8 && frame->dispatch_count == 27,
+        "Unexpected small-frame allocation or dispatch count");
+    frame.reset();
+    probe.Reset();
+    Require(probe.live_bytes() == bytes, "Unsubmitted command lost its scratch lease");
+  }
+  Require(probe.live_bytes() == 0, "Abandoned command leaked scratch");
+
+  GaussianExecution too_small(device, library, bytes - 1);
+  Reject([&] { encode(too_small, [queue commandBuffer]); }, RendererErrorCode::ResourceExhausted);
+  Require(too_small.live_bytes() == 0, "Failed allocation leaked scratch budget");
+  Reject([&] { encode(probe, nil); }, RendererErrorCode::InvalidRequest);
+  auto unretained = [queue commandBufferWithUnretainedReferences];
+  // Metal validation may force resource retention even for this API.
+  if (!unretained.retainedReferences)
+    Reject([&] { encode(probe, unretained); }, RendererErrorCode::InvalidRequest);
+  Reject([&] {
+    probe.Encode(attributes, snapshot.view, snapshot.projection, 0, 192, [queue commandBuffer]);
+  }, RendererErrorCode::InvalidRequest);
+  auto no_resources = residency.Prepare({});
+  Reject([&] {
+    probe.Encode(no_resources, snapshot.view, snapshot.projection, 320, 192, [queue commandBuffer], true);
+  }, RendererErrorCode::InvalidRequest);
+  Require(probe.live_bytes() == 0, "Invalid frame allocated scratch");
+
+  GaussianExecution execution(device, library, bytes * 2);
+  auto gate = [device newSharedEvent];
+  Require(gate != nil, "Shared event allocation failed");
+  struct ReleaseGate {
+    id<MTLSharedEvent> event;
+    ~ReleaseGate() { event.signaledValue = 1; }
+  } release_gate{gate};
+  auto first_command = [queue commandBuffer];
+  [first_command encodeWaitForEvent:gate value:1];
+  auto first = encode(execution, first_command);
+  const auto first_scratch = std::weak_ptr<const GaussianExecution::Scratch>(first->scratch);
+  [first_command commit];
+  auto second_command = [queue commandBuffer];
+  auto second = execution.Encode(no_resources, snapshot.view, snapshot.projection,
+      640, 384, second_command);
+  Require(first->scratch != second->scratch && execution.live_bytes() == bytes + second->scratch->bytes,
+      "Unfinished frames shared mutable scratch or escaped the budget");
+  // Re-read the first draw after the second frame's compute work. A scratch
+  // alias would replace its three instances with the empty frame's zero count.
+  auto first_draw = Buffer(device, 16), second_draw = Buffer(device, 16);
+  auto read = [second_command blitCommandEncoder];
+  [read copyFromBuffer:first->scratch->draw sourceOffset:0 toBuffer:first_draw destinationOffset:0 size:16];
+  [read copyFromBuffer:second->scratch->draw sourceOffset:0 toBuffer:second_draw destinationOffset:0 size:16];
+  [read endEncoding];
+  [second_command commit];
+  Reject([&] { encode(execution, [queue commandBuffer]); }, RendererErrorCode::ResourceExhausted);
+  const auto live = execution.live_bytes();
+  const auto old_attributes = std::weak_ptr<const GaussianResidency::Buffer>(attributes->resources[0].positions);
+  attributes.reset();
+  residency.Reset();
+  Require(!old_attributes.expired(), "Execution lost resident attribute accounting before completion");
+  first.reset();
+  second.reset();
+  execution.Reset();
+  Require(execution.live_bytes() == live && !first_scratch.expired(),
+      "Reset retired unfinished frame scratch");
+  gate.signaledValue = 1;
+  [first_command waitUntilCompleted];
+  [second_command waitUntilCompleted];
+  Require(first_command.status == MTLCommandBufferStatusCompleted &&
+      second_command.status == MTLCommandBufferStatusCompleted, "Blocked execution failed");
+  const auto& old_draw = *static_cast<const MTLDrawPrimitivesIndirectArguments*>(first_draw.contents);
+  const auto& empty_draw = *static_cast<const MTLDrawPrimitivesIndirectArguments*>(second_draw.contents);
+  Require(old_draw.vertexCount == 6 && old_draw.instanceCount == 3 && old_draw.vertexStart == 0 &&
+      old_draw.baseInstance == 0 && empty_draw.vertexCount == 6 && empty_draw.instanceCount == 0 &&
+      empty_draw.vertexStart == 0 && empty_draw.baseInstance == 0,
+      "Concurrent or empty frames corrupted indirect arguments");
+  Require(execution.live_bytes() == 0 && first_scratch.expired(), "Completed commands leaked scratch");
+  Require(old_attributes.expired() && residency.live_bytes() == 0, "Completed execution leaked attributes");
+  attributes = residency.Prepare(snapshot);
+  auto reload = [queue commandBuffer];
+  residency.Encode(attributes, reload);
+  [reload commit];
+  residency.Commit(attributes);
+  [reload waitUntilCompleted];
+
+  // A completed output retained by the caller still holds its lease. Once
+  // released, the next frame reuses buffers even across extent/count changes.
+  auto completed_command = [queue commandBuffer];
+  auto completed = encode(execution, completed_command);
+  [completed_command commit];
+  [completed_command waitUntilCompleted];
+  const auto saved = std::weak_ptr<const GaussianExecution::Scratch>(completed->scratch);
+  auto retained_command = [queue commandBuffer];
+  auto retained = encode(execution, retained_command);
+  Require(retained->scratch != completed->scratch, "Retained completed output was overwritten");
+  [retained_command commit];
+  [retained_command waitUntilCompleted];
+  retained.reset();
+  completed.reset();
+  auto reuse_command = [queue commandBuffer];
+  auto reuse = execution.Encode(attributes, snapshot.view, snapshot.projection,
+      640, 384, reuse_command, true);
+  Require(reuse->allocation_count == 0 && reuse->scratch == saved.lock(), "Completed scratch was not reused");
+  [reuse_command commit];
+  [reuse_command waitUntilCompleted];
+  Reject([&] { encode(execution, reuse_command); }, RendererErrorCode::InvalidRequest);
+  reuse.reset();
+  execution.Reset();
+  Require(execution.live_bytes() == 0, "Idle reset leaked scratch");
+  std::cout << "Scratch lifetime: frame=" << bytes
+            << " bytes, static/resize reuse=0 allocations, blocked/reset/budget checks passed\n";
+}
+
 void CompareResidentFrames(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& kernels) {
   merlin::metal::GaussianResidency residency(device, 64 * 1024 * 1024);
   auto snapshot = RasterFixture(3);
@@ -504,9 +511,9 @@ void CompareResidentFrames(id<MTLDevice> device, id<MTLCommandQueue> queue, cons
   auto record = snapshot.gaussians[0];
   record.revision = 1;
   snapshot.gaussians.assign({record});
-  std::uint64_t bytes = 0;
+  std::uint64_t bytes = 0, allocations = 0;
   const auto compare = [&] {
-    Compare(device, queue, kernels, snapshot, false, true, 1.0F, &residency, &bytes);
+    Compare(device, queue, kernels, snapshot, false, true, 1.0F, &residency, &bytes, &allocations);
   };
   compare();
   const auto initial_bytes = bytes;
@@ -514,9 +521,11 @@ void CompareResidentFrames(id<MTLDevice> device, id<MTLCommandQueue> queue, cons
       "Initial resident upload differs from source attributes");
   compare();
   Require(bytes == 0, "Static frame reuploaded source attributes");
+  Require(allocations == 0, "Static frame reallocated scratch");
   snapshot.view.values[12] = 0.125F;
   compare();
   Require(bytes == 0, "Camera motion reuploaded source attributes");
+  Require(allocations == 0, "Camera motion reallocated scratch");
   record.revision = 2;
   record.transform.values[13] = -0.125F;
   snapshot.gaussians.assign({record});
@@ -576,16 +585,10 @@ int main(int argc, char** argv) {
       if (!library) throw std::runtime_error(error.localizedDescription.UTF8String);
       auto queue = [device newCommandQueue];
       Require(queue != nil, "Metal queue creation failed");
-      const Kernels kernels{
-          Pipeline(device, library, @"gaussian_prepare_compact"),
-          Pipeline(device, library, @"gaussian_sort_keys"),
-          Pipeline(device, library, @"gaussian_sort_histogram"),
-          Pipeline(device, library, @"gaussian_sort_scan_blocks"),
-          Pipeline(device, library, @"gaussian_sort_scan_add"),
-          Pipeline(device, library, @"gaussian_sort_scatter"),
-          Pipeline(device, library, @"gaussian_sort_verify"),
-          Pipeline(device, library, @"gaussian_metal_gather"),
+      merlin::metal::GaussianExecution execution(device, library, 64 * 1024 * 1024);
+      const Kernels kernels{execution,
           RasterPipeline(device, library), DepthState(device)};
+      TestExecutionLifetime(device, queue, library);
       CompareResidentFrames(device, queue, kernels);
       Compare(device, queue, kernels, {}, false, true);
       const auto image = Compare(device, queue, kernels, RasterFixture(3), false, true);
