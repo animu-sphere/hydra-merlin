@@ -3,6 +3,10 @@
 **Primary backend:** Vulkan first; Metal parity follows
 **Scene interface:** Hydra 2 and the standard OpenUSD Gaussian representation
 
+The [Metal execution plan](metal-gaussian-execution.md) records the proposed
+Slang migration, GPU implementation order and validation gates for Metal. This
+document remains the shared pipeline contract.
+
 ## Principles
 
 Gaussian rendering consumes Hydra primitives, attributes, transforms,
