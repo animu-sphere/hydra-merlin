@@ -10,6 +10,20 @@ after its public API and release process are established.
 
 ### Added
 
+- Metal Gaussian splat rendering shares the CPU projection, covariance, SH
+  evaluation and sorting reference with Vulkan, and adds native ellipse
+  rasterization, alpha blending, opaque-mesh depth tests and picking IDs.
+  Immutable prepared streams are reused across static frames and retained
+  safely across in-flight camera/scene edits. GPU preparation remains
+  unsupported on Metal (`prefer` falls back, `require` rejects).
+- Metal Gaussian image tests cover orientation, anisotropy, compositing,
+  AOVs, camera/resize changes, visibility and in-flight stream lifetime.
+  The CPU Gaussian preparation suite now also runs without Vulkan.
+- Native viewport regression logging requests depth readback before measuring
+  coverage, avoiding an empty-buffer crash when capturing color on Metal.
+
+
+
 - The opt-in `gpu-driven-diverse-objects` benchmark extends Mesh submission
   evidence to 16 triangle/quad meshes and eight basic materials at 1k/10k/100k
   instances. Static and camera-motion phases require zero CPU draw visits,

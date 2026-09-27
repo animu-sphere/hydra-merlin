@@ -1,4 +1,4 @@
-#include "gaussian_preparation.hpp"
+#include <merlin/extraction/gaussian_preparation.hpp>
 
 #include <cassert>
 #include <cmath>
@@ -44,9 +44,9 @@ merlin::extraction::GaussianRecord MakeRecord(
 } // namespace
 
 int main() {
-  using merlin::vulkan::detail::EvaluateGaussianRadiance;
-  using merlin::vulkan::detail::PrepareGaussianFrame;
-  using merlin::vulkan::detail::SelectGaussianSortingPolicy;
+  using merlin::extraction::EvaluateGaussianRadiance;
+  using merlin::extraction::PrepareGaussianFrame;
+  using merlin::extraction::SelectGaussianSortingPolicy;
 
   // Degree-zero authored radiance follows the real SH normalization and the
   // 3DGS +0.5 display bias without prematurely clamping HDR values.
@@ -131,8 +131,7 @@ int main() {
   // Far-plane bounds stay conservative.
   merlin::extraction::FrameSnapshot depth_boundary_snapshot;
   depth_boundary_snapshot.gaussians.push_back(MakeRecord(
-      13, {{0.0F, 0.0F, -0.01F}, {0.0F, 0.0F, -0.04F},
-              {0.0F, 0.0F, 1.01F}},
+      13, {{0.0F, 0.0F, -0.01F}, {0.0F, 0.0F, -0.04F}, {0.0F, 0.0F, 1.01F}},
       {1.0F, 1.0F, 1.0F}));
   const auto depth_boundary =
       PrepareGaussianFrame(depth_boundary_snapshot, {100, 100});

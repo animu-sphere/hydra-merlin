@@ -1784,7 +1784,7 @@ public:
     }
     // Regression evidence uses depth coverage even when the host binds only a
     // display color product.
-    if (!presentation) {
+    if (!presentation || RegressionLogPath()) {
       request_product(merlin::Aov::Depth);
     }
     auto token = renderer_->Submit(request);
@@ -1920,7 +1920,8 @@ public:
         for (std::uint32_t y = 0; y < result.depth.product.height; ++y) {
           for (std::uint32_t x = 0; x < result.depth.product.width; ++x) {
             const auto index =
-                static_cast<std::size_t>(y) * result.depth.product.width + x;
+                static_cast<std::size_t>(y) *
+                    (result.depth.row_pitch_bytes / sizeof(float)) + x;
             if (result.depth.pixels[index] < 1.0F) {
               ++covered_pixels;
               covered_x_sum += x;

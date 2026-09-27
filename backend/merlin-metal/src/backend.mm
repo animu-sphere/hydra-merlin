@@ -3,6 +3,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <merlin/metal/backend.hpp>
+#include <merlin/extraction/gaussian_preparation.hpp>
 
 #include <algorithm>
 #include <array>
@@ -139,6 +140,23 @@ static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
 static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
+
+// Matches the packed MSL storage record below (float3 has 16-byte alignment
+// in MSL unless explicitly packed). IDs follow the existing Vulkan AOV ABI.
+struct GaussianInstance {
+  Vec2 center;
+  Vec3 conic;
+  Vec3 radiance;
+  float opacity;
+  float radius;
+  float depth;
+  std::uint32_t resource;
+  std::uint32_t particle;
+};
+static_assert(sizeof(GaussianInstance) == 52);
+static_assert(offsetof(GaussianInstance, conic) == 8);
+static_assert(offsetof(GaussianInstance, radiance) == 20);
+static_assert(offsetof(GaussianInstance, resource) == 44);
 
 const char* kShaderSource = R"METAL(
 #include <metal_stdlib>
@@ -427,6 +445,59 @@ fragment float4 merlin_presentation_fragment(
         dot(float3(0.01708535, 0.07239572, 0.91030148), result.rgb));
   }
   return result;
+}
+
+struct GaussianInstance {
+  packed_float2 center;
+  packed_float3 conic;
+  packed_float3 radiance;
+  float opacity;
+  float radius;
+  float depth;
+  uint resource;
+  uint particle;
+};
+struct GaussianVertexOutput {
+  float4 position [[position]];
+  float2 delta;
+  float3 conic [[flat]];
+  float3 radiance [[flat]];
+  float opacity [[flat]];
+  uint resource [[flat]];
+  uint particle [[flat]];
+};
+vertex GaussianVertexOutput merlin_gaussian_vertex(
+    uint vertex_id [[vertex_id]], uint instance_id [[instance_id]],
+    device const GaussianInstance* instances [[buffer(0)]],
+    constant float2& inverse_extent [[buffer(1)]]) {
+  const float2 corners[6] = {float2(-1,-1), float2(1,-1), float2(1,1),
+      float2(-1,-1), float2(1,1), float2(-1,1)};
+  GaussianInstance g = instances[instance_id];
+  GaussianVertexOutput o;
+  o.delta = corners[vertex_id] * g.radius;
+  float2 ndc = (float2(g.center) + o.delta) * (2.0f * inverse_extent) - 1.0f;
+  // Preparation uses the supplied projection's NDC axes. Metal's viewport
+  // flips Y for both the center and ellipse, just as it does for meshes.
+  o.position = float4(ndc, g.depth, 1.0f);
+  o.conic = g.conic;
+  o.radiance = g.radiance;
+  o.opacity = g.opacity;
+  o.resource = g.resource;
+  o.particle = g.particle;
+  return o;
+}
+fragment FragmentOutput merlin_gaussian_fragment(GaussianVertexOutput i [[stage_in]]) {
+  float power = dot(i.delta, float2(
+      i.conic.x * i.delta.x + i.conic.y * i.delta.y,
+      i.conic.y * i.delta.x + i.conic.z * i.delta.y));
+  if (power > 9.0f) discard_fragment();
+  float alpha = i.opacity * exp(-0.5f * power);
+  if (alpha < 1.0f / 255.0f) discard_fragment();
+  FragmentOutput o;
+  o.color = float4(max(i.radiance, float3(0)), alpha);
+  o.prim_id = i.resource;
+  o.instance_id = i.particle;
+  return o;
 }
 )METAL";
 
@@ -783,6 +854,7 @@ public:
       if (bindless_) {
         EncodeArgumentBuffer(frame, build);
       }
+      PrepareGaussians(request, frame, build);
       PrepareGpuSceneUpdate(*request.snapshot,
           request.gpu_scene_update.get(), frame, build);
 
@@ -857,6 +929,9 @@ public:
         ++pending.result.telemetry.gaussian_gpu_fallback_count;
       }
       pending.result.timings.upload_ns = build.upload_ns;
+      pending.result.timings.gaussian_preparation_ns = build.gaussian_preparation_ns;
+      pending.result.timings.gaussian_prepared_upload_ns = build.gaussian_upload_ns;
+      pending.result.timings.gaussian_raster_ns = build.gaussian_raster_ns;
       pending.result.timings.command_recording_ns =
           DurationNs(record_begin, record_end);
       pending.result.timings.presentation_ns = build.presentation_ns;
@@ -1134,6 +1209,10 @@ private:
     id<MTLBuffer> instance_readback;
     id<MTLBuffer> argument_buffer;
     id<MTLBuffer> gpu_scene_staging = nil;
+    // Retain immutable prepared data until this frame completes. A camera or
+    // scene edit allocates a new stream without overwriting in-flight frames.
+    id<MTLBuffer> gaussian_instances = nil;
+    NSUInteger gaussian_count{};
     std::vector<std::uint64_t> encoded_textures;
     std::vector<std::uint64_t> encoded_texture_revisions;
     std::vector<std::uint64_t> encoded_samplers;
@@ -1158,6 +1237,9 @@ private:
     render::FrameTelemetry telemetry;
     std::uint64_t upload_ns{};
     std::uint64_t presentation_ns{};
+    std::uint64_t gaussian_preparation_ns{};
+    std::uint64_t gaussian_upload_ns{};
+    std::uint64_t gaussian_raster_ns{};
     bool has_gpu_scene_update{};
     std::uint64_t gpu_scene_source_id{};
     std::uint64_t gpu_scene_revision{};
@@ -1632,6 +1714,26 @@ private:
             "fragment argument encoder is unavailable");
       }
     }
+    MTLRenderPipelineDescriptor* gaussian = [MTLRenderPipelineDescriptor new];
+    gaussian.label = @"hdMerlin Gaussian";
+    gaussian.vertexFunction = [library_ newFunctionWithName:@"merlin_gaussian_vertex"];
+    gaussian.fragmentFunction = [library_ newFunctionWithName:@"merlin_gaussian_fragment"];
+    gaussian.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    gaussian.colorAttachments[0].blendingEnabled = YES;
+    gaussian.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    gaussian.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    gaussian.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+    gaussian.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    gaussian.colorAttachments[1].pixelFormat = MTLPixelFormatR32Uint;
+    gaussian.colorAttachments[2].pixelFormat = MTLPixelFormatR32Uint;
+    gaussian.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    gaussian_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:gaussian error:&error];
+    if (gaussian_pipeline_ == nil) {
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "create Metal Gaussian pipeline",
+          error == nil ? "newRenderPipelineState returned nil" : String(error.localizedDescription),
+          static_cast<std::int32_t>(error.code));
+    }
     if (options_.presentation) {
       id<MTLFunction> presentation_vertex =
           [library_ newFunctionWithName:@"merlin_presentation_vertex"];
@@ -1742,6 +1844,12 @@ private:
       throw render::RendererError(render::RendererErrorCode::BackendFailure,
           "create Metal depth state",
           "newDepthStencilState returned nil");
+    }
+    descriptor.depthWriteEnabled = NO;
+    gaussian_depth_state_ = [device_ newDepthStencilStateWithDescriptor:descriptor];
+    if (gaussian_depth_state_ == nil) {
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "create Metal Gaussian depth state", "newDepthStencilState returned nil");
     }
   }
 
@@ -2230,6 +2338,73 @@ private:
     return result;
   }
 
+  void PrepareGaussians(const render::RenderRequest& request,
+      FrameContext& frame, FrameBuild& build) {
+    const auto& snapshot = *request.snapshot;
+    const bool cache_hit = gaussian_cache_valid_ &&
+                           gaussian_source_.table_identity() == snapshot.gaussians.table_identity() &&
+                           gaussian_view_.values == snapshot.view.values &&
+                           gaussian_projection_.values == snapshot.projection.values &&
+                           gaussian_width_ == request.width && gaussian_height_ == request.height;
+    if (cache_hit) {
+      ++build.telemetry.gaussian_preparation_cache_hits;
+    } else {
+      const auto begin = Clock::now();
+      const auto prepared = extraction::PrepareGaussianFrame(
+          snapshot, {request.width, request.height});
+      build.gaussian_preparation_ns = DurationNs(begin, Clock::now());
+      const auto count = prepared.gaussians.size();
+      if (count > std::numeric_limits<std::uint32_t>::max() ||
+          count > device_.maxBufferLength / sizeof(GaussianInstance)) {
+        throw render::RendererError(render::RendererErrorCode::Unsupported,
+            "prepare Metal Gaussians", "prepared stream exceeds the Metal buffer limit");
+      }
+      const auto upload_begin = Clock::now();
+      id<MTLBuffer> buffer = nil;
+      const auto bytes = count * sizeof(GaussianInstance);
+      if (bytes != 0) {
+        buffer = [device_ newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+        if (buffer == nil) {
+          throw render::RendererError(render::RendererErrorCode::BackendFailure,
+              "upload Metal Gaussians", "could not allocate the prepared stream");
+        }
+        buffer.label = @"hdMerlin immutable Gaussian stream";
+        auto* target = static_cast<GaussianInstance*>(buffer.contents);
+        for (std::size_t i = 0; i < count; ++i) {
+          const auto& g = prepared.gaussians[i];
+          target[i] = {g.center_pixels, g.inverse_conic, g.radiance,
+              g.opacity, g.radius_pixels, g.depth,
+              static_cast<std::uint32_t>(g.resource), g.particle};
+        }
+        ++build.telemetry.allocation_count;
+      }
+      // Publish the cache only after preparation and upload both succeed.
+      gaussian_buffer_ = buffer;
+      gaussian_counters_ = prepared.counters;
+      gaussian_source_ = snapshot.gaussians;
+      gaussian_view_ = snapshot.view;
+      gaussian_projection_ = snapshot.projection;
+      gaussian_width_ = request.width;
+      gaussian_height_ = request.height;
+      gaussian_cache_valid_ = true;
+      ++build.telemetry.gaussian_preparation_cache_misses;
+      build.telemetry.gaussian_upload_bytes += bytes;
+      build.telemetry.upload_bytes += bytes;
+      build.gaussian_upload_ns = DurationNs(upload_begin, Clock::now());
+      build.upload_ns += build.gaussian_upload_ns;
+    }
+    frame.gaussian_instances = gaussian_buffer_;
+    frame.gaussian_count = gaussian_counters_.visible_count;
+    build.telemetry.gaussian_candidate_count = gaussian_counters_.candidate_count;
+    build.telemetry.gaussian_visible_count = gaussian_counters_.visible_count;
+    build.telemetry.gaussian_hidden_count = gaussian_counters_.hidden_count;
+    build.telemetry.gaussian_opacity_culled_count = gaussian_counters_.opacity_culled_count;
+    build.telemetry.gaussian_frustum_culled_count = gaussian_counters_.frustum_culled_count;
+    build.telemetry.gaussian_invalid_culled_count = gaussian_counters_.invalid_culled_count;
+    build.telemetry.gaussian_sorted_count = gaussian_counters_.sorted_count;
+    build.telemetry.gaussian_sorting_policy_fallback_count = gaussian_counters_.sorting_policy_fallback_count;
+  }
+
   void EncodeRender(id<MTLCommandBuffer> command, FrameContext& frame,
       const render::RenderRequest& request, FrameBuild& build) {
     MTLRenderPassDescriptor* pass =
@@ -2474,6 +2649,24 @@ private:
       build.telemetry.triangle_count += geometry->second.index_count / 3U;
       ++build.telemetry.visible_primitive_count;
     }
+    if (frame.gaussian_count != 0) {
+      const auto begin = Clock::now();
+      [encoder setRenderPipelineState:gaussian_pipeline_];
+      [encoder setDepthStencilState:gaussian_depth_state_];
+      [encoder setCullMode:MTLCullModeNone];
+      [encoder setVertexBuffer:frame.gaussian_instances offset:0 atIndex:0];
+      const Vec2 inverse_extent{1.0F / request.width, 1.0F / request.height};
+      [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:1];
+      // Color blends back-to-front; integer IDs retain the nearest contributing
+      // particle. Test against opaque mesh depth without replacing that depth.
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                  vertexStart:0
+                  vertexCount:6
+                instanceCount:frame.gaussian_count];
+      ++build.telemetry.gaussian_draw_count;
+      ++build.telemetry.draw_count;
+      build.gaussian_raster_ns = DurationNs(begin, Clock::now());
+    }
     [encoder endEncoding];
   }
 
@@ -2691,6 +2884,16 @@ private:
   id<MTLRenderPipelineState> gpu_scene_pipeline_;
   id<MTLRenderPipelineState> presentation_pipeline_;
   id<MTLDepthStencilState> depth_state_;
+  id<MTLRenderPipelineState> gaussian_pipeline_;
+  id<MTLDepthStencilState> gaussian_depth_state_;
+  id<MTLBuffer> gaussian_buffer_ = nil;
+  extraction::PersistentTable<extraction::GaussianRecord> gaussian_source_;
+  extraction::GaussianPreparationCounters gaussian_counters_;
+  Mat4 gaussian_view_;
+  Mat4 gaussian_projection_;
+  std::uint32_t gaussian_width_{};
+  std::uint32_t gaussian_height_{};
+  bool gaussian_cache_valid_{};
   id<MTLArgumentEncoder> argument_encoder_;
   id<MTLHeap> heap_;
   CAMetalLayer* layer_;
@@ -2781,7 +2984,8 @@ render::RenderResult Backend::Resolve(render::CompletionToken token,
   return impl_->Resolve(token, timeout);
 }
 
-BackendFactory::BackendFactory(BackendOptions options) : options_(options) {
+BackendFactory::BackendFactory(BackendOptions options)
+    : options_(options) {
 }
 
 render::BackendKind BackendFactory::kind() const noexcept {

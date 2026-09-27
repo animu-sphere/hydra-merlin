@@ -51,6 +51,13 @@ ost renderer viewport --intent viewport-usd --profile usd -- `
   --usd C:/path/to/gaussians.usd --gaussian-gpu prefer --gaussian-raster tiled
 ```
 
+Metal supports Gaussian splats through shared CPU projection/SH evaluation
+and sorting, followed by native Metal ellipse rasterization. It supports
+alpha composition with opaque meshes and resource/particle picking IDs.
+Unchanged frames reuse the prepared stream. GPU preparation/sorting and tile
+rasterization remain Vulkan-only: on Metal use `--gaussian-gpu disabled`
+(the default), or `prefer` for CPU fallback; `require` is unsupported.
+
 `prefer` falls back per stage when a GPU stage is unavailable, and the
 developer UI's Gaussian counters show the selected path. `require` is rejected
 when GPU Gaussian execution is unavailable.
