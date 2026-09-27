@@ -21,9 +21,11 @@ ownership, dependency, and fallback contracts.
   Reference raster math is shared through Slang and an embedded metallib, with
   ABI, artifact identity, install-consumer and local Apple GPU image checks.
   GPU preparation/SH/radix-sort kernels are also shared and checked against the
-  CPU reference on Apple GPU. Controlled static/motion/edit captures, native
-  viewport/HgiMetal rechecks, persistent attribute residency and complete GPU
-  execution through raster remain open.
+  CPU reference on Apple GPU. The offscreen harness now connects GPU gather
+  and indirect raster with color/depth/ID comparisons and no intermediate CPU
+  readback. Controlled static/motion/edit captures, native viewport/HgiMetal
+  rechecks, persistent attribute residency and renderer scheduling through
+  raster remain open.
 
 - 🚧 Recheck the Hydra CPU-readback floor in usdview after preferring
   host-cached coherent Vulkan AOV buffers. Local RTX A5000 headless evidence

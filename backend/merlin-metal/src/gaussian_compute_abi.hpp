@@ -48,6 +48,13 @@ struct PrepareCounters {
   std::uint32_t padding[3]{};
 };
 
+struct GatherConstants {
+  std::uint32_t element_count{};
+  std::uint32_t count_word{};
+  std::uint32_t flags{};
+  std::uint32_t padding{};
+};
+
 struct SortElement {
   std::uint32_t key_low{};
   std::uint32_t key_high{};
@@ -82,6 +89,9 @@ static_assert(offsetof(PreparedRecord, sort_key) == 44);
 static_assert(offsetof(PreparedRecord, resource_id_low) == 48);
 static_assert(offsetof(PreparedRecord, particle_id) == 56);
 static_assert(sizeof(PrepareCounters) == 32);
+static_assert(sizeof(GatherConstants) == 16);
+static_assert(offsetof(GatherConstants, count_word) == 4);
+static_assert(offsetof(GatherConstants, flags) == 8);
 static_assert(sizeof(SortElement) == 12);
 static_assert(sizeof(SortConstants) == 48);
 static_assert(offsetof(SortConstants, scan_offset) == 16);

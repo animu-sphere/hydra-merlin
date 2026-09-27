@@ -70,7 +70,17 @@ jobs:
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
 
       - name: Test source and install-tree consumers
-        run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure
+        run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure --output-junit test-results.xml
+
+      - name: Upload Metal test evidence
+        if: always() && matrix.preset == 'metal'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: metal-tests-${{ matrix.os }}-${{ matrix.build_type }}
+          if-no-files-found: warn
+          path: |
+            build/test-results.xml
+            build/Testing/Temporary/LastTest.log
 
   materialx:
     name: MaterialX generation / ${{ matrix.os }} / ${{ matrix.build_type }}

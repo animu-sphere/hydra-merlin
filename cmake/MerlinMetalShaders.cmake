@@ -16,7 +16,8 @@ macro(merlin_add_metal_shaders)
   set(_metal_entries
     "gaussian-metal.slang|gaussian_metal_vertex|vertex|gaussian.vertex|gaussian-reference|prepared_stream+ellipse+color+ids"
     "gaussian-metal.slang|gaussian_metal_fragment|fragment|gaussian.fragment|gaussian-reference|prepared_stream+ellipse+color+ids"
-    "gaussian-prepare-metal.slang|gaussian_prepare_compact|compute|gaussian.prepare|gaussian-prepare|projection+sh+compaction")
+    "gaussian-prepare-metal.slang|gaussian_prepare_compact|compute|gaussian.prepare|gaussian-prepare|projection+sh+compaction"
+    "gaussian-gather-metal.slang|gaussian_metal_gather|compute|gaussian.gather|gaussian-gather|sorted_stream+indirect_draw")
   foreach(_sort keys histogram scan_blocks scan_add scatter verify)
     list(APPEND _metal_entries
       "gaussian-sort-metal.slang|gaussian_sort_${_sort}|compute|gaussian.sort-${_sort}|gaussian-sort-${_sort}|deterministic_radix_sort")
