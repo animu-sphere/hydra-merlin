@@ -39,3 +39,84 @@ foreach(_binding "gaussian_instances_[0-9]+ \\[\\[buffer\\(0\\)\\]\\]"
     message(FATAL_ERROR "Generated Metal binding is missing: ${_binding}")
   endif()
 endforeach()
+
+# Compute wrappers bind one Metal buffer namespace. Check both reflection and
+# emitted attributes, including kernels where dead resources are optimized out.
+function(check_compute _file _entry _threads)
+  file(READ "${MERLIN_METAL_SHADER_DIR}/${_file}.metal.reflection.json" _json)
+  file(READ "${MERLIN_METAL_SHADER_DIR}/${_file}.metal" _source)
+  require_json("${_json}" "${_entry}" entryPoints 0 name)
+  require_json("${_json}" compute entryPoints 0 stage)
+  require_json("${_json}" "${_threads}" entryPoints 0 threadGroupSize 0)
+  require_json("${_json}" 1 entryPoints 0 threadGroupSize 1)
+  require_json("${_json}" 1 entryPoints 0 threadGroupSize 2)
+  set(_index 0)
+  foreach(_binding IN LISTS ARGN)
+    string(REPLACE ":" ";" _parts "${_binding}")
+    list(GET _parts 0 _name)
+    list(GET _parts 1 _slot)
+    require_json("${_json}" "${_name}" parameters ${_index} name)
+    if(_name MATCHES "_constants$")
+      require_json("${_json}" constantBuffer parameters ${_index} binding kind)
+      require_json("${_json}" "${_slot}" parameters ${_index} binding index)
+    else()
+      require_json("${_json}" constantBuffer parameters ${_index} bindings 0 kind)
+      require_json("${_json}" "${_slot}" parameters ${_index} bindings 0 index)
+    endif()
+    # Only bindings actually used by this entry point appear in the MSL.
+    if(_source MATCHES "${_name}_[0-9]+ \\[\\[buffer")
+      if(NOT _source MATCHES "${_name}_[0-9]+ \\[\\[buffer\\(${_slot}\\)\\]\\]")
+        message(FATAL_ERROR "Generated compute binding differs: ${_name}")
+      endif()
+    endif()
+    math(EXPR _index "${_index} + 1")
+  endforeach()
+  set(_compute_json "${_json}" PARENT_SCOPE)
+endfunction()
+
+function(check_fields _json _parameter _names _offsets)
+  set(_index 0)
+  foreach(_name IN LISTS _names)
+    list(GET _offsets ${_index} _offset)
+    require_json("${_json}" "${_name}" parameters ${_parameter} type elementType fields ${_index} name)
+    require_json("${_json}" "${_offset}" parameters ${_parameter} type elementType fields ${_index} binding offset)
+    math(EXPR _index "${_index} + 1")
+  endforeach()
+endfunction()
+
+check_compute(gaussian.prepare gaussian_prepare_compact 64
+  gaussian_prepare_constants:7 gaussian_positions:0 gaussian_covariances:1
+  gaussian_opacities:2 gaussian_radiance:3 gaussian_candidate_results:4
+  gaussian_prepared_records:5 gaussian_prepare_counters:6)
+require_json("${_compute_json}" 176 parameters 0 type elementVarLayout binding size)
+check_fields("${_compute_json}" 0
+  "local_to_camera;projection;viewport_size;sigma_extent;minimum_variance_pixels;resource_id_low;resource_id_high;particle_count;coefficients_per_particle;spherical_harmonics_degree;projection_mode;sorting_mode;padding"
+  "0;64;128;136;140;144;148;152;156;160;164;168;172")
+foreach(_matrix 0 1)
+  require_json("${_compute_json}" matrix parameters 0 type elementType fields ${_matrix} type kind)
+  require_json("${_compute_json}" 4 parameters 0 type elementType fields ${_matrix} type rowCount)
+  require_json("${_compute_json}" 4 parameters 0 type elementType fields ${_matrix} type columnCount)
+endforeach()
+require_json("${_compute_json}" byteAddressBuffer parameters 6 type baseShape)
+# The native counter struct consists entirely of 32-bit words.
+foreach(_field RANGE 0 7)
+  math(EXPR _offset "${_field} * 4")
+  require_json("${_compute_json}" "${_offset}" parameters 7 type resultType fields ${_field} binding offset)
+endforeach()
+foreach(_sort keys histogram scan_blocks scan_add scatter verify)
+  check_compute("gaussian.sort-${_sort}" "gaussian_sort_${_sort}" 256
+    gaussian_sort_constants:4 gaussian_sort_source:0 gaussian_sort_destination:1
+    gaussian_sort_scan:2 gaussian_sort_prepared_records:3)
+  require_json("${_compute_json}" 48 parameters 0 type elementVarLayout binding size)
+  check_fields("${_compute_json}" 0
+    "element_count;block_count;digit_shift;digit_word;scan_offset;scan_count;scan_sums_offset;candidate_base;prepared_base;visible_count_offset;count_word;flags"
+    "0;4;8;12;16;20;24;28;32;36;40;44")
+  require_json("${_compute_json}" byteAddressBuffer parameters 4 type baseShape)
+  foreach(_parameter 1 2)
+    foreach(_field RANGE 0 2)
+      math(EXPR _offset "${_field} * 4")
+      require_json("${_compute_json}" "${_offset}" parameters ${_parameter} type resultType fields ${_field} binding offset)
+      require_json("${_compute_json}" 4 parameters ${_parameter} type resultType fields ${_field} binding size)
+    endforeach()
+  endforeach()
+endforeach()

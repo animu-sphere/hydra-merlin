@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Shared Slang Gaussian projection, covariance, SH, culling/compaction and
+  deterministic radix-sort kernels now compile into the Metal Gaussian library.
+  Native Metal buffer bindings and a scalar 64-byte prepared-record ABI have
+  reflection, install-package and Apple GPU comparisons against the CPU
+  reference. These kernels are not yet connected to Metal renderer scheduling;
+  interactive rendering still uses CPU preparation and sorting.
+
 - Metal Gaussian reference rasterization now uses shared Slang ellipse/alpha
   math with Vulkan. Slang 2026.8.x and Xcode compile an embedded metallib during
   the build; installed consumers do not compile Gaussian shaders at runtime.
@@ -282,6 +289,11 @@ after its public API and release process are established.
   producer.
 
 ### Fixed
+
+- Shared GPU Gaussian preparation now applies the inverse local-to-camera
+  matrix when evaluating directional SH. The previous inverse-transpose
+  calculation changed radiance under rotation and nonuniform scale; a Metal
+  compute regression compares transformed degree-three SH with the CPU path.
 
 - Zooming into a Gaussian scene no longer floods the view with a single
   color in usdview or the development viewport. CPU and GPU preparation

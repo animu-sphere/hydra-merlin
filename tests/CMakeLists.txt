@@ -210,7 +210,7 @@ if(TARGET Merlin::Metal)
   add_dependencies(merlin-metal-shader-artifact-key-tests merlin-metal-shaders)
   add_test(NAME merlin-metal-shader-artifact-key
     COMMAND merlin-metal-shader-artifact-key-tests
-      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 2 1)
+      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 9 3)
   set_tests_properties(merlin-metal-shader-artifact-key PROPERTIES LABELS "metal;shader;cache")
 
   add_executable(merlin-metal-gaussian-tests metal_gaussian_test.cpp)
@@ -219,6 +219,20 @@ if(TARGET Merlin::Metal)
   add_test(NAME merlin-metal-gaussian COMMAND merlin-metal-gaussian-tests)
   set_tests_properties(merlin-metal-gaussian PROPERTIES
     LABELS "metal;gaussian;gpu;image;aov"
+    SKIP_RETURN_CODE 77 TIMEOUT 60)
+
+  add_executable(merlin-metal-gaussian-compute-tests metal_gaussian_compute_test.mm)
+  merlin_target_defaults(merlin-metal-gaussian-compute-tests)
+  target_link_libraries(merlin-metal-gaussian-compute-tests PRIVATE Merlin::Metal)
+  target_compile_options(merlin-metal-gaussian-compute-tests PRIVATE -fobjc-arc)
+  set_target_properties(merlin-metal-gaussian-compute-tests PROPERTIES
+    OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+  add_dependencies(merlin-metal-gaussian-compute-tests merlin-metal-shaders)
+  add_test(NAME merlin-metal-gaussian-compute
+    COMMAND merlin-metal-gaussian-compute-tests
+      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/gaussian.metallib")
+  set_tests_properties(merlin-metal-gaussian-compute PROPERTIES
+    LABELS "metal;gaussian;gpu;compute;cpu-reference"
     SKIP_RETURN_CODE 77 TIMEOUT 60)
 
   add_executable(merlin-metal-resource-table-tests
