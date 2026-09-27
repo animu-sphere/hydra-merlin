@@ -120,3 +120,17 @@ foreach(_sort keys histogram scan_blocks scan_add scatter verify)
     endforeach()
   endforeach()
 endforeach()
+
+check_compute(gaussian.gather gaussian_metal_gather 256
+  gaussian_gather_constants:4 gaussian_gather_sorted:0 gaussian_gather_prepared:1
+  gaussian_gather_instances:2 gaussian_gather_draw:3 gaussian_gather_counts:5)
+require_json("${_compute_json}" 16 parameters 0 type elementVarLayout binding size)
+check_fields("${_compute_json}" 0 "element_count;count_word;flags;padding" "0;4;8;12")
+foreach(_parameter 2 3)
+  require_json("${_compute_json}" byteAddressBuffer parameters ${_parameter} type baseShape)
+endforeach()
+foreach(_field RANGE 0 2)
+  math(EXPR _offset "${_field} * 4")
+  require_json("${_compute_json}" "${_offset}" parameters 1 type resultType fields ${_field} binding offset)
+  require_json("${_compute_json}" 4 parameters 1 type resultType fields ${_field} binding size)
+endforeach()

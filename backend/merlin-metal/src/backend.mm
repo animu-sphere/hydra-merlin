@@ -4,7 +4,7 @@
 
 #include <merlin/metal/backend.hpp>
 #include "gaussian_metallib.hpp"
-#include "../../../core/merlin-render-backend/shaders/gaussian-raster-abi.slang"
+#include "gaussian_raster_abi.hpp"
 #include <merlin/extraction/gaussian_preparation.hpp>
 
 #include <algorithm>
@@ -143,28 +143,6 @@ static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
 static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
 
-// Scalar layout consumed by gaussian-metal.slang byte-address loads.
-// IDs follow the existing Vulkan AOV ABI.
-struct GaussianInstance {
-  Vec2 center;
-  Vec3 conic;
-  Vec3 radiance;
-  float opacity;
-  float radius;
-  float depth;
-  std::uint32_t resource;
-  std::uint32_t particle;
-};
-static_assert(sizeof(GaussianInstance) == MERLIN_GAUSSIAN_STRIDE);
-static_assert(offsetof(GaussianInstance, center) == MERLIN_GAUSSIAN_CENTER);
-static_assert(offsetof(GaussianInstance, conic) == MERLIN_GAUSSIAN_CONIC);
-static_assert(offsetof(GaussianInstance, radiance) == MERLIN_GAUSSIAN_RADIANCE);
-static_assert(offsetof(GaussianInstance, opacity) == MERLIN_GAUSSIAN_OPACITY);
-static_assert(offsetof(GaussianInstance, radius) == MERLIN_GAUSSIAN_RADIUS);
-static_assert(offsetof(GaussianInstance, depth) == MERLIN_GAUSSIAN_DEPTH);
-static_assert(offsetof(GaussianInstance, resource) == MERLIN_GAUSSIAN_RESOURCE);
-static_assert(offsetof(GaussianInstance, particle) == MERLIN_GAUSSIAN_PARTICLE);
-
 const char* kShaderSource = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
@@ -191,8 +169,9 @@ struct DrawConstants {
   uint instance_id;
   uint texture_index;
   uint sampler_index;
-  uint3 padding;
+  uint padding[3];
 };
+static_assert(sizeof(DrawConstants) == 144, "DrawConstants must match the host ABI");
 
 struct MaterialConstants {
   float4 base_color;
@@ -289,8 +268,9 @@ fragment FragmentOutput merlin_fragment_conventional(
 struct GpuSceneDrawConstants {
   float4x4 view_projection;
   uint draw_slot;
-  uint3 padding;
+  uint padding[3];
 };
+static_assert(sizeof(GpuSceneDrawConstants) == 80, "GpuSceneDrawConstants must match the host ABI");
 
 struct GpuGeometry {
   uint vertex_offset;
@@ -2106,6 +2086,7 @@ private:
       descriptor.sAddressMode = Address(record.address_u);
       descriptor.tAddressMode = Address(record.address_v);
       descriptor.normalizedCoordinates = YES;
+      descriptor.supportArgumentBuffers = bindless_;
       const bool new_resource = found == samplers_.end();
       if (new_resource) {
         (void)AcquireSlot(sampler_slots_, record.sampler,

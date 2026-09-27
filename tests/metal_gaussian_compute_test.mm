@@ -1,4 +1,5 @@
 #include "../backend/merlin-metal/src/gaussian_compute_abi.hpp"
+#include "../backend/merlin-metal/src/gaussian_raster_abi.hpp"
 #include <merlin/extraction/gaussian_preparation.hpp>
 
 #import <Metal/Metal.h>
@@ -16,6 +17,12 @@
 namespace {
 using namespace merlin::metal::gaussian_compute;
 using merlin::extraction::FrameSnapshot;
+using merlin::metal::GaussianInstance;
+
+static_assert(sizeof(MTLDrawPrimitivesIndirectArguments) == 16);
+static_assert(offsetof(MTLDrawPrimitivesIndirectArguments, instanceCount) == 4);
+static_assert(offsetof(MTLDrawPrimitivesIndirectArguments, vertexStart) == 8);
+static_assert(offsetof(MTLDrawPrimitivesIndirectArguments, baseInstance) == 12);
 
 void Require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
@@ -56,6 +63,9 @@ struct Kernels {
   id<MTLComputePipelineState> add;
   id<MTLComputePipelineState> scatter;
   id<MTLComputePipelineState> verify;
+  id<MTLComputePipelineState> gather;
+  id<MTLRenderPipelineState> raster;
+  id<MTLDepthStencilState> depth;
 };
 
 id<MTLComputePipelineState> Pipeline(id<MTLDevice> device, id<MTLLibrary> library,
@@ -70,10 +80,95 @@ id<MTLComputePipelineState> Pipeline(id<MTLDevice> device, id<MTLLibrary> librar
   return pipeline;
 }
 
-// A complete preparation + global sort in one submission. Counts are copied
-// device-to-device; no intermediate readback schedules subsequent kernels.
-void Compare(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& kernels,
-    FrameSnapshot snapshot, bool dynamic_count = false) {
+id<MTLRenderPipelineState> RasterPipeline(id<MTLDevice> device, id<MTLLibrary> library) {
+  auto descriptor = [MTLRenderPipelineDescriptor new];
+  descriptor.vertexFunction = [library newFunctionWithName:@"gaussian_metal_vertex"];
+  descriptor.fragmentFunction = [library newFunctionWithName:@"gaussian_metal_fragment"];
+  descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+  descriptor.colorAttachments[0].blendingEnabled = YES;
+  descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+  descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+  descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+  descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+  descriptor.colorAttachments[1].pixelFormat = MTLPixelFormatR32Uint;
+  descriptor.colorAttachments[2].pixelFormat = MTLPixelFormatR32Uint;
+  descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+  NSError* error = nil;
+  auto pipeline = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+  if (!pipeline) throw std::runtime_error(error.localizedDescription.UTF8String);
+  return pipeline;
+}
+
+id<MTLDepthStencilState> DepthState(id<MTLDevice> device) {
+  auto descriptor = [MTLDepthStencilDescriptor new];
+  descriptor.depthCompareFunction = MTLCompareFunctionLessEqual;
+  descriptor.depthWriteEnabled = NO;
+  auto state = [device newDepthStencilStateWithDescriptor:descriptor];
+  Require(state != nil, "Metal depth state creation failed");
+  return state;
+}
+
+// Readback happens after both draws and all compute work in the submission.
+// A constant opaque depth also tests rejection without permitting depth writes.
+std::array<id<MTLBuffer>, 4> Raster(id<MTLDevice> device,
+    id<MTLCommandBuffer> command, const Kernels& kernels, id<MTLBuffer> instances,
+    id<MTLBuffer> indirect, std::uint32_t count, float depth) {
+  constexpr NSUInteger width = 320, height = 192, row_bytes = width * 4;
+  const std::array formats{MTLPixelFormatRGBA8Unorm, MTLPixelFormatR32Uint,
+      MTLPixelFormatR32Uint, MTLPixelFormatDepth32Float};
+  std::array<id<MTLTexture>, 4> textures;
+  std::array<id<MTLBuffer>, 4> readbacks;
+  auto pass = [MTLRenderPassDescriptor renderPassDescriptor];
+  for (std::size_t i = 0; i < textures.size(); ++i) {
+    auto descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:formats[i]
+        width:width height:height mipmapped:NO];
+    descriptor.storageMode = MTLStorageModePrivate;
+    descriptor.usage = MTLTextureUsageRenderTarget;
+    textures[i] = [device newTextureWithDescriptor:descriptor];
+    Require(textures[i] != nil, "Metal raster texture allocation failed");
+    readbacks[i] = Buffer(device, row_bytes * height);
+    if (i < 3) {
+      pass.colorAttachments[i].texture = textures[i];
+      pass.colorAttachments[i].loadAction = MTLLoadActionClear;
+      pass.colorAttachments[i].storeAction = MTLStoreActionStore;
+      pass.colorAttachments[i].clearColor = i == 0 ? MTLClearColorMake(0, 0, 0, 0)
+          : MTLClearColorMake(UINT32_MAX, 0, 0, 0);
+    } else {
+      pass.depthAttachment.texture = textures[i];
+      pass.depthAttachment.loadAction = MTLLoadActionClear;
+      pass.depthAttachment.storeAction = MTLStoreActionStore;
+      pass.depthAttachment.clearDepth = depth;
+    }
+  }
+  auto encoder = [command renderCommandEncoderWithDescriptor:pass];
+  Require(encoder != nil, "Metal render encoder allocation failed");
+  [encoder setRenderPipelineState:kernels.raster];
+  [encoder setDepthStencilState:kernels.depth];
+  [encoder setVertexBuffer:instances offset:0 atIndex:MERLIN_GAUSSIAN_INSTANCES_BINDING];
+  const merlin::Vec2 inverse_extent{1.0F / width, 1.0F / height};
+  [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent)
+                 atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
+  if (indirect) {
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:indirect indirectBufferOffset:0];
+  } else if (count) {
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:count];
+  }
+  [encoder endEncoding];
+  auto blit = [command blitCommandEncoder];
+  for (std::size_t i = 0; i < textures.size(); ++i)
+    [blit copyFromTexture:textures[i] sourceSlice:0 sourceLevel:0
+        sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(width, height, 1)
+        toBuffer:readbacks[i] destinationOffset:0 destinationBytesPerRow:row_bytes
+        destinationBytesPerImage:row_bytes * height];
+  [blit endEncoding];
+  return readbacks;
+}
+
+// Preparation, global sort, gather and optional indirect raster in one
+// submission. No intermediate readback schedules subsequent GPU stages.
+std::array<id<MTLBuffer>, 4> Compare(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& kernels,
+    FrameSnapshot snapshot, bool dynamic_count = false, bool compare_image = false,
+    float opaque_depth = 1.0F) {
   std::vector<merlin::extraction::GaussianRecord> ordered(snapshot.gaussians.begin(), snapshot.gaussians.end());
   std::sort(ordered.begin(), ordered.end(),
       [](const auto& a, const auto& b) { return a.gaussian < b.gaussian; });
@@ -195,10 +290,56 @@ void Compare(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& ker
   SortConstants verify;
   verify.element_count = dynamic_count ? static_cast<std::uint32_t>(reference.gaussians.size()) : padded;
   if (verify.element_count) sort_dispatch(kernels.verify, verify, Groups(verify.element_count, 256));
+  auto instances = Buffer(device, (padded + 1U) * sizeof(GaussianInstance));
+  auto draw = Buffer(device, sizeof(MTLDrawPrimitivesIndirectArguments));
+  // Poison every argument and the output tail to catch missing initialization,
+  // stale empty-frame counts, sentinel reads and out-of-bounds stores.
+  std::memset(instances.contents, 0xA5, instances.length);
+  std::memset(draw.contents, 0xA5, draw.length);
+  GatherConstants gather;
+  gather.element_count = total == 0 ? 0 : padded;
+  gather.count_word = 4;
+  gather.flags = dynamic_count ? 1U : 0U;
+  auto encoder = [command computeCommandEncoder];
+  [encoder setComputePipelineState:kernels.gather];
+  [encoder setBuffer:source offset:0 atIndex:0];
+  [encoder setBuffer:prepared offset:0 atIndex:1];
+  [encoder setBuffer:instances offset:0 atIndex:2];
+  [encoder setBuffer:draw offset:0 atIndex:3];
+  [encoder setBytes:&gather length:sizeof(gather) atIndex:4];
+  [encoder setBuffer:control offset:0 atIndex:5];
+  [encoder dispatchThreadgroups:MTLSizeMake(Groups(padded, 256), 1, 1)
+          threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+  [encoder endEncoding];
+  std::array<id<MTLBuffer>, 4> gpu_image{}, cpu_image{};
+  if (compare_image) {
+    gpu_image = Raster(device, command, kernels, instances, draw, 0, opaque_depth);
+    std::vector<GaussianInstance> cpu_instances;
+    for (const auto& g : reference.gaussians)
+      cpu_instances.push_back({g.center_pixels, g.inverse_conic, g.radiance,
+          g.opacity, g.radius_pixels, g.depth, static_cast<std::uint32_t>(g.resource), g.particle});
+    cpu_image = Raster(device, command, kernels, Upload(device, cpu_instances), nil,
+        static_cast<std::uint32_t>(cpu_instances.size()), opaque_depth);
+  }
   [command commit];
   [command waitUntilCompleted];
   if (command.status != MTLCommandBufferStatusCompleted)
     throw std::runtime_error(command.error.localizedDescription.UTF8String);
+  const auto& arguments = *static_cast<const MTLDrawPrimitivesIndirectArguments*>(draw.contents);
+  Require(arguments.vertexCount == 6 && arguments.instanceCount == reference.gaussians.size() &&
+      arguments.vertexStart == 0 && arguments.baseInstance == 0, "Invalid GPU draw arguments");
+  const auto* tail = static_cast<const std::uint8_t*>(instances.contents);
+  for (std::size_t i = reference.gaussians.size() * sizeof(GaussianInstance); i < instances.length; ++i)
+    Require(tail[i] == 0xA5, "Gather overwrote the sentinel tail or output guard");
+  if (compare_image) {
+    const auto* actual = static_cast<const std::uint8_t*>(gpu_image[0].contents);
+    const auto* expected = static_cast<const std::uint8_t*>(cpu_image[0].contents);
+    for (NSUInteger i = 0; i < gpu_image[0].length; ++i)
+      Require(std::abs(int(actual[i]) - int(expected[i])) <= 2, "Indirect color differs from CPU raster");
+    for (std::size_t i = 1; i < gpu_image.size(); ++i)
+      Require(std::memcmp(gpu_image[i].contents, cpu_image[i].contents, gpu_image[i].length) == 0,
+          "Indirect ID/depth differs from CPU raster");
+  }
   const auto* verification = static_cast<const std::uint32_t*>(control.contents);
   Require(verification[0] == reference.gaussians.size(), "Wrong sorted count");
   Require(verification[1] == 0 && verification[2] == 0, "GPU sort verification failed");
@@ -208,6 +349,10 @@ void Compare(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& ker
     Require(sorted[i].value < padded, "Sorted record index exceeds capacity");
     const auto& actual = records[sorted[i].value];
     const auto& expected = reference.gaussians[i];
+    const GaussianInstance packed{actual.center_pixels, actual.inverse_conic, actual.radiance,
+        actual.opacity, actual.radius_pixels, actual.depth, actual.resource_id_low, actual.particle_id};
+    Require(std::memcmp(static_cast<const GaussianInstance*>(instances.contents) + i,
+        &packed, sizeof(packed)) == 0, "Gather changed prepared fields or raster order");
     if (actual.particle_id != expected.particle) {
       std::cerr << "identity at " << i << " particles=" << total << " degree="
                 << snapshot.gaussians[0].spherical_harmonics_degree
@@ -258,6 +403,7 @@ void Compare(id<MTLDevice> device, id<MTLCommandQueue> queue, const Kernels& ker
       sums[1] == reference.counters.opacity_culled_count &&
       sums[2] == reference.counters.frustum_culled_count &&
       sums[3] == reference.counters.invalid_culled_count, "GPU culling differs from CPU");
+  return gpu_image;
 }
 
 FrameSnapshot Fixture(std::uint32_t count, std::uint32_t degree, bool perspective) {
@@ -301,6 +447,36 @@ FrameSnapshot Fixture(std::uint32_t count, std::uint32_t degree, bool perspectiv
   snapshot.gaussians.push_back(record);
   return snapshot;
 }
+
+FrameSnapshot RasterFixture(std::uint32_t count) {
+  auto snapshot = Fixture(count, 0, false);
+  auto record = snapshot.gaussians[0];
+  std::vector<merlin::Vec3> positions(count), radiance(count);
+  constexpr float sh = 0.2820947918F;
+  for (std::uint32_t i = 0; i < count; ++i) {
+    switch (i % 3) {
+    case 0:
+      positions[i] = {0, 0, 0.3F};
+      radiance[i] = {0.5F / sh, -0.5F / sh, -0.5F / sh};
+      break;
+    case 1:
+      positions[i] = {0, 0, 0.6F};
+      radiance[i] = {-0.5F / sh, 0.5F / sh, -0.5F / sh};
+      break;
+    default:
+      positions[i] = {0.5F, 0.5F, 0.4F};
+      radiance[i] = {-0.5F / sh, -0.5F / sh, 0.5F / sh};
+      break;
+    }
+  }
+  record.positions = std::make_shared<const std::vector<merlin::Vec3>>(positions);
+  record.covariances = std::make_shared<const std::vector<merlin::Covariance3>>(
+      count, merlin::Covariance3{0.01F, 0, 0, 0.0025F, 0, 0.0001F});
+  record.opacities = std::make_shared<const std::vector<float>>(count, 0.5F);
+  record.spherical_harmonics_coefficients = std::make_shared<const std::vector<merlin::Vec3>>(radiance);
+  snapshot.gaussians.assign({record});
+  return snapshot;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -321,8 +497,31 @@ int main(int argc, char** argv) {
           Pipeline(device, library, @"gaussian_sort_scan_blocks"),
           Pipeline(device, library, @"gaussian_sort_scan_add"),
           Pipeline(device, library, @"gaussian_sort_scatter"),
-          Pipeline(device, library, @"gaussian_sort_verify")};
-      Compare(device, queue, kernels, {});
+          Pipeline(device, library, @"gaussian_sort_verify"),
+          Pipeline(device, library, @"gaussian_metal_gather"),
+          RasterPipeline(device, library), DepthState(device)};
+      Compare(device, queue, kernels, {}, false, true);
+      const auto image = Compare(device, queue, kernels, RasterFixture(3), false, true);
+      const auto* color = static_cast<const std::uint8_t*>(image[0].contents);
+      const auto* ids = static_cast<const std::uint32_t*>(image[2].contents);
+      const auto center = 96 * 320 + 160;
+      Require(color[center * 4] > 120 && color[center * 4] < 130 &&
+          color[center * 4 + 1] > 60 && color[center * 4 + 1] < 70 && ids[center] == 0,
+          "Indirect draw lost back-to-front composition or nearest picking");
+      Require(ids[48 * 320 + 240] == 2 && ids[144 * 320 + 240] == UINT32_MAX,
+          "Indirect draw has incorrect Y orientation");
+      const auto occluded = Compare(device, queue, kernels, RasterFixture(3), true, true, 0.45F);
+      const auto* occluded_color = static_cast<const std::uint8_t*>(occluded[0].contents);
+      Require(occluded_color[center * 4] > 120 && occluded_color[center * 4 + 1] == 0,
+          "Indirect draw ignored opaque depth");
+      Require(static_cast<const float*>(occluded[3].contents)[center] == 0.45F,
+          "Indirect draw overwrote opaque depth");
+      // Fully occupied groups exercise the boundary without a sentinel, and
+      // asymmetric overlapping colors expose incorrect order/orientation.
+      for (auto count : {1U, 3U, 255U, 256U, 257U}) {
+        Compare(device, queue, kernels, RasterFixture(count), false, true);
+        Compare(device, queue, kernels, RasterFixture(count), true, true, 0.45F);
+      }
       for (auto count : {0U, 1U, 63U, 64U, 65U, 255U, 256U, 257U, 1301U})
         Compare(device, queue, kernels, Fixture(count, 0, false));
       for (std::uint32_t degree = 0; degree <= 3; ++degree) {
@@ -336,11 +535,11 @@ int main(int argc, char** argv) {
               first.projection_mode = projection;
               first.sorting_mode = sorting;
               snapshot.gaussians.assign({first});
-              Compare(device, queue, kernels, snapshot, true);
+              Compare(device, queue, kernels, snapshot, true, degree == 3);
               auto second = first;
               second.gaussian = 0x100000004ULL;
               snapshot.gaussians.push_back(second);
-              Compare(device, queue, kernels, snapshot);
+              Compare(device, queue, kernels, snapshot, false, degree == 3);
             }
           }
         }
@@ -351,24 +550,24 @@ int main(int argc, char** argv) {
           0.8F, 0.2F, 0, 0, -0.3F, 1.1F, 0, 0, 0, 0, 1.2F, 0,
           0.1F, -0.1F, -0.2F, 1};
       transformed.gaussians.assign({transformed_record});
-      Compare(device, queue, kernels, transformed);
+      Compare(device, queue, kernels, transformed, false, true);
       auto mixed = Fixture(257, 1, true);
       auto second = mixed.gaussians[0];
       second.gaussian = 1;
       second.sorting_mode = merlin::GaussianSortingMode::CameraDistance;
       mixed.gaussians.push_back(second);
-      Compare(device, queue, kernels, mixed);
+      Compare(device, queue, kernels, mixed, false, true);
       auto hidden = mixed.gaussians[0];
       hidden.visible = false;
       mixed.gaussians.assign({hidden, second});
-      Compare(device, queue, kernels, mixed);
+      Compare(device, queue, kernels, mixed, false, true);
       auto culled = Fixture(257, 0, false);
       auto culled_record = culled.gaussians[0];
       culled_record.opacities = std::make_shared<const std::vector<float>>(257, 0);
       culled.gaussians.assign({culled_record});
       Compare(device, queue, kernels, culled);
-      Compare(device, queue, kernels, culled, true);
-      std::cout << "Metal preparation and radix sort match CPU: " << device.name.UTF8String << '\n';
+      Compare(device, queue, kernels, culled, true, true);
+      std::cout << "Metal preparation, radix sort, gather and indirect raster match CPU: " << device.name.UTF8String << '\n';
       return 0;
     } catch (const std::exception& error) {
       std::cerr << error.what() << '\n';

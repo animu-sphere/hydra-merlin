@@ -210,7 +210,7 @@ if(TARGET Merlin::Metal)
   add_dependencies(merlin-metal-shader-artifact-key-tests merlin-metal-shaders)
   add_test(NAME merlin-metal-shader-artifact-key
     COMMAND merlin-metal-shader-artifact-key-tests
-      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 9 3)
+      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 10 4)
   set_tests_properties(merlin-metal-shader-artifact-key PROPERTIES LABELS "metal;shader;cache")
 
   add_executable(merlin-metal-gaussian-tests metal_gaussian_test.cpp)
@@ -232,7 +232,7 @@ if(TARGET Merlin::Metal)
     COMMAND merlin-metal-gaussian-compute-tests
       "${MERLIN_METAL_SHADER_OUTPUT_DIR}/gaussian.metallib")
   set_tests_properties(merlin-metal-gaussian-compute PROPERTIES
-    LABELS "metal;gaussian;gpu;compute;cpu-reference"
+    LABELS "metal;gaussian;gpu;compute;cpu-reference;image;aov;indirect"
     SKIP_RETURN_CODE 77 TIMEOUT 60)
 
   add_executable(merlin-metal-resource-table-tests
@@ -265,6 +265,10 @@ if(TARGET Merlin::Metal)
   set_tests_properties(merlin-metal-backend PROPERTIES
     LABELS "metal;runtime;aov;residency;gpu-scene;uploads;presentation"
     SKIP_RETURN_CODE 77)
+  # Enable Apple's validation before device creation, so ABI and argument-buffer
+  # mistakes fail the runtime suite instead of depending on a local shell setup.
+  set_tests_properties(merlin-metal-gaussian merlin-metal-gaussian-compute merlin-metal-backend
+    PROPERTIES ENVIRONMENT "MTL_DEBUG_LAYER=1;MTL_SHADER_VALIDATION=1")
 endif()
 
 add_test(

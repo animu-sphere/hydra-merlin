@@ -8,7 +8,21 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Fixed
+
+- Metal Mesh shader constant padding now matches the host byte layout, and
+  bindless samplers are created with argument-buffer support. This fixes Metal
+  API validation failures for conventional/GPU Scene draws and textured meshes.
+
 ### Added
+
+- Metal Gaussian gather packs GPU-sorted records into the scalar raster stream
+  and writes indirect draw arguments, including empty-frame resets. The Apple
+  GPU harness runs preparation through indirect raster in one submission and
+  compares color/depth/IDs with CPU-prepared direct draws; ABI, artifact identity
+  and install checks include the new kernel. Renderer integration and persistent
+  Gaussian attribute residency remain open; `prefer` still falls back and
+  `require` rejects.
 
 - Shared Slang Gaussian projection, covariance, SH, culling/compaction and
   deterministic radix-sort kernels now compile into the Metal Gaussian library.

@@ -1,6 +1,6 @@
 # Metal Gaussian execution plan
 
-**Status:** Phase 1 in progress; GPU-driven Metal execution remains unsupported.
+**Status:** Phase 1 validation and Phase 2 kernel work in progress; renderer GPU execution remains unsupported.
 **Last reviewed:** 2026-09-27
 
 Move Gaussian projection, culling, sorting and rasterization onto the Metal GPU
@@ -68,10 +68,28 @@ placement must match exactly. Intentional distance ties use binary-exact input
 coordinates so rounding of nearly equal CPU/GPU keys is not mistaken for a
 radix-sort error. These checks do not establish renderer image parity or a
 general exact ordering guarantee for numerically near-equal keys.
-The compute test submits preparation through sorting without an intermediate
-CPU readback. It is a kernel correctness harness, not renderer GPU execution:
-persistent attributes, completion-safe frame scheduling, gather/indirect raster
-and telemetry integration remain Phase 2 work. Controlled performance captures
+The compute test now submits preparation, sorting, gather and indirect ellipse
+raster in one command buffer without an intermediate CPU readback. Metal gather
+converts the 64-byte prepared records into the existing scalar 52-byte raster
+stream and writes all four `MTLDrawPrimitivesIndirectArguments` words, including
+zero instances for empty/all-rejected frames. Padded streams use the last valid
+sorted element to publish the count; dynamic streams use a GPU-written count
+bounded by capacity. Each invocation requires at least one workgroup, even for
+zero elements. The output capacity must cover the sorted element capacity, and
+sorted record indices must refer to the preparation buffer from that frame.
+The existing sentinel-boundary algorithm is retained from Vulkan; Metal owns
+its packing and argument bindings.
+
+Gather checks require bit-exact field copies, draw arguments and untouched
+sentinel/guard tails. Offscreen comparisons against CPU-prepared direct draws
+allow at most 2/255 absolute error per RGBA8 channel and require exact depth and
+resource/particle IDs. These fixture-specific image checks cover SH degrees,
+projection/sort policies, transforms, multiple resources, hidden/all-rejected
+input, workgroup boundaries, asymmetric alpha composition and a prefilled opaque
+depth attachment. They do not establish general scene or host-presentation
+parity. This remains a correctness harness, not renderer GPU execution:
+persistent attributes, completion-safe frame scheduling and telemetry
+integration remain Phase 2 work. Controlled performance captures
 and updated native viewport/HgiMetal comparisons remain unfinished; this is
 not completion of the phase gate below.
 
