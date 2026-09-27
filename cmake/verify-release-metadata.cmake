@@ -153,7 +153,7 @@ endif()
 
 set(_expected_exported_target_count 3)
 set(_next_exported_target_index 3)
-if(MERLIN_EXPECTED_VULKAN)
+if(MERLIN_EXPECTED_VULKAN OR MERLIN_EXPECTED_METAL)
   string(JSON _slang_detected GET "${_merlin_metadata}"
     requirements slang detected)
   string(JSON _shader_artifact_schema GET "${_merlin_metadata}"
@@ -161,8 +161,10 @@ if(MERLIN_EXPECTED_VULKAN)
   if(NOT _slang_detected MATCHES "^2026[.]8([.][0-9]+)?$" OR
      NOT _shader_artifact_schema EQUAL 2)
     message(FATAL_ERROR
-      "Vulkan metadata requires Slang 2026.8.x and shader artifacts v2")
+      "GPU backend metadata requires Slang 2026.8.x and shader artifacts v2")
   endif()
+endif()
+if(MERLIN_EXPECTED_VULKAN)
   string(JSON _vulkan_target GET "${_merlin_metadata}"
          packaging exported_targets 3)
   if(NOT _vulkan_target STREQUAL "Merlin::Vulkan")

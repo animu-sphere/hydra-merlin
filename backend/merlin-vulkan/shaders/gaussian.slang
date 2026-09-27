@@ -1,3 +1,5 @@
+#include "../../../core/merlin-render-backend/shaders/gaussian-raster-common.slang"
+
 // Procedural Gaussian splat rasterization. The CPU reference stage supplies
 // screen-space centers, inverse conics, authored SH radiance, opacity, and a
 // stable back-to-front order. Six fixed corner vertices expand each instance to
@@ -61,10 +63,8 @@ GaussianVertexOutput gaussian_vertex(GaussianVertexInput input)
 {
     GaussianVertexOutput output;
     output.delta_pixels = input.corner * input.radius_pixels;
-    float2 pixel = input.center_pixels + output.delta_pixels;
-    float2 ndc = pixel * (2.0f * gaussian_constants.inverse_viewport_size) -
-        float2(1.0f, 1.0f);
-    output.position = float4(ndc, input.depth, 1.0f);
+    output.position = gaussian_raster_position(input.center_pixels,
+        output.delta_pixels, input.depth, gaussian_constants.inverse_viewport_size);
     output.inverse_conic = input.inverse_conic;
     output.radiance = input.radiance;
     output.opacity = input.opacity;
@@ -76,10 +76,8 @@ GaussianIdVertexOutput gaussian_id_vertex(GaussianVertexInput input)
 {
     GaussianIdVertexOutput output;
     output.delta_pixels = input.corner * input.radius_pixels;
-    float2 pixel = input.center_pixels + output.delta_pixels;
-    float2 ndc = pixel * (2.0f * gaussian_constants.inverse_viewport_size) -
-        float2(1.0f, 1.0f);
-    output.position = float4(ndc, input.depth, 1.0f);
+    output.position = gaussian_raster_position(input.center_pixels,
+        output.delta_pixels, input.depth, gaussian_constants.inverse_viewport_size);
     output.inverse_conic = input.inverse_conic;
     output.radiance = input.radiance;
     output.opacity = input.opacity;
@@ -91,23 +89,8 @@ GaussianIdVertexOutput gaussian_id_vertex(GaussianVertexInput input)
 [shader("fragment")]
 GaussianFragmentOutput gaussian_fragment(GaussianVertexOutput input)
 {
-    float2 conic_delta = float2(
-        input.inverse_conic.x * input.delta_pixels.x +
-            input.inverse_conic.y * input.delta_pixels.y,
-        input.inverse_conic.y * input.delta_pixels.x +
-            input.inverse_conic.z * input.delta_pixels.y);
-    float mahalanobis_squared = dot(input.delta_pixels, conic_delta);
-    // The generated square is the conservative three-sigma bound. Discard
-    // samples outside the actual ellipse and values below one UNorm step.
-    if (mahalanobis_squared > 9.0f)
-    {
-        discard;
-    }
-    float alpha = input.opacity * exp(-0.5f * mahalanobis_squared);
-    if (alpha < (1.0f / 255.0f))
-    {
-        discard;
-    }
+    float alpha = gaussian_raster_alpha(
+        input.delta_pixels, input.inverse_conic, input.opacity);
     GaussianFragmentOutput output;
     output.color =
         float4(max(input.radiance, float3(0.0f, 0.0f, 0.0f)), alpha);
@@ -117,21 +100,7 @@ GaussianFragmentOutput gaussian_fragment(GaussianVertexOutput input)
 [shader("fragment")]
 GaussianIdOutput gaussian_id_fragment(GaussianIdVertexOutput input)
 {
-    float2 conic_delta = float2(
-        input.inverse_conic.x * input.delta_pixels.x +
-            input.inverse_conic.y * input.delta_pixels.y,
-        input.inverse_conic.y * input.delta_pixels.x +
-            input.inverse_conic.z * input.delta_pixels.y);
-    float mahalanobis_squared = dot(input.delta_pixels, conic_delta);
-    if (mahalanobis_squared > 9.0f)
-    {
-        discard;
-    }
-    float alpha = input.opacity * exp(-0.5f * mahalanobis_squared);
-    if (alpha < (1.0f / 255.0f))
-    {
-        discard;
-    }
+    gaussian_raster_alpha(input.delta_pixels, input.inverse_conic, input.opacity);
     GaussianIdOutput output;
     // The stream is back-to-front and does not write depth. Integer AOV writes
     // therefore retain the nearest contributing Gaussian in front of opaque

@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Metal Gaussian reference rasterization now uses shared Slang ellipse/alpha
+  math with Vulkan. Slang 2026.8.x and Xcode compile an embedded metallib during
+  the build; installed consumers do not compile Gaussian shaders at runtime.
+  MSL/reflection/identity manifests and the metallib/checksum are installed under
+  `bin/shaders/v2/metal`, with ABI, package and Apple GPU image tests.
+  Core-only builds retain no Slang or Metal compiler dependency.
+
 - Metal Gaussian splat rendering shares the CPU projection, covariance, SH
   evaluation and sorting reference with Vulkan, and adds native ellipse
   rasterization, alpha blending, opaque-mesh depth tests and picking IDs.

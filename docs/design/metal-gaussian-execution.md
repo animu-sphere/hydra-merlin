@@ -1,6 +1,6 @@
 # Metal Gaussian execution plan
 
-**Status:** Proposed implementation sequence; not a claim of GPU-driven Metal support.
+**Status:** Phase 1 in progress; GPU-driven Metal execution remains unsupported.
 **Last reviewed:** 2026-09-27
 
 Move Gaussian projection, culling, sorting and rasterization onto the Metal GPU
@@ -25,7 +25,7 @@ CPU-sorted reference path: shared CPU covariance projection, SH evaluation and
 sorting, followed by Metal ellipse rasterization. It blends against opaque
 mesh depth, writes resource/particle IDs, and reuses an immutable prepared
 stream on unchanged frames. Camera or particle changes rebuild that stream.
-The implementation uses embedded MSL and does not provide GPU preparation,
+The initial implementation used embedded MSL and did not provide GPU preparation,
 sorting or tile rasterization. Preserve this path as the correctness reference
 and capability fallback throughout the work below.
 
@@ -45,6 +45,16 @@ These observations motivate measuring both preprocessing and rasterization.
 The private scene is not a distributable regression fixture.
 
 ## Phase 1: Measurement and shared Slang shaders
+
+The reference raster now shares position expansion and ellipse/alpha evaluation
+with Vulkan through Slang. Metal-specific entry points preserve the scalar
+52-byte stream, Y convention and combined color/ID attachments. Slang 2026.8.x
+emits MSL/reflection, Xcode produces an embedded metallib, and the versioned
+install package retains those artifacts and their identity/checksum evidence.
+Host layout assertions, generated binding checks and local Apple GPU image tests
+cover this first step. Projection/SH/sort shader sharing, controlled performance
+captures and updated native viewport/HgiMetal comparisons remain unfinished;
+this is not completion of the phase gate below.
 
 Establish repeatable static, camera-motion and particle-edit captures before
 changing execution. Use the existing public Gaussian corpus and deterministic

@@ -18,22 +18,23 @@ host-neutral. Participation is subject to the [Code of Conduct](CODE_OF_CONDUCT.
 ## Development setup
 
 Follow the [build and install guide](docs/guides/build-and-install.md). A
-Core-only build requires CMake 3.24 and a C++20 compiler. Vulkan and Hydra are
-optional capability layers with additional dependencies.
+Core-only build requires CMake 3.24 and a C++20 compiler. Windows/Vulkan and
+macOS/Metal build instructions list the platform SDKs and shared Slang compiler;
+Hydra and MaterialX add their own optional dependencies.
 
 The smallest portable validation loop is:
 
 ```powershell
-cmake -S . -B build-core -DMERLIN_ENABLE_VULKAN=OFF
-cmake --build build-core --config Debug --parallel
-ctest --test-dir build-core -C Debug --output-on-failure
+cmake --preset core
+cmake --build --preset core --parallel
+ctest --preset core
 ```
 
 ## Change guidelines
 
 - Keep Core public APIs independent of OpenUSD, Hydra, MaterialX, Slang compiler
   APIs, Vulkan, Metal, Qt, and DCC SDK types.
-- Keep host translation in adapters and GPU execution in the Vulkan backend.
+- Keep host translation in adapters and GPU execution in the native Vulkan/Metal backends.
 - Preserve deterministic extraction and render-product metadata.
 - Return an actionable diagnostic or explicit fallback for unsupported input.
 - Add or update tests for observable behavior.

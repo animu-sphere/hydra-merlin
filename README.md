@@ -52,7 +52,8 @@ ost renderer viewport --intent viewport-usd --profile usd -- `
 ```
 
 Metal supports Gaussian splats through shared CPU projection/SH evaluation
-and sorting, followed by native Metal ellipse rasterization. It supports
+and sorting, followed by Metal ellipse rasterization from shared Slang math
+and a build-time compiled, embedded metallib. It supports
 alpha composition with opaque meshes and resource/particle picking IDs.
 Unchanged frames reuse the prepared stream. GPU preparation/sorting and tile
 rasterization remain Vulkan-only: on Metal use `--gaussian-gpu disabled`
@@ -75,66 +76,117 @@ composition mapping and adoption decisions.
 
 ## Build
 
+Choose the native backend for your platform. Both build shaders with Slang
+2026.8.x; dependency versions are pinned in
+[`cmake/MerlinVersions.cmake`](cmake/MerlinVersions.cmake).
+
+| Build | Required tools and SDKs | Products |
+| --- | --- | --- |
+| Windows / Vulkan | CMake 3.24+, Visual Studio 2022 C++ tools, Vulkan 1.4 SDK (validated: 1.4.350.0), Slang 2026.8.x | Native viewport, headless renderer, benchmark |
+| macOS / Metal | CMake 3.24+, Ninja, Xcode with Metal tools, standalone Slang 2026.8.x | Native Metal viewport |
+| Core only | CMake 3.24+, C++20 compiler and build system | Host-neutral libraries; no Slang, Vulkan, Metal or OpenUSD dependency |
+
+The viewport fetches pinned GLFW (unless installed) and Dear ImGui sources;
+Git and network access are needed on a fresh checkout. Hydra additionally
+requires a compatible OpenUSD 26.05 or 26.08 SDK and fetches Native File Dialog
+Extended. See the [dependency setup](docs/guides/build-and-install.md#prerequisites)
+for build/runtime requirements and compiler discovery.
+
+### Windows — Vulkan
+
+Install the validated [LunarG Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
+and check that its `slangc` reports 2026.8.x. Configure the existing `vulkan`
+preset with Visual Studio 2022, x64 and the native viewport enabled:
+
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Debug
-ctest --test-dir build -C Debug --output-on-failure
+& "$env:VULKAN_SDK/Bin/slangc.exe" -version
+cmake --preset vulkan -G "Visual Studio 17 2022" -A x64 -DMERLIN_BUILD_VIEWPORT=ON
+cmake --build --preset vulkan --parallel
+ctest --preset vulkan
+./build/vulkan/adapters/merlin-viewport/Release/merlin-viewport.exe --backend vulkan
 ```
 
-Render the headless smoke image:
+Render a headless smoke image or capture benchmark data:
 
 ```powershell
-./build/adapters/merlin-headless/Debug/merlin-headless.exe --frames 6 --output merlin.ppm
-```
-
-The native viewport provides USD stage loading, camera navigation, picking,
-AOV inspection, screenshots, and timing and resource diagnostics. See the
-[build and install guide](docs/guides/build-and-install.md) for host setup.
-
-The Hydra-enabled Windows build below generates a launcher beside the
-executable. It supplies the configured OpenUSD SDK runtime path without
-changing the machine-wide `PATH`:
-
-```powershell
-./build-hydra2/adapters/merlin-viewport/Release/run-merlin-viewport.cmd --vsync off
-```
-
-The default native scene also exposes `Open USD...`, so a stage path does not
-need to be supplied on the command line.
-
-Retain unchanged-frame expected/actual/diff evidence as PNG and OpenEXR:
-
-```powershell
-./build/adapters/merlin-headless/Debug/merlin-headless.exe `
+./build/vulkan/adapters/merlin-headless/Release/merlin-headless.exe `
   --frames 6 --artifact-dir artifacts --output merlin.ppm
-```
-
-Capture the reference-path performance baselines as deterministic JSON:
-
-```powershell
-./build/adapters/merlin-benchmark/Debug/merlin-benchmark.exe `
+./build/vulkan/adapters/merlin-benchmark/Release/merlin-benchmark.exe `
   --fixture reference --width 512 --height 512 --steady-frames 30 `
   --output benchmark.json
 ```
 
-See the [benchmark guide](docs/guides/benchmarking.md) for fixtures, report
-fields, and comparison rules, and the
-[execution lifetime design](docs/design/execution-lifetime.md) for submission,
-residency, and readback contracts.
+### macOS — Metal
+
+Install [Xcode's Metal tools](https://developer.apple.com/metal/tools/) and
+[Slang 2026.8](https://github.com/shader-slang/slang/releases/tag/v2026.8),
+using the macOS archive for your CPU architecture. Put its `bin` directory on
+`PATH`, or pass `-DMERLIN_SLANGC_EXECUTABLE=/path/to/slang/bin/slangc` when
+configuring. Use the existing `metal` preset with Ninja and the viewport
+enabled; this configuration does not require a Vulkan SDK.
+
+```bash
+slangc -version
+xcrun -sdk macosx --find metal
+xcrun -sdk macosx --find metallib
+cmake --preset metal -G Ninja -DMERLIN_BUILD_VIEWPORT=ON
+cmake --build --preset metal --parallel
+ctest --preset metal
+./build/metal/adapters/merlin-viewport/merlin-viewport --backend metal
+```
+
+The Gaussian metallib is compiled at build time and embedded in the backend.
+Slang and the offline Metal tools are build dependencies, not application runtime
+dependencies. Metal does not currently build `merlin-headless` or `merlin-benchmark`.
+
+### Core only
+
+```sh
+cmake --preset core
+cmake --build --preset core --parallel
+ctest --preset core
+```
+
+All examples use Release. The native viewports provide camera navigation,
+picking, AOV inspection, screenshots and diagnostics. USD stage loading and
+`Open USD...` require the Hydra variants below. See the
+[build and install guide](docs/guides/build-and-install.md) for Debug builds,
+SDK-only presets and installation, and the
+[benchmark guide](docs/guides/benchmarking.md) for fixtures and comparisons.
 
 ## Hydra 2 adapter
 
 The OpenUSD adapter is opt-in so Hydra never becomes a transitive dependency of
-normal Core or native-backend builds. Point `CMAKE_PREFIX_PATH` at an OpenUSD
-26.05 or 26.08 SDK:
+Core or native-backend builds. Point `CMAKE_PREFIX_PATH` at an OpenUSD 26.05 or
+26.08 SDK matching your compiler, architecture and Python runtime.
+
+Windows / Vulkan:
 
 ```powershell
-cmake -S . -B build-hydra2 -G "Visual Studio 17 2022" -A x64 `
-  -DMERLIN_ENABLE_HYDRA2=ON `
-  -DCMAKE_PREFIX_PATH=C:/path/to/openusd
-cmake --build build-hydra2 --config Release
-ctest --test-dir build-hydra2 -C Release --output-on-failure
+cmake --preset vulkan-hydra -G "Visual Studio 17 2022" -A x64 `
+  -DMERLIN_BUILD_VIEWPORT=ON -DCMAKE_PREFIX_PATH=C:/path/to/openusd
+cmake --build --preset vulkan-hydra --parallel
+ctest --preset vulkan-hydra
+./build/vulkan-hydra/adapters/merlin-viewport/Release/run-merlin-viewport.cmd `
+  --usd C:/path/to/scene.usdc
 ```
+
+macOS / Metal:
+
+```bash
+cmake --preset metal-hydra -G Ninja \
+  -DMERLIN_BUILD_VIEWPORT=ON -DCMAKE_PREFIX_PATH=/path/to/openusd
+cmake --build --preset metal-hydra --parallel
+ctest --preset metal-hydra
+DYLD_LIBRARY_PATH=/path/to/openusd/lib \
+  ./build/metal-hydra/adapters/merlin-viewport/merlin-viewport \
+  --backend metal --usd /path/to/scene.usdc
+```
+
+usdview also needs the SDK's compatible Python, Qt bindings and Python packages;
+these are host dependencies, not Metal or Slang dependencies. See the
+[Hydra setup](docs/guides/build-and-install.md#hydra-2) for plugin discovery and
+runtime paths.
 
 The Hydra slice provides mesh topology/transform/visibility and camera sync,
 an adapter-owned USD path to Merlin handle map, color/depth CPU render buffers,

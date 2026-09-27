@@ -242,7 +242,10 @@ void RequireContractSemantics() {
 
 int main(int argc, char** argv) {
   try {
-    Require(argc == 2, "usage: shader-artifact-key-test manifest.json");
+    Require(argc == 2 || argc == 4,
+        "usage: shader-artifact-key-test manifest.json [artifact-count module-count]");
+    const auto expected_artifacts = argc == 4 ? std::stoul(argv[2]) : 29U;
+    const auto expected_modules = argc == 4 ? std::stoul(argv[3]) : 11U;
     const auto manifest = CompactJson(Read(argv[1]));
 
     RequireContractSemantics();
@@ -330,8 +333,8 @@ int main(int argc, char** argv) {
       position = object_end;
     }
 
-    Require(verified == 29,
-        "manifest does not describe twenty-nine artifacts");
+    Require(verified == expected_artifacts,
+        "manifest artifact count does not match the expected package");
     Require(artifact_keys.size() == verified,
         "two artifacts share an artifact key");
     // Conventional SPIR-V and Metal share one Forward module, bindless and
@@ -339,8 +342,8 @@ int main(int argc, char** argv) {
     // Gaussian preparation, sorting, raster gather, tile binning, tile
     // raster, and raster own one each. Fewer identities than artifacts is the
     // expected, load-bearing result.
-    Require(module_identities.size() == 11U,
-        "module identities do not follow the eleven shader modules");
+    Require(module_identities.size() == expected_modules,
+        "module identity count does not match the expected package");
   } catch (const std::exception& error) {
     std::cerr << "shader artifact key test failed: " << error.what() << '\n';
     return 1;

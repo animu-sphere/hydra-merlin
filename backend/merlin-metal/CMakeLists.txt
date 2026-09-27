@@ -40,3 +40,6 @@ target_compile_features(merlin-metal PUBLIC cxx_std_20)
 target_compile_options(merlin-metal PRIVATE
   $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>
 )
+
+include(MerlinMetalShaders)
+merlin_add_metal_shaders()
