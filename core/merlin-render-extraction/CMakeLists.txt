@@ -1,5 +1,6 @@
 add_library(merlin-render-extraction STATIC
   src/scene_extractor.cpp
+  src/gaussian_preparation.cpp
 )
 merlin_target_defaults(merlin-render-extraction)
 

@@ -243,6 +243,19 @@ if(MERLIN_BUILD_TESTS)
       ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib"
     )
+    if(TARGET Merlin::Metal)
+      # Exercise native presentation with Gaussian ingestion, color capture and
+      # regression logging together. Odd dimensions also exercise readback pitch.
+      add_test(NAME merlin-viewport-metal-gaussian
+        COMMAND merlin-viewport --backend metal --hidden --frames 3
+          --width 97 --height 65 --reference-check --resize-test
+          --usd "${PROJECT_SOURCE_DIR}/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc"
+          --screenshot "${CMAKE_CURRENT_BINARY_DIR}/viewport-metal-gaussian.ppm")
+      set_tests_properties(merlin-viewport-metal-gaussian PROPERTIES
+        LABELS "metal;gaussian;gpu;viewport;hydra;host-smoke"
+        TIMEOUT 60
+        ENVIRONMENT "MERLIN_HYDRA2_REGRESSION_LOG=${CMAKE_CURRENT_BINARY_DIR}/viewport-metal-gaussian.log")
+    endif()
     add_test(
       NAME merlin-viewport-hydra-no-readback
       COMMAND merlin-viewport

@@ -1,4 +1,4 @@
-#include "gaussian_preparation.hpp"
+#include <merlin/extraction/gaussian_preparation.hpp>
 
 #include <algorithm>
 #include <array>
@@ -6,7 +6,7 @@
 #include <limits>
 #include <optional>
 
-namespace merlin::vulkan::detail {
+namespace merlin::extraction {
 namespace {
 
 constexpr float kProjectionEpsilon = 1.0e-6F;
@@ -534,4 +534,4 @@ GaussianPreparationResult PrepareGaussianFrame(
   return result;
 }
 
-} // namespace merlin::vulkan::detail
+} // namespace merlin::extraction

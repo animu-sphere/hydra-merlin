@@ -189,6 +189,14 @@ if(TARGET Merlin::Vulkan)
 endif()
 
 if(TARGET Merlin::Metal)
+  add_executable(merlin-metal-gaussian-tests metal_gaussian_test.cpp)
+  merlin_target_defaults(merlin-metal-gaussian-tests)
+  target_link_libraries(merlin-metal-gaussian-tests PRIVATE Merlin::Metal)
+  add_test(NAME merlin-metal-gaussian COMMAND merlin-metal-gaussian-tests)
+  set_tests_properties(merlin-metal-gaussian PROPERTIES
+    LABELS "metal;gaussian;gpu;image;aov"
+    SKIP_RETURN_CODE 77 TIMEOUT 60)
+
   add_executable(merlin-metal-resource-table-tests
     metal_resource_table_test.cpp
   )
@@ -447,6 +455,13 @@ set_tests_properties(merlin-mesh-scale-regression PROPERTIES
   LABELS "regression;scale"
   TIMEOUT 60)
 
+add_executable(merlin-gaussian-preparation-tests gaussian_preparation_test.cpp)
+merlin_target_defaults(merlin-gaussian-preparation-tests)
+target_link_libraries(merlin-gaussian-preparation-tests PRIVATE Merlin::RenderExtraction)
+add_test(NAME merlin-gaussian-preparation COMMAND merlin-gaussian-preparation-tests)
+set_tests_properties(merlin-gaussian-preparation PROPERTIES
+  LABELS "gaussian;cpu-reference")
+
 if(TARGET Merlin::Vulkan)
   add_executable(merlin-vulkan-memory-type-tests vulkan_memory_type_test.cpp)
   merlin_target_defaults(merlin-vulkan-memory-type-tests)
@@ -456,20 +471,6 @@ if(TARGET Merlin::Vulkan)
   add_test(NAME merlin-vulkan-memory-type COMMAND merlin-vulkan-memory-type-tests)
   set_tests_properties(merlin-vulkan-memory-type PROPERTIES
     LABELS "vulkan;memory")
-
-  add_executable(merlin-gaussian-preparation-tests
-    gaussian_preparation_test.cpp
-  )
-  merlin_target_defaults(merlin-gaussian-preparation-tests)
-  target_include_directories(merlin-gaussian-preparation-tests PRIVATE
-    "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/src"
-  )
-  target_link_libraries(merlin-gaussian-preparation-tests
-    PRIVATE Merlin::Vulkan)
-  add_test(NAME merlin-vulkan-gaussian-preparation
-           COMMAND merlin-gaussian-preparation-tests)
-  set_tests_properties(merlin-vulkan-gaussian-preparation PROPERTIES
-    LABELS "gaussian;vulkan;cpu-reference")
 
   add_executable(merlin-gaussian-raster-tests
     gaussian_raster_test.cpp
