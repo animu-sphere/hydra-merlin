@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- The opt-in `gpu-driven-diverse-objects` benchmark extends Mesh submission
+  evidence to 16 triangle/quad meshes and eight basic materials at 1k/10k/100k
+  instances. Static and camera-motion phases require zero CPU draw visits,
+  uploads, allocations, and descriptor changes, bounded multi-batch submission,
+  and exact conventional Forward color/depth/ID parity. A separate CMake script
+  validates both GPU-driven fixtures and their JSON reports on capable hardware;
+  texture, generated-material, and multiple-arena-block scaling remain open.
 - Vulkan GPU-driven Mesh submission reuses CPU draw summaries and per-frame
   arena/pipeline batches across static and camera-only frames. The cache checks
   immutable draw, geometry, and material tables, physical draw slots, winding,
