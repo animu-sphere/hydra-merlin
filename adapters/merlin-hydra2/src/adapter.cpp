@@ -3025,6 +3025,7 @@ private:
     const auto& counts = topology_.GetFaceVertexCounts();
     const auto& authored_indices = topology_.GetFaceVertexIndices();
     const auto& authored_holes = topology_.GetHoleIndices();
+    const bool left_handed = topology_.GetOrientation() == HdTokens->leftHanded;
     std::unordered_set<int> holes;
     for (const auto hole : authored_holes) {
       if (hole < 0 || static_cast<std::size_t>(hole) >= counts.size() ||
@@ -3079,7 +3080,14 @@ private:
           packed_corners_.clear();
           return;
         }
-        for (const auto& triangle : triangles) {
+        for (auto triangle : triangles) {
+          // Normalize USD's per-mesh orientation to the renderer's right-hand
+          // convention before deriving normals or rasterizing. Keep authored
+          // corner indices attached so face-varying primvars follow the swap;
+          // explicitly authored normals already describe the outward surface.
+          if (left_handed) {
+            std::swap(triangle[1], triangle[2]);
+          }
           for (const auto local_corner : triangle) {
             packed_corners_.push_back(
                 {face_points[local_corner], face_index,

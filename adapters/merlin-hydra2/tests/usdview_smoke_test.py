@@ -1,6 +1,7 @@
 import os
 
-from pxr import Gf, Trace, UsdGeom, Vt
+from pxr import Gf, Sdf, Trace, UsdGeom, UsdShade, Vt
+from PySide6.QtGui import QImage
 
 
 def _read_events():
@@ -146,6 +147,83 @@ def _remove_mesh(stage):
 
 def _readd_mesh(stage):
     stage.GetPrimAtPath("/World/MovingTriangle").SetActive(True)
+
+
+def _check_mesh_orientation(app_controller):
+    """Equivalent handedness must preserve lighting and face-varying inputs."""
+    stage = app_controller._dataModel.stage
+    mesh = UsdGeom.Mesh.Define(stage, "/World/OrientationProbe")
+    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    mesh.CreatePointsAttr(Vt.Vec3fArray([
+        Gf.Vec3f(-0.55, -0.5, 0.2), Gf.Vec3f(0.55, -0.5, 0.2),
+        Gf.Vec3f(0.55, 0.5, 0.2), Gf.Vec3f(-0.55, 0.5, 0.2)]))
+    mesh.CreateFaceVertexCountsAttr(Vt.IntArray([4]))
+    primvars = UsdGeom.PrimvarsAPI(mesh)
+    colors = primvars.CreatePrimvar(
+        "displayColor", Sdf.ValueTypeNames.Color3fArray,
+        UsdGeom.Tokens.faceVarying)
+    colors.Set(Vt.Vec3fArray([
+        Gf.Vec3f(1, 0.2, 0.1), Gf.Vec3f(0.1, 0.8, 0.2),
+        Gf.Vec3f(0.1, 0.3, 1), Gf.Vec3f(0.8, 0.7, 0.2)]))
+    uv = primvars.CreatePrimvar(
+        "st", Sdf.ValueTypeNames.TexCoord2fArray,
+        UsdGeom.Tokens.faceVarying)
+    uv.Set(Vt.Vec2fArray([
+        Gf.Vec2f(0, 0), Gf.Vec2f(1, 0),
+        Gf.Vec2f(1, 1), Gf.Vec2f(0, 1)]))
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(
+        UsdShade.Material(stage.GetPrimAtPath("/World/BoundMaterial")))
+
+    def set_handedness(left):
+        order = [0, 3, 2, 1] if left else [0, 1, 2, 3]
+        mesh.GetOrientationAttr().Set(
+            UsdGeom.Tokens.leftHanded if left else UsdGeom.Tokens.rightHanded)
+        mesh.GetFaceVertexIndicesAttr().Set(Vt.IntArray(order))
+        colors.SetIndices(Vt.IntArray(order))
+        uv.SetIndices(Vt.IntArray(order))
+        normals = primvars.GetPrimvar("normals")
+        if normals and normals.HasValue():
+            normals.SetIndices(Vt.IntArray(order))
+
+    def pixels(phase):
+        root, ext = os.path.splitext(os.environ["MERLIN_HYDRA2_SMOKE_IMAGE"])
+        image = QImage(f"{root}-{phase}{ext}").convertToFormat(
+            QImage.Format.Format_RGBA8888)
+        assert not image.isNull()
+        return bytes(image.constBits())[:image.sizeInBytes()]
+
+    for authored in (False, True):
+        if authored:
+            normals = primvars.CreatePrimvar(
+                "normals", Sdf.ValueTypeNames.Normal3fArray,
+                UsdGeom.Tokens.faceVarying)
+            # Distinct normals expose accidental corner remapping or sign flips.
+            normals.Set(Vt.Vec3fArray([
+                Gf.Vec3f(-0.2, 0, 1), Gf.Vec3f(0.2, 0, 1),
+                Gf.Vec3f(0.2, 0.3, 1), Gf.Vec3f(-0.2, 0.3, 1)]))
+        prefix = "orientation-authored" if authored else "orientation-generated"
+        right = prefix + "-right"
+        left = prefix + "-left"
+        _render_phase(app_controller, right, edit=lambda _: set_handedness(False))
+        _render_phase(app_controller, left, edit=lambda _: set_handedness(True))
+        assert pixels(right) == pixels(left), (
+            f"{prefix}: equivalent left/right meshes changed the lit image")
+
+    # An orientation-only edit must invalidate topology, even without changing
+    # points or indices. Generated normals must change and then recover.
+    mesh.GetPrim().RemoveProperty("primvars:normals")
+    mesh.GetPrim().RemoveProperty("primvars:normals:indices")
+    _render_phase(app_controller, "orientation-restored-left")
+    _render_phase(
+        app_controller, "orientation-only-right",
+        edit=lambda _: mesh.GetOrientationAttr().Set(UsdGeom.Tokens.rightHanded))
+    assert (pixels("orientation-restored-left") !=
+            pixels("orientation-only-right"))
+    _render_phase(
+        app_controller, "orientation-only-left",
+        edit=lambda _: mesh.GetOrientationAttr().Set(UsdGeom.Tokens.leftHanded))
+    assert (pixels("orientation-restored-left") ==
+            pixels("orientation-only-left"))
 
 
 def testUsdviewInputFunction(appController):
@@ -388,3 +466,4 @@ def testUsdviewInputFunction(appController):
     assert all(
         event["render_settings_resource_revision"] >= 2
         for event in resize_settings_changes)
+    _check_mesh_orientation(appController)
