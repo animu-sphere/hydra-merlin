@@ -39,6 +39,8 @@ struct Arguments {
   std::uint32_t height{512};
   std::uint32_t steady_frames{30};
   bool resolution_overridden{};
+  bool validation{};
+  std::uint32_t arena_blocks{4};
 };
 
 struct FrameTimings {
@@ -71,6 +73,14 @@ struct Baseline {
   std::vector<FrameTimings> timings;
   merlin::vulkan::FrameCounters counters;
   merlin::extraction::SnapshotBuildCounters snapshot_build_counters;
+};
+
+struct MeshVerification {
+  std::uint32_t exact_aov_comparisons{};
+  std::uint32_t required_submission_rejections{};
+  std::string required_rejection_reason;
+  bool generated_parameter_recovery{};
+  bool generated_module_recovery{};
 };
 
 struct FixtureSummary {
@@ -152,6 +162,9 @@ bool IsFixture(std::string_view value) {
       std::string_view("thousand-instances"),
       std::string_view("gpu-driven-small-objects"),
       std::string_view("gpu-driven-diverse-objects"),
+      std::string_view("gpu-driven-textured-objects"),
+      std::string_view("gpu-driven-arena-objects"),
+      std::string_view("generated-material-objects"),
       std::string_view("one-million-gaussians"),
       std::string_view("five-million-gaussians"),
       std::string_view("ten-million-gaussians"),
@@ -186,13 +199,23 @@ Arguments ParseArguments(int argc, char** argv) {
       result.resolution_overridden = true;
     } else if (argument == "--steady-frames") {
       result.steady_frames = ParseUnsigned(value(argument), argument);
+    } else if (argument == "--validate") {
+      result.validation = true;
+    } else if (argument == "--arena-blocks") {
+      result.arena_blocks = ParseUnsigned(value(argument), argument);
+      if (result.arena_blocks != 2 && result.arena_blocks != 4 &&
+          result.arena_blocks != 8 && result.arena_blocks != 16) {
+        throw std::invalid_argument("--arena-blocks requires 2, 4, 8, or 16");
+      }
     } else if (argument == "--help") {
       std::cout
           << "Usage: merlin-benchmark [--output FILE] [--fixture NAME] "
-             "[--width N] [--height N] [--steady-frames N]\n"
+             "[--width N] [--height N] [--steady-frames N] [--validate] "
+             "[--arena-blocks 2|4|8|16]\n"
              "Fixtures: reference, million-triangles, ten-thousand-meshes, "
              "thousand-instances, gpu-driven-small-objects, "
-             "gpu-driven-diverse-objects, "
+             "gpu-driven-diverse-objects, gpu-driven-textured-objects, "
+             "gpu-driven-arena-objects, generated-material-objects, "
              "one-million-gaussians, "
              "five-million-gaussians, ten-million-gaussians, "
              "aov-combinations, 4k\n";
@@ -350,9 +373,62 @@ constexpr std::uint32_t kDiverseMeshCount = 16;
 constexpr std::uint32_t kDiverseMaterialCount = 8;
 constexpr std::uint32_t kDiverseMaterialRunLength = 256;
 
+merlin::MaterialModule ScaleMaterialModule() {
+  merlin::MaterialModule module;
+  module.key = "merlin-benchmark-generated-abi-tint/v1";
+  module.parameters.entries = {{"tint", merlin::MaterialValueType::Float3, 1}};
+  module.requirements.results = merlin::MaterialResultField::BaseColor;
+  return module;
+}
+
+merlin::vulkan::GeneratedMaterialArtifact ScaleMaterialArtifact(
+    const std::filesystem::path& shader_dir) {
+  const auto module = ScaleMaterialModule();
+  merlin::vulkan::GeneratedMaterialArtifact artifact;
+  artifact.module_key = module.key;
+  artifact.fragment = shader_dir / "benchmark-generated.frag.spv";
+  artifact.fragment_entry_point = "benchmark_generated_fragment";
+  artifact.parameter_buffer_size = 16;
+  artifact.parameter_bindings = {{"tint", merlin::MaterialValueType::Float3, 1, 0, 0}};
+  artifact.reflection.target = "spirv";
+  artifact.reflection.entry_points = {artifact.fragment_entry_point};
+  artifact.reflection.parameters = module.parameters;
+  return artifact;
+}
+
+std::uint32_t ArenaFixtureVertexCount(std::uint32_t blocks) {
+  // Pad unused vertices to exercise the production 256-KiB first-fit arenas
+  // without multiplying raster work. All geometries keep one/two triangles.
+  return (256U * 1024U) / (kDiverseMeshCount / blocks) /
+         sizeof(merlin::extraction::DrawVertex);
+}
+
 FixtureSummary PopulateGpuDrivenObjects(ScaleFixture& fixture,
-    std::uint32_t target_count, bool diverse) {
+    std::uint32_t target_count, bool diverse, bool textured = false,
+    std::uint32_t arena_blocks = 0, bool generated = false) {
   if (fixture.meshes.empty()) {
+    std::vector<merlin::TextureHandle> textures;
+    std::vector<merlin::SamplerHandle> samplers;
+    if (textured) {
+      for (std::uint32_t index = 0; index < 4; ++index) {
+        merlin::TextureDescriptor texture;
+        texture.label = "scale-checker-" + std::to_string(index);
+        texture.width = 2;
+        texture.height = 2;
+        const auto channel = static_cast<std::uint8_t>(64U + index * 40U);
+        texture.pixels = {channel, 255, 96, 255, 255, channel, 224, 255,
+            64, 128, channel, 255, 224, channel, 64, 255};
+        textures.push_back(fixture.world.CreateTexture(std::move(texture)));
+      }
+      for (std::uint32_t index = 0; index < 2; ++index) {
+        merlin::SamplerDescriptor sampler;
+        sampler.label = "scale-sampler-" + std::to_string(index);
+        sampler.min_filter = sampler.mag_filter = index == 0
+                                                      ? merlin::FilterMode::Nearest
+                                                      : merlin::FilterMode::Linear;
+        samplers.push_back(fixture.world.CreateSampler(std::move(sampler)));
+      }
+    }
     const auto material_count = diverse ? kDiverseMaterialCount : 1U;
     for (std::uint32_t index = 0; index < material_count; ++index) {
       merlin::MaterialDescriptor material;
@@ -364,6 +440,19 @@ FixtureSummary PopulateGpuDrivenObjects(ScaleFixture& fixture,
             0.8F - 0.6F * factor, 0.3F + 0.4F * factor, 1.0F};
         material.parameters.roughness = 0.15F + 0.8F * factor;
         material.double_sided = index % 2U != 0;
+      }
+      if (textured) {
+        material.features |= merlin::MaterialFeature::BaseColorTexture;
+        material.base_color_texture = merlin::TextureBinding{
+            textures[index % textures.size()], samplers[index % samplers.size()]};
+      }
+      if (generated) {
+        material.module = ScaleMaterialModule();
+        material.generated_resources.key = "scale-empty-resources";
+        material.generated_parameters.key = "scale-tint-" + std::to_string(index);
+        material.generated_parameters.entries = {{"tint",
+            merlin::MaterialValueType::Float3,
+            {merlin::Vec3{0.2F + 0.08F * index, 0.7F, 0.35F}}}};
       }
       fixture.materials.push_back(
           fixture.world.CreateMaterial(std::move(material)));
@@ -385,6 +474,14 @@ FixtureSummary PopulateGpuDrivenObjects(ScaleFixture& fixture,
         if (index % 2U != 0) {
           mesh.indices = {0, 1, 2, 0, 2, 3};
         }
+      }
+      if (textured) {
+        mesh.texcoords = {{0.0F, 0.0F}, {1.0F, 0.0F},
+            {1.0F, 1.0F}, {0.0F, 1.0F}};
+      }
+      if (arena_blocks != 0) {
+        mesh.positions.resize(ArenaFixtureVertexCount(arena_blocks), mesh.positions[0]);
+        mesh.texcoords.resize(mesh.positions.size());
       }
       fixture.meshes.push_back(fixture.world.CreateMesh(std::move(mesh)));
     }
@@ -932,13 +1029,20 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
     const FixtureSummary& fixture,
     const merlin::vulkan::RendererCapabilities& capabilities,
     const merlin::vulkan::RendererStatistics& statistics,
-    const std::vector<Baseline>& baselines) {
+    const std::vector<Baseline>& baselines, const MeshVerification& verification) {
   const auto& textures = statistics.bindless_texture_slots;
   const auto& samplers = statistics.bindless_samplers;
   const auto& memory = statistics.memory_budget;
   const auto& transfer = statistics.transfer_queue;
   stream << "{\n  \"schema\": \"merlin-benchmark/v3\",\n"
-         << "  \"environment\": {\n    \"commit\": ";
+         << "  \"mesh_verification\": {\n    \"exact_aov_comparisons\": "
+         << verification.exact_aov_comparisons
+         << ",\n    \"required_submission_rejections\": " << verification.required_submission_rejections
+         << ",\n    \"generated_parameter_recovery\": " << (verification.generated_parameter_recovery ? "true" : "false")
+         << ",\n    \"generated_module_recovery\": " << (verification.generated_module_recovery ? "true" : "false")
+         << ",\n    \"required_rejection_reason\": ";
+  JsonString(stream, verification.required_rejection_reason);
+  stream << "\n  },\n  \"environment\": {\n    \"commit\": ";
   JsonString(stream, MERLIN_BENCHMARK_COMMIT);
   stream << ",\n    \"build_type\": ";
   JsonString(stream, MERLIN_BENCHMARK_BUILD_TYPE);
@@ -967,13 +1071,18 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
          << (capabilities.shader_draw_parameters ? "true" : "false")
          << ",\n    \"generated_materials\": "
          << (capabilities.generated_materials ? "true" : "false")
+         << ",\n    \"validation_enabled\": "
+         << (capabilities.validation_enabled ? "true" : "false")
+         << ",\n    \"validation_messages\": " << statistics.validation_messages
          << ",\n    \"async_transfer_queue\": "
          << (capabilities.async_transfer_queue ? "true" : "false")
          << ",\n    \"memory_budget_extension\": "
          << (capabilities.memory_budget_extension ? "true" : "false")
          << "\n  },\n  \"fixture\": {\n    \"name\": ";
   JsonString(stream, fixture.name);
-  stream << ",\n    \"mesh_count\": " << fixture.mesh_count
+  stream << ",\n    \"arena_vertex_blocks\": "
+         << (arguments.fixture == "gpu-driven-arena-objects" ? arguments.arena_blocks : 0U)
+         << ",\n    \"mesh_count\": " << fixture.mesh_count
          << ",\n    \"instance_count\": " << fixture.instance_count
          << ",\n    \"triangle_count\": " << fixture.triangle_count
          << ",\n    \"gaussian_resource_count\": "
@@ -1201,14 +1310,19 @@ void RequireSameImage(const Image& conventional, const Image& gpu_driven,
 
 void RequireSameOutput(const merlin::vulkan::RenderResult& conventional,
     const merlin::vulkan::RenderResult& gpu_driven,
-    std::uint32_t draw_count) {
+    std::uint32_t draw_count, bool same_revision = true) {
   if (conventional.rendered_aovs != gpu_driven.rendered_aovs ||
       conventional.cpu_readback_aovs != gpu_driven.cpu_readback_aovs ||
-      conventional.scene_revision != gpu_driven.scene_revision) {
+      (same_revision && conventional.scene_revision != gpu_driven.scene_revision)) {
     throw std::runtime_error(
         "GPU-driven render-product metadata differs from conventional "
         "submission at " +
         std::to_string(draw_count) + " draws");
+  }
+  if (std::none_of(conventional.instance_id.pixels.begin(),
+          conventional.instance_id.pixels.end(),
+          [](std::uint32_t id) { return id != ~std::uint32_t{}; })) {
+    throw std::runtime_error("Mesh parity comparison has no rasterized foreground");
   }
   RequireSameImage(conventional.color, gpu_driven.color, "color", draw_count);
   RequireSameImage(conventional.depth, gpu_driven.depth, "depth", draw_count);
@@ -1234,8 +1348,12 @@ int main(int argc, char** argv) {
         shader_dir / "environment.hdr",
         shader_dir / "gaussian.vert.spv",
         shader_dir / "gaussian.frag.spv"};
-    const bool diverse_fixture =
-        arguments.fixture == "gpu-driven-diverse-objects";
+    const bool generated_fixture = arguments.fixture == "generated-material-objects";
+    const bool arena_fixture = arguments.fixture == "gpu-driven-arena-objects";
+    const bool textured_fixture = arena_fixture ||
+                                  arguments.fixture == "gpu-driven-textured-objects";
+    const bool diverse_fixture = generated_fixture || textured_fixture ||
+                                 arguments.fixture == "gpu-driven-diverse-objects";
     const bool gpu_driven_fixture = diverse_fixture ||
         arguments.fixture == "gpu-driven-small-objects";
     constexpr std::uint32_t kGpuDrivenMaximumDrawCount = 100'000;
@@ -1245,12 +1363,18 @@ int main(int argc, char** argv) {
             diverse_fixture ? kDiverseMaterialCount : 1U,
             kGpuDrivenMaximumDrawCount};
     merlin::vulkan::RendererOptions renderer_options;
-    if (gpu_driven_fixture) {
+    renderer_options.enable_validation = arguments.validation;
+    if (generated_fixture) {
+      renderer_options.descriptor_backend = merlin::vulkan::DescriptorBackendRequest::Conventional;
+      renderer_options.generated_material_artifacts.push_back(ScaleMaterialArtifact(shader_dir));
+    }
+    if (gpu_driven_fixture && !generated_fixture) {
       renderer_options.gpu_scene_capacities = gpu_driven_capacities;
     }
     merlin::vulkan::Renderer renderer(renderer_options);
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;
+    MeshVerification verification;
     FixtureSummary fixture_summary;
     std::unique_ptr<merlin::render::GpuScenePackingState> gpu_scene_packing;
     std::vector<merlin::render::GpuGeometryPlacement> gpu_geometry_placements;
@@ -1259,7 +1383,7 @@ int main(int argc, char** argv) {
     std::uint64_t last_completion_value{};
     auto gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Disabled;
     auto gaussian_execution = GaussianExecution::Cpu;
-    if (gpu_driven_fixture) {
+    if (gpu_driven_fixture && !generated_fixture) {
       gpu_scene_packing =
           std::make_unique<merlin::render::GpuScenePackingState>(
               gpu_driven_capacities);
@@ -1272,10 +1396,24 @@ int main(int argc, char** argv) {
       for (std::uint32_t index = 0;
           index < gpu_driven_capacities.geometries; ++index) {
         gpu_geometry_placements.push_back(
-            {index * 4U * sizeof(merlin::extraction::DrawVertex), index_offset});
+            {arena_fixture
+                    ? (index % (kDiverseMeshCount / arguments.arena_blocks)) *
+                          ArenaFixtureVertexCount(arguments.arena_blocks) *
+                          sizeof(merlin::extraction::DrawVertex)
+                    : index * 4U * sizeof(merlin::extraction::DrawVertex),
+                index_offset});
         index_offset += index % 2U == 0 ? 16U : 32U;
       }
       gpu_material_bindings.resize(gpu_driven_capacities.materials);
+      if (textured_fixture) {
+        // Fresh tables allocate ascending physical slots after reserved entries.
+        // Exact comparison with a renderer without GPU Scene below guards this.
+        for (std::uint32_t index = 0; index < gpu_driven_capacities.materials; ++index) {
+          gpu_material_bindings[index] = {
+              merlin::vulkan::kReservedBindlessTextureSlots + index % 4U,
+              index % 2U};
+        }
+      }
     }
 
     const auto render = [&](const Products& products = AllProducts()) {
@@ -1468,7 +1606,16 @@ int main(int argc, char** argv) {
           fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
               merlin::ChangeAspect::Camera);
           fixture_summary =
-              PopulateGpuDrivenObjects(fixture, draw_count, diverse_fixture);
+              PopulateGpuDrivenObjects(fixture, draw_count, diverse_fixture,
+                  textured_fixture, arena_fixture ? arguments.arena_blocks : 0,
+                  generated_fixture);
+          fixture_summary.name = arguments.fixture;
+          for (std::size_t index = 0; index < fixture.instances.size(); ++index) {
+            const auto handle = fixture.instances[index];
+            gpu_instance_identities[index] = {
+                static_cast<std::uint32_t>(fixture.world.Get(handle).mesh.value()),
+                static_cast<std::uint32_t>(handle.value()), ~std::uint32_t{}, 0U};
+          }
         });
 
         warm_path(merlin::vulkan::GpuDrivenIndexedMode::Disabled);
@@ -1480,22 +1627,56 @@ int main(int argc, char** argv) {
               "conventional scale baseline selected GPU-driven submission");
         }
 
-        warm_path(merlin::vulkan::GpuDrivenIndexedMode::Require);
+        if (generated_fixture) {
+          if (conventional.counters.generated_material_draw_count != draw_count ||
+              conventional.counters.generated_material_fallback_count != 0 ||
+              !conventional.material_diagnostics.empty()) {
+            throw std::runtime_error("generated ABI fixture did not execute its material artifact");
+          }
+          gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Require;
+          bool rejected{};
+          try {
+            (void)render();
+          } catch (const merlin::vulkan::RendererError& error) {
+            if (error.code() != merlin::vulkan::RendererErrorCode::Unsupported ||
+                std::string(error.what()).find("persistent bindless GPU Scene state is unavailable") == std::string::npos) {
+              throw;
+            }
+            rejected = true;
+            ++verification.required_submission_rejections;
+            verification.required_rejection_reason = error.what();
+          }
+          if (!rejected) {
+            throw std::runtime_error("generated conventional fixture unexpectedly accepted required GPU submission");
+          }
+        }
+        warm_path(generated_fixture ? merlin::vulkan::GpuDrivenIndexedMode::Prefer
+                                    : merlin::vulkan::GpuDrivenIndexedMode::Require);
         const auto gpu_driven =
-            steady("gpu-driven-" + std::to_string(draw_count));
+            steady(std::string(generated_fixture ? "prefer-fallback-" : "gpu-driven-") +
+                   std::to_string(draw_count));
         const auto& counters = baselines.back().counters;
         // Extraction orders draws by material/mesh sort key. Repeated
         // instances of each pair stay contiguous, so resource diversity
         // bounds batch count independently of the number of instances.
         const auto maximum_batches = diverse_fixture
             ? kDiverseMeshCount * kDiverseMaterialCount : 1U;
-        if (counters.gpu_driven_candidate_draw_count != draw_count ||
-            counters.gpu_driven_visible_draw_count != draw_count ||
-            counters.gpu_driven_indirect_draw_count > maximum_batches ||
-            counters.gpu_driven_indirect_draw_count < (diverse_fixture ? 2U : 1U) ||
-            counters.mesh_cpu_draw_visit_count != 0 ||
-            counters.gpu_driven_candidate_upload_bytes != 0 ||
-            counters.gpu_driven_fallback_count != 0) {
+        if (generated_fixture) {
+          if (counters.gpu_driven_candidate_draw_count != 0 ||
+              counters.gpu_driven_indirect_draw_count != 0 ||
+              counters.gpu_driven_fallback_count != 1 ||
+              counters.generated_material_draw_count != draw_count ||
+              counters.generated_material_fallback_count != 0 ||
+              counters.mesh_cpu_draw_visit_count != 0) {
+            throw std::runtime_error("generated material fallback violated its explicit submission contract");
+          }
+        } else if (counters.gpu_driven_candidate_draw_count != draw_count ||
+                   counters.gpu_driven_visible_draw_count != draw_count ||
+                   counters.gpu_driven_indirect_draw_count > maximum_batches ||
+                   counters.gpu_driven_indirect_draw_count < (diverse_fixture ? 2U : 1U) ||
+                   counters.mesh_cpu_draw_visit_count != 0 ||
+                   counters.gpu_driven_candidate_upload_bytes != 0 ||
+                   counters.gpu_driven_fallback_count != 0) {
           throw std::runtime_error(
               "GPU-driven scale baseline violated bounded steady-state "
               "submission at " + std::to_string(draw_count) + " draws: " +
@@ -1503,7 +1684,24 @@ int main(int argc, char** argv) {
               ", CPU visits=" + std::to_string(counters.mesh_cpu_draw_visit_count));
         }
         const auto expected_batches = counters.gpu_driven_indirect_draw_count;
+        if (arena_fixture && (renderer.statistics().vertex_arena.blocks != arguments.arena_blocks ||
+                                 renderer.statistics().index_arena.blocks != 1)) {
+          throw std::runtime_error("arena fixture did not create the requested vertex blocks and one index block");
+        }
+        if (textured_fixture) {
+          merlin::vulkan::RendererOptions reference_options;
+          reference_options.enable_validation = arguments.validation;
+          merlin::vulkan::Renderer reference_renderer(reference_options);
+          RequireSameOutput(Render(reference_renderer, extractor, shaders,
+                                arguments, AllProducts()),
+              gpu_driven, draw_count);
+          ++verification.exact_aov_comparisons;
+          if (reference_renderer.statistics().validation_messages != 0) {
+            throw std::runtime_error("independent Forward reference reported validation diagnostics");
+          }
+        }
         RequireSameOutput(conventional, gpu_driven, draw_count);
+        ++verification.exact_aov_comparisons;
 
         std::vector<FrameTimings> motion_samples;
         motion_samples.reserve(arguments.steady_frames);
@@ -1525,19 +1723,82 @@ int main(int argc, char** argv) {
           motion_samples.push_back(timing);
           AssertStatic(motion_result.counters);
           if (motion_result.counters.mesh_cpu_draw_visit_count != 0 ||
-              motion_result.counters.gpu_driven_candidate_draw_count != draw_count ||
+              motion_result.counters.gpu_driven_candidate_draw_count != (generated_fixture ? 0U : draw_count) ||
               motion_result.counters.gpu_driven_indirect_draw_count != expected_batches ||
-              motion_result.counters.gpu_driven_fallback_count != 0) {
+              motion_result.counters.gpu_driven_fallback_count != (generated_fixture ? 1U : 0U) ||
+              motion_result.counters.gpu_driven_candidate_upload_bytes != 0 ||
+              (generated_fixture &&
+                  (motion_result.counters.generated_material_draw_count != draw_count ||
+                      motion_result.counters.generated_material_fallback_count != 0))) {
             throw std::runtime_error(
                 "camera motion rebuilt GPU-driven Mesh submission");
           }
         }
-        baselines.push_back({"camera-motion-gpu-driven-" +
+        baselines.push_back({std::string(generated_fixture
+                                             ? "camera-motion-prefer-fallback-"
+                                             : "camera-motion-gpu-driven-") +
                                  std::to_string(draw_count),
             std::move(motion_samples), motion_result.counters,
             extractor.snapshot()->build_counters});
         gpu_driven_mode = merlin::vulkan::GpuDrivenIndexedMode::Disabled;
         RequireSameOutput(render(), motion_result, draw_count);
+        ++verification.exact_aov_comparisons;
+        if (textured_fixture) {
+          merlin::vulkan::Renderer reference_renderer(merlin::vulkan::RendererOptions{.enable_validation = arguments.validation});
+          RequireSameOutput(Render(reference_renderer, extractor, shaders,
+                                arguments, AllProducts()),
+              motion_result, draw_count);
+          ++verification.exact_aov_comparisons;
+          if (reference_renderer.statistics().validation_messages != 0) {
+            throw std::runtime_error("moving Forward reference reported validation diagnostics");
+          }
+        }
+        if (generated_fixture && draw_count == 1'000U) {
+          // Edits must invalidate both the preflight plan and completed frame
+          // descriptor caches. Restoring a missing module must restore execution.
+          const auto material_handle = fixture.materials.at(1);
+          const auto original = fixture.world.Get(material_handle);
+          const auto apply_material = [&](const merlin::MaterialDescriptor& material) {
+            fixture.world.UpdateMaterial(material_handle, material);
+            extractor.Apply(fixture.world, fixture.world.Commit());
+            return render();
+          };
+          const auto require_reused = [&] {
+            warm_path(merlin::vulkan::GpuDrivenIndexedMode::Disabled);
+            auto result = render();
+            AssertStatic(result.counters);
+            if (result.counters.mesh_cpu_draw_visit_count != 0 ||
+                result.counters.generated_material_draw_count != draw_count ||
+                result.counters.generated_material_fallback_count != 0) {
+              throw std::runtime_error("generated material cache did not recover after edit");
+            }
+            return result;
+          };
+          auto edited = original;
+          edited.generated_parameters.key += "-edited";
+          edited.generated_parameters.entries[0].values[0] = merlin::Vec3{0.95F, 0.1F, 0.15F};
+          const auto changed = apply_material(edited);
+          if (changed.counters.mesh_cpu_draw_visit_count == 0 ||
+              changed.color.pixels == motion_result.color.pixels) {
+            throw std::runtime_error("generated parameter edit failed to invalidate/render");
+          }
+          (void)require_reused();
+          (void)apply_material(original);
+          RequireSameOutput(require_reused(), motion_result, draw_count, false);
+          verification.generated_parameter_recovery = true;
+
+          edited = original;
+          edited.module->key = "missing-scale-artifact";
+          const auto missing = apply_material(edited);
+          if (missing.counters.generated_material_fallback_count == 0 ||
+              missing.material_diagnostics.empty() ||
+              missing.material_diagnostics.front().category != merlin::MaterialDiagnosticCategory::CacheIncompatible) {
+            throw std::runtime_error("missing module did not take explicit material fallback");
+          }
+          (void)apply_material(original);
+          RequireSameOutput(require_reused(), motion_result, draw_count, false);
+          verification.generated_module_recovery = true;
+        }
       }
     } else {
       ScaleFixture fixture;
@@ -1595,9 +1856,12 @@ int main(int argc, char** argv) {
       }
     }
 
+    if (renderer.statistics().validation_messages != 0) {
+      throw std::runtime_error("renderer validation diagnostics were reported");
+    }
     if (arguments.output.empty()) {
       WriteJson(std::cout, arguments, fixture_summary, renderer.capabilities(),
-          renderer.statistics(), baselines);
+          renderer.statistics(), baselines, verification);
     } else {
       if (arguments.output.has_parent_path()) {
         std::filesystem::create_directories(arguments.output.parent_path());
@@ -1608,7 +1872,7 @@ int main(int argc, char** argv) {
                                  arguments.output.string());
       }
       WriteJson(stream, arguments, fixture_summary, renderer.capabilities(),
-          renderer.statistics(), baselines);
+          renderer.statistics(), baselines, verification);
       if (!stream) {
         throw std::runtime_error("could not write output: " +
                                  arguments.output.string());

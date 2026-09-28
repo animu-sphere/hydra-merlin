@@ -72,6 +72,9 @@ Select a fixture with `--fixture`:
 | `thousand-instances` | 1,000 instances sharing one mesh |
 | `gpu-driven-small-objects` | The same shared indexed triangle at 1,000, 10,000, and 100,000 instances, measured through conventional and required GPU-driven indexed submission |
 | `gpu-driven-diverse-objects` | 16 differently sized triangle/quad meshes and eight untextured basic materials, at the same 1k/10k/100k instance tiers, with conventional/GPU-driven and camera-motion comparisons |
+| `gpu-driven-textured-objects` | The diverse fixture with four 2x2 RGBA textures, nearest/linear samplers, independent Forward reference, and the same draw tiers |
+| `gpu-driven-arena-objects` | The textured fixture with `--arena-blocks 2/4/8/16` (default 4) production vertex blocks and one index block; unused vertex padding changes placement without increasing triangle work |
+| `generated-material-objects` | Eight parameter states of one hand-authored generated-material ABI artifact, conventional execution, explicit required rejection/preferred fallback, camera motion, and parameter/module recovery |
 | `one-million-gaussians` | One deterministic degree-0 Gaussian resource with 1,000,000 particles |
 | `five-million-gaussians` | The same deterministic distribution scaled to 5,000,000 particles |
 | `ten-million-gaussians` | The same deterministic distribution scaled to 10,000,000 particles |
@@ -108,15 +111,44 @@ The extractor's material/mesh ordering determines native batches, so this
 fixture requires multiple indirect calls bounded by the 128 resource pairs,
 independent of instance count. Static and moving phases still require zero CPU
 draw visits and uploads. The final fixture totals are 16 meshes, 100,000 instances,
-and 150,000 triangles. Geometry fits in one vertex/index arena block; textures,
-generated materials, and arena-block scaling remain separate evidence.
+and 150,000 triangles. Geometry fits in one vertex/index arena block.
 
-Run both GPU-driven fixtures with structural and JSON schema checks explicitly
+The textured and arena fixtures retain these phases and compare all four AOVs
+against a separate renderer with GPU Scene disabled, using Forward's mesh and
+instance identity policy. The production arenas use 256-KiB blocks. Padding
+unreferenced vertices creates the requested 2/4/8/16 vertex blocks; the index
+arena retains one block. Image comparisons require rasterized foreground, so
+an empty image cannot satisfy parity. Preparation cost is expected to remain
+independent of draw count at fixed resources; command recording can grow with
+arena/pipeline batch count. Vertex-block sweeps do not claim arbitrary index-
+block packing, material-count scaling, host performance, or pinned-clock timing.
+
+`generated-material-objects` deliberately uses conventional descriptors because
+registered generated artifacts are not supported by bindless GPU submission.
+Its phases are `update`, `conventional`, `prefer-fallback`, and
+`camera-motion-prefer-fallback` at each draw tier. Required submission must reject
+with the recorded unsupported reason. Preferred submission must execute every
+generated draw, with one submission fallback and zero material fallback. Warmed
+static/motion phases have zero preparation draw visits and descriptor writes;
+conventional draw recording is still linear and excluded from that visit counter.
+Parameter edits and missing-module/restoration verify cache invalidation and
+image recovery. The small ABI fixture is hand-authored and does not measure
+MaterialX graph generation; `merlin-vulkan-generated-material` separately checks
+actual MaterialX prototype and textured Standard Surface execution and reuse.
+
+Reports include actual comparison/rejection counts and recovery flags in
+`mesh_verification`, selected descriptor backend, arena residency, validation
+enablement and renderer diagnostic counts. `--validate` enables Vulkan checking;
+omit it during timing captures. CPU preparation is `gpu_scene_update`, not
+conventional draw recording or total frame time.
+
+Run all eight configurations with structural and JSON schema checks explicitly
 on a capable GPU (they are not universal CTest or timing gates):
 
 ```powershell
 cmake -DMERLIN_BENCHMARK=C:/path/to/merlin-benchmark.exe `
   -DMERLIN_BENCHMARK_OUTPUT_DIR=build/gpu-driven-check `
+  -DMERLIN_BENCHMARK_VALIDATE=ON `
   -P tests/run_gpu_driven_benchmark_test.cmake
 ```
 
@@ -239,8 +271,10 @@ implementation:
   command recording. It must be zero in warmed static and camera-motion GPU
   phases; GPU execution and readback costs can still grow with scene size.
   `gpu-driven-diverse-objects` extends this to 16 triangle/quad resources and
-  eight basic materials with multiple batches. Texture, generated-material,
-  and multiple-arena-block diversity remain follow-up evidence.
+  eight basic materials with multiple batches. Texture and 2/4/8/16 vertex-arena
+  block sweeps add independent Forward parity. Generated-material ABI evidence
+  covers conventional preparation reuse and explicit submission fallback;
+  generated bindless/indirect execution remains unsupported.
 - Visibility reports selected derivative mode, visibility-raster and material-
   resolve time separately, supported/fallback draw counts, and Forward
   differential-image metadata for each material feature.

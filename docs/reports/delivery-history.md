@@ -11,6 +11,47 @@ Legend: ✅ done
 
 ---
 
+## v0.16.0 Vulkan Mesh scaling validation
+
+Validated the supported Mesh submission and generated-material fallback boundary
+on 2026-09-28. This completes the Mesh validation work item; Gaussian evidence
+and the overall v0.16.0 exit criteria remain open.
+
+- Eight opt-in configurations cover shared/diverse/textured Mesh, 2/4/8/16
+  production vertex-arena blocks, and conventional generated-material execution
+  at 1k/10k/100k draws. Diverse fixtures retain 16 triangle/quad resources and
+  eight materials; textured fixtures add four images and two samplers.
+- Static and camera-motion GPU phases report zero CPU preparation draw visits,
+  geometry/texture/GPU Scene uploads, allocations and descriptor writes after
+  warming. Per-frame material uniforms still refresh outside the upload counter.
+- The correctness gate records 78 exact color/depth/primitive-ID/instance-ID
+  comparison sets with rasterized foreground. Textured/arena fixtures also
+  compare against an independent Forward renderer without GPU Scene tables.
+- Generated artifacts execute conventionally with zero material fallback.
+  Required GPU submission rejects; preferred mode records one submission
+  fallback. Parameter edits and missing-module/restoration exercise invalidation
+  and image recovery. Unique-variant preflight and completed-frame descriptor
+  reuse remove warmed preparation traversal and descriptor churn. Conventional
+  draw recording remains linear and is excluded from the preparation counter;
+  generated bindless/GPU-driven execution remains unsupported.
+- All 41 selected source/runtime/install-consumer CTest cases and four actual
+  MaterialX compiler/artifact/runtime cases pass. The eight GPU configurations
+  pass with validation enabled and zero renderer-owned diagnostic messages.
+
+Local timing used Release/MSVC 19.51, Vulkan SDK 1.4.350.0, an NVIDIA RTX A5000
+(driver 597.16), a fixed 256x256 four-AOV target and 30 warmed samples per phase.
+Textured static preparation medians were 4.60/5.60/5.45 us at 1k/10k/100k draws;
+moving-camera preparation medians were 5.75/5.00/6.20 us. Recording grows with
+arena/pipeline batch count (up to 128 batches in the 16-block fixture).
+
+These are serialized, same-device headless observations with clocks and power
+unpinned, not universal timing gates, controlled host comparisons, or renderer
+before/after measurements. The vertex sweep pads unreferenced vertices while
+keeping index geometry in one block; arbitrary index-block packing and growing
+material/module counts are outside this evidence. Raw captures remain local per
+the [report policy](README.md). Reproduce the correctness gate and timing captures
+with the fixtures and commands in the [benchmark guide](../guides/benchmarking.md).
+
 ## v0.14.1 Gaussian correctness MVP ✅
 
 - ✅ Added standard Hydra `particleField` ingestion, float/half normalization,
