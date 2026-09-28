@@ -10,6 +10,14 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Vulkan generated-material preparation caches unique pipeline variants instead
+  of traversing every draw on static/camera frames. Completed conventional frame
+  contexts retain descriptor sets while source/native-resource generation,
+  immutable resource roots and selected artifacts stay compatible. Resource
+  changes and failed preparation invalidate caches before mutation; parameter
+  and lighting uniforms continue to refresh. Generated submission remains
+  conventional. MaterialX Forward test wrappers now pass the shared draw constants.
+
 - Hydra Mesh triangulation now honors USD `leftHanded` orientation, preserving
   authored corner/primvar correspondence and normals while correcting generated
   normals and winding. This fixes inward lighting on OpenChessSet's board and
@@ -21,6 +29,15 @@ after its public API and release process are established.
   API validation failures for conventional/GPU Scene draws and textured meshes.
 
 ### Added
+
+- Opt-in textured, 2/4/8/16 vertex-arena, and generated-material ABI Mesh scaling
+  fixtures cover 1k/10k/100k draws, static/camera motion, actual parity/rejection
+  evidence and edit/fallback recovery. Eight configurations validate zero warmed
+  preparation traversal/uploads/descriptor writes, with independent Forward
+  references for textured/arena scenes and exact color/depth/IDs. Local 30-sample
+  captures separate draw scaling from arena/pipeline batch cost. Generated
+  artifacts are measured on their conventional path, with explicit required
+  rejection/preferred fallback, not claimed as GPU-driven generated execution.
 
 - Metal Gaussian GPU execution now connects persistent attributes, shared Slang
   preparation/SH/culling, frame-wide radix sort, gather and indirect raster to
@@ -68,7 +85,7 @@ after its public API and release process are established.
   uploads, allocations, and descriptor changes, bounded multi-batch submission,
   and exact conventional Forward color/depth/ID parity. A separate CMake script
   validates both GPU-driven fixtures and their JSON reports on capable hardware;
-  texture, generated-material, and multiple-arena-block scaling remain open.
+  the newer textured/arena and generated-ABI fixtures extend this evidence.
 - Vulkan GPU-driven Mesh submission reuses CPU draw summaries and per-frame
   arena/pipeline batches across static and camera-only frames. The cache checks
   immutable draw, geometry, and material tables, physical draw slots, winding,

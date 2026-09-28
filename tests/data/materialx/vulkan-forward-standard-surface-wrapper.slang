@@ -20,5 +20,5 @@ ForwardFragmentOutput merlin_materialx_standard_surface_forward_fragment(
             input,
             material_constants,
             float4(material.base_color, input.color.a),
-            material.shading_normal));
+            material.shading_normal, draw_constants));
 }

@@ -186,6 +186,23 @@ int main(int argc, char** argv) {
   assert(Near(CenterChannel(first, 1), 48));
   assert(Near(CenterChannel(first, 2), 26));
 
+  const auto require_static_reuse = [&] {
+    for (std::uint32_t frame = 0; frame < renderer->statistics().frame_context_count + 1U; ++frame) {
+      const auto result = render();
+      if (frame == renderer->statistics().frame_context_count) {
+        Require(result.counters.mesh_cpu_draw_visit_count == 0,
+            "warmed generated material traversed CPU draws");
+        Require(result.counters.descriptor_allocation_count == 0 &&
+                    result.counters.descriptor_update_count == 0,
+            "warmed generated material rewrote descriptors");
+        Require(result.counters.generated_material_draw_count == 1 &&
+                    result.counters.generated_material_fallback_count == 0,
+            "warmed generated material fell back");
+      }
+    }
+  };
+  require_static_reuse();
+
   auto& tint =
       material.generated_parameters.entries.at(1).values.at(0);
   tint = merlin::Vec3{0.25F, 0.5F, 0.5F};
@@ -198,6 +215,7 @@ int main(int argc, char** argv) {
   assert(Near(CenterChannel(edited, 0), 51));
   assert(Near(CenterChannel(edited, 1), 32));
   assert(Near(CenterChannel(edited, 2), 13));
+  require_static_reuse();
 
   const auto render_with_artifact =
       [&](merlin::vulkan::GeneratedMaterialArtifact candidate) {
@@ -311,6 +329,7 @@ int main(int argc, char** argv) {
   assert(Near(CenterChannel(texture_edited, 0), 184));
   assert(Near(CenterChannel(texture_edited, 1), 69));
   assert(Near(CenterChannel(texture_edited, 2), 23));
+  require_static_reuse();
 
   world.Remove(generated_texture_handle);
   const auto missing_resource = render();

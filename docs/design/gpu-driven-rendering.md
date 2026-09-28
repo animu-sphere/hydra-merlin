@@ -280,7 +280,14 @@ counter, and readback buffers plus one descriptor pool avoid per-batch native
 allocation. Each batch executes one `vkCmdDrawIndexedIndirectCount` call.
 CPU draw statistics and drawn-material membership are cached by immutable
 draw/geometry roots and material count. Frames without generated materials
-skip per-draw generated-pipeline preflight. Each frame context also retains
+skip generated-pipeline preflight. Generated preflight retains the unique
+material/variant plan keyed by immutable draw/geometry/material roots and winding;
+camera-only frames visit that plan rather than every draw. Artifact selection
+and pipeline compatibility are still checked against the current render target.
+Conventional/generated descriptor sets are retained only in completed frame
+contexts, keyed by source, native resource generation, immutable material/texture/
+sampler roots and selected artifacts. Invalidation precedes native resource and
+pool mutations; uniforms continue to refresh for lighting and parameter changes. Each frame context also retains
 its batch layout keyed by source identity, immutable draw/geometry/material
 roots, physical draw-slot map, front-face winding, and geometry residency
 generation. Only successful submissions publish a reusable batch key, and
@@ -296,8 +303,15 @@ mask plus both culling switches through the backend-neutral request. Vulkan
 maps that policy to the native runtime; Metal rejects `require` and records an
 explicit fallback for `prefer`. The shared-geometry/material scale fixture
 checks zero steady CPU draw visits, zero uploads, and Forward parity at 1k,
-10k, and 100k draws, including camera motion. Evidence across diverse geometry
-and materials remains required before the completion criteria above are claimed.
+10k, and 100k draws, including camera motion. The diverse, textured and vertex-
+arena fixtures extend this to 16 geometries, eight materials, four textures/two
+samplers and 2/4/8/16 production vertex blocks, including an independent Forward
+renderer and draw/batch sweeps. See the
+[Mesh report](../reports/2026-09-28-mesh-scaling.md). This supports the accepted
+basic-material Vulkan path; generated artifacts still require conventional
+descriptors/submission and are checked through explicit rejection/fallback.
+Their command-recording cost remains linear. It does not establish generated
+bindless execution, arbitrary resource-count scaling, or cross-device timing.
 
 ## Opaque Visibility Buffer
 

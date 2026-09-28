@@ -65,6 +65,27 @@ add_custom_target(merlin-benchmark-shader-package
 add_dependencies(merlin-benchmark-shader-package merlin-vulkan-shaders)
 add_dependencies(merlin-benchmark merlin-benchmark-shader-package)
 
+# Benchmark-only generated-material ABI artifact; not part of renderer packages.
+set(_merlin_benchmark_generated_spv "${CMAKE_CURRENT_BINARY_DIR}/benchmark-generated.frag.spv")
+add_custom_command(OUTPUT "${_merlin_benchmark_generated_spv}"
+  COMMAND "${MERLIN_SLANGC_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-scale-material.slang"
+    -I "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/shaders"
+    -entry benchmark_generated_fragment -stage fragment -target spirv
+    -profile sm_6_6 -matrix-layout-column-major -fvk-use-entrypoint-name -O2
+    -o "${_merlin_benchmark_generated_spv}"
+  DEPENDS src/generated-scale-material.slang
+          "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/shaders/forward-common.slang"
+  VERBATIM)
+add_custom_target(merlin-benchmark-generated-shader
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_merlin_benchmark_generated_spv}"
+    "$<TARGET_FILE_DIR:merlin-benchmark>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/benchmark-generated.frag.spv"
+  DEPENDS "${_merlin_benchmark_generated_spv}" merlin-benchmark-shader-package
+  VERBATIM)
+add_dependencies(merlin-benchmark merlin-benchmark-generated-shader)
+install(FILES "${_merlin_benchmark_generated_spv}"
+  DESTINATION "${CMAKE_INSTALL_BINDIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
+
 install(TARGETS merlin-benchmark
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )

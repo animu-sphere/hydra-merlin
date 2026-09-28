@@ -42,17 +42,24 @@ ownership, dependency, and fallback contracts.
   usdview/HgiGL display was also checked with a 5.8-million-Gaussian stage
   using the lookdev runtime. Capture a controlled host motion comparison
   and evaluate whether every bound AOV needs a per-frame CPU readback.
-- 🚧 Remove per-draw CPU preparation from the steady-state Mesh submission path
-  while preserving the indexed Forward image and fallback contracts. Vulkan
-  now reuses draw summaries, GPU Scene slot maps, and indirect batches on
-  static/camera-only frames. The 1k/10k/100k shared-geometry fixture verifies
-  zero CPU draw visits and uploads with exact Forward color/depth/ID parity.
-  The diverse-objects fixture extends those checks to 16 triangle/quad meshes,
-  eight basic materials, and multiple batches. Texture/generated-material
-  diversity and multiple-arena-block batch scaling remain open.
-- ⬜ Capture controlled hardware evidence for Mesh command-recording and
-  Gaussian preparation/sort/raster costs, including diverse geometry and
-  materials, camera motion, and static zero-upload frames.
+- ✅ Complete the supported Vulkan Mesh scaling validation. Eight opt-in
+  configurations cover 1k/10k/100k draws, 16 triangle/quad meshes, eight basic
+  materials, four textures/two samplers, and 2/4/8/16 production vertex-arena
+  blocks. Static and camera-motion GPU phases have zero CPU preparation draw
+  visits, uploads, allocations and descriptor writes, with exact four-AOV
+  parity against Forward, including an independent renderer without GPU Scene.
+  The generated-material ABI fixture validates actual conventional artifact
+  execution, explicit required rejection/preferred fallback, and edit/module
+  recovery. Unique-variant preflight and completed-context descriptor caches
+  remove its steady preparation traversal/descriptor churn. Generated material
+  command recording remains conventional and linear in draw count; bindless
+  generated execution is not claimed. See the
+  [Mesh validation record](../reports/delivery-history.md#v0160-vulkan-mesh-scaling-validation) for the same-device
+  30-sample draw and batch sweeps and the actual MaterialX runtime checks.
+- ⬜ Capture controlled hardware evidence for Gaussian preparation/sort/raster
+  costs, including camera motion and static zero-upload frames. Mesh captures
+  above are local headless observations with clocks/power unpinned, not universal
+  timing thresholds or controlled host comparisons.
 
 ### Exit criteria
 

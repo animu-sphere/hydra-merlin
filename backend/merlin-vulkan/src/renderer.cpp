@@ -1460,6 +1460,16 @@ public:
     // on every exceptional exit so the next valid request replaces the
     // possibly mixed state instead of selecting the unchanged fast path.
     resource_residency_dirty_ = true;
+    if (resource_sync_mode != ResourceSyncMode::Unchanged &&
+        (resource_sync_mode != ResourceSyncMode::Incremental ||
+            !request.snapshot->delta->textures.upserts.empty() ||
+            !request.snapshot->delta->textures.removals.empty() ||
+            !request.snapshot->delta->samplers.upserts.empty() ||
+            !request.snapshot->delta->samplers.removals.empty())) {
+      // Native handles may change even when returning to a previously seen
+      // immutable table after another scene or a failed resource update.
+      ++material_resource_generation_;
+    }
     SyncGeometry(*request.snapshot, resource_sync_mode);
     SyncTextures(*request.snapshot, resource_sync_mode);
     SyncSamplers(*request.snapshot, resource_sync_mode);
@@ -2206,6 +2216,15 @@ public:
     bool selected{};
   };
 
+  struct MaterialDescriptorSource {
+    std::uint64_t source_id{};
+    std::uint64_t resource_generation{};
+    extraction::PersistentTable<extraction::MaterialRecord> materials;
+    extraction::PersistentTable<extraction::TextureRecord> textures;
+    extraction::PersistentTable<extraction::SamplerRecord> samplers;
+    std::vector<const GeneratedMaterialArtifact*> selected_artifacts;
+  };
+
   struct FrameContext {
     // True when this frame prepared the CPU reference stream, to draw it or
     // to validate the GPU-sorted stream against it.
@@ -2235,6 +2254,7 @@ public:
     VkDeviceSize material_uniform_stride{};
     Buffer material_uniforms;
     std::vector<VkDeviceSize> generated_parameter_offsets;
+    std::shared_ptr<const MaterialDescriptorSource> material_descriptor_source;
     Buffer generated_parameter_uniforms;
     Buffer gaussian_instances;
     // Host-visible Gaussian buffers are frame-owned so they remain immutable
@@ -6845,7 +6865,20 @@ public:
       PrepareBindlessMaterialDescriptors(frame, snapshot);
       return;
     }
-    frame.material_descriptor_sets.clear();
+    const auto& cached = frame.material_descriptor_source;
+    const bool reuse_descriptors = cached &&
+                                   cached->source_id == snapshot.source_id &&
+                                   cached->resource_generation == material_resource_generation_ &&
+                                   cached->materials.table_identity() == snapshot.materials.table_identity() &&
+                                   cached->textures.table_identity() == snapshot.textures.table_identity() &&
+                                   cached->samplers.table_identity() == snapshot.samplers.table_identity() &&
+                                   cached->selected_artifacts == selected_material_artifacts_;
+    if (!reuse_descriptors) {
+      // The context has completed before preparation; invalidate before any
+      // pool/buffer mutation so failed preparation cannot reuse old bindings.
+      frame.material_descriptor_source.reset();
+      frame.material_descriptor_sets.clear();
+    }
     if (material_records_.empty()) {
       return;
     }
@@ -6901,7 +6934,7 @@ public:
           "create material descriptor pool");
       ++frame_counters_.descriptor_pool_creation_count;
       frame.descriptor_capacity = material_count;
-    } else {
+    } else if (!reuse_descriptors) {
       Check(vkResetDescriptorPool(device_, frame.descriptor_pool, 0),
           "reset material descriptor pool");
     }
@@ -6965,6 +6998,11 @@ public:
       vkUnmapMemory(device_, frame.generated_parameter_uniforms.memory);
     }
 
+    // Lighting and parameter uniforms above still refresh on every frame.
+    // Stable resource/layout roots keep native descriptor sets intact.
+    if (reuse_descriptors) {
+      return;
+    }
     std::vector<VkDescriptorSetLayout> layouts(material_count);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto* artifact = selected_material_artifacts_[i];
@@ -7127,6 +7165,10 @@ public:
     vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
         writes.data(), 0, nullptr);
     frame_counters_.descriptor_update_count += writes.size();
+    frame.material_descriptor_source = std::make_shared<const MaterialDescriptorSource>(
+        MaterialDescriptorSource{snapshot.source_id, material_resource_generation_,
+            snapshot.materials, snapshot.textures, snapshot.samplers,
+            selected_material_artifacts_});
   }
 
   void ReleaseGaussianAttributes(GaussianAttributeSlot& slot) {
@@ -9403,26 +9445,43 @@ public:
             [](const auto* artifact) { return artifact != nullptr; })) {
       return;
     }
+    if (generated_preflight_draws_.table_identity() != snapshot.draws.table_identity() ||
+        generated_preflight_geometries_.table_identity() != snapshot.geometries.table_identity() ||
+        generated_preflight_materials_.table_identity() != snapshot.materials.table_identity() ||
+        generated_preflight_front_face_ != snapshot.front_face) {
+      // Build transactionally. Artifact selection is reevaluated every frame;
+      // this immutable plan only caches material membership and variant keys.
+      std::set<std::pair<std::uint32_t, std::uint32_t>> variants;
+      for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+        ++frame_counters_.mesh_cpu_draw_visit_count;
+        const auto& draw = draw_records_[i];
+        if (material_records_[draw.material_index].module) {
+          variants.emplace(draw.material_index,
+              MakeDrawPipelineVariant(draw, snapshot).variant_key);
+        }
+      }
+      generated_preflight_variants_.assign(variants.begin(), variants.end());
+      generated_preflight_draws_ = snapshot.draws;
+      generated_preflight_geometries_ = snapshot.geometries;
+      generated_preflight_materials_ = snapshot.materials;
+      generated_preflight_front_face_ = snapshot.front_face;
+    }
     std::set<std::string> failed_modules;
-    for (std::size_t i = 0; i < draw_records_.size(); ++i) {
-      ++frame_counters_.mesh_cpu_draw_visit_count;
-      const auto& draw = draw_records_[i];
-      const auto* artifact =
-          selected_material_artifacts_[draw.material_index];
+    for (const auto& [material_index, variant_key] : generated_preflight_variants_) {
+      const auto* artifact = selected_material_artifacts_[material_index];
       if (artifact == nullptr) {
         continue;
       }
       if (failed_modules.contains(artifact->module_key)) {
         RejectGeneratedMaterial(
-            draw.material_index, MaterialDiagnosticCategory::TargetFailure,
+            material_index, MaterialDiagnosticCategory::TargetFailure,
             "the registered Vulkan material artifact could not create a "
             "Forward pipeline");
         continue;
       }
-      const auto variant = MakeDrawPipelineVariant(draw, snapshot);
       try {
         (void)EnsureGeneratedPipeline(active_target_->shaders, *artifact,
-            variant.variant_key);
+            variant_key);
       } catch (const RendererError& error) {
         if (error.code() == RendererErrorCode::DeviceLost ||
             error.code() == RendererErrorCode::ResourceExhausted ||
@@ -9431,7 +9490,7 @@ public:
         }
         failed_modules.insert(artifact->module_key);
         RejectGeneratedMaterial(
-            draw.material_index, MaterialDiagnosticCategory::TargetFailure,
+            material_index, MaterialDiagnosticCategory::TargetFailure,
             "the registered Vulkan material artifact could not create a "
             "Forward pipeline");
       }
@@ -10808,9 +10867,15 @@ public:
   DenseTableView<extraction::DrawRecord> draw_records_;
   extraction::PersistentTable<extraction::DrawRecord> mesh_summary_draws_;
   extraction::PersistentTable<extraction::GeometryRecord> mesh_summary_geometries_;
+  extraction::PersistentTable<extraction::DrawRecord> generated_preflight_draws_;
+  extraction::PersistentTable<extraction::GeometryRecord> generated_preflight_geometries_;
+  extraction::PersistentTable<extraction::MaterialRecord> generated_preflight_materials_;
+  FrontFaceWinding generated_preflight_front_face_{};
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> generated_preflight_variants_;
   std::vector<bool> mesh_material_is_drawn_;
   std::uint64_t mesh_triangle_count_{};
   std::uint64_t geometry_residency_generation_{};
+  std::uint64_t material_resource_generation_{};
   detail::GaussianPreparationResult prepared_gaussians_;
   extraction::PersistentTable<extraction::GaussianRecord>
       gaussian_preparation_source_;
