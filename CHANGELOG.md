@@ -10,6 +10,12 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Hydra Mesh triangulation now honors USD `leftHanded` orientation, preserving
+  authored corner/primvar correspondence and normals while correcting generated
+  normals and winding. This fixes inward lighting on OpenChessSet's board and
+  non-Pawn pieces. usdview image tests cover both handedness conventions,
+  generated/authored normals, indexed face-varying colors/UVs and orientation edits.
+
 - Metal Mesh shader constant padding now matches the host byte layout, and
   bindless samplers are created with argument-buffer support. This fixes Metal
   API validation failures for conventional/GPU Scene draws and textured meshes.
