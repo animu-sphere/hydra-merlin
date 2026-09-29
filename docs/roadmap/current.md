@@ -34,14 +34,17 @@ ownership, dependency, and fallback contracts.
   preferred tiled fallback. Controlled host/corpus comparisons, per-stage GPU
   timestamps, tile raster and broader hardware performance evidence remain open.
 
-- 🚧 Recheck the Hydra CPU-readback floor in usdview after preferring
+- ✅ Recheck the Hydra CPU-readback floor in usdview after preferring
   host-cached coherent Vulkan AOV buffers. Local RTX A5000 headless evidence
   at 597x540 with one million Gaussians reduces the four-AOV CPU readback
   median from 19.06 ms to 0.92 ms and GPU sorted-stream frame time from
   26.51 ms to 6.00 ms, without reducing the 5.2 MB payload. Interactive
   usdview/HgiGL display was also checked with a 5.8-million-Gaussian stage
-  using the lookdev runtime. Capture a controlled host motion comparison
-  and evaluate whether every bound AOV needs a per-frame CPU readback.
+  using the lookdev runtime. Same-runtime Tier 0/HgiVulkan static and motion
+  captures now cover the 8,192-particle corpus and deterministic 1M scene.
+  GPU color copy preserves all six phase images exactly and reduces readback
+  from four AOVs to three (25% fewer bytes/Maps); depth and IDs still read back.
+  Demand-driven depth/ID readback and picking remain separate follow-up work.
 - ✅ Complete the supported Vulkan Mesh scaling validation. Eight opt-in
   configurations cover 1k/10k/100k draws, 16 triangle/quad meshes, eight basic
   materials, four textures/two samplers, and 2/4/8/16 production vertex-arena
@@ -56,10 +59,15 @@ ownership, dependency, and fallback contracts.
   generated execution is not claimed. See the
   [Mesh validation record](../reports/delivery-history.md#v0160-vulkan-mesh-scaling-validation) for the same-device
   30-sample draw and batch sweeps and the actual MaterialX runtime checks.
-- ⬜ Capture controlled hardware evidence for Gaussian preparation/sort/raster
-  costs, including camera motion and static zero-upload frames. Mesh captures
-  above are local headless observations with clocks/power unpinned, not universal
-  timing thresholds or controlled host comparisons.
+- ✅ Capture same-device Gaussian preparation/sort/tile/raster and host
+  comparisons, including camera motion and per-sample zero-upload checks.
+  Forty-sample Vulkan captures cover CPU, GPU sorted-stream and GPU tiled at
+  1M/5M/10M, with GPU stage timestamps and four-AOV comparison results. Sorted
+  output passes at every tier; tiled passes 1M/5M but exceeds the color bound
+  at 10M. Host captures use the public animu-sphere Vulkan lookdev artifact.
+  See the [Gaussian/host record](../reports/delivery-history.md#v0160-vulkan-gaussian-and-host-comparisons).
+  Clocks/power remain unpinned; these are local observations, not universal
+  timing gates. The 10M tiled color discrepancy and Metal evidence remain open.
 
 ### Exit criteria
 

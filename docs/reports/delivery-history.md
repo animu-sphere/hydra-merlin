@@ -11,11 +11,62 @@ Legend: ✅ done
 
 ---
 
+## v0.16.0 Vulkan Gaussian and host comparisons
+
+Completed the Vulkan Gaussian/host measurement work on 2026-09-30. The harness
+records image failures as failures; the 10M tiled color discrepancy and the
+overall v0.16.0 exit criteria remain open.
+
+- Release/MSVC 19.51, RTX A5000 driver 597.16, 597x540 and 40 warmed samples per
+  phase cover deterministic degree-0 1M/5M/10M particles. CPU, GPU sorted-stream
+  and GPU tiled replay the same camera sequence. GPU preparation, sort, tile
+  binning and raster use device timestamps; every measured GPU frame skips CPU
+  preparation with zero source/prepared uploads, allocation and stage fallback.
+  Compute descriptors still refresh and are reported. Validation is disabled
+  for timing; separate 1M/5M validation captures pass.
+- Sorted-stream matches all four CPU AOVs exactly at all three tiers. Tiled
+  preserves depth/primId exactly and stays within the established 1% depth-tied
+  particle-ID allowance. Maximum RGBA8 error is 3 at 1M and 5 at 5M; 10M reaches
+  8 static/10 moving against the six-step bound and returns failure with its
+  complete report. Its timings are diagnostic, not acceptance evidence.
+- Moving CPU preparation medians are 113.93/598.50/1311.91 ms at 1M/5M/10M;
+  GPU preparation is 0.267/1.275/2.671 ms on sorted-stream. Sorted-stream total
+  frame medians are 5.86/26.17/45.82 ms, including four-AOV CPU readback.
+  Static cached CPU can be cheaper than tiled recomputation at 1M. Clocks and
+  power are unpinned, so these serialized local observations are not timing gates.
+- Paired usdview captures use the same OpenUSD Vulkan runtime for HgiGL Tier 0
+  and HgiVulkan GPU copy, the 8,192-particle degree-3 corpus and deterministic
+  1M scene, six static/motion policy phases and 40 samples each. All twelve
+  cross-host phase images match exactly. Every GPU-copy frame reads/maps three
+  depth/ID AOVs instead of four: 3,868,560 versus 5,158,080 bytes, saving
+  1,289,520 bytes (25%). Color copy has no coarse wait; at most one lease is
+  pending. Direct share remains rejected as `public-texture-import-unavailable`.
+  Host camera framing differs from the headless experiment. Host copy/present
+  scopes are CPU trace durations, not GPU copy or end-to-end display timings.
+- The public artifact is
+  `oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-lookdev:26.08-vulkan-windows-x86_64`,
+  OCI digest `sha256:21cb5fe4c725c9918f6b18fe79b957cfec9d6032e3a40e2e8290ed2dcb70331f`,
+  archive digest `sha256:03c5a8edcf9f362bebf9d84afd53f4e8e84b24edfa333ad375b0871a1feae463`.
+  OST verifies its SBOM/provenance and installs it into an isolated local SDK;
+  hdMerlin is rebuilt against that SDK.
+- Hgi synchronization validation exposed overlapping transfer writes to the
+  tiled verification record count. An explicit transfer-to-transfer buffer
+  dependency fixes it. The new install-tree host benchmark checks all six
+  policies with synchronization validation; related Vulkan/Hgi/image/report/
+  install-consumer tests pass. Fifteen focused tests also pass on the prior
+  GL lookdev SDK.
+
+Raw reports, traces, images and the dated report remain local per the
+[report policy](README.md). Reproduce them with the
+[Gaussian comparison commands](../guides/benchmarking.md#gaussian-comparisons).
+Metal host comparisons, per-stage GPU timestamps and tiled raster remain open;
+these results do not extend the Vulkan support claim to Metal.
+
 ## v0.16.0 Vulkan Mesh scaling validation
 
 Validated the supported Mesh submission and generated-material fallback boundary
-on 2026-09-28. This completes the Mesh validation work item; Gaussian evidence
-and the overall v0.16.0 exit criteria remain open.
+on 2026-09-28. This completes the Mesh validation work item; remaining Gaussian
+acceptance issues and the overall v0.16.0 exit criteria remain open.
 
 - Eight opt-in configurations cover shared/diverse/textured Mesh, 2/4/8/16
   production vertex-arena blocks, and conventional generated-material execution

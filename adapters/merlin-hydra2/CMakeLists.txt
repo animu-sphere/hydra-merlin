@@ -337,6 +337,24 @@ if(MERLIN_BUILD_TESTS)
         TIMEOUT 60
         RUN_SERIAL TRUE)
       if(TARGET hgiVulkan)
+        # Exercises tiled control transfers with Hgi's synchronization
+        # validation as well as the color-copy/readback boundary.
+        add_test(NAME merlin-hydra2-gaussian-hgi-vulkan-benchmark
+          COMMAND ${CMAKE_COMMAND}
+            "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "-DMERLIN_CONFIG=$<CONFIG>"
+            "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/gaussian-hgi-vulkan-benchmark-install"
+            "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+            "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+            "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+            "-DMERLIN_GAUSSIAN_SAMPLE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/leica-sofort-top8192.usdc"
+            "-DMERLIN_FORCE_HGI_VULKAN=ON"
+            "-DMERLIN_GAUSSIAN_VALIDATE=ON"
+            "-DMERLIN_GAUSSIAN_FRAMES=4"
+            -P "${PROJECT_SOURCE_DIR}/tests/run_gaussian_host_benchmark.cmake")
+        set_tests_properties(merlin-hydra2-gaussian-hgi-vulkan-benchmark PROPERTIES
+          LABELS "benchmark;gaussian;hydra;host-smoke;hgi;vulkan;gpu-driven;presentation"
+          TIMEOUT 60 RUN_SERIAL TRUE)
         add_test(
           NAME merlin-hydra2-gaussian-half-hgi-vulkan-usdview-smoke
           COMMAND ${CMAKE_COMMAND}

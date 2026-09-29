@@ -168,8 +168,8 @@ constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kIdFormat = VK_FORMAT_R32_UINT;
 // Frame timestamp pairs: 0/1 graphics submission, 2/3 Gaussian raster
 // (the Gaussian subpasses and any compute tile raster), 4/5 Gaussian GPU
-// sort, and 6/7 Gaussian tile binning.
-constexpr std::uint32_t kFrameTimestampQueryCount = 8;
+// sort, 6/7 Gaussian tile binning, and 8/9 Gaussian GPU preparation.
+constexpr std::uint32_t kFrameTimestampQueryCount = 10;
 
 void Check(VkResult result, const char* operation) {
   if (result == VK_SUCCESS) {
@@ -1549,7 +1549,17 @@ public:
     } else {
       RecordUploads(frame.command_buffer, false);
     }
+    if (frame.timestamp_pool != VK_NULL_HANDLE &&
+        frame.gaussian_gpu_preparation.selected) {
+      vkCmdWriteTimestamp(frame.command_buffer,
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.timestamp_pool, 8);
+    }
     RecordGaussianGpuPreparation(frame.command_buffer, frame);
+    if (frame.timestamp_pool != VK_NULL_HANDLE &&
+        frame.gaussian_gpu_preparation.selected) {
+      vkCmdWriteTimestamp(frame.command_buffer,
+          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.timestamp_pool, 9);
+    }
     if (frame.timestamp_pool != VK_NULL_HANDLE &&
         frame.gaussian_gpu_sort.selected) {
       vkCmdWriteTimestamp(frame.command_buffer,
@@ -1851,6 +1861,9 @@ public:
     result.cpu_timings.completion_wait_ns = wait_ns;
     result.cpu_timings.readback_ns = readback_ns;
     result.cpu_timings.gpu_execution_ns = ReadGpuExecutionNanoseconds(frame);
+    result.cpu_timings.gaussian_gpu_preparation_ns =
+        frame.gaussian_gpu_preparation.selected
+            ? ReadGpuTimestampSpanNanoseconds(frame, 8, 9) : 0;
     result.cpu_timings.gaussian_gpu_sort_ns =
         ReadGaussianGpuSortNanoseconds(frame);
     result.cpu_timings.gaussian_gpu_tile_ns =
@@ -9722,6 +9735,21 @@ public:
         offsetof(VkDrawIndirectCommand, instanceCount),
         shader_abi::kGaussianTileRecordCountWord * sizeof(std::uint32_t),
         sizeof(std::uint32_t)};
+    // The verification clear includes the record-count word. Order that
+    // transfer write before overwriting the word with the gathered count;
+    // the compute input barrier below cannot order two preceding transfers.
+    VkBufferMemoryBarrier count_copy_barrier{
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    count_copy_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    count_copy_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    count_copy_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    count_copy_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    count_copy_barrier.buffer = resources.control.handle;
+    count_copy_barrier.offset = record_count_copy.dstOffset;
+    count_copy_barrier.size = record_count_copy.size;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1,
+        &count_copy_barrier, 0, nullptr);
     vkCmdCopyBuffer(command, frame.gaussian_gpu_raster.draw_arguments.handle,
         resources.control.handle, 1, &record_count_copy);
     // Gathered records come from the gather dispatch; control words from the

@@ -15,6 +15,13 @@ STAGES = (
     "render_world_update_ns",
     "snapshot_extraction_ns",
     "gpu_scene_update_ns",
+    "gaussian_preparation_ns",
+    "gaussian_attribute_upload_ns",
+    "gaussian_prepared_upload_ns",
+    "gaussian_gpu_preparation_ns",
+    "gaussian_gpu_sort_ns",
+    "gaussian_gpu_tile_ns",
+    "gaussian_raster_ns",
     "command_recording_ns",
     "queue_submission_ns",
     "gpu_execution_ns",
@@ -36,6 +43,10 @@ AVAILABILITY = {
     "gpu_copy_ns": "gpu_copy_ns_available",
     "host_composite_ns": "host_composite_ns_available",
     "presentation_ns": "presentation_ns_available",
+    "gaussian_gpu_preparation_ns": "gaussian_gpu_timestamps_available",
+    "gaussian_gpu_sort_ns": "gaussian_gpu_timestamps_available",
+    "gaussian_gpu_tile_ns": "gaussian_gpu_timestamps_available",
+    "gaussian_raster_ns": "gaussian_gpu_timestamps_available",
 }
 COUNTERS = (
     "snapshot_visited_records",
@@ -299,9 +310,11 @@ def build_report(
             available_field = AVAILABILITY.get(stage)
             trace_values = traced.get(stage, [])
             available = bool(trace_values) or available_field is None or any(
-                sample[available_field] for sample in samples
+                sample.get(available_field, 0) for sample in samples
             )
-            values = trace_values or [sample[stage] for sample in samples]
+            if not trace_values:
+                available = available and all(stage in sample for sample in samples)
+            values = trace_values or [sample.get(stage, 0) for sample in samples]
             stage_report[stage.removesuffix("_ns")] = {
                 "available": available,
                 "sample_kind": "trace_scope" if trace_values else "renderer_frame",
@@ -320,6 +333,17 @@ def build_report(
                 "frame_hitches": {
                     "threshold_ns": threshold,
                     "count": sum(value > threshold for value in total),
+                },
+                "gaussian_policy": {
+                    key: samples[-1][key]
+                    for key in ("gaussian_gpu_mode", "gaussian_raster_path")
+                    if key in samples[-1]
+                },
+                "host_transfer_mode": samples[-1].get("hgi_transfer_mode"),
+                "gaussian_counters": {
+                    key: value for key, value in samples[-1].items()
+                    if key.startswith("gaussian_") and not key.endswith("_ns")
+                    and isinstance(value, int)
                 },
                 "last_counters": {
                     counter: (

@@ -313,6 +313,12 @@ int main(int argc, char** argv) {
         merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
     const auto gpu_raster = renderer->Resolve(renderer->Submit(request));
     RequireVerifiedSort(gpu_raster, "GPU raster frame lost its GPU sort");
+    if (renderer->capabilities().timestamp_queries) {
+      Require(gpu_raster.cpu_timings.gaussian_gpu_preparation_ns > 0 &&
+                  gpu_raster.cpu_timings.gaussian_gpu_sort_ns > 0 &&
+                  gpu_raster.cpu_timings.gaussian_raster_ns > 0,
+          "selected GPU Gaussian stages did not retain timestamp spans");
+    }
     Require(gpu_raster.counters.gaussian_gpu_raster_dispatch_count == 1 &&
                 gpu_raster.counters.gaussian_gpu_raster_instance_count == 2 &&
                 gpu_raster.counters.gaussian_gpu_raster_indirect_draw_count ==

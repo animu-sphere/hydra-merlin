@@ -2032,6 +2032,11 @@ public:
                << result.timings.gaussian_attribute_upload_ns
                << " gaussian_prepared_upload_ns="
                << result.timings.gaussian_prepared_upload_ns
+               << " gaussian_gpu_timestamps_available="
+               << (renderer_->capabilities().backend == merlin::render::BackendKind::Vulkan &&
+                      renderer_->capabilities().timestamp_queries)
+               << " gaussian_gpu_preparation_ns="
+               << result.timings.gaussian_gpu_preparation_ns
                << " gaussian_gpu_sort_ns="
                << result.timings.gaussian_gpu_sort_ns
                << " gaussian_gpu_tile_ns="

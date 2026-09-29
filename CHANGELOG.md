@@ -10,6 +10,11 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Vulkan Gaussian tile control initialization now orders its transfer clear
+  before copying the gathered particle count into the same word. HgiVulkan
+  synchronization validation exposed the overlapping writes; the host Gaussian
+  benchmark now exercises this path with validation and GPU color copy.
+
 - Vulkan generated-material preparation caches unique pipeline variants instead
   of traversing every draw on static/camera frames. Completed conventional frame
   contexts retain descriptor sets while source/native-resource generation,
@@ -29,6 +34,15 @@ after its public API and release process are established.
   API validation failures for conventional/GPU Scene draws and textured meshes.
 
 ### Added
+
+- Gaussian benchmarks now compare warmed static and identical camera-motion
+  sequences across CPU, GPU sorted-stream and GPU tiled execution, retain
+  four-AOV image differences, and check every GPU sample for uploads, CPU
+  preparation and fallback. GPU preparation has a separate device timestamp
+  in renderer and Hydra reports. Failed image tolerances preserve the report
+  while returning failure. Opt-in usdview captures compare Tier 0 with HgiVulkan
+  GPU copy on the same SDK, including image parity, readback bytes and host
+  scopes; local 10M tiled color acceptance remains open.
 
 - Opt-in textured, 2/4/8/16 vertex-arena, and generated-material ABI Mesh scaling
   fixtures cover 1k/10k/100k draws, static/camera motion, actual parity/rejection

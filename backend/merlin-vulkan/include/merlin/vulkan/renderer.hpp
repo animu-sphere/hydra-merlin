@@ -306,8 +306,9 @@ struct RendererStatistics {
 };
 
 // Backend-owned durations for one frame. Fields are CPU wall-clock durations
-// except gpu_execution_ns, gaussian_gpu_sort_ns, gaussian_gpu_tile_ns, and
-// gaussian_raster_ns, which come from device timestamps. Nanoseconds keep the result machine-readable
+// except gpu_execution_ns, gaussian_gpu_preparation_ns, gaussian_gpu_sort_ns,
+// gaussian_gpu_tile_ns, and gaussian_raster_ns, which come from device timestamps.
+// Nanoseconds keep the result machine-readable
 // without floating-point formatting differences between library implementations.
 struct FrameCpuTimings {
   // CPU work that reconciles immutable snapshot resources with GPU residency.
@@ -328,6 +329,8 @@ struct FrameCpuTimings {
   // synchronized but not folded into this graphics-queue duration.
   std::uint64_t gpu_execution_ns{};
   std::uint64_t backend_total_ns{};
+  // GPU timestamp span; zero when the path or timestamps are unavailable.
+  std::uint64_t gaussian_gpu_preparation_ns{};
 };
 
 // Structural counters describe work performed by one submission and resolve.
