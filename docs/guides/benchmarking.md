@@ -155,6 +155,76 @@ cmake -DMERLIN_BENCHMARK=C:/path/to/merlin-benchmark.exe `
 This uses three samples at 256x256 for correctness. For timing captures, run the
 selected fixture directly with `--steady-frames 30` or more at a fixed extent.
 
+### Gaussian comparisons
+
+The million-Gaussian fixtures emit `first-frame`, the legacy CPU `steady-state`,
+then static and camera-motion phases for `cpu`, `gpu-sorted-stream`, and
+`gpu-tiled`. Each path starts from the same camera and replays the same sine
+translation sequence. All reusable contexts are warmed before static sampling.
+GPU samples individually require zero source/prepared uploads, allocations,
+CPU preparation and stage/overflow fallback. Gaussian compute descriptor writes
+still occur and are reported; they are not a zero-work gate.
+
+`gaussian_verification` compares static and final moving images outside the
+timed samples. Sorted-stream permits two RGBA8 steps and requires exact
+depth/IDs. Tiled permits six steps, exact depth/primId, and up to 1% depth-tied
+particle-ID differences, matching the existing raster test contract. Every
+comparison records its differences and `passed` result. A tolerance failure
+preserves the complete report and returns failure. The local 10M tiled capture
+exceeds the color bound; its timing is diagnostic evidence, not acceptance.
+`compare-benchmarks.py` also rejects a failed current image gate, including
+self-comparison, or removal of the baseline's image verification evidence.
+
+```powershell
+./build/adapters/merlin-benchmark/merlin-benchmark.exe `
+  --fixture one-million-gaussians --width 597 --height 540 `
+  --steady-frames 40 --output gaussian.json
+
+cmake -DMERLIN_BENCHMARK=C:/path/to/merlin-benchmark.exe `
+  -DMERLIN_BENCHMARK_OUTPUT_DIR=build/gaussian-check `
+  -DMERLIN_BENCHMARK_VALIDATE=ON -P tests/run_gaussian_benchmark_test.cmake
+```
+
+The hardware gate defaults to 1M at 597x540 with four samples. Use the quoted
+`-DMERLIN_GAUSSIAN_FIXTURES=one-million-gaussians;five-million-gaussians` argument
+to include 5M. These are capability/image gates, without timing thresholds.
+
+For the host comparison, use a viewer-capable OpenUSD SDK built with Vulkan,
+and build hdMerlin against that same SDK. A GL-only lookdev artifact cannot
+select HgiVulkan. Keep its immutable artifact/OCI digest with the captures.
+`tests/run_gaussian_host_benchmark.cmake` stages the current install tree,
+selects HgiGL Tier 0 or HgiVulkan GPU copy, and records six warmed static/motion
+phases, screenshots, per-sample counter ranges, a delegate log and host trace.
+It verifies the selected transfer mode and four versus three CPU AOV Maps.
+Validation enables Hgi synchronization checking; leave it off for timing.
+
+```powershell
+$sdk = 'C:/path/to/vulkan-lookdev-sdk'
+$rendererBuild = 'C:/path/to/merlin-build'
+$python = 'C:/path/to/python.exe'
+$scene = 'C:/dev/hydra-merlin/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc'
+foreach ($copy in 0,1) {
+  cmake "-DMERLIN_BUILD_DIR=$rendererBuild" "-DMERLIN_PXR_ROOT=$sdk" `
+    "-DMERLIN_PYTHON=$python" "-DMERLIN_TESTUSDVIEW=$sdk/bin/testusdview" `
+    "-DMERLIN_GAUSSIAN_SAMPLE=$scene" "-DMERLIN_FORCE_HGI_VULKAN=$copy" `
+    "-DMERLIN_STAGE_DIR=C:/dev/hydra-merlin/build/host-$copy" `
+    -P tests/run_gaussian_host_benchmark.cmake
+}
+$env:PYTHONPATH = "$sdk/lib/python"
+$env:PATH = "$sdk/bin;$sdk/lib;" + $env:PATH
+& $python tests/compare_gaussian_host_benchmarks.py `
+  build/host-0 build/host-1 build/host-comparison.json
+```
+
+Use `scripts/create-gaussian-benchmark.py output.usdc --particles 1000000`
+with this Python environment for the deterministic scale corpus. Its positions,
+covariance and degree-0 coefficients match the renderer fixture, but usdview
+frames its own perspective camera. Compare policies within each experiment;
+do not interpret renderer versus host times as identical-camera measurements.
+Host comparison checks image parity for every policy, fixed extent/sample count,
+and the color-only readback saving. GPU-copy encode and presentation scopes are
+CPU trace durations, not GPU copy timestamps or end-to-end display latency.
+
 ### Reference baselines
 
 The reference fixture emits, in order:
@@ -187,6 +257,9 @@ readback are not hidden inside a color request.
 - `gaussian_preparation`
 - `gaussian_attribute_upload`
 - `gaussian_prepared_upload`
+- `gaussian_gpu_preparation`
+- `gaussian_gpu_sort`
+- `gaussian_gpu_tile`
 - `gaussian_raster`
 - `command_recording`
 - `queue_submission`
@@ -202,6 +275,14 @@ structural upload/submission evidence and synchronized before graphics rather
 than being folded into the graphics timestamp interval. Completion waiting and
 CPU mapping are no longer folded into readback, so CPU and GPU timelines can be
 correlated without interpreting one aggregate duration as both.
+
+Gaussian GPU preparation, sorting, tile work and raster use separate device
+timestamp pairs. `gaussian_preparation` is the CPU reference timer. Inactive
+GPU stages are zero; `environment.timestamp_queries` distinguishes unsupported
+timestamps. Hydra reports retain these stages, selected Gaussian policy,
+Gaussian counters and host transfer mode. Older records without a GPU timing
+availability flag remain explicitly unavailable. CPU waits overlap device
+execution, so stage medians must not be added to estimate total frame time.
 
 ### Structural counters
 

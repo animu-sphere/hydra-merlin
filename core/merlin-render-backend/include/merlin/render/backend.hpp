@@ -376,6 +376,8 @@ struct FrameTimings {
   std::uint64_t presentation_ns{};
   std::uint64_t gpu_execution_ns{};
   std::uint64_t backend_total_ns{};
+  // GPU timestamp span; zero when the path or timestamps are unavailable.
+  std::uint64_t gaussian_gpu_preparation_ns{};
 };
 
 struct FrameTelemetry {

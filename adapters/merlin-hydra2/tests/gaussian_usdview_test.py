@@ -126,6 +126,10 @@ def compare_reference(actual, reference_path, channel_tolerance):
         f"{mean_channel_error:.6f} exceeds "
         f"{MAX_REFERENCE_MEAN_CHANNEL_ERROR:.6f}"
     )
+    return {"width": actual.width(), "height": actual.height(),
+            "max_channel_error": max(differences),
+            "changed_pixel_fraction": changed_fraction,
+            "mean_channel_error": mean_channel_error}
 
 
 def check_cpu_sorted_stream(events):

@@ -821,6 +821,9 @@ if(TARGET merlin-benchmark)
   )
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    add_test(NAME merlin-hydra-performance-report
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/hydra_performance_report_test.py")
+    set_tests_properties(merlin-hydra-performance-report PROPERTIES LABELS "benchmark;hydra")
     add_test(
       NAME merlin-benchmark-compare
       COMMAND ${CMAKE_COMMAND}

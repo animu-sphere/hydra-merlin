@@ -339,6 +339,7 @@ public:
         native.cpu_timings.presentation_ns,
         native.cpu_timings.gpu_execution_ns,
         native.cpu_timings.backend_total_ns,
+        native.cpu_timings.gaussian_gpu_preparation_ns,
     };
     result.telemetry = {
         native.counters.draw_count,

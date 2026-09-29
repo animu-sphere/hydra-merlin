@@ -50,6 +50,7 @@ struct FrameTimings {
   std::uint64_t gaussian_preparation_ns{};
   std::uint64_t gaussian_attribute_upload_ns{};
   std::uint64_t gaussian_prepared_upload_ns{};
+  std::uint64_t gaussian_gpu_preparation_ns{};
   std::uint64_t gaussian_gpu_sort_ns{};
   std::uint64_t gaussian_gpu_tile_ns{};
   std::uint64_t gaussian_raster_ns{};
@@ -81,6 +82,15 @@ struct MeshVerification {
   std::string required_rejection_reason;
   bool generated_parameter_recovery{};
   bool generated_module_recovery{};
+};
+
+struct GaussianComparison {
+  std::string name;
+  std::uint32_t max_color_channel_error{};
+  std::uint64_t depth_pixels{};
+  std::uint64_t prim_id_pixels{};
+  std::uint64_t instance_id_pixels{};
+  bool passed{};
 };
 
 struct FixtureSummary {
@@ -521,6 +531,7 @@ FrameTimings FromBackend(const merlin::vulkan::FrameCpuTimings& timings) {
       timings.gaussian_attribute_upload_ns;
   result.gaussian_prepared_upload_ns =
       timings.gaussian_prepared_upload_ns;
+  result.gaussian_gpu_preparation_ns = timings.gaussian_gpu_preparation_ns;
   result.gaussian_gpu_sort_ns = timings.gaussian_gpu_sort_ns;
   result.gaussian_gpu_tile_ns = timings.gaussian_gpu_tile_ns;
   result.gaussian_raster_ns = timings.gaussian_raster_ns;
@@ -719,6 +730,7 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
           &FrameTimings::gaussian_attribute_upload_ns},
       std::pair{"gaussian_prepared_upload",
           &FrameTimings::gaussian_prepared_upload_ns},
+      std::pair{"gaussian_gpu_preparation", &FrameTimings::gaussian_gpu_preparation_ns},
       std::pair{"gaussian_gpu_sort", &FrameTimings::gaussian_gpu_sort_ns},
       std::pair{"gaussian_gpu_tile", &FrameTimings::gaussian_gpu_tile_ns},
       std::pair{"gaussian_raster", &FrameTimings::gaussian_raster_ns},
@@ -1029,7 +1041,8 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
     const FixtureSummary& fixture,
     const merlin::vulkan::RendererCapabilities& capabilities,
     const merlin::vulkan::RendererStatistics& statistics,
-    const std::vector<Baseline>& baselines, const MeshVerification& verification) {
+    const std::vector<Baseline>& baselines, const MeshVerification& verification,
+    const std::vector<GaussianComparison>& gaussian_comparisons) {
   const auto& textures = statistics.bindless_texture_slots;
   const auto& samplers = statistics.bindless_samplers;
   const auto& memory = statistics.memory_budget;
@@ -1042,7 +1055,20 @@ void WriteJson(std::ostream& stream, const Arguments& arguments,
          << ",\n    \"generated_module_recovery\": " << (verification.generated_module_recovery ? "true" : "false")
          << ",\n    \"required_rejection_reason\": ";
   JsonString(stream, verification.required_rejection_reason);
-  stream << "\n  },\n  \"environment\": {\n    \"commit\": ";
+  stream << "\n  },\n  \"gaussian_verification\": {\n"
+         << "    \"camera_sequence\": \"translation-sine-reset-per-path/v1\",\n"
+         << "    \"comparisons\": [";
+  for (std::size_t i = 0; i < gaussian_comparisons.size(); ++i) {
+    const auto& comparison = gaussian_comparisons[i];
+    stream << (i == 0 ? "\n" : ",\n") << "      {\"name\": ";
+    JsonString(stream, comparison.name);
+    stream << ", \"max_color_channel_error\": " << comparison.max_color_channel_error
+           << ", \"depth_pixels\": " << comparison.depth_pixels
+           << ", \"prim_id_pixels\": " << comparison.prim_id_pixels
+           << ", \"instance_id_pixels\": " << comparison.instance_id_pixels
+           << ", \"passed\": " << (comparison.passed ? "true" : "false") << '}';
+  }
+  stream << "\n    ]\n  },\n  \"environment\": {\n    \"commit\": ";
   JsonString(stream, MERLIN_BENCHMARK_COMMIT);
   stream << ",\n    \"build_type\": ";
   JsonString(stream, MERLIN_BENCHMARK_BUILD_TYPE);
@@ -1332,6 +1358,66 @@ void RequireSameOutput(const merlin::vulkan::RenderResult& conventional,
       "instanceId", draw_count);
 }
 
+GaussianComparison CompareGaussianOutput(std::string name,
+    const merlin::vulkan::RenderResult& reference,
+    const merlin::vulkan::RenderResult& candidate, GaussianExecution execution) {
+  if (reference.color.product != candidate.color.product ||
+      reference.color.row_pitch_bytes != candidate.color.row_pitch_bytes ||
+      reference.color.pixels.size() != candidate.color.pixels.size() ||
+      reference.depth.product != candidate.depth.product ||
+      reference.depth.pixels.size() != candidate.depth.pixels.size() ||
+      reference.prim_id.product != candidate.prim_id.product ||
+      reference.prim_id.pixels.size() != candidate.prim_id.pixels.size() ||
+      reference.instance_id.product != candidate.instance_id.product ||
+      reference.instance_id.pixels.size() != candidate.instance_id.pixels.size() ||
+      std::none_of(reference.instance_id.pixels.begin(), reference.instance_id.pixels.end(),
+          [](std::uint32_t id) { return id != ~std::uint32_t{}; })) {
+    throw std::runtime_error("Gaussian comparison has different products or no foreground");
+  }
+  GaussianComparison result{std::move(name)};
+  for (std::size_t i = 0; i < reference.color.pixels.size(); ++i) {
+    const auto error = std::abs(static_cast<int>(reference.color.pixels[i]) -
+                                static_cast<int>(candidate.color.pixels[i]));
+    result.max_color_channel_error = std::max(result.max_color_channel_error,
+        static_cast<std::uint32_t>(error));
+  }
+  for (std::size_t i = 0; i < reference.depth.pixels.size(); ++i) {
+    result.depth_pixels += reference.depth.pixels[i] != candidate.depth.pixels[i];
+    result.prim_id_pixels += reference.prim_id.pixels[i] != candidate.prim_id.pixels[i];
+    result.instance_id_pixels += reference.instance_id.pixels[i] != candidate.instance_id.pixels[i];
+  }
+  // Existing raster tolerances: UNorm sorted-stream rounding and float tile
+  // composition. Rare depth-tied particle IDs can change at the cutoff rim.
+  const auto tolerance = execution == GaussianExecution::GpuTiled ? 6U : 2U;
+  result.passed = !(result.max_color_channel_error > tolerance || result.depth_pixels != 0 ||
+      result.prim_id_pixels != 0 ||
+      (execution == GaussianExecution::GpuSortedStream && result.instance_id_pixels != 0) ||
+      result.instance_id_pixels * 100U > reference.depth.pixels.size());
+  // Keep the full capture for diagnosing a failure. The executable returns
+  // failure after writing the report, so this cannot silently pass a gate.
+  return result;
+}
+
+void RequireGaussianGpuFrame(const merlin::vulkan::RenderResult& result,
+    GaussianExecution execution) {
+  const auto& c = result.counters;
+  if (c.upload_bytes != 0 || c.gaussian_upload_bytes != 0 ||
+      c.gaussian_attribute_upload_bytes != 0 || c.allocation_count != 0 ||
+      c.pipeline_creation_count != 0 || c.gaussian_cpu_preparation_skipped_count != 1 ||
+      result.cpu_timings.gaussian_preparation_ns != 0 ||
+      c.gaussian_gpu_sorted_count == 0 || c.gaussian_gpu_sorted_count != c.gaussian_visible_count ||
+      c.gaussian_gpu_preparation_fallback_count != 0 || c.gaussian_gpu_sort_fallback_count != 0 ||
+      c.gaussian_gpu_raster_fallback_count != 0 || c.gaussian_gpu_tile_fallback_count != 0 ||
+      c.gaussian_gpu_tile_raster_fallback_count != 0 ||
+      c.gaussian_gpu_tile_raster_overflow_fallback_count != 0 ||
+      c.gaussian_gpu_sort_reference_divergence_count != 0 ||
+      c.gaussian_gpu_tile_reference_divergence_count != 0 ||
+      (execution == GaussianExecution::GpuTiled && c.gaussian_gpu_tile_raster_frame_count != 1) ||
+      (execution == GaussianExecution::GpuSortedStream && c.gaussian_gpu_raster_indirect_draw_count != 2)) {
+    throw std::runtime_error("Gaussian GPU sample uploaded, traversed, allocated, or fell back");
+  }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1375,6 +1461,7 @@ int main(int argc, char** argv) {
     merlin::extraction::SceneExtractor extractor;
     std::vector<Baseline> baselines;
     MeshVerification verification;
+    std::vector<GaussianComparison> gaussian_comparisons;
     FixtureSummary fixture_summary;
     std::unique_ptr<merlin::render::GpuScenePackingState> gpu_scene_packing;
     std::vector<merlin::render::GpuGeometryPlacement> gpu_geometry_placements;
@@ -1470,6 +1557,9 @@ int main(int argc, char** argv) {
       for (std::uint32_t frame = 0; frame < arguments.steady_frames; ++frame) {
         const auto start = CpuClock::now();
         auto result = render();
+        if (gaussian_execution != GaussianExecution::Cpu) {
+          RequireGaussianGpuFrame(result, gaussian_execution);
+        }
         auto timing = FromBackend(result.cpu_timings);
         timing.total_frame_ns = ElapsedNanoseconds(start);
         samples.push_back(timing);
@@ -1480,7 +1570,9 @@ int main(int argc, char** argv) {
         }
         last_result = std::move(result);
       }
-      AssertStatic(counters, name);
+      if (gaussian_execution == GaussianExecution::Cpu) {
+        AssertStatic(counters, name);
+      }
       baselines.push_back(
           {std::move(name), std::move(samples), counters, {}});
       return last_result;
@@ -1808,49 +1900,66 @@ int main(int argc, char** argv) {
       });
       steady("steady-state");
       if (fixture_summary.gaussian_particle_count != 0) {
-        // Every frame moves the camera, so no frame can reuse the previous
-        // projection or order. One warm-up frame per path absorbs its
-        // pipeline and resource creation before sampling.
         merlin::CameraDescriptor camera;
         camera.label = "gaussian-motion-camera";
         fixture.camera = fixture.world.CreateCamera(std::move(camera));
         extractor.Apply(fixture.world, fixture.world.Commit());
         extractor.SetActiveCamera(fixture.camera);
-        std::uint32_t motion_step{};
-        const auto move_camera = [&] {
+        const auto move_camera = [&](std::uint32_t step) {
           auto descriptor = fixture.world.Get(fixture.camera);
           descriptor.view.values[12] =
-              0.05F * std::sin(0.1F * static_cast<float>(++motion_step));
+              0.05F * std::sin(0.1F * static_cast<float>(step));
           fixture.world.UpdateCamera(fixture.camera, std::move(descriptor),
               merlin::ChangeAspect::Camera);
-          const auto changes = fixture.world.Commit();
-          extractor.Apply(fixture.world, changes);
+          extractor.Apply(fixture.world, fixture.world.Commit());
         };
+        merlin::vulkan::RenderResult static_reference;
+        merlin::vulkan::RenderResult motion_reference;
         for (const auto execution : {GaussianExecution::Cpu,
-                 GaussianExecution::GpuSortedStream,
-                 GaussianExecution::GpuTiled}) {
+                 GaussianExecution::GpuSortedStream, GaussianExecution::GpuTiled}) {
           gaussian_execution = execution;
-          move_camera();
+          const auto path = std::string(GaussianExecutionName(execution));
+          move_camera(0);
+          // Warm every reusable context before checking zero-upload static work.
+          for (std::uint32_t i = 0; i < renderer.statistics().frame_context_count; ++i) {
+            (void)render();
+          }
+          auto static_result = steady("static-" + path);
+          if (execution == GaussianExecution::Cpu) {
+            static_reference = std::move(static_result);
+          } else {
+            RequireGaussianGpuFrame(static_result, execution);
+            gaussian_comparisons.push_back(CompareGaussianOutput(
+                "static-" + path, static_reference, static_result, execution));
+          }
+          move_camera(1);
           (void)render();
           std::vector<FrameTimings> samples;
           samples.reserve(arguments.steady_frames);
           merlin::vulkan::RenderResult last_result;
-          for (std::uint32_t frame = 0; frame < arguments.steady_frames;
-              ++frame) {
+          for (std::uint32_t frame = 0; frame < arguments.steady_frames; ++frame) {
             const auto start = CpuClock::now();
             const auto extraction_start = CpuClock::now();
-            move_camera();
+            // Reset the sequence per path; all policies see identical cameras.
+            move_camera(frame + 2U);
             const auto extraction_ns = ElapsedNanoseconds(extraction_start);
             last_result = render();
             auto timing = FromBackend(last_result.cpu_timings);
             timing.extraction_ns = extraction_ns;
             timing.total_frame_ns = ElapsedNanoseconds(start);
             samples.push_back(timing);
+            if (execution != GaussianExecution::Cpu) {
+              RequireGaussianGpuFrame(last_result, execution);
+            }
           }
-          baselines.push_back({"camera-motion-" +
-                                   std::string(GaussianExecutionName(execution)),
-              std::move(samples), last_result.counters,
-              extractor.snapshot()->build_counters});
+          baselines.push_back({"camera-motion-" + path, std::move(samples),
+              last_result.counters, extractor.snapshot()->build_counters});
+          if (execution == GaussianExecution::Cpu) {
+            motion_reference = std::move(last_result);
+          } else {
+            gaussian_comparisons.push_back(CompareGaussianOutput(
+                "camera-motion-" + path, motion_reference, last_result, execution));
+          }
         }
         gaussian_execution = GaussianExecution::Cpu;
       }
@@ -1861,7 +1970,7 @@ int main(int argc, char** argv) {
     }
     if (arguments.output.empty()) {
       WriteJson(std::cout, arguments, fixture_summary, renderer.capabilities(),
-          renderer.statistics(), baselines, verification);
+          renderer.statistics(), baselines, verification, gaussian_comparisons);
     } else {
       if (arguments.output.has_parent_path()) {
         std::filesystem::create_directories(arguments.output.parent_path());
@@ -1872,11 +1981,16 @@ int main(int argc, char** argv) {
                                  arguments.output.string());
       }
       WriteJson(stream, arguments, fixture_summary, renderer.capabilities(),
-          renderer.statistics(), baselines, verification);
+          renderer.statistics(), baselines, verification, gaussian_comparisons);
       if (!stream) {
         throw std::runtime_error("could not write output: " +
                                  arguments.output.string());
       }
+    }
+    if (std::any_of(gaussian_comparisons.begin(), gaussian_comparisons.end(),
+            [](const auto& comparison) { return !comparison.passed; })) {
+      std::cerr << "merlin-benchmark: Gaussian image tolerance exceeded; see gaussian_verification in the completed report\n";
+      return 1;
     }
     return 0;
   } catch (const std::exception& error) {

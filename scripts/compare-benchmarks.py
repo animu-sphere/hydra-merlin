@@ -14,6 +14,57 @@ from pathlib import Path
 
 
 SCHEMA = "merlin-benchmark/v3"
+GAUSSIAN_COUNTERS = (
+    "gaussian_candidate_count",
+    "gaussian_visible_count",
+    "gaussian_hidden_count",
+    "gaussian_opacity_culled_count",
+    "gaussian_frustum_culled_count",
+    "gaussian_invalid_culled_count",
+    "gaussian_sorted_count",
+    "gaussian_sorting_policy_fallback_count",
+    "gaussian_preparation_cache_hits",
+    "gaussian_preparation_cache_misses",
+    "gaussian_gpu_preparation_dispatch_count",
+    "gaussian_gpu_preparation_candidate_count",
+    "gaussian_gpu_preparation_visible_count",
+    "gaussian_gpu_preparation_opacity_culled_count",
+    "gaussian_gpu_preparation_frustum_culled_count",
+    "gaussian_gpu_preparation_invalid_culled_count",
+    "gaussian_gpu_preparation_fallback_count",
+    "gaussian_gpu_sort_dispatch_count",
+    "gaussian_gpu_sort_pass_count",
+    "gaussian_gpu_sort_key_count",
+    "gaussian_gpu_sorted_count",
+    "gaussian_gpu_sort_reference_divergence_count",
+    "gaussian_gpu_sort_fallback_count",
+    "gaussian_gpu_raster_dispatch_count",
+    "gaussian_gpu_raster_instance_count",
+    "gaussian_gpu_raster_indirect_draw_count",
+    "gaussian_gpu_raster_fallback_count",
+    "gaussian_gpu_tile_dispatch_count",
+    "gaussian_gpu_tile_sort_pass_count",
+    "gaussian_gpu_tile_count",
+    "gaussian_gpu_tile_occupied_count",
+    "gaussian_gpu_tile_max_pair_count",
+    "gaussian_gpu_tile_pair_capacity",
+    "gaussian_gpu_tile_requested_pair_count",
+    "gaussian_gpu_tile_pair_count",
+    "gaussian_gpu_tile_pair_overflow_count",
+    "gaussian_gpu_tile_clamped_record_count",
+    "gaussian_gpu_tile_reference_divergence_count",
+    "gaussian_gpu_tile_fallback_count",
+    "gaussian_cpu_preparation_skipped_count",
+    "gaussian_gpu_tile_raster_dispatch_count",
+    "gaussian_gpu_tile_raster_frame_count",
+    "gaussian_gpu_tile_raster_overflow_fallback_count",
+    "gaussian_gpu_tile_raster_fallback_count",
+    "gaussian_draw_count",
+    "gaussian_attribute_upload_bytes",
+    "gaussian_attribute_copy_range_count",
+    "gaussian_attribute_generation_count",
+    "gaussian_upload_bytes",
+)
 ADDITIVE_COUNTERS = {
     "snapshot_visited_records",
     "snapshot_copied_records",
@@ -93,6 +144,8 @@ STABLE_COUNTERS = (
     "transfer_submission_count",
     "queue_ownership_transfer_count",
 )
+ADDITIVE_COUNTERS.update(GAUSSIAN_COUNTERS)
+STABLE_COUNTERS += GAUSSIAN_COUNTERS
 
 
 def parse_args() -> argparse.Namespace:
@@ -130,6 +183,24 @@ def compare(baseline: dict, current: dict, timing_percent: float | None) -> dict
     regressions: list[dict] = []
     notes: list[str] = []
     unavailable_baseline_counters: set[str] = set()
+    old_images = baseline.get("gaussian_verification", {})
+    new_images = current.get("gaussian_verification", {})
+    for image in new_images.get("comparisons", []):
+        if not image.get("passed", False):
+            regressions.append({"kind": "image", "baseline": image["name"],
+                                "actual": image})
+    if old_images.get("comparisons"):
+        if [image["name"] for image in old_images["comparisons"]] != [
+                image["name"] for image in new_images.get("comparisons", [])]:
+            regressions.append({"kind": "image-set",
+                                "expected": old_images["comparisons"],
+                                "actual": new_images.get("comparisons", [])})
+        if old_images.get("camera_sequence") != new_images.get("camera_sequence"):
+            regressions.append({"kind": "fixture", "metric": "gaussian_camera_sequence",
+                                "expected": old_images.get("camera_sequence"),
+                                "actual": new_images.get("camera_sequence")})
+    elif new_images.get("comparisons"):
+        notes.append("baseline predates Gaussian image verification")
     if baseline.get("fixture") != current.get("fixture"):
         regressions.append(
             {
