@@ -76,6 +76,17 @@ struct SortConstants {
   std::uint32_t flags{};
 };
 
+struct alignas(16) TileConstants {
+  std::uint32_t record_bound{}, pair_capacity{}, tile_count_x{}, tile_count_y{};
+  std::uint32_t viewport_width{}, viewport_height{}, offsets_offset{}, ranges_offset{};
+  std::uint32_t record_pair_limit{}, padding[3]{};
+};
+
+struct alignas(16) TileRasterConstants {
+  std::uint32_t tile_count_x{}, tile_count_y{}, viewport_width{}, viewport_height{};
+  std::uint32_t ranges_offset{}, pair_capacity{}, padding[2]{};
+};
+
 static_assert(sizeof(PrepareConstants) == 176);
 static_assert(offsetof(PrepareConstants, projection) == 64);
 static_assert(offsetof(PrepareConstants, viewport_size) == 128);
@@ -94,6 +105,8 @@ static_assert(offsetof(GatherConstants, count_word) == 4);
 static_assert(offsetof(GatherConstants, flags) == 8);
 static_assert(sizeof(SortElement) == 12);
 static_assert(sizeof(SortConstants) == 48);
+static_assert(sizeof(TileConstants) == 48);
+static_assert(sizeof(TileRasterConstants) == 32);
 static_assert(offsetof(SortConstants, scan_offset) == 16);
 static_assert(offsetof(SortConstants, visible_count_offset) == 36);
 static_assert(offsetof(SortConstants, flags) == 44);

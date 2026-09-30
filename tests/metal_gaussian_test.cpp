@@ -2,6 +2,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/metal/backend.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <string_view>
@@ -69,9 +70,20 @@ int RunImages(bool gpu) {
         cpu.gpu_driven_gaussian.mode = merlin::render::GpuDrivenGaussianMode::Disabled;
         const auto expected = reference->Resolve(reference->Submit(cpu));
         Require(actual.color.pixels.size() == expected.color.pixels.size(), "GPU image size differs");
-        for (std::size_t i = 0; i < actual.color.pixels.size(); ++i)
-          Require(std::abs(int(actual.color.pixels[i]) - int(expected.color.pixels[i])) <= 2,
-              "GPU color differs from reference");
+        std::size_t worst_index = 0, differing = 0;
+        int worst = 0;
+        for (std::size_t i = 0; i < actual.color.pixels.size(); ++i) {
+          const auto delta = std::abs(int(actual.color.pixels[i]) - int(expected.color.pixels[i]));
+          if (delta > 2) ++differing;
+          if (delta > worst) { worst = delta; worst_index = i; }
+        }
+        if (worst > 2)
+          throw std::runtime_error("GPU color differs from reference: max=" +
+              std::to_string(worst) + " at " + std::to_string(worst_index) +
+              " actual=" + std::to_string(actual.color.pixels[worst_index]) +
+              " expected=" + std::to_string(expected.color.pixels[worst_index]) +
+              " differing=" + std::to_string(differing) +
+              " tile=" + std::to_string(actual.telemetry.gaussian_gpu_tile_raster_frame_count));
         Require(actual.depth.pixels == expected.depth.pixels &&
                     actual.prim_id.pixels == expected.prim_id.pixels &&
                     actual.instance_id.pixels == expected.instance_id.pixels,
@@ -83,7 +95,8 @@ int RunImages(bool gpu) {
                     actual.telemetry.gaussian_frustum_culled_count == expected.telemetry.gaussian_frustum_culled_count &&
                     actual.telemetry.gaussian_invalid_culled_count == expected.telemetry.gaussian_invalid_culled_count &&
                     actual.telemetry.gaussian_gpu_sorted_count == expected.telemetry.gaussian_sorted_count &&
-                    actual.telemetry.gaussian_gpu_raster_instance_count == expected.telemetry.gaussian_visible_count,
+                    actual.telemetry.gaussian_gpu_raster_instance_count ==
+                        (actual.telemetry.gaussian_gpu_tile_raster_frame_count ? 0 : expected.telemetry.gaussian_visible_count),
             "GPU counters differ from reference");
         Require(actual.telemetry.gaussian_upload_bytes == 0 &&
                     actual.telemetry.gaussian_preparation_cache_misses == 0 &&
@@ -130,18 +143,14 @@ int RunImages(bool gpu) {
     }
     request.gpu_driven_gaussian.mode = merlin::render::GpuDrivenGaussianMode::Prefer;
     request.gpu_driven_gaussian.raster = merlin::render::GaussianRasterPath::Tiled;
-    const auto fallback = render();
-    Require(fallback.color.pixels == first.color.pixels &&
-                fallback.telemetry.gaussian_gpu_fallback_count == 1,
-        "tiled prefer did not fall back to sorted-stream");
+    const auto tiled = render();
+    Require(tiled.telemetry.gaussian_gpu_tile_raster_frame_count == 1 &&
+                tiled.telemetry.gaussian_gpu_raster_instance_count == 0 &&
+                tiled.telemetry.gaussian_gpu_fallback_count == 0,
+        "tiled prefer did not select compute raster");
     request.gpu_driven_gaussian.mode = merlin::render::GpuDrivenGaussianMode::Require;
-    bool rejected = false;
-    try {
-      (void)render();
-    } catch (const merlin::render::RendererError& e) {
-      rejected = e.code() == merlin::render::RendererErrorCode::Unsupported;
-    }
-    Require(rejected, "unsupported tiled raster was accepted");
+    Require(render().telemetry.gaussian_gpu_tile_raster_frame_count == 1,
+        "required tiled raster was not selected");
     request.gpu_driven_gaussian.raster = merlin::render::GaussianRasterPath::SortedStream;
     request.gpu_driven_gaussian.mode = gpu ? merlin::render::GpuDrivenGaussianMode::Require : merlin::render::GpuDrivenGaussianMode::Disabled;
 
@@ -198,6 +207,11 @@ int RunImages(bool gpu) {
     Require(std::abs(mixed.depth.pixels.at(32 * mixed.depth.row_pitch_bytes / 4 + 32) - 0.45F) < 0.001F,
         "Gaussian changed opaque depth");
     Require(Id(mixed, 32, 32) == 0, "front Gaussian lost its picking ID");
+    if (gpu) {
+      request.gpu_driven_gaussian.raster = merlin::render::GaussianRasterPath::Tiled;
+      Require(render().telemetry.gaussian_gpu_tile_raster_frame_count == 1,
+          "tiled mesh/Gaussian composition was not selected");
+    }
     g.visible = false;
     world.UpdateGaussian(handle, g);
     request.snapshot = snapshot();
@@ -360,6 +374,162 @@ int RunContracts() {
 }
 
 // Optional local measurement, deliberately excluded from timing-sensitive CI.
+int RunTileOverflow() {
+  using namespace merlin;
+  metal::BackendFactory factory;
+  if (!factory.availability().available) return 77;
+  try {
+    render::BackendCreateInfo info;
+    info.enable_validation = true;
+    auto backend = factory.Create(info);
+    RenderWorld world;
+    extraction::SceneExtractor extractor;
+    GaussianDescriptor gaussian;
+    gaussian.positions.assign(300, {0, 0, 0.5F});
+    gaussian.covariances.assign(300, {0.01F, 0, 0, 0.01F, 0, 0.0001F});
+    gaussian.opacities.assign(300, 0.05F);
+    gaussian.spherical_harmonics_coefficients.assign(300, {0, 0, 0});
+    world.CreateGaussian(gaussian);
+    extractor.Apply(world, world.Commit());
+    render::RenderRequest request;
+    request.snapshot = extractor.snapshot();
+    request.width = request.height = 64;
+    request.products = {{Aov::Color, true}, {Aov::Depth, true},
+        {Aov::PrimId, true}, {Aov::InstanceId, true}};
+    request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Require;
+    request.gpu_driven_gaussian.raster = render::GaussianRasterPath::SortedStream;
+    const auto sorted = backend->Resolve(backend->Submit(request));
+    request.gpu_driven_gaussian.raster = render::GaussianRasterPath::Tiled;
+    const auto tiled = backend->Resolve(backend->Submit(request));
+    Require(tiled.telemetry.gaussian_gpu_tile_raster_frame_count == 1,
+        "large tile frame did not select compute raster");
+    request.gpu_driven_gaussian.tile_pair_capacity = 256;
+    const auto overflow = backend->Resolve(backend->Submit(request));
+    Require(overflow.telemetry.gaussian_gpu_tile_raster_frame_count == 0 &&
+                overflow.telemetry.gaussian_gpu_tile_raster_overflow_fallback_count == 1 &&
+                overflow.telemetry.gaussian_gpu_tile_requested_pair_count >
+                    overflow.telemetry.gaussian_gpu_tile_pair_capacity &&
+                overflow.telemetry.gaussian_gpu_raster_instance_count == 300,
+        "tile overflow did not keep the complete sorted draw");
+    Require(overflow.color.pixels == sorted.color.pixels &&
+                overflow.depth.pixels == sorted.depth.pixels &&
+                overflow.prim_id.pixels == sorted.prim_id.pixels &&
+                overflow.instance_id.pixels == sorted.instance_id.pixels,
+        "tile overflow changed the sorted image");
+    request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Prefer;
+    request.gpu_driven_gaussian.tile_pair_capacity =
+        std::numeric_limits<std::uint32_t>::max();
+    const auto unsupported = backend->Resolve(backend->Submit(request));
+    Require(unsupported.telemetry.gaussian_gpu_fallback_count == 1 &&
+                unsupported.telemetry.gaussian_gpu_sorted_count == 300 &&
+                unsupported.color.pixels == sorted.color.pixels,
+        "unsupported tile allocation did not select GPU sorted fallback");
+    auto cold_backend = factory.Create(info);
+    const auto cold_unsupported = cold_backend->Resolve(cold_backend->Submit(request));
+    Require(cold_unsupported.telemetry.gaussian_gpu_fallback_count == 1 &&
+                cold_unsupported.color.pixels == sorted.color.pixels,
+        "cold unsupported tile allocation did not select GPU sorted fallback");
+    request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Require;
+    bool rejected = false;
+    try {
+      (void)backend->Submit(request);
+    } catch (const render::RendererError& error) {
+      rejected = error.code() == render::RendererErrorCode::Unsupported;
+    }
+    Require(rejected, "required unsupported tile capacity was accepted");
+    std::cout << "Metal tile selection and overflow image passed\n";
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}
+
+int RunTileScale() {
+  using namespace merlin;
+  metal::BackendFactory factory;
+  if (!factory.availability().available) return 77;
+  try {
+    std::cout << "path,particles,phase,frame,wall_ns,gpu_ns,prepare_ns,sort_ns,tile_ns,raster_ns,selected,allocations,readback_bytes,max_color_delta\n";
+    for (const std::uint32_t count : {65536U, 1048576U}) {
+      extraction::GaussianRecord record;
+      record.gaussian = 0x100000001ULL;
+      record.revision = record.positions_revision = record.covariance_revision =
+          record.opacity_revision = record.radiance_revision = 1;
+      auto positions = std::make_shared<std::vector<Vec3>>();
+      positions->reserve(count);
+      for (std::uint32_t i = 0; i < count; ++i)
+        positions->push_back({float(i % 1024) / 512 - 1,
+            float((i / 1024) % 1024) / 512 - 1, 0.25F + float(i % 256) / 512});
+      record.positions = positions;
+      record.covariances = std::make_shared<const std::vector<Covariance3>>(
+          count, Covariance3{0.000001F, 0, 0, 0.000001F, 0, 0.000001F});
+      record.opacities = std::make_shared<const std::vector<float>>(count, 0.5F);
+      record.spherical_harmonics_coefficients =
+          std::make_shared<const std::vector<Vec3>>(count, Vec3{});
+      std::vector<render::RenderResult> references;
+      for (bool tiled : {false, true}) {
+        auto backend = factory.Create({});
+        auto scene = std::make_shared<extraction::FrameSnapshot>();
+        scene->source_id = 1;
+        scene->gaussians.assign({record});
+        render::RenderRequest request;
+        request.width = 512;
+        request.height = 512;
+        request.products = {{Aov::Color, true}, {Aov::Depth, true},
+            {Aov::PrimId, true}, {Aov::InstanceId, true}};
+        request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Require;
+        request.gpu_driven_gaussian.raster = tiled
+            ? render::GaussianRasterPath::Tiled : render::GaussianRasterPath::SortedStream;
+        // Five unreported camera frames warm GPU clocks and scratch pools
+        // before the five measured camera/image comparisons.
+        for (unsigned i = 0; i < 11; ++i) {
+          if (i) {
+            scene = std::make_shared<extraction::FrameSnapshot>(*scene);
+            scene->view.values[12] = float(i) / 1024;
+          }
+          request.snapshot = scene;
+          const auto begin = std::chrono::steady_clock::now();
+          auto result = backend->Resolve(backend->Submit(request));
+          const auto wall = std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::steady_clock::now() - begin).count();
+          int max_delta = 0;
+          if (tiled) {
+            Require(result.telemetry.gaussian_gpu_tile_raster_frame_count == 1,
+                "scale frame did not select tile raster");
+            const auto& expected = references[i];
+            Require(result.depth.pixels == expected.depth.pixels &&
+                        result.prim_id.pixels == expected.prim_id.pixels &&
+                        result.instance_id.pixels == expected.instance_id.pixels,
+                "scale tile depth or IDs differ from sorted stream");
+            for (std::size_t j = 0; j < result.color.pixels.size(); ++j)
+              max_delta = std::max(max_delta, std::abs(int(result.color.pixels[j]) -
+                  int(expected.color.pixels[j])));
+            Require(max_delta <= 2, "scale tile color differs from sorted stream");
+          } else {
+            references.push_back(result);
+          }
+          if (i > 0 && i < 6) continue;
+          std::cout << (tiled ? "tiled" : "sorted") << ',' << count << ','
+                    << (i ? "camera" : "cold") << ',' << i << ',' << wall << ','
+                    << result.timings.gpu_execution_ns << ','
+                    << result.timings.gaussian_gpu_preparation_ns << ','
+                    << result.timings.gaussian_gpu_sort_ns << ','
+                    << result.timings.gaussian_gpu_tile_ns << ','
+                    << result.timings.gaussian_raster_ns << ','
+                    << result.telemetry.gaussian_gpu_tile_raster_frame_count << ','
+                    << result.telemetry.allocation_count << ','
+                    << result.telemetry.readback_bytes << ',' << max_delta << '\n';
+        }
+      }
+    }
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}
+
 int Benchmark() {
   using namespace merlin;
   using namespace merlin::render;
@@ -443,9 +613,12 @@ int Benchmark() {
 
 int main(int argc, char** argv) {
   if (argc == 2 && std::string_view(argv[1]) == "--benchmark") return Benchmark();
+  if (argc == 2 && std::string_view(argv[1]) == "--tile-scale") return RunTileScale();
   const int cpu = RunImages(false);
   if (cpu) return cpu;
   const int gpu = RunImages(true);
   if (gpu) return gpu;
+  const int overflow = RunTileOverflow();
+  if (overflow) return overflow;
   return RunContracts();
 }

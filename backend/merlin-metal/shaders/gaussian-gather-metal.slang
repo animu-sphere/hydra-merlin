@@ -15,6 +15,7 @@ struct GaussianGatherConstants
 [[vk::binding(2, 0)]] RWByteAddressBuffer gaussian_gather_instances : register(u2);
 [[vk::binding(3, 0)]] RWStructuredBuffer<uint> gaussian_gather_draw : register(u3);
 [[vk::binding(5, 0)]] StructuredBuffer<uint> gaussian_gather_counts : register(t5);
+[[vk::binding(6, 0)]] RWByteAddressBuffer gaussian_gather_tile_sorted : register(u6);
 
 // Same sentinel-boundary algorithm as Vulkan gather, with Metal's scalar
 // raster layout. Dispatch at least one group, including for an empty frame.
@@ -48,6 +49,14 @@ void gaussian_metal_gather(uint3 dispatch_thread_id : SV_DispatchThreadID)
 
     uint source = value * 64u;
     uint target = index * MERLIN_GAUSSIAN_STRIDE;
+    if ((gaussian_gather_constants.flags & 2u) != 0u)
+    {
+        uint sorted = index * 64u;
+        gaussian_gather_tile_sorted.Store4(sorted, gaussian_gather_prepared.Load4(source));
+        gaussian_gather_tile_sorted.Store4(sorted + 16u, gaussian_gather_prepared.Load4(source + 16u));
+        gaussian_gather_tile_sorted.Store4(sorted + 32u, gaussian_gather_prepared.Load4(source + 32u));
+        gaussian_gather_tile_sorted.Store4(sorted + 48u, gaussian_gather_prepared.Load4(source + 48u));
+    }
     gaussian_gather_instances.Store2(target + MERLIN_GAUSSIAN_CENTER,
         gaussian_gather_prepared.Load2(source));
     gaussian_gather_instances.Store3(target + MERLIN_GAUSSIAN_CONIC,

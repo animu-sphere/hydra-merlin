@@ -11,6 +11,57 @@ Legend: ✅ done
 
 ---
 
+## v0.16.0 Metal Gaussian tile raster and Apple M3 scale check
+
+Connected the tiled request to the native Metal renderer on 2026-09-30. The
+same retaining command now performs sorted-record gather, tile pair count and
+prefix scan, pair emit, stable tile-key radix sort, ranges and selection. A
+successful selection skips the indirect sorted draw and composites into the
+opaque Mesh color/ID targets; pair overflow or a clamped record retains the
+complete sorted draw without a CPU-visible scheduling dependency. Tiled Prefer
+uses GPU sorted-stream fallback if tile allocation is unsupported; Tiled Require
+reports Unsupported for that condition. An explicit pair capacity supports
+deterministic overflow checks.
+
+- Release/AppleClang 17, Xcode 16.4, Slang 2026.8, macOS 15.7.9 and Apple M3
+  were used at 512x512, 65,536 and 1,048,576 deterministic degree-0 particles.
+  The source checkout was based on `3d5d015` with these changes uncommitted.
+  `merlin-metal-gaussian-tests --tile-scale` captured cold plus five camera
+  warmups and five measured camera frames per path with four AOVs requested.
+  Every tiled frame selected compute raster. Color differed by at most 2/255
+  per RGBA8 channel; depth and both ID
+  AOVs matched GPU sorted-stream exactly. The image/overflow renderer test ran
+  with Metal validation enabled. A separate 300-particle/256-pair test forced
+  overflow and matched every sorted-stream AOV byte exactly.
+  Metal API Validation renderer tests also cover tiled opaque Mesh depth,
+  visibility/removal, empty and all-rejected frames, plus cold/warm Prefer
+  fallback for an unsupported explicit capacity.
+- Camera-frame medians (five measured samples, ms) at 65K: sorted GPU execution
+  3.93, raster 2.15; tiled GPU execution 4.29, tile work 0.86, compute raster
+  0.92. At 1M: sorted GPU execution 28.77, raster 12.56; tiled GPU execution
+  35.10, tile work 11.34, compute raster 7.18. The tile raster stage is cheaper
+  at both sizes, but binning and sorting outweigh the saving on these scenes.
+  These are local samples with unpinned clocks/power, not a universal
+  performance claim. Wall medians with
+  four-AOV readback were 4.86/5.22 ms at 65K and 30.63/36.64 ms at 1M
+  (sorted/tiled). Raw CSV remains local under the [report policy](README.md).
+- A subsequent same-day HgiMetal GPU-copy/usdview run on the public
+  8,192-particle corpus selected tiled raster
+  in every measured frame, with 14,169–14,231 requested pairs below the 65,536
+  capacity, zero overflow/fallback and zero warmed uploads/allocations. Four
+  samples per static and alternating-camera phase passed the host image policy:
+  tiled versus CPU had maximum RGBA8 channel difference 15, with only 0.0183%
+  of pixels above the six-unit per-channel threshold and mean channel error
+  0.0172. This measured tail exceeds the offscreen degree-0 two-unit bound;
+  it remains a quality/tuning target. Camera-phase median GPU execution was
+  3.45 ms tiled versus 2.79 ms sorted; tile work took 0.42 ms and compute raster
+  1.43 ms. A separate two-sample HgiMetal tile run passed with Metal API and
+  GPU order/pair validation enabled. The four timing samples are directional
+  evidence only. HgiMetal tiled 1M,
+  native viewport captures, other Apple GPU models and scene tuning remain
+  open. Earlier HgiMetal comparisons below record the former sorted-stream
+  fallback and remain valid historical evidence.
+
 ## v0.16.0 Metal Gaussian host validation and stage timestamps
 
 Completed controlled HgiMetal sorted-stream comparisons and device stage

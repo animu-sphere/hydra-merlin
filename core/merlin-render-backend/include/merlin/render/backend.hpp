@@ -164,6 +164,9 @@ struct GpuDrivenIndexedSettings {
 struct GpuDrivenGaussianSettings {
   GpuDrivenGaussianMode mode{GpuDrivenGaussianMode::Disabled};
   GaussianRasterPath raster{GaussianRasterPath::SortedStream};
+  // Zero selects the backend's bounded default. A small explicit capacity can
+  // exercise the GPU overflow fallback without changing the scene.
+  std::uint32_t tile_pair_capacity{};
 
   friend constexpr bool operator==(const GpuDrivenGaussianSettings&,
       const GpuDrivenGaussianSettings&) = default;
@@ -416,6 +419,9 @@ struct FrameTelemetry {
   // fallback_count counts stages that could not be selected.
   std::uint64_t gaussian_gpu_sorted_count{};
   std::uint64_t gaussian_gpu_raster_instance_count{};
+  std::uint64_t gaussian_gpu_tile_pair_capacity{};
+  std::uint64_t gaussian_gpu_tile_requested_pair_count{};
+  std::uint64_t gaussian_gpu_tile_clamped_record_count{};
   std::uint64_t gaussian_gpu_tile_raster_frame_count{};
   std::uint64_t gaussian_gpu_tile_raster_overflow_fallback_count{};
   std::uint64_t gaussian_gpu_fallback_count{};

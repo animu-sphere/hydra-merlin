@@ -2052,6 +2052,12 @@ public:
                << result.telemetry.gaussian_gpu_sorted_count
                << " gaussian_gpu_raster_instance_count="
                << result.telemetry.gaussian_gpu_raster_instance_count
+               << " gaussian_gpu_tile_pair_capacity="
+               << result.telemetry.gaussian_gpu_tile_pair_capacity
+               << " gaussian_gpu_tile_requested_pair_count="
+               << result.telemetry.gaussian_gpu_tile_requested_pair_count
+               << " gaussian_gpu_tile_clamped_record_count="
+               << result.telemetry.gaussian_gpu_tile_clamped_record_count
                << " gaussian_gpu_tile_raster_frame_count="
                << result.telemetry.gaussian_gpu_tile_raster_frame_count
                << " gaussian_gpu_tile_raster_overflow_fallback_count="
