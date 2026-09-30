@@ -197,7 +197,8 @@ void gaussian_tile_raster(uint3 group_id : SV_GroupID,
         for (uint i = 0u; i < count && !done; ++i)
         {
             float4 bounds = gs_tile_raster_bounds[i];
-            float2 delta = sample_pixels - bounds.xy;
+            float2 delta = float2(sample_pixels.x - bounds.x,
+                float(gaussian_tile_raster_constants.viewport_height) - sample_pixels.y - bounds.y);
             // The procedural quad covers only the conservative square, and
             // clipping rejects depth outside [0, 1].
             if (abs(delta.x) > bounds.z || abs(delta.y) > bounds.z ||

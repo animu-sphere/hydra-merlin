@@ -130,7 +130,10 @@ bool TileBounds(GaussianPreparedRecord record, out GaussianTileRect rect)
     rect.y0 = 0u;
     rect.x1 = 0u;
     rect.y1 = 0u;
-    float2 center = record.center_pixels;
+    // Prepared centers use projection/NDC Y; Metal texture rows start at the
+    // top of the viewport, as does the rasterized reference image.
+    float2 center = float2(record.center_pixels.x,
+        float(gaussian_tile_constants.viewport_height) - record.center_pixels.y);
     float radius = record.radius_pixels;
     if (!(radius > 0.0f) || !IsFiniteValue(radius) ||
         !IsFiniteValue(center.x) || !IsFiniteValue(center.y))

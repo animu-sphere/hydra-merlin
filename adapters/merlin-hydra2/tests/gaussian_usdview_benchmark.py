@@ -48,7 +48,7 @@ def testUsdviewInputFunction(appController):
     policies = (
         ("disabled", "sorted-stream", "cpu-sorted-stream"),
         ("require", "sorted-stream", "gpu-sorted-stream"),
-        (("prefer" if backend == "metal" else "require"), "tiled", "gpu-tiled"),
+        ("require", "tiled", "gpu-tiled"),
     )
     for mode, raster, path in policies:
         os.environ["MERLIN_HYDRA2_REGRESSION_PHASE"] = "warmup"
@@ -74,11 +74,8 @@ def testUsdviewInputFunction(appController):
             if mode == "disabled":
                 references[motion] = image_path
             else:
-                # Metal's preferred tiled request currently uses the complete
-                # sorted stream. Compare it with that path's image contract.
-                effective_raster = "sorted-stream" if backend == "metal" else raster
                 difference = smoke.compare_reference(appController.GrabViewportShot(), str(references[motion]),
-                    smoke.REFERENCE_CHANNEL_TOLERANCE[effective_raster])
+                    smoke.REFERENCE_CHANNEL_TOLERANCE[raster])
                 comparisons.append({"phase": phase, "difference": difference,
                     "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest()})
 
@@ -110,6 +107,8 @@ def testUsdviewInputFunction(appController):
             expected = int(event["width"]) * int(event["height"]) * 12
             if event["gaussian_gpu_mode"] != "disabled":
                 expected += 32 + 32 * int(event["gaussian_resources"])
+                if backend == "metal" and event["gaussian_raster_path"] == "tiled":
+                    expected += 44
             assert int(event["readback_bytes"]) == expected
         assert int(event["map_count"]) == (1 if backend == "metal" else (3 if gpu_copy else 4))
         assert bool(int(event["cpu_readback_aov_mask"]) & 1) is (not gpu_copy)
@@ -118,17 +117,7 @@ def testUsdviewInputFunction(appController):
             assert int(event[bridge + "gpu_copy_count"]) > 0
             assert int(event[bridge + "gpu_copy_pending_count"]) <= 1
         if event["gaussian_gpu_mode"] != "disabled":
-            if backend == "metal" and event["phase"].endswith("gpu-tiled"):
-                assert event["gaussian_gpu_mode"] == "prefer"
-                assert event["gaussian_raster_path"] == "tiled"
-                assert int(event["gaussian_gpu_fallback_count"]) == 1
-                assert int(event["gaussian_gpu_tile_raster_frame_count"]) == 0
-                assert int(event["gaussian_gpu_sorted_count"]) == int(event["gaussian_visible_count"])
-                assert int(event["gaussian_gpu_raster_instance_count"]) == int(event["gaussian_visible_count"])
-                assert int(event["gaussian_preparation_ns"]) == 0
-                assert int(event["gaussian_upload_bytes"]) == 0
-            else:
-                smoke.check_gpu_policy([event], "require", event["gaussian_raster_path"])
+            smoke.check_gpu_policy([event], "require", event["gaussian_raster_path"])
             assert int(event["upload_bytes"]) == 0
             assert int(event["gaussian_attribute_upload_bytes"]) == 0
             assert int(event["gaussian_gpu_tile_raster_overflow_fallback_count"]) == 0
@@ -158,7 +147,7 @@ def testUsdviewInputFunction(appController):
     (output / "gaussian-host-verification.json").write_text(json.dumps({
         "schema": "merlin-gaussian-host-verification/v1",
         "backend": backend,
-        "tiled_request": "sorted-stream-fallback" if backend == "metal" else "tiled",
+        "tiled_request": "tiled",
         "camera_sequence": "alternating-tumble-reset-per-path/v1",
         "warmup_frames": warmups, "measured_frames": frames,
         "phase_samples": phase_counts, "image_comparisons": comparisons,

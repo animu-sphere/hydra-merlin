@@ -1,6 +1,6 @@
 # Metal Gaussian execution plan
 
-**Status:** Phase 2 sorted-stream renderer and controlled HgiMetal host validation available; broader hardware evidence and Phase 3 tile raster remain open.
+**Status:** Phase 3 tile raster connected in the native Metal renderer with Apple M3 offscreen and 8,192-particle HgiMetal host evidence; larger host and broader hardware evidence remain open.
 **Last reviewed:** 2026-09-30
 
 Move Gaussian projection, culling, sorting and rasterization onto the Metal GPU
@@ -89,9 +89,11 @@ input, workgroup boundaries, asymmetric alpha composition and a prefilled opaque
 depth attachment. They do not establish general scene or host-presentation
 parity. The harness isolates kernel correctness; Phase 2 below also connects
 this path to renderer frame contexts, persistent attributes and completion
-telemetry. Controlled HgiMetal captures now cover the public 8,192-particle
-corpus and a deterministic 1M scene. Phase 3 tile raster and wider hardware
-evidence remain unfinished.
+telemetry. Controlled HgiMetal sorted-stream captures cover the public
+8,192-particle corpus and a deterministic 1M scene. Native Metal tile raster
+has separate Apple M3 offscreen image/performance evidence and an 8,192-particle
+HgiMetal host capture; larger tile host and wider hardware evidence remain
+unfinished.
 
 Establish repeatable static, camera-motion and particle-edit captures before
 changing execution. Use the existing public Gaussian corpus and deterministic
@@ -183,8 +185,10 @@ not run the CPU preparation reference. Validation enables GPU order checks.
 
 `Disabled` preserves the CPU reference and its static prepared-stream cache.
 `Prefer` and `Require` select GPU sorted-stream execution on devices meeting the
-portable workgroup limits. Tiled is still unavailable: Prefer falls back to
-GPU sorted-stream and counts the stage fallback; Require returns Unsupported.
+portable workgroup limits. Tiled runs on supported devices; an unavailable tile
+path falls back to GPU sorted-stream in Prefer and returns Unsupported in
+Require. GPU-detected pair overflow keeps the full sorted-stream draw in either
+mode.
 Attribute/scratch address limits or exhausted configured budgets select CPU
 fallback in Prefer and raise the original error in Require. Failed partial
 encoding discards the unsubmitted command; submission catches C++ exceptions
@@ -225,16 +229,23 @@ Metal viewport and usdview/HgiMetal GPU copy, with zero CPU preparation and
 steady attribute uploads. Its initial attribute upload needs a 3 GiB residency
 budget including staging. Hydra environment variables and native viewport CLI
 options expose the independent residency/scratch limits; see the build guide.
-The usdview check also exercised Tiled Prefer fallback to GPU sorted-stream.
+The earlier usdview check exercised the former Tiled Prefer fallback to GPU sorted-stream.
 Controlled HgiMetal comparisons on the public 8,192-particle corpus and
 deterministic 1M scene now cover static and alternating-camera images and stage
-timestamps on Apple M3. They do not establish cross-device performance or
-Phase 3 tile behavior; the tiled request still uses the sorted-stream fallback.
-The Metal tile count/emit/ranges/verify and select/raster kernels are now
-packaged in the metallib. A local Apple M3 test creates every pipeline and
-executes a two-tile fixture through count, emit, ranges, verification and
-color/ID raster. The fixture supplies the known pair prefix and sorted list;
-it does not establish the frame-wide GPU scan/sort or renderer integration.
+timestamps on Apple M3. These earlier captures do not establish tile host or
+cross-device performance. The Metal tile count/emit/ranges/verify and
+select/raster kernels are packaged in the metallib. The renderer now supplies
+frame-wide GPU scans and stable tile-key radix sorting, then selects compute
+raster on the GPU or keeps the complete sorted-stream draw on overflow. A local
+Apple M3 test compares offscreen RGBA8/depth/IDs at 65K and 1M particles
+through camera motion and checks a forced 300-particle overflow against the
+exact sorted image. On these fixtures tile lowers the raster stage but raises
+total warmed GPU time at both sizes; separate tile and raster timestamps expose
+the tradeoff. A same-day HgiMetal GPU-copy run selected tile raster on the
+public 8,192-particle corpus and passed the host image policy, but reached a
+15/255 channel difference on 0.0183% of pixels above the six-unit threshold.
+The four-sample moving GPU median was 3.45 ms tiled versus 2.79 ms sorted.
+Larger host captures, other Apple GPUs and scene-dependent tuning remain open.
 
 Connect the complete frame path on the GPU:
 

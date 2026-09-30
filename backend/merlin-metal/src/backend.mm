@@ -794,11 +794,10 @@ public:
     }
     if (request.gpu_driven_gaussian.mode ==
             render::GpuDrivenGaussianMode::Require &&
-        (!capabilities_.gpu_driven_gaussian ||
-            request.gpu_driven_gaussian.raster == render::GaussianRasterPath::Tiled)) {
+        !capabilities_.gpu_driven_gaussian) {
       throw render::RendererError(
           render::RendererErrorCode::Unsupported, "submit Metal frame",
-          "required Metal Gaussian path is unavailable; use sorted-stream or prefer mode");
+          "required Metal Gaussian path is unavailable");
     }
     if (request.presentation) {
       ValidatePresentation(request.presentation, "submit Metal frame");
@@ -1001,6 +1000,7 @@ public:
             render::RendererErrorCode::BackendFailure,
             "acquire Metal AOV image", "selected AOV image is unavailable");
       }
+      usage = texture.usage;
       frame.exported_aov_mask |= mask;
       ++aov_image_export_count_;
       ++active_aov_image_leases_;
@@ -2250,14 +2250,16 @@ private:
           static_cast<std::uint64_t>(width) * height * 4U;
       return value;
     };
+    const auto gaussian_usage = MTLTextureUsageRenderTarget |
+        MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     id<MTLTexture> color =
-        texture(MTLPixelFormatRGBA8Unorm, MTLTextureUsageRenderTarget);
+        texture(MTLPixelFormatRGBA8Unorm, gaussian_usage);
     id<MTLTexture> depth =
-        texture(MTLPixelFormatDepth32Float, MTLTextureUsageRenderTarget);
+        texture(MTLPixelFormatDepth32Float, MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
     id<MTLTexture> prim_id =
-        texture(MTLPixelFormatR32Uint, MTLTextureUsageRenderTarget);
+        texture(MTLPixelFormatR32Uint, gaussian_usage);
     id<MTLTexture> instance_id =
-        texture(MTLPixelFormatR32Uint, MTLTextureUsageRenderTarget);
+        texture(MTLPixelFormatR32Uint, gaussian_usage);
     const auto bytes = static_cast<NSUInteger>(AlignedRowPitch(width)) * height;
     auto buffer = [&] {
       id<MTLBuffer> value =
@@ -2391,20 +2393,42 @@ private:
       PrepareGaussians(request, frame, build);
       return;
     }
-    if (request.gpu_driven_gaussian.raster == render::GaussianRasterPath::Tiled)
-      ++build.telemetry.gaussian_gpu_fallback_count;
     const auto begin = Clock::now();
     try {
       auto attributes = gaussian_residency_->Prepare(*request.snapshot);
       gaussian_residency_->Encode(attributes, command);
       const auto uploaded = Clock::now();
-      auto execution = gaussian_execution_->Encode(attributes,
-          request.snapshot->view, request.snapshot->projection,
-          request.width, request.height, command, false, capabilities_.validation_enabled,
-          frame.gaussian_timestamps);
+      const bool wants_tiles = request.gpu_driven_gaussian.raster == render::GaussianRasterPath::Tiled;
+      std::shared_ptr<const GaussianExecution::Frame> execution;
+      try {
+        execution = gaussian_execution_->Encode(attributes,
+            request.snapshot->view, request.snapshot->projection,
+            request.width, request.height, command, false, capabilities_.validation_enabled,
+            frame.gaussian_timestamps, wants_tiles,
+            request.gpu_driven_gaussian.tile_pair_capacity);
+      } catch (const render::RendererError& error) {
+        if (!wants_tiles || mode != render::GpuDrivenGaussianMode::Prefer ||
+            (error.code() != render::RendererErrorCode::Unsupported &&
+                error.code() != render::RendererErrorCode::ResourceExhausted)) throw;
+        // The tiled command is unsubmitted. Rebuild its attribute update in a
+        // fresh command, then keep GPU sorted-stream execution.
+        command = nil;
+        command = [queue_ commandBuffer];
+        if (!command)
+          throw render::RendererError(render::RendererErrorCode::BackendFailure,
+              "create Metal sorted fallback command", "commandBuffer returned nil");
+        attributes = gaussian_residency_->Prepare(*request.snapshot);
+        gaussian_residency_->Encode(attributes, command);
+        execution = gaussian_execution_->Encode(attributes,
+            request.snapshot->view, request.snapshot->projection,
+            request.width, request.height, command, false, capabilities_.validation_enabled,
+            frame.gaussian_timestamps);
+        ++build.telemetry.gaussian_gpu_fallback_count;
+      }
       // Read only bounded per-resource counters and draw arguments after all
       // compute stages. They never schedule GPU work from a CPU visible count.
-      const auto bytes = 32ULL + execution->resource_count * sizeof(gaussian_compute::PrepareCounters);
+      const auto tile_bytes = execution->tiled ? 44ULL : 0ULL;
+      const auto bytes = 32ULL + tile_bytes + execution->resource_count * sizeof(gaussian_compute::PrepareCounters);
       if (!frame.gaussian_telemetry || frame.gaussian_telemetry.length < bytes) {
         auto buffer = [device_ newBufferWithLength:bytes options:MTLResourceStorageModeShared];
         if (!buffer)
@@ -2421,9 +2445,12 @@ private:
           toBuffer:frame.gaussian_telemetry destinationOffset:0 size:16];
       [blit copyFromBuffer:execution->scratch->control sourceOffset:0
           toBuffer:frame.gaussian_telemetry destinationOffset:16 size:16];
+      if (execution->tiled)
+        [blit copyFromBuffer:execution->scratch->tile_control sourceOffset:0
+            toBuffer:frame.gaussian_telemetry destinationOffset:32 size:tile_bytes];
       if (execution->resource_count)
         [blit copyFromBuffer:execution->scratch->counters sourceOffset:0
-            toBuffer:frame.gaussian_telemetry destinationOffset:32 size:bytes - 32];
+            toBuffer:frame.gaussian_telemetry destinationOffset:32 + tile_bytes size:bytes - 32 - tile_bytes];
       [blit endEncoding];
       build.telemetry.readback_bytes += bytes;
       build.telemetry.allocation_count += attributes->allocation_count + execution->allocation_count;
@@ -2463,24 +2490,43 @@ private:
     const auto* words = static_cast<const std::uint32_t*>(frame.gaussian_telemetry.contents);
     const auto& execution = *frame.gaussian_execution;
     auto& telemetry = result.telemetry;
-    const auto* counters = reinterpret_cast<const gaussian_compute::PrepareCounters*>(words + 8);
+    const auto* tile = execution.tiled ? words + 8 : nullptr;
+    const auto* counters = reinterpret_cast<const gaussian_compute::PrepareCounters*>(
+        words + 8 + (execution.tiled ? 11 : 0));
     for (std::uint32_t i = 0; i < execution.resource_count; ++i) {
       telemetry.gaussian_visible_count += counters[i].visible_count;
       telemetry.gaussian_opacity_culled_count += counters[i].opacity_culled_count;
       telemetry.gaussian_frustum_culled_count += counters[i].frustum_culled_count;
       telemetry.gaussian_invalid_culled_count += counters[i].invalid_culled_count;
     }
-    if (words[0] != 6 || words[1] != telemetry.gaussian_visible_count ||
+    const bool selected = tile && tile[10] != 0;
+    if (words[0] != 6 || words[1] != (selected ? 0 : telemetry.gaussian_visible_count) ||
         words[1] > execution.particle_count || words[2] || words[3] ||
+        (tile && (tile[0] != telemetry.gaussian_visible_count || tile[10] > 1 ||
+            (selected && (tile[1] > execution.tile_raster.pair_capacity || tile[2])) ||
+            (capabilities_.validation_enabled && (tile[3] != std::min(tile[1], execution.tile_raster.pair_capacity) ||
+                tile[4] || tile[5] || tile[6])))) ||
         (capabilities_.validation_enabled &&
-            (words[4] != words[1] || words[5] || words[6]))) {
+            (words[4] != telemetry.gaussian_visible_count || words[5] || words[6]))) {
       ++statistics_.validation_messages;
       throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "resolve Metal Gaussian telemetry", "GPU sort/count or indirect arguments are inconsistent");
+          "resolve Metal Gaussian telemetry", "GPU sort/count or indirect arguments are inconsistent: draw=" +
+              std::to_string(words[1]) + " visible=" + std::to_string(telemetry.gaussian_visible_count) +
+              " tile=" + std::to_string(tile ? tile[10] : 0) +
+              " records=" + std::to_string(tile ? tile[0] : 0) +
+              " requested=" + std::to_string(tile ? tile[1] : 0));
     }
-    telemetry.gaussian_sorted_count = words[1];
-    telemetry.gaussian_gpu_sorted_count = words[1];
+    telemetry.gaussian_sorted_count = telemetry.gaussian_visible_count;
+    telemetry.gaussian_gpu_sorted_count = telemetry.gaussian_visible_count;
     telemetry.gaussian_gpu_raster_instance_count = words[1];
+    if (tile) {
+      telemetry.gaussian_gpu_tile_pair_capacity = execution.tile_raster.pair_capacity;
+      telemetry.gaussian_gpu_tile_requested_pair_count = tile[1];
+      telemetry.gaussian_gpu_tile_clamped_record_count = tile[2];
+      telemetry.gaussian_gpu_tile_raster_frame_count = selected ? 1 : 0;
+      telemetry.gaussian_gpu_tile_raster_overflow_fallback_count =
+          !selected && (tile[1] > execution.tile_raster.pair_capacity || tile[2]) ? 1 : 0;
+    }
   }
 
   void ResolveGaussianTimestamps(const FrameContext& frame,
@@ -2508,6 +2554,11 @@ private:
     }
     result.timings.gaussian_raster_ns =
         duration(kGaussianRasterBegin, kGaussianRasterEnd);
+    if (frame.gaussian_execution && frame.gaussian_execution->tiled) {
+      result.timings.gaussian_gpu_tile_ns = duration(kGaussianTileBegin, kGaussianTileEnd);
+      if (result.telemetry.gaussian_gpu_tile_raster_frame_count)
+        result.timings.gaussian_raster_ns = duration(kGaussianTileRasterBegin, kGaussianTileRasterEnd);
+    }
   }
 
   void PrepareGaussians(const render::RenderRequest& request,
@@ -2869,6 +2920,10 @@ private:
       build.gaussian_raster_ns = DurationNs(begin, Clock::now());
     }
     [encoder endEncoding];
+    if (frame.gaussian_execution && frame.gaussian_execution->tiled)
+      gaussian_execution_->EncodeTileRaster(*frame.gaussian_execution, command,
+          frame.color, frame.depth, frame.prim_id, frame.instance_id,
+          frame.gaussian_timestamps);
   }
 
   void EncodePresentation(id<MTLCommandBuffer> command, FrameContext& frame,

@@ -35,13 +35,19 @@ after its public API and release process are established.
 
 ### Added
 
+- Metal Gaussian tiled requests now run frame-wide GPU pair count, scan, emit,
+  stable tile sort, range verification and compute raster in the production
+  renderer. The device selects the complete sorted-stream draw when pair
+  capacity overflows. Apple M3 offscreen tests compare color/depth/IDs at 65K
+  and 1M particles; separate tile and compute-raster GPU timestamps and pair
+  telemetry expose the cost and selection. Other Apple GPUs remain unverified.
+
 - Metal Gaussian frames now report device timestamps for preparation, sort and
   raster on supported Apple GPUs. The opt-in HgiMetal benchmark compares CPU,
   GPU sorted-stream and preferred tiled fallback on the same scene and camera
   sequence; local 8,192-particle and 1M captures include image and per-sample
   upload evidence. Metal tile binning and compute raster shaders are packaged
-  and pass a small Apple GPU color/ID fixture. Native tiled frame scheduling
-  and broader Apple GPU performance evidence remain open.
+  and pass a small Apple GPU color/ID fixture.
 
 - Gaussian benchmarks now compare warmed static and identical camera-motion
   sequences across CPU, GPU sorted-stream and GPU tiled execution, retain

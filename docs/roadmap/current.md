@@ -34,11 +34,12 @@ ownership, dependency, and fallback contracts.
   preferred tiled fallback. Controlled HgiMetal comparisons now cover the
   public 8,192-particle corpus and deterministic 1M scene with CPU/GPU images,
   static/motion counters and GPU preparation/sort/raster timestamps. Tile
-  binning and raster shaders now compile into the Metal library and pass a
-  small Apple GPU binding/color/ID test. The renderer still selects the
-  sorted-stream fallback for tiled requests; native tile scheduling, overflow
-  selection, scene-scale image/performance checks and broader hardware evidence
-  remain open. See the
+  binning and raster shaders now compile into the Metal library and run in the
+  native renderer with frame-wide scan/sort and GPU overflow selection. Apple M3
+  offscreen checks cover forced overflow plus 65K/1M color/depth/ID and stage
+  timings. An 8,192-particle HgiMetal GPU-copy tile capture passes the host
+  image policy, with a sparse 15/255 color tail. Larger HgiMetal tile captures,
+  scene tuning and broader hardware evidence remain open. See the
   [Metal validation record](../reports/delivery-history.md#v0160-metal-gaussian-host-validation-and-stage-timestamps).
 
 - ✅ Recheck the Hydra CPU-readback floor in usdview after preferring

@@ -229,13 +229,22 @@ CPU trace durations, not GPU copy timestamps or end-to-end display latency.
 
 On macOS, the same install-tree runner accepts
 `MERLIN_GAUSSIAN_HOST_BACKEND=metal`. OpenUSD must include HgiMetal and usdview.
-The capture compares the CPU reference, required GPU sorted stream and a
-preferred tiled request. Metal currently counts the tiled request as a
-sorted-stream fallback; its image uses the sorted-stream tolerance. Each path
+The capture compares the CPU reference, required GPU sorted stream and required
+GPU tiled raster. Each path
 has static and alternating-camera samples, a screenshot and per-sample
 allocation/upload checks. The host report uses the HgiMetal copy counters and
 accounts for one mapped readback of the three non-color AOVs. GPU Gaussian
-frames add 32 bytes of control plus 32 bytes per resource to readback telemetry.
+frames add 32 bytes of control plus 32 bytes per resource to readback telemetry;
+tiled frames add another 44 bytes of pair/selection counters.
+
+For a deterministic Apple GPU offscreen image and timing comparison at 65K and
+1M particles, run `merlin-metal-gaussian-tests --tile-scale`. It prints CSV for
+cold and five warmed camera samples per path and size, after five unreported
+camera warmups. It includes device preparation/sort/tile/raster times, readback
+bytes and maximum RGBA8
+channel difference. The command fails on a color difference above 2/255 or
+any depth/ID mismatch. GPU timing is device-local; wall time includes the
+requested four-AOV readback.
 
 ```sh
 sdk=/path/to/openusd-2608-prefix
@@ -258,8 +267,9 @@ scene and runtime-config hashes, six phase screenshots, host verification,
 delegate log, Chrome trace and `gaussian-hydra-performance.json`. Keep those
 raw files local per the [report policy](../reports/README.md). Apple devices
 with stage-boundary counter sampling report GPU preparation, radix sort plus
-gather, and isolated Gaussian render-pass durations; the pass sample includes
-its load/store overhead. The delegate's
+gather, tile binning/sort, and Gaussian raster durations. Sorted-stream raster
+includes render-pass load/store overhead; selected tile raster measures its
+compute pass. The delegate's
 `gaussian_gpu_timestamps_available` field and each report stage's availability
 distinguish unsupported sampling from a zero active duration.
 These one-device observations are not timing gates.

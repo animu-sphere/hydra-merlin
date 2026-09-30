@@ -106,13 +106,14 @@ the native Merlin viewport exposes the equivalent `--metal-heap-mib N` option.
 
 Metal Gaussian GPU execution is opt-in. The native viewport accepts
 `--backend metal --gaussian-gpu require --gaussian-raster sorted-stream`;
-use `prefer` to permit CPU fallback when a device or allocation limit prevents
-GPU execution. Tiled raster is not implemented on Metal: `prefer` uses GPU
-SortedStream and `require` rejects it. Hydra exposes the same policy through
+select `--gaussian-raster tiled` for the Metal tile path. Use `prefer` to permit
+the GPU sorted stream when tiled allocation is unavailable, or CPU fallback
+when GPU execution is unavailable. Tile pair overflow also selects the GPU
+sorted stream for that frame. Hydra exposes the same policy through
 `merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster`.
-The GPU path has offscreen renderer coverage and local Garden display checks
-in the native viewport and usdview/HgiMetal. Broader host parity and controlled
-performance checks remain open. Metal `BackendOptions` has independent
+The tiled path has offscreen image and overflow tests plus local usdview/HgiMetal
+image and performance checks on Apple M3. Other devices remain unverified.
+Metal `BackendOptions` has independent
 `gaussian_residency_budget_bytes` and `gaussian_scratch_budget_bytes` limits
 (1 GiB each by default), separate from the mesh/texture heap setting above.
 Hydra hosts can override these with `MERLIN_METAL_GAUSSIAN_RESIDENCY_MIB` and
