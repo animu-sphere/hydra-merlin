@@ -210,7 +210,7 @@ if(TARGET Merlin::Metal)
   add_dependencies(merlin-metal-shader-artifact-key-tests merlin-metal-shaders)
   add_test(NAME merlin-metal-shader-artifact-key
     COMMAND merlin-metal-shader-artifact-key-tests
-      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 10 4)
+      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 16 6)
   set_tests_properties(merlin-metal-shader-artifact-key PROPERTIES LABELS "metal;shader;cache")
 
   add_executable(merlin-metal-gaussian-tests metal_gaussian_test.cpp)

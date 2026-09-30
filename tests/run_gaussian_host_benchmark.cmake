@@ -35,7 +35,8 @@ if(NOT result EQUAL 0)
 endif()
 file(GLOB renderer_libraries "${MERLIN_STAGE_DIR}/lib/usd/hdMerlin/hdMerlin.dll"
   "${MERLIN_STAGE_DIR}/lib/usd/hdMerlin/libhdMerlin.so"
-  "${MERLIN_STAGE_DIR}/lib/usd/hdMerlin/libhdMerlin.dylib")
+  "${MERLIN_STAGE_DIR}/lib/usd/hdMerlin/libhdMerlin.dylib"
+  "${MERLIN_STAGE_DIR}/lib/usd/hdMerlin/hdMerlin.so")
 list(LENGTH renderer_libraries renderer_library_count)
 if(NOT renderer_library_count EQUAL 1)
   message(FATAL_ERROR "cannot identify the installed hdMerlin library")
@@ -54,12 +55,21 @@ cmake_path(CONVERT "${MERLIN_PXR_ROOT}/bin;${MERLIN_PXR_ROOT}/lib;$ENV{PATH}"
 set(marker "${MERLIN_STAGE_DIR}/gaussian-regression.log")
 set(trace "${MERLIN_STAGE_DIR}/gaussian-usdview-trace.json")
 set(host_environment)
-if(MERLIN_FORCE_HGI_VULKAN)
+if(MERLIN_GAUSSIAN_HOST_BACKEND STREQUAL "metal")
+  if(MERLIN_FORCE_HGI_VULKAN)
+    message(FATAL_ERROR "Metal host capture cannot force HgiVulkan")
+  endif()
+  list(APPEND host_environment "HGI_ENABLE_VULKAN=0" "HGIVULKAN_DEBUG=0"
+    "MERLIN_GAUSSIAN_EXPECT_TRANSFER_MODE=gpu-copy")
+  set(merlin_test_backend metal)
+elseif(MERLIN_FORCE_HGI_VULKAN)
   list(APPEND host_environment "HGI_ENABLE_VULKAN=1" "HGIVULKAN_DEBUG=${validation}"
     "MERLIN_GAUSSIAN_EXPECT_TRANSFER_MODE=gpu-copy")
+  set(merlin_test_backend vulkan)
 else()
   list(APPEND host_environment "HGI_ENABLE_VULKAN=0" "HGIVULKAN_DEBUG=0"
     "MERLIN_GAUSSIAN_EXPECT_TRANSFER_MODE=cpu-readback")
+  set(merlin_test_backend vulkan)
 endif()
 file(REMOVE "${marker}" "${trace}" "${MERLIN_STAGE_DIR}/gaussian-host-verification.json")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E env
@@ -68,7 +78,7 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E env
   "PYTHONPATH=${MERLIN_PXR_ROOT}/lib/python" "PATH=${runtime_path}"
   "MERLIN_HYDRA2_ENABLE_VALIDATION=${validation}"
   "PYTHONDONTWRITEBYTECODE=1"
-  "MERLIN_HYDRA2_TEST_BACKEND=vulkan"
+  "MERLIN_HYDRA2_TEST_BACKEND=${merlin_test_backend}"
   "MERLIN_HYDRA2_REGRESSION_LOG=${marker}"
   "MERLIN_HYDRA2_SMOKE_IMAGE=${MERLIN_STAGE_DIR}/gaussian.png"
   "MERLIN_GAUSSIAN_BENCHMARK_FRAMES=${MERLIN_GAUSSIAN_FRAMES}"

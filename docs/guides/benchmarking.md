@@ -225,6 +225,45 @@ Host comparison checks image parity for every policy, fixed extent/sample count,
 and the color-only readback saving. GPU-copy encode and presentation scopes are
 CPU trace durations, not GPU copy timestamps or end-to-end display latency.
 
+### Metal HgiMetal host comparison
+
+On macOS, the same install-tree runner accepts
+`MERLIN_GAUSSIAN_HOST_BACKEND=metal`. OpenUSD must include HgiMetal and usdview.
+The capture compares the CPU reference, required GPU sorted stream and a
+preferred tiled request. Metal currently counts the tiled request as a
+sorted-stream fallback; its image uses the sorted-stream tolerance. Each path
+has static and alternating-camera samples, a screenshot and per-sample
+allocation/upload checks. The host report uses the HgiMetal copy counters and
+accounts for one mapped readback of the three non-color AOVs. GPU Gaussian
+frames add 32 bytes of control plus 32 bytes per resource to readback telemetry.
+
+```sh
+sdk=/path/to/openusd-2608-prefix
+build=/path/to/hydra-merlin/build/metal-hydra
+scene=/path/to/hydra-merlin/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc
+cmake "-DMERLIN_BUILD_DIR=$build" "-DMERLIN_PXR_ROOT=$sdk" \
+  "-DMERLIN_PYTHON=$(command -v python3)" \
+  "-DMERLIN_TESTUSDVIEW=$sdk/bin/testusdview" \
+  "-DMERLIN_GAUSSIAN_SAMPLE=$scene" \
+  -DMERLIN_GAUSSIAN_HOST_BACKEND=metal \
+  -DMERLIN_GAUSSIAN_FRAMES=40 \
+  "-DMERLIN_STAGE_DIR=$build/metal-host-8192" \
+  -P tests/run_gaussian_host_benchmark.cmake
+```
+
+The generated 1M corpus can be created with `scripts/create-gaussian-benchmark.py`
+using the same OpenUSD Python environment. Re-run the command with its USDC
+path and a separate stage directory. The runner writes installed-renderer,
+scene and runtime-config hashes, six phase screenshots, host verification,
+delegate log, Chrome trace and `gaussian-hydra-performance.json`. Keep those
+raw files local per the [report policy](../reports/README.md). Apple devices
+with stage-boundary counter sampling report GPU preparation, radix sort plus
+gather, and isolated Gaussian render-pass durations; the pass sample includes
+its load/store overhead. The delegate's
+`gaussian_gpu_timestamps_available` field and each report stage's availability
+distinguish unsupported sampling from a zero active duration.
+These one-device observations are not timing gates.
+
 ### Reference baselines
 
 The reference fixture emits, in order:

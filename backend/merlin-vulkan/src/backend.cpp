@@ -52,6 +52,7 @@ public:
         DescriptorBackend::Bindless;
     capabilities_.asynchronous_upload = source.async_transfer_queue;
     capabilities_.timestamp_queries = source.timestamp_queries;
+    capabilities_.gaussian_gpu_stage_timestamps = source.timestamp_queries;
     capabilities_.external_presentation = source.external_presentation;
     capabilities_.generated_materials = source.generated_materials;
     const auto statistics = renderer_.statistics();

@@ -1,7 +1,7 @@
 # Metal Gaussian execution plan
 
-**Status:** Phase 2 sorted-stream renderer integration available; host validation, broader measurements and Phase 3 tile raster remain open.
-**Last reviewed:** 2026-09-28
+**Status:** Phase 2 sorted-stream renderer and controlled HgiMetal host validation available; broader hardware evidence and Phase 3 tile raster remain open.
+**Last reviewed:** 2026-09-30
 
 Move Gaussian projection, culling, sorting and rasterization onto the Metal GPU
 without making CPU work proportional to particle count during camera motion.
@@ -87,10 +87,11 @@ resource/particle IDs. These fixture-specific image checks cover SH degrees,
 projection/sort policies, transforms, multiple resources, hidden/all-rejected
 input, workgroup boundaries, asymmetric alpha composition and a prefilled opaque
 depth attachment. They do not establish general scene or host-presentation
-parity. The harness isolates kernel correctness; Phase 2 below now also connects this
-path to renderer frame contexts, persistent attributes and completion telemetry. Controlled performance captures
-and updated native viewport/HgiMetal comparisons remain unfinished; this is
-not completion of the phase gate below.
+parity. The harness isolates kernel correctness; Phase 2 below also connects
+this path to renderer frame contexts, persistent attributes and completion
+telemetry. Controlled HgiMetal captures now cover the public 8,192-particle
+corpus and a deterministic 1M scene. Phase 3 tile raster and wider hardware
+evidence remain unfinished.
 
 Establish repeatable static, camera-motion and particle-edit captures before
 changing execution. Use the existing public Gaussian corpus and deterministic
@@ -198,7 +199,12 @@ live pool bytes, cumulative compute dispatches and GPU attribute-version copy
 bytes. Telemetry readback is 32 bytes plus 32 bytes per resource, separate from
 requested image readback, and is included in readback bytes. CPU preparation,
 attribute synchronization, prepared-stream writing and command recording times
-are separated; Gaussian raster time still measures CPU encoding.
+are separated. On devices with Metal stage-boundary counter sampling, Gaussian
+preparation, radix sort plus gather, and the Gaussian render pass report GPU
+durations. A separate render pass loads the opaque Mesh attachments before
+Gaussian blending so the raster sample excludes Mesh draws. Devices without
+stage sampling retain total command-buffer GPU time and report stage sampling
+unavailable.
 
 A failed attribute-upload command invalidates residency and dependent queued
 frames before the next use, using the existing serial-queue failure boundary.
@@ -220,9 +226,15 @@ steady attribute uploads. Its initial attribute upload needs a 3 GiB residency
 budget including staging. Hydra environment variables and native viewport CLI
 options expose the independent residency/scratch limits; see the build guide.
 The usdview check also exercised Tiled Prefer fallback to GPU sorted-stream.
-These interactive checks do not establish general host image parity or
-controlled performance. Public corpus comparisons, stage GPU timestamps and
-wider hardware evidence remain open.
+Controlled HgiMetal comparisons on the public 8,192-particle corpus and
+deterministic 1M scene now cover static and alternating-camera images and stage
+timestamps on Apple M3. They do not establish cross-device performance or
+Phase 3 tile behavior; the tiled request still uses the sorted-stream fallback.
+The Metal tile count/emit/ranges/verify and select/raster kernels are now
+packaged in the metallib. A local Apple M3 test creates every pipeline and
+executes a two-tile fixture through count, emit, ranges, verification and
+color/ID raster. The fixture supplies the known pair prefix and sorted list;
+it does not establish the frame-wide GPU scan/sort or renderer integration.
 
 Connect the complete frame path on the GPU:
 
@@ -260,6 +272,9 @@ path. Preserve mesh depth tests, ellipse/alpha cutoffs, color and picking
 semantics, bounded pair storage and the declared image tolerance for early
 termination. When tile capacity is insufficient, select the complete
 GPU-sorted raster stream on the device; never silently drop particles.
+Metal AOV textures used by the compute raster require render-target,
+shader-read and shader-write usage. Keep the selection and sorted-stream draw
+arguments in one command so overflow cannot create a partial image.
 
 Begin with the existing portable tile/workgroup configuration as a baseline.
 Then measure tile size, threadgroup occupancy, shared-memory use, sorting
@@ -288,9 +303,10 @@ camera motion, localized particle edits and resize. Record median and tail
 latency, visible/rejected/sorted/pair counts, allocations, resident/scratch
 bytes, attribute/prepared uploads, readbacks and completion waits. Separate CPU
 preparation/encoding times from GPU projection/sort/binning/raster timestamps.
-In particular, the current Metal `gaussian_raster_ns` measures CPU command
-encoding, not device raster duration; total GPU execution cannot replace
-per-stage timestamps for tuning.
+On stage-sampling devices, Metal `gaussian_raster_ns` measures the separate
+Gaussian render pass; it includes pass load/store overhead. On other devices
+the legacy CPU encoding duration is retained but marked unavailable as a GPU
+stage sample. Total GPU execution cannot replace per-stage timestamps for tuning.
 
 Verify offscreen rendering first, then native viewport presentation, then
 usdview/HgiMetal GPU-copy and Tier 0 fallback. Keep diagnostic readback modes

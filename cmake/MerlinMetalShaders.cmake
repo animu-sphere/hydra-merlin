@@ -22,6 +22,13 @@ macro(merlin_add_metal_shaders)
     list(APPEND _metal_entries
       "gaussian-sort-metal.slang|gaussian_sort_${_sort}|compute|gaussian.sort-${_sort}|gaussian-sort-${_sort}|deterministic_radix_sort")
   endforeach()
+  foreach(_tile count emit ranges verify)
+    list(APPEND _metal_entries
+      "gaussian-tile-metal.slang|gaussian_tile_${_tile}|compute|gaussian.tile-${_tile}|gaussian-tile-${_tile}|stable_tile_binning")
+  endforeach()
+  list(APPEND _metal_entries
+    "gaussian-tile-raster-metal.slang|gaussian_tile_raster_select|compute|gaussian.tile-raster-select|gaussian-tile-raster-select|tile_compute_raster"
+    "gaussian-tile-raster-metal.slang|gaussian_tile_raster|compute|gaussian.tile-raster|gaussian-tile-raster|tile_compute_raster")
   foreach(_record IN LISTS _metal_entries)
     string(REPLACE "|" ";" _fields "${_record}")
     list(GET _fields 0 _source)

@@ -292,6 +292,9 @@ struct RendererCapabilities {
   bool bindless_textures{};
   bool asynchronous_upload{};
   bool timestamp_queries{};
+  // Device stage samples for Gaussian preparation, sort and raster. A backend
+  // may still expose total command timing when this finer sampling is absent.
+  bool gaussian_gpu_stage_timestamps{};
   bool external_presentation{};
   bool cpu_readback{};
   bool validation_enabled{};

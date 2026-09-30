@@ -1,6 +1,6 @@
 """Opt-in, warmed Gaussian host comparison, run by testusdview.
 
-Same stage, viewport and alternating camera sequence for all three policies.
+Same stage, viewport and alternating camera sequence for each supported policy.
 Warmup/capture frames have separate labels and never enter measured phases.
 """
 import importlib.util
@@ -32,6 +32,8 @@ def testUsdviewInputFunction(appController):
     assert frames >= 2 and frames % 2 == 0 and warmups >= 4 and warmups % 2 == 0
     camera = settings.freeCamera
     assert camera is not None, "host benchmark requires the framed free camera"
+    backend = os.environ.get("MERLIN_HYDRA2_TEST_BACKEND", "vulkan")
+    assert backend in ("vulkan", "metal"), backend
 
     def draw(motion, index):
         if motion:
@@ -43,11 +45,12 @@ def testUsdviewInputFunction(appController):
     output = Path(os.environ["MERLIN_HYDRA2_SMOKE_IMAGE"]).parent
     comparisons = []
     references = {}
-    for mode, raster, path in (
+    policies = (
         ("disabled", "sorted-stream", "cpu-sorted-stream"),
         ("require", "sorted-stream", "gpu-sorted-stream"),
-        ("require", "tiled", "gpu-tiled"),
-    ):
+        (("prefer" if backend == "metal" else "require"), "tiled", "gpu-tiled"),
+    )
+    for mode, raster, path in policies:
         os.environ["MERLIN_HYDRA2_REGRESSION_PHASE"] = "warmup"
         view.SetRendererSetting(smoke.GAUSSIAN_MODE_SETTING, mode)
         view.SetRendererSetting(smoke.GAUSSIAN_TILED_SETTING, raster == "tiled")
@@ -71,8 +74,11 @@ def testUsdviewInputFunction(appController):
             if mode == "disabled":
                 references[motion] = image_path
             else:
+                # Metal's preferred tiled request currently uses the complete
+                # sorted stream. Compare it with that path's image contract.
+                effective_raster = "sorted-stream" if backend == "metal" else raster
                 difference = smoke.compare_reference(appController.GrabViewportShot(), str(references[motion]),
-                    smoke.REFERENCE_CHANNEL_TOLERANCE[raster])
+                    smoke.REFERENCE_CHANNEL_TOLERANCE[effective_raster])
                 comparisons.append({"phase": phase, "difference": difference,
                     "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest()})
 
@@ -82,25 +88,47 @@ def testUsdviewInputFunction(appController):
     phase_counts = {}
     products = set()
     transfer_modes = set()
+    bridge = "hgi_metal_" if backend == "metal" else "hgi_"
     for event in measured:
         phase_counts[event["phase"]] = phase_counts.get(event["phase"], 0) + 1
         assert int(event["validation_messages"]) == 0
-        assert int(event["allocation_count"]) == 0
+        # Metal's CPU reference replaces its prepared stream on camera edits.
+        if backend == "metal" and event["phase"] == "camera-motion-cpu-sorted-stream":
+            assert int(event["allocation_count"]) <= 1
+        else:
+            assert int(event["allocation_count"]) == 0
         assert int(event["pipeline_creation_count"]) == 0
         assert int(event["gaussian_visible_count"]) > 0
         products.add(tuple(event[key] for key in (
-            "width", "height", "requested_aov_mask", "cpu_readback_aov_mask", "readback_bytes")))
-        transfer_modes.add(event["hgi_transfer_mode"])
-        gpu_copy = event["hgi_transfer_mode"] == "gpu-copy"
+            "width", "height", "requested_aov_mask", "cpu_readback_aov_mask")))
+        transfer_modes.add(event[bridge + "transfer_mode"])
+        gpu_copy = event[bridge + "transfer_mode"] == "gpu-copy"
         assert int(event["cpu_readback_aov_count"]) == (3 if gpu_copy else 4)
-        assert int(event["map_count"]) == (3 if gpu_copy else 4)
+        if backend == "metal":
+            # GPU execution reads 32 bytes of control plus 32 bytes of
+            # counters per resource, separate from the three image AOVs.
+            expected = int(event["width"]) * int(event["height"]) * 12
+            if event["gaussian_gpu_mode"] != "disabled":
+                expected += 32 + 32 * int(event["gaussian_resources"])
+            assert int(event["readback_bytes"]) == expected
+        assert int(event["map_count"]) == (1 if backend == "metal" else (3 if gpu_copy else 4))
         assert bool(int(event["cpu_readback_aov_mask"]) & 1) is (not gpu_copy)
-        assert int(event["hgi_coarse_wait_count"]) == 0
+        assert int(event[bridge + "coarse_wait_count"]) == 0
         if gpu_copy:
-            assert int(event["hgi_gpu_copy_count"]) > 0
-            assert int(event["hgi_gpu_copy_pending_count"]) <= 1
+            assert int(event[bridge + "gpu_copy_count"]) > 0
+            assert int(event[bridge + "gpu_copy_pending_count"]) <= 1
         if event["gaussian_gpu_mode"] != "disabled":
-            smoke.check_gpu_policy([event], "require", event["gaussian_raster_path"])
+            if backend == "metal" and event["phase"].endswith("gpu-tiled"):
+                assert event["gaussian_gpu_mode"] == "prefer"
+                assert event["gaussian_raster_path"] == "tiled"
+                assert int(event["gaussian_gpu_fallback_count"]) == 1
+                assert int(event["gaussian_gpu_tile_raster_frame_count"]) == 0
+                assert int(event["gaussian_gpu_sorted_count"]) == int(event["gaussian_visible_count"])
+                assert int(event["gaussian_gpu_raster_instance_count"]) == int(event["gaussian_visible_count"])
+                assert int(event["gaussian_preparation_ns"]) == 0
+                assert int(event["gaussian_upload_bytes"]) == 0
+            else:
+                smoke.check_gpu_policy([event], "require", event["gaussian_raster_path"])
             assert int(event["upload_bytes"]) == 0
             assert int(event["gaussian_attribute_upload_bytes"]) == 0
             assert int(event["gaussian_gpu_tile_raster_overflow_fallback_count"]) == 0
@@ -109,25 +137,34 @@ def testUsdviewInputFunction(appController):
             assert int(event["gaussian_preparation_cache_hits"]) > 0
     assert len(phase_counts) == 6 and all(value == frames for value in phase_counts.values()), phase_counts
     assert len(products) == 1, "host comparison changed extent or readback products"
+    readback_sizes = {int(event["readback_bytes"]) for event in measured}
+    if backend == "vulkan":
+        assert len(readback_sizes) == 1, "Vulkan host readback size changed between policies"
     assert len(transfer_modes) == 1, "host comparison changed presentation transfer mode"
     assert next(iter(transfer_modes)) == os.environ["MERLIN_GAUSSIAN_EXPECT_TRANSFER_MODE"], transfer_modes
     audit_keys = ("upload_bytes", "gaussian_attribute_upload_bytes", "gaussian_upload_bytes",
         "allocation_count", "pipeline_creation_count", "gaussian_gpu_fallback_count",
         "gaussian_gpu_tile_raster_overflow_fallback_count", "readback_bytes", "map_count",
-        "hgi_coarse_wait_count", "hgi_gpu_copy_count", "hgi_gpu_copy_completion_count",
-        "hgi_gpu_copy_pending_count", "cpu_readback_aov_count", "cpu_readback_aov_mask")
+        "cpu_readback_aov_count", "cpu_readback_aov_mask") + tuple(bridge + suffix for suffix in (
+            "coarse_wait_count", "gpu_copy_count", "gpu_copy_completion_count", "gpu_copy_pending_count"))
     phase_audit = {phase: {key: {"min": min(int(event[key]) for event in measured if event["phase"] == phase),
                               "max": max(int(event[key]) for event in measured if event["phase"] == phase)}
                          for key in audit_keys} for phase in phase_counts}
+    product = dict(zip(("width", "height", "requested_aov_mask", "cpu_readback_aov_mask"),
+                       next(iter(products))))
+    # This product value is the image payload; GPU-only counter readback is
+    # recorded per phase in the audit instead of changing the image contract.
+    product["readback_bytes"] = str(min(readback_sizes))
     (output / "gaussian-host-verification.json").write_text(json.dumps({
         "schema": "merlin-gaussian-host-verification/v1",
+        "backend": backend,
+        "tiled_request": "sorted-stream-fallback" if backend == "metal" else "tiled",
         "camera_sequence": "alternating-tumble-reset-per-path/v1",
         "warmup_frames": warmups, "measured_frames": frames,
         "phase_samples": phase_counts, "image_comparisons": comparisons,
         "per_sample_counter_ranges": phase_audit,
         "host_transfer_mode": next(iter(transfer_modes)),
-        "products": dict(zip(("width", "height", "requested_aov_mask", "cpu_readback_aov_mask", "readback_bytes"),
-                             next(iter(products)))),
+        "products": product,
         "reference_channel_tolerance": smoke.REFERENCE_CHANNEL_TOLERANCE,
         "max_changed_pixel_fraction": smoke.MAX_REFERENCE_CHANGED_PIXEL_FRACTION,
         "max_mean_channel_error": smoke.MAX_REFERENCE_MEAN_CHANNEL_ERROR,

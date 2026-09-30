@@ -35,6 +35,14 @@ after its public API and release process are established.
 
 ### Added
 
+- Metal Gaussian frames now report device timestamps for preparation, sort and
+  raster on supported Apple GPUs. The opt-in HgiMetal benchmark compares CPU,
+  GPU sorted-stream and preferred tiled fallback on the same scene and camera
+  sequence; local 8,192-particle and 1M captures include image and per-sample
+  upload evidence. Metal tile binning and compute raster shaders are packaged
+  and pass a small Apple GPU color/ID fixture. Native tiled frame scheduling
+  and broader Apple GPU performance evidence remain open.
+
 - Gaussian benchmarks now compare warmed static and identical camera-motion
   sequences across CPU, GPU sorted-stream and GPU tiled execution, retain
   four-AOV image differences, and check every GPU sample for uploads, CPU
@@ -69,8 +77,8 @@ after its public API and release process are established.
   the GPU path. An optional 64K/1M fixture captures cold/static/motion/edit costs.
   Hydra environment variables and native viewport CLI options expose both
   Gaussian budgets. Local Garden GPU display was checked in the native viewport
-  and usdview/HgiMetal, including preferred tiled fallback. Tile raster, broader
-  host parity/performance checks and per-stage GPU timestamps remain open.
+  and usdview/HgiMetal, including preferred tiled fallback. Native tile raster
+  and broader hardware performance checks remain open.
 
 - Metal Gaussian reference rasterization now uses shared Slang ellipse/alpha
   math with Vulkan. Slang 2026.8.x and Xcode compile an embedded metallib during
