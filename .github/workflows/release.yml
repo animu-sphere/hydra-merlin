@@ -51,6 +51,24 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DMERLIN_ENABLE_VULKAN=OFF
 
+      - name: Install pinned Slang for Metal (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64) slang_arch=aarch64; slang_sha=13949e0fc81f5c0bcde9a195190706740f1cc77af9c558f9f1b598e9bea3c606 ;;
+            x86_64) slang_arch=x86_64; slang_sha=ff143c6fb6d6aa08545c1f4c68f14df06a92d52bccd5ad9cf2810ccd9cd61bfa ;;
+            *) exit 1 ;;
+          esac
+          curl --fail --location --retry 3 \
+            "https://github.com/shader-slang/slang/releases/download/v2026.8/slang-2026.8-macos-${slang_arch}.tar.gz" \
+            -o "$RUNNER_TEMP/slang.tar.gz"
+          echo "$slang_sha  $RUNNER_TEMP/slang.tar.gz" | shasum -a 256 --check
+          mkdir -p "$RUNNER_TEMP/slang"
+          tar -xzf "$RUNNER_TEMP/slang.tar.gz" -C "$RUNNER_TEMP/slang"
+          echo "$RUNNER_TEMP/slang/bin" >> "$GITHUB_PATH"
+          xcrun --find metal
+
       - name: Configure Core + Metal SDK (macOS)
         if: runner.os == 'macOS'
         run: >-

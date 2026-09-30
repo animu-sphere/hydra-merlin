@@ -13,8 +13,9 @@ capability, integration, or benchmark evidence changes the dependency order.
 including camera-light energy, direct/environment lighting, linear/sRGB
 boundaries, exposure, tone mapping, and handwritten/generated material parity.
 
-**Depends on:** The active GPU-driven foundation and a declared host camera-light
-contract. Forward remains the reference for optional shading paths.
+**Depends on:** The [v0.16.0 GPU-driven foundation](../releases/v0.16.0.md) and a
+declared host camera-light contract. Forward remains the reference for optional
+shading paths.
 
 **Exit:** Differential Kitchen and focused material fixtures cover Camera Light
 ON/OFF, motion/static frames, Tier 0 and Hgi presentation, and both backends
@@ -26,8 +27,9 @@ white clipping or flicker; costs and unsupported lighting are diagnosed.
 **Goal:** Add conservative Gaussian/tile contribution bounds and selectable
 quality thresholds; retain `Exact` as the validation path.
 
-**Depends on:** Image-producing GPU Gaussian tiling from the
-[current milestone](current.md). See the
+**Depends on:** Image-producing GPU Gaussian tiling from
+[v0.16.0](../releases/v0.16.0.md), with remaining quality checks in the
+[current work](current.md). See the
 [Gaussian rendering design](../design/gaussian-rendering.md).
 
 **Exit:** Rejection, pair, saturation, and early-termination counters accompany

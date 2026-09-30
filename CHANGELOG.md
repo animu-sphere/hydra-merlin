@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-30
+
 ### Fixed
 
 - Vulkan Gaussian tile control initialization now orders its transfer clear
@@ -32,6 +34,22 @@ after its public API and release process are established.
 - Metal Mesh shader constant padding now matches the host byte layout, and
   bindless samplers are created with argument-buffer support. This fixes Metal
   API validation failures for conventional/GPU Scene draws and textured meshes.
+
+- Shared GPU Gaussian preparation now applies the inverse local-to-camera
+  matrix when evaluating directional SH. The previous inverse-transpose
+  calculation changed radiance under rotation and nonuniform scale; a Metal
+  compute regression compares transformed degree-three SH with the CPU path.
+- Zooming into a Gaussian scene no longer floods the view with a single
+  color in usdview or the development viewport. CPU and GPU preparation
+  cull a kernel whose center lies in front of the camera's near plane, as
+  Mesh geometry is clipped. Previously a linearized depth bound kept every
+  kernel between the eye and the near plane, and its footprint grew as 1/w.
+  The perspective Jacobian also clamps the center to the 3DGS 1.3x guard
+  band, so close off-axis kernels no longer stretch across the view. The
+  far-plane bound stays conservative.
+- Direct `merlin-headless` runs label their renderer report producer as
+  `renderer-harness` with a per-process session ID. They previously claimed a
+  `managed` producer with a stale project target.
 
 ### Added
 
@@ -70,8 +88,8 @@ after its public API and release process are established.
 - Metal Gaussian GPU execution now connects persistent attributes, shared Slang
   preparation/SH/culling, frame-wide radix sort, gather and indirect raster to
   renderer frame contexts. SortedStream supports `prefer` and `require`;
-  unsupported Tiled falls back to GPU SortedStream in `prefer` and rejects
-  `require`. CPU reference rendering remains the default and capacity fallback.
+  unsupported tile allocation falls back to GPU SortedStream in `prefer` and
+  rejects `require`. CPU reference rendering remains the default and capacity fallback.
   Camera frames avoid CPU particle preparation, prepared-stream uploads and
   warmed GPU allocation; localized edits stage only changed attribute ranges.
   Separate configurable live-byte budgets, completion-safe immutable versions
@@ -83,8 +101,9 @@ after its public API and release process are established.
   the GPU path. An optional 64K/1M fixture captures cold/static/motion/edit costs.
   Hydra environment variables and native viewport CLI options expose both
   Gaussian budgets. Local Garden GPU display was checked in the native viewport
-  and usdview/HgiMetal, including preferred tiled fallback. Native tile raster
-  and broader hardware performance checks remain open.
+  and usdview/HgiMetal, including preferred tiled fallback. Subsequent native
+  tile raster integration and its validated scope are recorded above; broader
+  hardware performance checks remain open.
 
 - Metal Gaussian reference rasterization now uses shared Slang ellipse/alpha
   math with Vulkan. Slang 2026.8.x and Xcode compile an embedded metallib during
@@ -188,8 +207,8 @@ after its public API and release process are established.
   `prefer` counts per-stage fallbacks. Frame telemetry reports the GPU-sorted
   count, GPU raster instances, tile raster and overflow-fallback frames, and
   Gaussian stage fallbacks. The Vulkan backend maps the policy onto its stage
-  modes, Metal rejects `require` and counts `prefer` as a fallback, and the
-  Hydra render delegate forwards it through
+  modes, Metal selects its validated sorted-stream/tiled implementations with
+  explicit capability and resource fallback, and the Hydra render delegate forwards it through
   `HdMerlinRenderDelegate::SetGpuDrivenGaussianSettings`. The development
   viewport exposes it in the renderer settings panel and through
   `--gaussian-gpu` and `--gaussian-raster`, and shows the selected Gaussian
@@ -357,24 +376,18 @@ after its public API and release process are established.
   before `ost validate`, so install-tree evidence is bound to the managed test
   producer.
 
-### Fixed
+### Known limitations
 
-- Shared GPU Gaussian preparation now applies the inverse local-to-camera
-  matrix when evaluating directional SH. The previous inverse-transpose
-  calculation changed radiance under rotation and nonuniform scale; a Metal
-  compute regression compares transformed degree-three SH with the CPU path.
-
-- Zooming into a Gaussian scene no longer floods the view with a single
-  color in usdview or the development viewport. CPU and GPU preparation
-  cull a kernel whose center lies in front of the camera's near plane, as
-  Mesh geometry is clipped. Previously a linearized depth bound kept every
-  kernel between the eye and the near plane, and its footprint grew as 1/w.
-  The perspective Jacobian also clamps the center to the 3DGS 1.3x guard
-  band, so close off-axis kernels no longer stretch across the view. The
-  far-plane bound stays conservative.
-- Direct `merlin-headless` runs label their renderer report producer as
-  `renderer-harness` with a per-process session ID. They previously claimed a
-  `managed` producer with a stale project target.
+- GPU execution is opt-in. Vulkan GPU-driven Mesh covers basic/textured
+  materials; generated materials and Metal Mesh keep conventional submission.
+- Vulkan 10M tiled Gaussian output exceeds the six-unit color bound and fails
+  acceptance; sorted-stream passes 1M/5M/10M, and tiled passes 1M/5M.
+- Metal tiled evidence is limited to Apple M3: 65K/1M offscreen and the
+  8,192-particle HgiMetal host corpus. The host capture has a sparse 15/255
+  color tail; larger host captures, native viewport tile captures and other
+  Apple GPUs remain unverified. Tiling is not universally faster.
+- A pre-existing macOS Mesh usdview movement assertion remains unresolved.
+  See [v0.16.0](docs/releases/v0.16.0.md) for compatibility and validation scope.
 
 ## [0.15.0] - 2026-08-11
 
@@ -1057,7 +1070,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.15.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.0...main
+[0.16.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.13.1...v0.14.0

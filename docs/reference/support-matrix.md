@@ -1,6 +1,6 @@
 # Support matrix
 
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-09-30
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -23,8 +23,9 @@ The hosted workflow also defines GPU-free MaterialX generation and installed
 consumer checks on Windows 2022 and Ubuntu 24.04, in Debug and Release. This
 Tier 1 configuration explicitly disables `slangc` target artifacts; it checks
 graph generation, the Core material ABI/diagnostics, and package linking.
-Hosted run evidence for this new matrix is pending and does not expand the
-Vulkan, Metal-target, or Hydra runtime claims above.
+All four configurations passed in [Core CI run 36710851814](https://github.com/animu-sphere/hydra-merlin/actions/runs/36710851814)
+on 2026-09-30. This evidence does not expand the Vulkan, Metal-target, or Hydra
+runtime claims above.
 
 ## Dependency contract
 
@@ -66,7 +67,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Hydra/host performance evidence | Versioned phase summaries plus raw OpenUSD Chrome traces cover delegate, scene-index, renderer, CPU-to-Hgi upload, composite, and presentation scopes. Local same-runtime 40-sample Tier 0/HgiVulkan comparisons cover six CPU/sorted/tiled static/motion phases for the 8,192-particle corpus and deterministic 1M scene, exact cross-host images and a 25% readback reduction (four AOVs to three); depth/IDs still read back. Host copy/present scopes are CPU trace durations, not GPU-copy timestamps or display latency. The corpus also has reference-image smokes and a 300-frame native viewport capture |
 | Installed CMake targets | `Merlin::RenderWorld`, `Merlin::RenderExtraction`, `Merlin::RenderBackend`, optional `Merlin::Vulkan`, optional `Merlin::Metal`, and optional `Merlin::MaterialX` are available |
 | Versioned dependency and package metadata | Available as installed JSON |
-| Tag-driven Core SDK release automation | Available for stable SemVer tags |
+| Tag-driven SDK release automation | Available for stable SemVer tags: Windows/Linux Core and macOS Apple Silicon Core + Metal, with metadata sidecars and SHA-256 checksums |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
 | Hydra material and light translation | Authored binding identity plus a basic `UsdPreviewSurface`/`UsdUVTexture` and distant-light subset are available; general MaterialX/network translation remains planned |
 | Slang shader source and Metal compile gate | Slang is the Forward source of truth; conventional and bindless SPIR-V plus conventional Metal/reflection artifacts are packaged under `shaders/v2`, with Metal non-uniform bindless access explicitly falling back to conventional Forward |
