@@ -56,10 +56,13 @@ The tag-driven `Release` workflow rejects a tag unless all of these agree:
 - `openstrata.toml` contains the same project version; and
 - `CHANGELOG.md` contains the dated stable section and comparison link.
 
-It then performs clean Windows and Linux Core-only Release builds, runs source
-and isolated install-tree tests, installs each SDK into a fresh staging prefix,
-and publishes archives, metadata sidecars, and SHA-256 checksum files to the
-tag's GitHub Release. GitHub-generated notes supplement the canonical changelog.
+It then performs clean Windows and Linux Core-only Release builds and a macOS
+Apple Silicon Core + Metal Release build. The macOS job installs the same
+checksum-pinned Slang 2026.8 compiler as Metal CI and checks the Xcode Metal
+compiler before configuration. Each platform runs source and isolated
+install-tree tests, installs its SDK into a fresh staging prefix, and publishes
+archives, metadata sidecars, and SHA-256 checksum files to the tag's GitHub
+Release. GitHub-generated notes supplement the canonical changelog.
 
 Each SDK contains `merlin-release-metadata.json` under its data directory. The
 file records schema and project versions, dependency constraints, configured
@@ -71,7 +74,8 @@ or package issue in a new patch version rather than moving an existing tag.
 
 ## Runtime products
 
-The hosted workflow publishes the portable Core SDK baseline. Vulkan, headless,
+The hosted workflow publishes the portable Core SDK baseline and the macOS
+Core + Metal SDK. Vulkan, headless,
 benchmark, and Hydra products remain capability-dependent source-build products.
 The manually dispatched GPU capability workflow exercises Vulkan/headless in
 Debug and Release and Hydra in Release on a runner labeled `vulkan-1.4`. Its
