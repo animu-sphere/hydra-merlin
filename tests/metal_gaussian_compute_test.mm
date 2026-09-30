@@ -79,6 +79,175 @@ id<MTLRenderPipelineState> RasterPipeline(id<MTLDevice> device, id<MTLLibrary> l
   return pipeline;
 }
 
+void CheckTilePipelines(id<MTLDevice> device, id<MTLLibrary> library) {
+  // Link-time shader compilation does not establish that the device accepts
+  // the compute texture and threadgroup-memory requirements of tile raster.
+  for (NSString* name in @[@"gaussian_tile_count", @"gaussian_tile_emit",
+          @"gaussian_tile_ranges", @"gaussian_tile_verify",
+          @"gaussian_tile_raster_select", @"gaussian_tile_raster"]) {
+    auto function = [library newFunctionWithName:name];
+    Require(function != nil, "Metal tile shader entry point is missing");
+    NSError* error = nil;
+    auto pipeline = [device newComputePipelineStateWithFunction:function error:&error];
+    if (!pipeline) throw std::runtime_error(error.localizedDescription.UTF8String);
+    Require(pipeline.maxTotalThreadsPerThreadgroup >= 256,
+        "Metal tile workgroup is unsupported");
+  }
+}
+
+void CheckTileBinning(id<MTLDevice> device, id<MTLCommandQueue> queue,
+    id<MTLLibrary> library) {
+  struct TileConstants {
+    std::uint32_t record_bound, pair_capacity, tile_count_x, tile_count_y;
+    std::uint32_t viewport_width, viewport_height, offsets_offset, ranges_offset;
+    std::uint32_t record_pair_limit, padding[3];
+  };
+  static_assert(sizeof(TileConstants) == 48);
+  constexpr std::uint32_t records = 256, offsets = 11, ranges = offsets + records;
+  const TileConstants constants{records, 256, 2, 1, 32, 16, offsets, ranges, 2, {}};
+  std::array<PreparedRecord, records> prepared{};
+  prepared[0].center_pixels = {8, 8};
+  prepared[0].radius_pixels = 3;
+  prepared[0].inverse_conic = {1.0F / 9, 0, 1.0F / 9};
+  prepared[0].opacity = 1;
+  prepared[0].radiance = {1, 0, 0};
+  prepared[0].resource_id_low = 7;
+  prepared[0].particle_id = 11;
+  prepared[1].center_pixels = {24, 8};
+  prepared[1].radius_pixels = 3;
+  prepared[1].inverse_conic = {1.0F / 9, 0, 1.0F / 9};
+  prepared[1].opacity = 1;
+  prepared[1].radiance = {0, 0, 1};
+  prepared[1].resource_id_low = 8;
+  prepared[1].particle_id = 12;
+  auto prepared_buffer = Buffer(device, sizeof(prepared), prepared.data());
+  auto control = Buffer(device, (ranges + 4) * sizeof(std::uint32_t));
+  auto pairs = Buffer(device, records * sizeof(SortElement));
+  auto* words = static_cast<std::uint32_t*>(control.contents);
+  words[0] = 2;
+  const auto dispatch = [&](NSString* name) {
+    auto function = [library newFunctionWithName:name];
+    NSError* error = nil;
+    auto pipeline = [device newComputePipelineStateWithFunction:function error:&error];
+    if (!pipeline) throw std::runtime_error(error.localizedDescription.UTF8String);
+    auto command = [queue commandBuffer];
+    auto encoder = [command computeCommandEncoder];
+    Require(encoder != nil, "Metal tile test encoder allocation failed");
+    [encoder setComputePipelineState:pipeline];
+    [encoder setBuffer:pairs offset:0 atIndex:0];
+    [encoder setBuffer:pairs offset:0 atIndex:1];
+    [encoder setBuffer:control offset:0 atIndex:2];
+    [encoder setBuffer:prepared_buffer offset:0 atIndex:3];
+    [encoder setBytes:&constants length:sizeof(constants) atIndex:4];
+    [encoder dispatchThreadgroups:MTLSizeMake(1, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+    [encoder endEncoding];
+    [command commit];
+    [command waitUntilCompleted];
+    Require(command.status == MTLCommandBufferStatusCompleted,
+        "Metal tile binning command failed");
+  };
+  dispatch(@"gaussian_tile_count");
+  Require(words[1] == 2 && words[2] == 0 && words[offsets] == 1 &&
+      words[offsets + 1] == 1 && words[offsets + 2] == 0,
+      "Metal tile count or packed record load is incorrect");
+  // The production path uses the GPU block scan; this fixture provides the
+  // known exclusive prefix so the tile binding and verification are isolated.
+  words[offsets] = 0;
+  words[offsets + 1] = 1;
+  dispatch(@"gaussian_tile_emit");
+  const auto* emitted = static_cast<const SortElement*>(pairs.contents);
+  Require(emitted[0].key_low == 0 && emitted[0].value == 0 &&
+      emitted[1].key_low == 1 && emitted[1].value == 1,
+      "Metal tile emission produced incorrect pairs");
+  dispatch(@"gaussian_tile_ranges");
+  dispatch(@"gaussian_tile_verify");
+  Require(words[ranges] == 0 && words[ranges + 1] == 1 &&
+      words[ranges + 2] == 1 && words[ranges + 3] == 2 &&
+      words[3] == 2 && words[4] == 0 && words[5] == 0 && words[6] == 0 &&
+      words[7] == 2 && words[8] == 1,
+      "Metal tile ranges or verification are incorrect");
+
+  const auto texture = [&](MTLPixelFormat format, MTLTextureUsage usage) {
+    auto descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+        width:32 height:16 mipmapped:NO];
+    descriptor.storageMode = MTLStorageModePrivate;
+    descriptor.usage = usage;
+    auto value = [device newTextureWithDescriptor:descriptor];
+    Require(value != nil, "Metal tile test texture allocation failed");
+    return value;
+  };
+  auto color = texture(MTLPixelFormatRGBA8Unorm,
+      MTLTextureUsageRenderTarget | MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead);
+  auto prim_id = texture(MTLPixelFormatR32Uint,
+      MTLTextureUsageRenderTarget | MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead);
+  auto instance_id = texture(MTLPixelFormatR32Uint,
+      MTLTextureUsageRenderTarget | MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead);
+  auto depth = texture(MTLPixelFormatDepth32Float,
+      MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
+  auto command = [queue commandBuffer];
+  auto pass = [MTLRenderPassDescriptor renderPassDescriptor];
+  for (NSUInteger i = 0; i < 3; ++i) {
+    pass.colorAttachments[i].texture = i == 0 ? color : i == 1 ? prim_id : instance_id;
+    pass.colorAttachments[i].loadAction = MTLLoadActionClear;
+    pass.colorAttachments[i].storeAction = MTLStoreActionStore;
+    pass.colorAttachments[i].clearColor = i == 0 ? MTLClearColorMake(0, 0, 0, 0)
+        : MTLClearColorMake(UINT32_MAX, 0, 0, 0);
+  }
+  pass.depthAttachment.texture = depth;
+  pass.depthAttachment.loadAction = MTLLoadActionClear;
+  pass.depthAttachment.storeAction = MTLStoreActionStore;
+  pass.depthAttachment.clearDepth = 1;
+  auto clear = [command renderCommandEncoderWithDescriptor:pass];
+  Require(clear != nil, "Metal tile test clear encoder allocation failed");
+  [clear endEncoding];
+  struct RasterConstants {
+    std::uint32_t tile_count_x, tile_count_y, viewport_width, viewport_height;
+    std::uint32_t ranges_offset, pair_capacity, padding[2];
+  };
+  const RasterConstants raster_constants{2, 1, 32, 16, ranges, 256, {}};
+  words[10] = 1;
+  auto function = [library newFunctionWithName:@"gaussian_tile_raster"];
+  NSError* error = nil;
+  auto pipeline = [device newComputePipelineStateWithFunction:function error:&error];
+  if (!pipeline) throw std::runtime_error(error.localizedDescription.UTF8String);
+  auto encoder = [command computeCommandEncoder];
+  Require(encoder != nil, "Metal tile test raster encoder allocation failed");
+  [encoder setComputePipelineState:pipeline];
+  [encoder setBuffer:pairs offset:0 atIndex:0];
+  [encoder setBuffer:control offset:0 atIndex:1];
+  [encoder setBuffer:prepared_buffer offset:0 atIndex:2];
+  [encoder setBytes:&raster_constants length:sizeof(raster_constants) atIndex:8];
+  [encoder setTexture:color atIndex:0];
+  [encoder setTexture:prim_id atIndex:1];
+  [encoder setTexture:instance_id atIndex:2];
+  [encoder setTexture:depth atIndex:7];
+  [encoder dispatchThreadgroups:MTLSizeMake(2, 1, 1)
+          threadsPerThreadgroup:MTLSizeMake(16, 16, 1)];
+  [encoder endEncoding];
+  auto readback = Buffer(device, 32 * 16 * 4);
+  auto id_readback = Buffer(device, 32 * 16 * 4);
+  auto blit = [command blitCommandEncoder];
+  for (auto [source, target] : {std::pair{id<MTLTexture>(color), id<MTLBuffer>(readback)},
+           std::pair{id<MTLTexture>(prim_id), id<MTLBuffer>(id_readback)}})
+    [blit copyFromTexture:source sourceSlice:0 sourceLevel:0
+        sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(32, 16, 1)
+        toBuffer:target destinationOffset:0 destinationBytesPerRow:128
+        destinationBytesPerImage:32 * 16 * 4];
+  [blit endEncoding];
+  [command commit];
+  [command waitUntilCompleted];
+  Require(command.status == MTLCommandBufferStatusCompleted,
+      "Metal tile raster command failed");
+  const auto* pixels = static_cast<const std::uint8_t*>(readback.contents);
+  const auto* ids = static_cast<const std::uint32_t*>(id_readback.contents);
+  Require(pixels[(8 * 32 + 8) * 4] > 200 &&
+      pixels[(8 * 32 + 24) * 4 + 2] > 200 &&
+      ids[8 * 32 + 8] == 7 && ids[8 * 32 + 24] == 8 &&
+      ids[0] == UINT32_MAX,
+      "Metal tile raster color or IDs differ from the fixture");
+}
+
 id<MTLDepthStencilState> DepthState(id<MTLDevice> device) {
   auto descriptor = [MTLDepthStencilDescriptor new];
   descriptor.depthCompareFunction = MTLCompareFunctionLessEqual;
@@ -585,6 +754,12 @@ int main(int argc, char** argv) {
       if (!library) throw std::runtime_error(error.localizedDescription.UTF8String);
       auto queue = [device newCommandQueue];
       Require(queue != nil, "Metal queue creation failed");
+      // Tile compute remains an optional Apple GPU path. Keep the sorted
+      // stream correctness test usable on other supported Metal devices.
+      if ([device supportsFamily:MTLGPUFamilyApple3]) {
+        CheckTilePipelines(device, library);
+        CheckTileBinning(device, queue, library);
+      }
       merlin::metal::GaussianExecution execution(device, library, 64 * 1024 * 1024);
       const Kernels kernels{execution,
           RasterPipeline(device, library), DepthState(device)};

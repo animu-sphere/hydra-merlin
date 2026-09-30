@@ -11,6 +11,52 @@ Legend: ✅ done
 
 ---
 
+## v0.16.0 Metal Gaussian host validation and stage timestamps
+
+Completed controlled HgiMetal sorted-stream comparisons and device stage
+sampling on 2026-09-30. Phase 3 tile raster and broader hardware evidence
+remain open; a tiled request in `Prefer` is explicitly counted as a sorted-stream
+fallback.
+
+- Release/AppleClang 17, Xcode 16.4, Slang 2026.8, OpenUSD 26.08,
+  macOS 15.7.9 and Apple M3 were used with 597x540 HgiMetal GPU-copy output.
+  The public 8,192-particle degree-3 corpus has 40 warmed samples per static
+  and alternating-camera phase; the generated degree-0 1M scene has 20.
+  Each capture records the scene, runtime config and installed renderer hashes,
+  policy, image comparison and per-sample counters. Validation was off for
+  timing; a separate four-sample HgiMetal host comparison and the Metal GPU
+  image, residency and compute tests pass with validation enabled.
+- Four GPU-versus-CPU host screenshots per corpus pass: maximum RGBA8 channel
+  difference is 1 on 8,192 particles and 0 on 1M, with zero pixels above the
+  sorted-stream two-step threshold. Every GPU camera sample has zero CPU
+  Gaussian preparation, zero attribute/prepared upload and zero allocation.
+  HgiMetal copies color on the GPU and reads back three other AOVs in one map:
+  3,868,560 image bytes at this extent, plus 64 bytes of post-completion
+  counters on the GPU path. Direct sharing is still unavailable.
+- Apple stage-boundary counter samples now report preparation including scratch
+  clear/key generation, radix sort including gather, and an isolated Gaussian
+  render pass. On the 1M moving phase their medians are 2.30, 12.33 and
+  99.86 ms, with 114.81 ms command-buffer GPU execution. The CPU reference
+  moving phase spends 66.68 ms in CPU preparation, uploads a 52 MB prepared
+  stream and has a 100.96 ms GPU execution median. On this corpus the GPU
+  path removes CPU traversal/upload but does not improve device raster cost;
+  static CPU cache remains cheaper. The render-pass sample includes its
+  load/store overhead, and stage medians are not additive frame estimates.
+- The Metal/Hydra CTest run passed 31/32 cases. The remaining Mesh usdview
+  smoke fails an image movement assertion in the same way on an isolated
+  build of the unmodified `2cabe45` commit; it does not exercise Gaussian
+  rendering. This pre-existing host test gap is separate from the passing
+  Gaussian host captures.
+- The Phase 3 Metal tile shaders compile into the packaged metallib. On Apple
+  M3, every tile pipeline is created and a two-tile fixture passes GPU
+  count/emit/ranges/verification plus compute raster color/ID checks under
+  Metal API validation. Its known prefix and ordered pairs are supplied by
+  the test; the renderer's frame-wide scan/sort, GPU overflow choice and
+  native tiled mode remain to be connected and compared at scale.
+
+Raw captures remain local under the [report policy](README.md). Reproduce the
+same-runtime HgiMetal captures with the [Metal host commands](../guides/benchmarking.md#metal-hgimetal-host-comparison).
+
 ## v0.16.0 Vulkan Gaussian and host comparisons
 
 Completed the Vulkan Gaussian/host measurement work on 2026-09-30. The harness
@@ -59,8 +105,8 @@ overall v0.16.0 exit criteria remain open.
 Raw reports, traces, images and the dated report remain local per the
 [report policy](README.md). Reproduce them with the
 [Gaussian comparison commands](../guides/benchmarking.md#gaussian-comparisons).
-Metal host comparisons, per-stage GPU timestamps and tiled raster remain open;
-these results do not extend the Vulkan support claim to Metal.
+Metal host comparisons and stage timestamps are recorded above; tile raster
+remains open. These Vulkan results do not extend their support claim to Metal.
 
 ## v0.16.0 Vulkan Mesh scaling validation
 

@@ -134,3 +134,24 @@ foreach(_field RANGE 0 2)
   require_json("${_compute_json}" "${_offset}" parameters 1 type resultType fields ${_field} binding offset)
   require_json("${_compute_json}" 4 parameters 1 type resultType fields ${_field} binding size)
 endforeach()
+
+foreach(_tile count emit ranges verify)
+  check_compute("gaussian.tile-${_tile}" "gaussian_tile_${_tile}" 256
+    gaussian_tile_constants:4 gaussian_tile_source:0 gaussian_tile_destination:1
+    gaussian_tile_control:2 gaussian_tile_records:3)
+  require_json("${_compute_json}" 48 parameters 0 type elementVarLayout binding size)
+  require_json("${_compute_json}" byteAddressBuffer parameters 4 type baseShape)
+  check_fields("${_compute_json}" 0
+    "record_bound;pair_capacity;tile_count_x;tile_count_y;viewport_width;viewport_height;offsets_offset;ranges_offset;record_pair_limit;padding0;padding1;padding2"
+    "0;4;8;12;16;20;24;28;32;36;40;44")
+endforeach()
+foreach(_tile raster-select raster)
+  file(READ "${MERLIN_METAL_SHADER_DIR}/gaussian.tile-${_tile}.metal.reflection.json" _tile_json)
+  require_json("${_tile_json}" compute entryPoints 0 stage)
+  require_json("${_tile_json}" 8 parameters 0 binding index)
+  require_json("${_tile_json}" 32 parameters 0 type elementVarLayout binding size)
+  require_json("${_tile_json}" 0 parameters 5 bindings 0 index)
+  require_json("${_tile_json}" 1 parameters 6 bindings 0 index)
+  require_json("${_tile_json}" 2 parameters 7 bindings 0 index)
+  require_json("${_tile_json}" 7 parameters 8 binding index)
+endforeach()

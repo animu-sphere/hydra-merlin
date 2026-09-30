@@ -6,6 +6,14 @@
 
 namespace merlin::metal {
 
+inline constexpr NSUInteger kGaussianTimestampCount = 6;
+inline constexpr NSUInteger kGaussianPrepareBegin = 0;
+inline constexpr NSUInteger kGaussianPrepareEnd = 1;
+inline constexpr NSUInteger kGaussianSortBegin = 2;
+inline constexpr NSUInteger kGaussianSortEnd = 3;
+inline constexpr NSUInteger kGaussianRasterBegin = 4;
+inline constexpr NSUInteger kGaussianRasterEnd = 5;
+
 // Backend-private prepare/sort/gather scheduling. Calls are externally
 // serialized. Outputs may be consumed by a render encoder in the same command;
 // no visible-count readback or CPU particle traversal is needed for scheduling.
@@ -61,7 +69,8 @@ public:
   // On encoding failure, discard the entire unsubmitted command buffer.
   std::shared_ptr<const Frame> Encode(const std::shared_ptr<GaussianResidency::Update>& attributes,
       const Mat4& view, const Mat4& projection, std::uint32_t width, std::uint32_t height,
-      id<MTLCommandBuffer> command, bool device_count = false, bool validate = false);
+      id<MTLCommandBuffer> command, bool device_count = false, bool validate = false,
+      id<MTLCounterSampleBuffer> timestamps = nil);
   // Drop cached scratch. Unfinished commands and retained Frames keep their
   // allocations charged to the budget until they release them.
   void Reset();

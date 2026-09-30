@@ -93,6 +93,12 @@ int RunImages(bool gpu) {
       return actual;
     };
     const auto first = render();
+    if (gpu && backend->capabilities().gaussian_gpu_stage_timestamps) {
+      Require(first.timings.gaussian_gpu_preparation_ns > 0 &&
+                  first.timings.gaussian_gpu_sort_ns > 0 &&
+                  first.timings.gaussian_raster_ns > 0,
+          "Metal Gaussian stage samples were not resolved");
+    }
     Require(first.telemetry.gaussian_visible_count == 3 &&
                 first.telemetry.gaussian_draw_count == 1,
         "missing Gaussian draw");
@@ -360,7 +366,7 @@ int Benchmark() {
   metal::BackendFactory factory;
   if (!factory.availability().available) return 77;
   try {
-    std::cout << "path,particles,phase,frame,wall_ns,gpu_ns,record_ns,cpu_prepare_ns,attribute_bytes,prepared_bytes,allocations,readback_bytes\n";
+    std::cout << "path,particles,phase,frame,wall_ns,gpu_ns,record_ns,cpu_prepare_ns,attribute_bytes,prepared_bytes,allocations,readback_bytes,gpu_prepare_ns,gpu_sort_ns,gpu_raster_ns\n";
     for (const std::uint32_t count : {65536U, 1048576U}) {
       extraction::GaussianRecord record;
       record.gaussian = 0x100000001ULL;
@@ -420,7 +426,10 @@ int Benchmark() {
             std::cout << (gpu ? "gpu" : "cpu") << ',' << count << ',' << phase << ',' << i << ','
                       << wall << ',' << result.timings.gpu_execution_ns << ',' << result.timings.command_recording_ns << ','
                       << result.timings.gaussian_preparation_ns << ',' << t.gaussian_attribute_upload_bytes << ','
-                      << t.gaussian_upload_bytes << ',' << t.allocation_count << ',' << t.readback_bytes << '\n';
+                      << t.gaussian_upload_bytes << ',' << t.allocation_count << ',' << t.readback_bytes << ','
+                      << result.timings.gaussian_gpu_preparation_ns << ','
+                      << result.timings.gaussian_gpu_sort_ns << ','
+                      << result.timings.gaussian_raster_ns << '\n';
           }
         }
       }

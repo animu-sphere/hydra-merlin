@@ -110,7 +110,8 @@ std::shared_ptr<GaussianExecution::Scratch> GaussianExecution::Acquire(
 std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
     const std::shared_ptr<GaussianResidency::Update>& attributes,
     const Mat4& view, const Mat4& projection, std::uint32_t width, std::uint32_t height,
-    id<MTLCommandBuffer> command, bool device_count, bool validate) {
+    id<MTLCommandBuffer> command, bool device_count, bool validate,
+    id<MTLCounterSampleBuffer> timestamps) {
   if (!attributes || !width || !height || !command || command.device != device_ ||
       command.status != MTLCommandBufferStatusNotEnqueued || !command.retainedReferences ||
       (device_count && attributes->resources.size() != 1))
@@ -147,7 +148,15 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
     retained.reset();
     retained_attributes.reset();
   }];
-  auto clear = [command blitCommandEncoder];
+  id<MTLBlitCommandEncoder> clear = nil;
+  if (timestamps) {
+    auto pass = [MTLBlitPassDescriptor blitPassDescriptor];
+    pass.sampleBufferAttachments[0].sampleBuffer = timestamps;
+    pass.sampleBufferAttachments[0].startOfEncoderSampleIndex = kGaussianPrepareBegin;
+    clear = [command blitCommandEncoderWithDescriptor:pass];
+  } else {
+    clear = [command blitCommandEncoder];
+  }
   if (!clear) Fail(render::RendererErrorCode::BackendFailure, "Metal scratch clear encoder allocation failed");
   [clear fillBuffer:scratch->control range:NSMakeRange(0, scratch->control.length) value:0];
   [clear fillBuffer:scratch->counters range:NSMakeRange(0, scratch->counters.length) value:0];
@@ -159,8 +168,19 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
   auto source = scratch->sort[0];
   auto destination = scratch->sort[1];
   const auto sort_dispatch = [&](id<MTLComputePipelineState> pipeline,
-                                 const SortConstants& constants, std::uint32_t groups) {
-    auto encoder = [command computeCommandEncoder];
+                                 const SortConstants& constants, std::uint32_t groups,
+                                 NSUInteger start_sample = MTLCounterDontSample,
+                                 NSUInteger end_sample = MTLCounterDontSample) {
+    id<MTLComputeCommandEncoder> encoder = nil;
+    if (timestamps && (start_sample != MTLCounterDontSample || end_sample != MTLCounterDontSample)) {
+      auto pass = [MTLComputePassDescriptor computePassDescriptor];
+      pass.sampleBufferAttachments[0].sampleBuffer = timestamps;
+      pass.sampleBufferAttachments[0].startOfEncoderSampleIndex = start_sample;
+      pass.sampleBufferAttachments[0].endOfEncoderSampleIndex = end_sample;
+      encoder = [command computeCommandEncoderWithDescriptor:pass];
+    } else {
+      encoder = [command computeCommandEncoder];
+    }
     if (!encoder) Fail(render::RendererErrorCode::BackendFailure, "Metal sort encoder allocation failed");
     [encoder setComputePipelineState:pipeline];
     [encoder setBuffer:source offset:0 atIndex:0];
@@ -214,13 +234,14 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
     keys.element_count = i + 1 == frame->resource_count ? frame->padded_count - base : count;
     keys.candidate_base = keys.prepared_base = base;
     keys.visible_count_offset = 4 + i;
-    if (keys.element_count) sort_dispatch(keys_, keys, Groups(keys.element_count, 256));
+    if (keys.element_count) sort_dispatch(keys_, keys, Groups(keys.element_count, 256),
+        MTLCounterDontSample, i + 1 == frame->resource_count ? kGaussianPrepareEnd : MTLCounterDontSample);
     base += count;
   }
   if (!frame->resource_count) {
     SortConstants keys;
     keys.element_count = frame->padded_count;
-    sort_dispatch(keys_, keys, Groups(keys.element_count, 256));
+    sort_dispatch(keys_, keys, Groups(keys.element_count, 256), MTLCounterDontSample, kGaussianPrepareEnd);
   }
   std::swap(source, destination);
   for (std::uint32_t digit = 0; digit < 8; ++digit) {
@@ -232,7 +253,8 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
     constants.scan_offset = 4 + frame->resource_count;
     constants.flags = device_count ? 1U : 0U;
     constants.count_word = 4;
-    sort_dispatch(histogram_, constants, constants.block_count);
+    sort_dispatch(histogram_, constants, constants.block_count,
+        digit == 0 ? kGaussianSortBegin : MTLCounterDontSample);
     std::vector<SortConstants> levels;
     auto level = constants;
     level.scan_count = frame->padded_count;
@@ -261,7 +283,15 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
   gather.element_count = frame->particle_count ? frame->padded_count : 0;
   gather.flags = device_count ? 1U : 0U;
   gather.count_word = 4;
-  auto encoder = [command computeCommandEncoder];
+  id<MTLComputeCommandEncoder> encoder = nil;
+  if (timestamps) {
+    auto pass = [MTLComputePassDescriptor computePassDescriptor];
+    pass.sampleBufferAttachments[0].sampleBuffer = timestamps;
+    pass.sampleBufferAttachments[0].endOfEncoderSampleIndex = kGaussianSortEnd;
+    encoder = [command computeCommandEncoderWithDescriptor:pass];
+  } else {
+    encoder = [command computeCommandEncoder];
+  }
   if (!encoder) Fail(render::RendererErrorCode::BackendFailure, "Metal gather encoder allocation failed");
   [encoder setComputePipelineState:gather_];
   [encoder setBuffer:source offset:0 atIndex:0];

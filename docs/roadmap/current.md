@@ -31,8 +31,15 @@ ownership, dependency, and fallback contracts.
   post-completion counters and CPU fallback. Local renderer images and
   static/motion/edit scale captures cover the sorted-stream path. Garden GPU
   display was checked in the native viewport and usdview/HgiMetal, including
-  preferred tiled fallback. Controlled host/corpus comparisons, per-stage GPU
-  timestamps, tile raster and broader hardware performance evidence remain open.
+  preferred tiled fallback. Controlled HgiMetal comparisons now cover the
+  public 8,192-particle corpus and deterministic 1M scene with CPU/GPU images,
+  static/motion counters and GPU preparation/sort/raster timestamps. Tile
+  binning and raster shaders now compile into the Metal library and pass a
+  small Apple GPU binding/color/ID test. The renderer still selects the
+  sorted-stream fallback for tiled requests; native tile scheduling, overflow
+  selection, scene-scale image/performance checks and broader hardware evidence
+  remain open. See the
+  [Metal validation record](../reports/delivery-history.md#v0160-metal-gaussian-host-validation-and-stage-timestamps).
 
 - ✅ Recheck the Hydra CPU-readback floor in usdview after preferring
   host-cached coherent Vulkan AOV buffers. Local RTX A5000 headless evidence
@@ -67,7 +74,8 @@ ownership, dependency, and fallback contracts.
   at 10M. Host captures use the public animu-sphere Vulkan lookdev artifact.
   See the [Gaussian/host record](../reports/delivery-history.md#v0160-vulkan-gaussian-and-host-comparisons).
   Clocks/power remain unpinned; these are local observations, not universal
-  timing gates. The 10M tiled color discrepancy and Metal evidence remain open.
+  timing gates. The 10M tiled color discrepancy remains open; Metal results are
+  recorded separately above.
 
 ### Exit criteria
 

@@ -604,7 +604,29 @@ public:
       }
 
       frames_.resize(info.frames_in_flight);
+      bool gaussian_stage_timestamps =
+          [device_ supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary];
+      id<MTLCounterSet> timestamp_set = nil;
+      if (gaussian_stage_timestamps) {
+        for (id<MTLCounterSet> candidate in device_.counterSets) {
+          if ([candidate.name isEqualToString:MTLCommonCounterSetTimestamp]) {
+            timestamp_set = candidate;
+            break;
+          }
+        }
+        gaussian_stage_timestamps = timestamp_set != nil;
+      }
       for (auto& frame : frames_) {
+        if (gaussian_stage_timestamps) {
+          auto descriptor = [[MTLCounterSampleBufferDescriptor alloc] init];
+          descriptor.counterSet = timestamp_set;
+          descriptor.storageMode = MTLStorageModeShared;
+          descriptor.sampleCount = kGaussianTimestampCount;
+          NSError* error = nil;
+          frame.gaussian_timestamps =
+              [device_ newCounterSampleBufferWithDescriptor:descriptor error:&error];
+          gaussian_stage_timestamps = frame.gaussian_timestamps != nil;
+        }
         frame.encoded_textures.resize(options_.texture_capacity);
         frame.encoded_texture_revisions.resize(options_.texture_capacity);
         frame.encoded_samplers.resize(options_.sampler_capacity);
@@ -620,6 +642,8 @@ public:
           }
         }
       }
+      if (!gaussian_stage_timestamps)
+        for (auto& frame : frames_) frame.gaussian_timestamps = nil;
 
       capabilities_.backend = render::BackendKind::Metal;
       capabilities_.backend_name = "metal";
@@ -627,6 +651,7 @@ public:
       capabilities_.bindless_textures = bindless_;
       capabilities_.asynchronous_upload = false;
       capabilities_.timestamp_queries = true;
+      capabilities_.gaussian_gpu_stage_timestamps = gaussian_stage_timestamps;
       capabilities_.external_presentation = layer_ != nil;
       capabilities_.cpu_readback = true;
       capabilities_.validation_enabled = info.enable_validation;
@@ -1084,6 +1109,7 @@ public:
       CopyReadbacks(frame, pending);
       try {
         ResolveGaussianTelemetry(frame, pending.result);
+        ResolveGaussianTimestamps(frame, pending.result);
       } catch (...) {
         frame.gaussian_execution.reset();
         frame.busy = frame.exported_aov_mask != 0;
@@ -1199,6 +1225,7 @@ private:
     NSUInteger gaussian_count{};
     std::shared_ptr<const GaussianExecution::Frame> gaussian_execution;
     id<MTLBuffer> gaussian_telemetry = nil;
+    id<MTLCounterSampleBuffer> gaussian_timestamps = nil;
     std::vector<std::uint64_t> encoded_textures;
     std::vector<std::uint64_t> encoded_texture_revisions;
     std::vector<std::uint64_t> encoded_samplers;
@@ -2373,7 +2400,8 @@ private:
       const auto uploaded = Clock::now();
       auto execution = gaussian_execution_->Encode(attributes,
           request.snapshot->view, request.snapshot->projection,
-          request.width, request.height, command, false, capabilities_.validation_enabled);
+          request.width, request.height, command, false, capabilities_.validation_enabled,
+          frame.gaussian_timestamps);
       // Read only bounded per-resource counters and draw arguments after all
       // compute stages. They never schedule GPU work from a CPU visible count.
       const auto bytes = 32ULL + execution->resource_count * sizeof(gaussian_compute::PrepareCounters);
@@ -2453,6 +2481,33 @@ private:
     telemetry.gaussian_sorted_count = words[1];
     telemetry.gaussian_gpu_sorted_count = words[1];
     telemetry.gaussian_gpu_raster_instance_count = words[1];
+  }
+
+  void ResolveGaussianTimestamps(const FrameContext& frame,
+      render::RenderResult& result) const {
+    if (!frame.gaussian_timestamps) return;
+    result.timings.gaussian_raster_ns = 0;
+    if (!frame.gaussian_execution && frame.gaussian_count == 0) return;
+    NSData* data = [frame.gaussian_timestamps resolveCounterRange:
+        NSMakeRange(0, kGaussianTimestampCount)];
+    if (!data || data.length < kGaussianTimestampCount * sizeof(MTLCounterResultTimestamp))
+      return;
+    const auto* stamps = static_cast<const MTLCounterResultTimestamp*>(data.bytes);
+    const auto duration = [&](NSUInteger begin, NSUInteger end) -> std::uint64_t {
+      const auto first = stamps[begin].timestamp;
+      const auto last = stamps[end].timestamp;
+      if (first == MTLCounterErrorValue || last == MTLCounterErrorValue || last < first)
+        return 0;
+      return last - first;
+    };
+    if (frame.gaussian_execution) {
+      result.timings.gaussian_gpu_preparation_ns =
+          duration(kGaussianPrepareBegin, kGaussianPrepareEnd);
+      result.timings.gaussian_gpu_sort_ns =
+          duration(kGaussianSortBegin, kGaussianSortEnd);
+    }
+    result.timings.gaussian_raster_ns =
+        duration(kGaussianRasterBegin, kGaussianRasterEnd);
   }
 
   void PrepareGaussians(const render::RenderRequest& request,
@@ -2767,7 +2822,27 @@ private:
       build.telemetry.triangle_count += geometry->second.index_count / 3U;
       ++build.telemetry.visible_primitive_count;
     }
-    if (frame.gaussian_execution || frame.gaussian_count != 0) {
+    const bool has_gaussians = frame.gaussian_execution || frame.gaussian_count != 0;
+    const bool sample_raster = has_gaussians && frame.gaussian_timestamps != nil;
+    if (sample_raster) {
+      // Stage-boundary sampling requires a separate render pass on Apple GPUs.
+      // Store the opaque Mesh attachments, then load them for Gaussian blend
+      // and depth/ID tests. The extra pass is included in this timing.
+      [encoder endEncoding];
+      for (NSUInteger i = 0; i < 3; ++i)
+        pass.colorAttachments[i].loadAction = MTLLoadActionLoad;
+      pass.depthAttachment.loadAction = MTLLoadActionLoad;
+      pass.sampleBufferAttachments[0].sampleBuffer = frame.gaussian_timestamps;
+      pass.sampleBufferAttachments[0].startOfVertexSampleIndex = kGaussianRasterBegin;
+      pass.sampleBufferAttachments[0].endOfFragmentSampleIndex = kGaussianRasterEnd;
+      encoder = [command renderCommandEncoderWithDescriptor:pass];
+      if (!encoder)
+        throw render::RendererError(render::RendererErrorCode::BackendFailure,
+            "encode Metal Gaussian render pass", "renderCommandEncoder returned nil");
+      [encoder setViewport:viewport];
+      [encoder setScissorRect:scissor];
+    }
+    if (has_gaussians) {
       const auto begin = Clock::now();
       [encoder setRenderPipelineState:gaussian_pipeline_];
       [encoder setDepthStencilState:gaussian_depth_state_];
