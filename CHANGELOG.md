@@ -8,7 +8,22 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Native HgiVulkan presentation now copies depth, primId and instanceId into
+  retained Hgi targets alongside color. Depth composition uses the GPU texture;
+  selection and CPU consumers download non-color AOVs only on RenderBuffer Map,
+  once per current target version. Normal unselected usdview frames avoid all
+  image readback. Exact depth/ID checks cover motion, resize, removal and Tier 0
+  recovery; host selection and existing image comparisons retain validation.
+  Bridge download count/bytes/time are reported separately from renderer
+  readback. HgiMetal retains its color-only copy and eager depth/ID readback.
+
 ### Fixed
+
+- Vulkan image readback now orders writes to reused staging buffers. HgiVulkan
+  Map downloads likewise order staging reuse, and native Hgi color targets
+  declare attachment usage for Hdx selection highlighting.
 
 - Vulkan Gaussian CPU/GPU sorted-stream and tiled execution now blend into an
   RGBA32F working target where blend/blit support is available, then convert

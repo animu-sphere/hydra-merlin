@@ -228,7 +228,15 @@ covariance and degree-0 coefficients match the renderer fixture, but usdview
 frames its own perspective camera. Compare policies within each experiment;
 do not interpret renderer versus host times as identical-camera measurements.
 Host comparison checks image parity for every policy, fixed extent/sample count,
-and the color-only readback saving. GPU-copy encode and presentation scopes are
+and the selected-AOV readback saving. Native HgiVulkan normal unselected frames
+now keep all four images on the GPU and perform no renderer image readback or
+bridge download. HgiMetal still reads back the three non-color images.
+The host benchmark sets `MERLIN_HYDRA2_REGRESSION_COVERAGE=0` so diagnostic
+logging does not force a depth payload. Other regression captures retain eager
+depth coverage by default; that one diagnostic AOV is separate from host
+display requirements. Bridge `hgi_cpu_download_count/bytes/ns` counters are
+cumulative and record actual Map demand, including selection, separately from
+renderer `readback_bytes`. GPU-copy encode and presentation scopes are
 CPU trace durations, not GPU copy timestamps or end-to-end display latency.
 
 ### Metal HgiMetal host comparison

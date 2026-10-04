@@ -508,6 +508,58 @@ bool HdMerlinHgiVulkanBridge::Upload(HgiTextureHandle target, const void* data,
   return true;
 }
 
+bool HdMerlinHgiVulkanBridge::Download(
+    HgiTextureHandle target, void* data, std::size_t byte_size) {
+  TRACE_SCOPE("HdMerlinHgiVulkanBridge::Download");
+  Hgi* hgi = nullptr;
+  {
+    std::scoped_lock lock(mutex_);
+    if (hgi_ == nullptr || !target || data == nullptr || byte_size == 0 ||
+        target->GetDescriptor().pixelsByteSize != byte_size) {
+      return false;
+    }
+    hgi = hgi_;
+  }
+  const auto start = Clock::now();
+  try {
+    auto commands = hgi->CreateBlitCmds();
+    if (!commands) {
+      return false;
+    }
+    HgiTextureGpuToCpuOp download;
+    download.gpuSourceTexture = target;
+    download.cpuDestinationBuffer = data;
+    download.destinationBufferByteSize = byte_size;
+    commands->PushDebugGroup("Merlin demand-driven AOV download");
+#if defined(MERLIN_HYDRA2_HAVE_HGI_VULKAN_NATIVE)
+    auto* native = dynamic_cast<HgiVulkanBlitCmds*>(commands.get());
+    if (native == nullptr || native->GetCommandBuffer() == nullptr) {
+      return false;
+    }
+    // Hgi reuses the texture's staging buffer across downloads. Its image
+    // barrier does not order writes to that buffer from an earlier Map.
+    VkMemoryBarrier staging{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    staging.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_READ_BIT;
+    staging.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(native->GetCommandBuffer()->GetVulkanCommandBuffer(),
+        VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_HOST_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &staging, 0, nullptr, 0, nullptr);
+#endif
+    commands->CopyTextureGpuToCpu(download);
+    commands->PopDebugGroup();
+    // Map promises completed CPU data. Wait for this submission's fence,
+    // never for the entire device, and keep the target alive through the copy.
+    hgi->SubmitCmds(commands.get(), HgiSubmitWaitTypeWaitUntilCompleted);
+  } catch (const std::exception&) {
+    return false;
+  }
+  std::scoped_lock lock(mutex_);
+  ++telemetry_.cpu_download_count;
+  telemetry_.cpu_download_bytes += byte_size;
+  telemetry_.cpu_download_ns += ElapsedNanoseconds(start);
+  return true;
+}
+
 bool HdMerlinHgiVulkanBridge::Copy(
     HgiTextureHandle target, merlin::vulkan::AovImageExport&& source,
     std::shared_ptr<merlin::render::Backend> backend,
@@ -556,10 +608,21 @@ bool HdMerlinHgiVulkanBridge::Copy(
       hgi_vulkan == nullptr ? nullptr : hgi_vulkan->GetPrimaryDevice();
   const HgiTextureDesc* destination_descriptor =
       destination == nullptr ? nullptr : &destination->GetDescriptor();
+  const bool depth = source.product.aov == merlin::Aov::Depth;
+  const bool ids = source.product.aov == merlin::Aov::PrimId ||
+                   source.product.aov == merlin::Aov::InstanceId;
+  const auto format = depth ? VK_FORMAT_D32_SFLOAT
+                           : ids ? VK_FORMAT_R32_UINT : VK_FORMAT_R8G8B8A8_UNORM;
+  const auto hgi_format = depth ? HgiFormatFloat32
+                               : ids ? HgiFormatInt32 : HgiFormatUNorm8Vec4;
+  const auto aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+  const auto usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                     (depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                            : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
   const bool valid_source =
       device != nullptr && destination != nullptr &&
       destination->GetDevice() == device &&
-      source.product.aov == merlin::Aov::Color &&
+      (source.product.aov == merlin::Aov::Color || depth || ids) &&
       source.product.width == static_cast<std::uint32_t>(
                                   destination_descriptor->dimensions[0]) &&
       source.product.height == static_cast<std::uint32_t>(
@@ -569,7 +632,7 @@ bool HdMerlinHgiVulkanBridge::Copy(
       source.device == EncodeHandle(device->GetVulkanDevice()) &&
       source.image != 0 &&
       source.native_format ==
-          static_cast<std::uint32_t>(VK_FORMAT_R8G8B8A8_UNORM) &&
+          static_cast<std::uint32_t>(format) &&
       source.native_layout == static_cast<std::uint32_t>(
                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) &&
       source.native_stage_mask ==
@@ -577,14 +640,9 @@ bool HdMerlinHgiVulkanBridge::Copy(
       source.native_access_mask ==
           static_cast<std::uint32_t>(VK_ACCESS_TRANSFER_READ_BIT) &&
       source.native_aspect_mask ==
-          static_cast<std::uint32_t>(VK_IMAGE_ASPECT_COLOR_BIT) &&
-      (source.native_usage_mask &
-          static_cast<std::uint32_t>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                     VK_IMAGE_USAGE_SAMPLED_BIT)) ==
-          static_cast<std::uint32_t>(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                     VK_IMAGE_USAGE_SAMPLED_BIT) &&
+          static_cast<std::uint32_t>(aspect) &&
+      (source.native_usage_mask & static_cast<std::uint32_t>(usage)) ==
+          static_cast<std::uint32_t>(usage) &&
       source.native_tiling ==
           static_cast<std::uint32_t>(VK_IMAGE_TILING_OPTIMAL) &&
       (source.native_memory_property_mask &
@@ -595,7 +653,8 @@ bool HdMerlinHgiVulkanBridge::Copy(
       source.renderer_completion != 0 &&
       source.renderer_completion == lease->completion_value() &&
       source.sample_count == 1 &&
-      destination_descriptor->format == HgiFormatUNorm8Vec4 &&
+      destination_descriptor->format == hgi_format &&
+      ((destination_descriptor->usage & HgiTextureUsageBitsDepthTarget) != 0) == depth &&
       destination_descriptor->sampleCount == HgiSampleCount1;
   if (!valid_source) {
     release_lease();
@@ -634,9 +693,9 @@ bool HdMerlinHgiVulkanBridge::Copy(
         VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     VkImageCopy region{};
-    region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.srcSubresource.aspectMask = aspect;
     region.srcSubresource.layerCount = 1;
-    region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.dstSubresource.aspectMask = aspect;
     region.dstSubresource.layerCount = 1;
     region.extent = {source.product.width, source.product.height, 1};
     vkCmdCopyImage(command_buffer->GetVulkanCommandBuffer(),

@@ -22,8 +22,9 @@ claims. See the [GPU-driven design](../design/gpu-driven-rendering.md),
   Keep this host gap separate from passing Gaussian and hosted Metal evidence.
 - [ ] Extend same-device/host measurements to other supported GPUs with
   controlled clocks/power before establishing hardware timing gates.
-- [ ] Make Hydra depth/ID readback demand-driven while preserving picking and
-  Tier 0 correctness. Hgi color GPU copy still reads back the other three AOVs.
+- [ ] Extend demand-driven Hydra depth/ID readback to HgiMetal, preserving
+  Tier 0 and picking AOV semantics. Its color GPU copy still reads back the
+  other three AOVs. Broaden actual host picking and overlay parity evidence.
 
 ## Active carry-over — validation gates
 

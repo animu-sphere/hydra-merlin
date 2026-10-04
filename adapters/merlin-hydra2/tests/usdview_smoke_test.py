@@ -467,3 +467,18 @@ def testUsdviewInputFunction(appController):
         event["render_settings_resource_revision"] >= 2
         for event in resize_settings_changes)
     _check_mesh_orientation(appController)
+
+    # Hdx selection colorization consumes ID buffers through Map. The native
+    # AOV test independently checks their exact current-frame contents.
+    appController._dataModel.selection.addPrimPath(Sdf.Path("/World/OrientationProbe"))
+    # usdview draws its OpenGL axes unconditionally after host composition.
+    # Isolate the Hdx selection image from that unrelated depth-overlay tail.
+    draw_axis = appController._stageView.DrawAxis
+    appController._stageView.DrawAxis = lambda _: None
+    try:
+        selected = _render_phase(appController, "selection", size=(597, 540))
+    finally:
+        appController._stageView.DrawAxis = draw_axis
+    if selected["hgi_transfer_mode"] == "gpu-copy":
+        assert selected["hgi_cpu_download_count"] >= 2
+        assert selected["hgi_cpu_download_bytes"] > 0

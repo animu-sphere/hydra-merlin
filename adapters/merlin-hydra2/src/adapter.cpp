@@ -708,6 +708,26 @@ std::string RegressionPhase() {
 #endif
 }
 
+bool RegressionCoverageRequested() {
+  if (!RegressionLogPath()) {
+    return false;
+  }
+#ifdef _WIN32
+  char* value{};
+  std::size_t size{};
+  if (_dupenv_s(&value, &size, "MERLIN_HYDRA2_REGRESSION_COVERAGE") != 0 ||
+      value == nullptr) {
+    return true;
+  }
+  const bool result = std::string_view(value) != "0";
+  std::free(value);
+  return result;
+#else
+  const char* value = std::getenv("MERLIN_HYDRA2_REGRESSION_COVERAGE");
+  return value == nullptr || std::string_view(value) != "0";
+#endif
+}
+
 bool ValidationRequested() {
 #ifdef _WIN32
   char* value{};
@@ -1757,6 +1777,45 @@ public:
             ? gpu_color_candidates.front()
             : nullptr;
 
+    const bool regression_coverage = RegressionCoverageRequested();
+    std::array<HdMerlinRenderBuffer*,
+        static_cast<std::size_t>(merlin::Aov::MotionVector) + 1> gpu_aov_buffers{};
+    gpu_aov_buffers[static_cast<std::size_t>(merlin::Aov::Color)] = gpu_color_buffer;
+#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
+    for (const auto aov : {merlin::Aov::Depth, merlin::Aov::PrimId,
+             merlin::Aov::InstanceId}) {
+      if (aov == merlin::Aov::Depth && regression_coverage) {
+        continue;
+      }
+      std::size_t consumers{};
+      HdMerlinRenderBuffer* candidate{};
+      for (const auto& binding : bindings) {
+        const bool matches = aov == merlin::Aov::Depth
+            ? HdAovHasDepthSemantic(binding.aovName)
+            : binding.aovName == (aov == merlin::Aov::PrimId
+                ? HdAovTokens->primId : HdAovTokens->instanceId);
+        if (!matches) {
+          continue;
+        }
+        HdRenderBuffer* base = binding.renderBuffer;
+        if (base == nullptr && !binding.renderBufferId.IsEmpty()) {
+          base = dynamic_cast<HdRenderBuffer*>(render_index->GetBprim(
+              HdPrimTypeTokens->renderBuffer, binding.renderBufferId));
+        }
+        if (base != nullptr) {
+          ++consumers;
+          auto* buffer = dynamic_cast<HdMerlinRenderBuffer*>(base);
+          if (buffer && buffer->CanGpuCopyAov(aov)) {
+            candidate = buffer;
+          }
+        }
+      }
+      if (consumers == 1) {
+        gpu_aov_buffers[static_cast<std::size_t>(aov)] = candidate;
+      }
+    }
+#endif
+
     const auto request_product = [&](merlin::Aov aov,
                                      bool cpu_readback = true) {
       const auto found = std::find_if(
@@ -1784,31 +1843,46 @@ public:
           request_product(merlin::Aov::Color, gpu_color_buffer == nullptr);
         }
       } else if (HdAovHasDepthSemantic(binding.aovName)) {
-        request_product(merlin::Aov::Depth);
+        request_product(merlin::Aov::Depth,
+            gpu_aov_buffers[static_cast<std::size_t>(merlin::Aov::Depth)] == nullptr);
       } else if (binding.aovName == HdAovTokens->primId) {
-        request_product(merlin::Aov::PrimId);
+        request_product(merlin::Aov::PrimId,
+            gpu_aov_buffers[static_cast<std::size_t>(merlin::Aov::PrimId)] == nullptr);
       } else if (binding.aovName == HdAovTokens->instanceId) {
-        request_product(merlin::Aov::InstanceId);
+        request_product(merlin::Aov::InstanceId,
+            gpu_aov_buffers[static_cast<std::size_t>(merlin::Aov::InstanceId)] == nullptr);
       }
     }
     // Regression evidence uses depth coverage even when the host binds only a
     // display color product.
-    if (!presentation || RegressionLogPath()) {
+    if (regression_coverage) {
       request_product(merlin::Aov::Depth);
     }
     auto token = renderer_->Submit(request);
     bool gpu_color_copied{};
+    std::vector<HdMerlinRenderBuffer*> gpu_copied_buffers;
+    bool gpu_copy_failed{};
 #ifdef MERLIN_HYDRA2_ENABLE_VULKAN
-    if (gpu_color_buffer != nullptr) {
+    for (std::size_t i = 0; i < gpu_aov_buffers.size(); ++i) {
+      auto* buffer = gpu_aov_buffers[i];
+      if (buffer == nullptr) {
+        continue;
+      }
+      bool copied{};
       if (auto* exporter = dynamic_cast<merlin::vulkan::AovImageExporter*>(
               renderer_.get())) {
         try {
-          gpu_color_copied = gpu_color_buffer->CopyColor(
-              exporter->AcquireAovImage(token, merlin::Aov::Color),
+          copied = buffer->CopyAov(
+              exporter->AcquireAovImage(token, static_cast<merlin::Aov>(i)),
               renderer_);
         } catch (const merlin::render::RendererError&) {
-          gpu_color_copied = false;
+          copied = false;
         }
+      }
+      if (copied) {
+        gpu_copied_buffers.push_back(buffer);
+      } else {
+        gpu_copy_failed = true;
       }
     }
 #elif defined(MERLIN_HYDRA2_ENABLE_METAL)
@@ -1826,9 +1900,14 @@ public:
     }
 #endif
     auto result = renderer_->Resolve(token);
-    if (gpu_color_buffer != nullptr && !gpu_color_copied) {
-      request_product(merlin::Aov::Color, true);
+    if (gpu_copy_failed ||
+        (gpu_color_buffer != nullptr && !gpu_color_copied && gpu_copied_buffers.empty())) {
+      for (auto& product : request.products) {
+        product.cpu_readback = true;
+      }
       result = renderer_->Resolve(renderer_->Submit(request));
+      gpu_color_copied = false;
+      gpu_copied_buffers.clear();
     }
     latest_viewport_frame_.timings = result.timings;
     latest_viewport_frame_.telemetry = result.telemetry;
@@ -1893,7 +1972,10 @@ public:
       }
       buffer->SetConverged(false);
       bool written{};
-      if (binding.aovName == HdAovTokens->color) {
+      if (std::find(gpu_copied_buffers.begin(), gpu_copied_buffers.end(), buffer) !=
+          gpu_copied_buffers.end()) {
+        written = true;
+      } else if (binding.aovName == HdAovTokens->color) {
         if (gpu_color_copied && buffer == gpu_color_buffer) {
           written = true;
         } else {
@@ -1926,7 +2008,8 @@ public:
         std::size_t covered_pixels{};
         std::uint64_t covered_x_sum{};
         std::uint64_t covered_y_sum{};
-        for (std::uint32_t y = 0; y < result.depth.product.height; ++y) {
+        for (std::uint32_t y = 0; !result.depth.pixels.empty() &&
+             y < result.depth.product.height; ++y) {
           for (std::uint32_t x = 0; x < result.depth.product.width; ++x) {
             const auto index =
                 static_cast<std::size_t>(y) *
@@ -2186,6 +2269,9 @@ public:
                << hgi_vulkan_telemetry.gpu_copy_completion_count
                << " hgi_gpu_copy_pending_count="
                << hgi_vulkan_telemetry.gpu_copy_pending_count
+               << " hgi_cpu_download_count=" << hgi_vulkan_telemetry.cpu_download_count
+               << " hgi_cpu_download_bytes=" << hgi_vulkan_telemetry.cpu_download_bytes
+               << " hgi_cpu_download_ns=" << hgi_vulkan_telemetry.cpu_download_ns
                << " hgi_transfer_mode="
                << HdMerlinHgiVulkanTransferModeName(
                       hgi_vulkan_status.selected_mode)
@@ -3883,16 +3969,26 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   gpu_copy_ready_ = false;
   converged_ = false;
   data_.assign(pixels * pixel_size, 0);
-  // Only the 8-bit color AOV is published as an Hgi target. It is the buffer a
-  // host present task consumes as a texture, while depth and id buffers are
-  // read back through Map(); uploading those every frame would spend bandwidth
-  // no consumer collects.
+  // Native HgiVulkan keeps depth/IDs on the GPU as well. Host depth composition
+  // consumes the texture; selection and picking download only when Map is used.
+  // Other host compositions retain the color-only target and Tier 0 buffers.
   const HgiFormat hgi_format = HdMerlinHgiFormatForRenderBuffer(format);
-  if (!reusable_target && pixels != 0 && format == HdFormatUNorm8Vec4 &&
+  const bool native_aov_target = hgi_vulkan_bridge_ &&
+                                 hgi_vulkan_bridge_->status().gpu_copy &&
+                                 !(format == HdFormatFloat32 && RegressionCoverageRequested());
+  if (!reusable_target && pixels != 0 &&
+      (format == HdFormatUNorm8Vec4 || native_aov_target) &&
       hgi_format != HgiFormatInvalid && dimensions[2] == 1) {
     HgiTextureDesc descriptor;
     descriptor.debugName = GetId().GetString();
     descriptor.usage = HgiTextureUsageBitsShaderRead;
+    if (format == HdFormatUNorm8Vec4 && hgi_vulkan_bridge_ &&
+        hgi_vulkan_bridge_->status().gpu_copy) {
+      // Hdx selection highlighting composites directly into the color AOV.
+      descriptor.usage |= HgiTextureUsageBitsColorTarget;
+    } else if (format == HdFormatFloat32) {
+      descriptor.usage |= HgiTextureUsageBitsDepthTarget;
+    }
     descriptor.format = hgi_format;
     descriptor.type = HgiTextureType2D;
     descriptor.dimensions = dimensions;
@@ -3905,7 +4001,7 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
           hgi_vulkan_bridge_->CreateTarget(descriptor, recreation);
     }
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-    if (hgi_metal_bridge_) {
+    if (hgi_metal_bridge_ && format == HdFormatUNorm8Vec4) {
       hgi_metal_target_ =
           hgi_metal_bridge_->CreateTarget(descriptor, recreation);
     }
@@ -3942,8 +4038,18 @@ bool HdMerlinRenderBuffer::IsMultiSampled() const {
 void* HdMerlinRenderBuffer::Map() {
   TRACE_SCOPE("HdMerlinRenderBuffer::Map");
   std::scoped_lock lock(mutex_);
-  if (data_.empty() || gpu_only_) {
+  if (data_.empty()) {
     return nullptr;
+  }
+  if (gpu_only_) {
+    // Color remains a presentation-only resource. Non-color CPU consumers
+    // download the latest target exactly once between renderer submissions.
+    if (format_ == HdFormatUNorm8Vec4 || !hgi_vulkan_target_ ||
+        !hgi_vulkan_bridge_ || !hgi_vulkan_bridge_->Download(
+            hgi_vulkan_target_, data_.data(), data_.size())) {
+      return nullptr;
+    }
+    gpu_only_ = false;
   }
   ++map_count_;
   return data_.data();
@@ -4008,6 +4114,8 @@ bool HdMerlinRenderBuffer::WriteDepth(const std::vector<float>& depth,
     return false;
   }
   std::memcpy(data_.data(), depth.data(), byte_size);
+  gpu_only_ = false;
+  gpu_copy_ready_ = false;
   UploadHgiTargetLocked();
   return true;
 }
@@ -4024,28 +4132,44 @@ bool HdMerlinRenderBuffer::WriteId(const std::vector<std::uint32_t>& ids,
     return false;
   }
   std::memcpy(data_.data(), ids.data(), byte_size);
+  gpu_only_ = false;
+  gpu_copy_ready_ = false;
   UploadHgiTargetLocked();
   return true;
 }
 
 bool HdMerlinRenderBuffer::CanGpuCopyColor() const {
+  return CanGpuCopyAov(merlin::Aov::Color);
+}
+
+bool HdMerlinRenderBuffer::CanGpuCopyAov(merlin::Aov aov) const {
   std::scoped_lock lock(mutex_);
-  return format_ == HdFormatUNorm8Vec4 && !multi_sampled_ &&
+  const auto expected_format = aov == merlin::Aov::Color ? HdFormatUNorm8Vec4
+      : aov == merlin::Aov::Depth ? HdFormatFloat32 : HdFormatInt32;
+  const bool supported = aov == merlin::Aov::Color || aov == merlin::Aov::Depth ||
+                         aov == merlin::Aov::PrimId || aov == merlin::Aov::InstanceId;
+  return supported && format_ == expected_format && !multi_sampled_ && map_count_ == 0 &&
          ((hgi_vulkan_target_ && hgi_vulkan_bridge_ &&
               hgi_vulkan_bridge_->status().gpu_copy) ||
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-             (hgi_metal_target_ && hgi_metal_bridge_ &&
+             (aov == merlin::Aov::Color && hgi_metal_target_ && hgi_metal_bridge_ &&
                  hgi_metal_bridge_->status().gpu_copy));
 #else
              false);
 #endif
 }
 
-bool HdMerlinRenderBuffer::CopyColor(
+bool HdMerlinRenderBuffer::CopyAov(
     merlin::vulkan::AovImageExport&& source,
     std::shared_ptr<merlin::render::Backend> backend) {
   std::scoped_lock lock(mutex_);
-  if (!hgi_vulkan_target_ || !hgi_vulkan_bridge_) {
+  if (map_count_ != 0 || !hgi_vulkan_target_ || !hgi_vulkan_bridge_) {
+#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
+    if (auto* exporter = dynamic_cast<merlin::vulkan::AovImageExporter*>(backend.get());
+        exporter != nullptr && source.lease) {
+      exporter->ReleaseAovImage(std::move(source.lease));
+    }
+#endif
     return false;
   }
   const bool previous_copy_complete =

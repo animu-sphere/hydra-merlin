@@ -310,6 +310,25 @@ if(MERLIN_BUILD_TESTS)
     )
   endif()
 
+  if(TARGET Merlin::Vulkan AND TARGET hgiVulkan AND MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
+    add_executable(merlin-hydra2-hgi-vulkan-aov-test tests/hgi_vulkan_aov_test.cpp)
+    merlin_target_defaults(merlin-hydra2-hgi-vulkan-aov-test)
+    target_link_libraries(merlin-hydra2-hgi-vulkan-aov-test PRIVATE
+      merlin-hydra2-runtime Merlin::Vulkan Merlin::RenderExtraction)
+    target_compile_definitions(merlin-hydra2-hgi-vulkan-aov-test PRIVATE
+      NOMINMAX _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING)
+    add_dependencies(merlin-hydra2-hgi-vulkan-aov-test hdMerlin)
+    add_test(NAME merlin-hydra2-hgi-vulkan-aov
+      COMMAND merlin-hydra2-hgi-vulkan-aov-test
+        "$<TARGET_FILE_DIR:hdMerlin>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
+    set_tests_properties(merlin-hydra2-hgi-vulkan-aov PROPERTIES
+      LABELS "hydra;hgi;vulkan;presentation;gpu;picking" TIMEOUT 30
+      SKIP_RETURN_CODE 77
+      ENVIRONMENT "HGI_ENABLE_VULKAN=1;HGIVULKAN_DEBUG=1"
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib")
+  endif()
+
   find_package(Python3 COMPONENTS Interpreter QUIET)
   find_program(MERLIN_TESTUSDVIEW_SCRIPT testusdview
     PATHS "${_merlin_pxr_root}/bin" NO_DEFAULT_PATH)

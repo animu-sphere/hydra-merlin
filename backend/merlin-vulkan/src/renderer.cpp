@@ -10412,6 +10412,16 @@ public:
       }
     }
 
+    if (!cpu_readback_aovs.empty()) {
+      // Completion protects CPU ownership, but does not create a device
+      // memory dependency between successive writes to retained staging.
+      VkMemoryBarrier readback_reuse{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      readback_reuse.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_READ_BIT;
+      readback_reuse.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      vkCmdPipelineBarrier(command,
+          VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_HOST_BIT,
+          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &readback_reuse, 0, nullptr, 0, nullptr);
+    }
     if (HasAov(cpu_readback_aovs, Aov::Color)) {
       VkBufferImageCopy copy{};
       copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
