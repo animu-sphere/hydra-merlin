@@ -47,8 +47,11 @@ support claims.
   aggregate-initializer warnings are not claimed resolved. Linux native Wayland,
   Hydra hosts, real GPUs and hardware timing gates remain separate work.
 - The first hosted build exposed GLFW's default OpenGL header inclusion in
-  ImGui's input backend. The viewport target now defines `GLFW_INCLUDE_NONE`,
-  so Vulkan/Metal compilation does not require unused OpenGL headers.
+  ImGui's input backend and native presentation. These GLFW includes now use
+  `GLFW_INCLUDE_NONE`, so Vulkan/Metal compilation does not require unused
+  OpenGL headers. Local final builds deliberately shadow `GL/gl.h` with a
+  compile error to catch any residual inclusion. Linux SDK metadata reads
+  the version above the architecture directory instead of reporting `x86_64`.
 
 Raw local captures are in `build/lavapipe-debug/`, `build/lavapipe-release/`
 and `build/lavapipe-windows-{build,test}.log`; the hosted workflow uploads

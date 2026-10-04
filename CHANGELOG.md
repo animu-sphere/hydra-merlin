@@ -46,8 +46,10 @@ after its public API and release process are established.
 - Vulkan lifetime tests size their exhaustion limit from the constructor's
   retained allocations, preserving the same render-time denial on dedicated
   and unified-memory devices such as lavapipe.
-- The Vulkan/Metal viewport's ImGui GLFW input backend no longer requires
-  OpenGL development headers on minimal Linux build environments.
+- The Vulkan/Metal viewport's GLFW input and presentation adapters no longer
+  require OpenGL development headers on minimal Linux build environments.
+- Linux Vulkan SDK metadata now reads the version above the architecture
+  directory instead of reporting `x86_64` as the SDK version.
 - HgiMetal host projection correction now follows the render driver even when
   the Metal copy bridge is disabled, fixing upside-down Tier 0 output and
   incorrect click picking. Diagnostic depth readback also preserves the native
