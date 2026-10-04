@@ -51,7 +51,12 @@ requested CPU products. Unsupported and duplicate AOV requests are rejected.
 
 Hydra derives CPU readback requests from host AOV bindings. Native viewport
 frames request a GPU-only color product and add CPU color/ID products only for
-screenshots or picking. usdview retains Tier 0 RenderBuffer readback. Headless
+screenshots or picking. Native HgiVulkan usdview frames copy all bound supported
+AOVs to Hgi targets; non-color RenderBuffer Map downloads the current target
+once, waiting for that submission without a device-wide wait. Further maps
+reuse the CPU payload until a new GPU copy, allocation or Tier 0 write replaces
+it. Depth composition consumes the GPU texture. Unsupported compositions and
+HgiMetal retain Tier 0 non-color readback. Headless
 requests color/depth, adding IDs when comparison artifacts are requested.
 
 ## Error classification

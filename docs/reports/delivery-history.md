@@ -11,6 +11,42 @@ Legend: ✅ done
 
 ---
 
+## v0.16.x HgiVulkan demand-driven depth/ID readback
+
+Completed the Vulkan slice on 2026-10-04, based on `7a85e96` plus the
+working-tree change. Bound supported AOVs copy into retained Hgi targets with
+completion-owned export leases. Host depth composition consumes its GPU
+texture; non-color Map downloads the current target once. New GPU copies and
+Tier 0 writes replace that CPU version. Mixed consumers and failed copies
+retain eager Tier 0. HgiMetal remains color-only and is still on the roadmap.
+
+- RTX A5000/OpenUSD 26.08/Windows Release/MSVC 19.51: the real HgiVulkan AOV
+  test matches current depth/primId/instanceId exactly through motion, resize
+  and removal, caches repeated Map, rejects mapped-buffer resize/mutation,
+  and exercises Tier 0 writes. Synchronization validation exposed retained
+  staging-write hazards; explicit reuse barriers fix both Hgi Map downloads
+  and backend image readback. No device-wide waits were added.
+- The 8,192-particle host CTest runs four samples per static/motion policy;
+  a separate 1M host capture runs forty per policy. CPU sorted-stream, GPU
+  sorted-stream and GPU tiled paths keep all four display images on the GPU:
+  every measured sample has zero renderer image readback and zero bridge
+  downloads. Final 1M policy images match exactly. Clocks/power remain unpinned;
+  this is transfer/correctness evidence, not a universal performance gate.
+- Mesh usdview still passes its existing image policy, and an added selection
+  phase exercises demand-driven ID Map with validation. Its image comparison
+  disables only usdview's subsequent OpenGL axis overlay; the original phases
+  and thresholds are unchanged. Regression coverage deliberately reads back
+  one depth AOV (1,289,520 bytes at 597x540), versus Tier 0's four AOVs
+  (5,158,080 bytes). Normal host benchmarks disable that diagnostic coverage.
+- A clean rebuild and all 54 CTest cases pass without skips, including
+  source/install consumers, shared shader/ABI checks and Vulkan/Hydra fixtures.
+  The first incremental run exposed an obsolete render-settings test object
+  after the adapter telemetry layout changed; the clean rebuild resolved it.
+  Metal runtime execution and broader actual host picking remain unverified.
+
+Raw reports/logs remain local in `build/hydra-aov-*` and the dated
+`docs/reports/2026-10-04-hydra-demand-readback.md` report.
+
 ## v0.16.x Vulkan Gaussian float composite and 10M quality closure
 
 Completed the Vulkan color-discrepancy follow-up on 2026-10-04, based on

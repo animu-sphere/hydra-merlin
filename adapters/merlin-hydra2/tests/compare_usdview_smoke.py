@@ -24,6 +24,7 @@ PHASES = (
     "remove",
     "readd",
     "resize",
+    "selection",
 )
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
@@ -116,8 +117,8 @@ def performance_evidence(tier0: dict, gpu_copy: dict) -> dict:
     gpu_copy_counters = gpu_copy["last_counters"]
     if tier0_counters["cpu_readback_aov_count"] != 4:
         raise ValueError("Tier 0 baseline did not read back four AOVs")
-    if gpu_copy_counters["cpu_readback_aov_count"] != 3:
-        raise ValueError("GPU-copy baseline did not retain three CPU AOVs")
+    if gpu_copy_counters["cpu_readback_aov_count"] != 1:
+        raise ValueError("GPU-copy regression did not read back only coverage depth")
     if gpu_copy_counters["readback_bytes"] >= tier0_counters["readback_bytes"]:
         raise ValueError("GPU-copy baseline did not reduce CPU readback bytes")
 

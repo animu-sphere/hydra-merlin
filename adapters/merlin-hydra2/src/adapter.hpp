@@ -101,7 +101,8 @@ public:
   bool WriteId(const std::vector<std::uint32_t>& ids, std::uint32_t width,
       std::uint32_t height);
   [[nodiscard]] bool CanGpuCopyColor() const;
-  [[nodiscard]] bool CopyColor(
+  [[nodiscard]] bool CanGpuCopyAov(merlin::Aov aov) const;
+  [[nodiscard]] bool CopyAov(
       merlin::vulkan::AovImageExport&& source,
       std::shared_ptr<merlin::render::Backend> backend);
   [[nodiscard]] bool CopyColor(

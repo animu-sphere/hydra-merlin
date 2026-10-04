@@ -185,9 +185,9 @@ if(MERLIN_FORCE_HGI_VULKAN)
       "Vulkan Hgi target path unexpectedly mapped the color RenderBuffer")
   endif()
   if(NOT marker_contents MATCHES
-     "cpu_readback_aov_count=3 .*aov_image_export_count=1")
+     "cpu_readback_aov_count=1 .*aov_image_export_count=3")
     message(FATAL_ERROR
-      "Vulkan Hgi GPU copy did not replace exactly one CPU AOV readback")
+      "Vulkan Hgi GPU copy did not leave only regression coverage depth on CPU")
   endif()
   if(NOT marker_contents MATCHES
      "hgi_gpu_copy_completion_count=[1-9][0-9]*")
@@ -222,6 +222,10 @@ if(MERLIN_FORCE_HGI_VULKAN)
           "Vulkan Hgi ${phase_name} phase has no ${stage} evidence")
       endif()
     endforeach()
+    if(phase_name STREQUAL "selection")
+      # ID Map/download is required by Hdx selection highlighting.
+      continue()
+    endif()
     foreach(stage IN ITEMS render_buffer_map host_upload)
       string(JSON available GET "${performance_json}" phases ${index}
              stages ${stage} available)

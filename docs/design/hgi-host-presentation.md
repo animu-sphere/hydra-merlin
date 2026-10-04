@@ -149,6 +149,17 @@ phases and verifies bounded image differences, transfer costs, and absence of
 color Map/upload in GPU-copy phases. Measured release evidence belongs in the
 [HgiVulkan release record](../releases/v0.13.0.md).
 
+Native HgiVulkan now copies bound depth/ID products as well as color. A D32
+depth target supplies host depth composition; R32 ID targets preserve the
+renderer bits. Selection and CPU consumers call Map to download the current
+non-color target once. The target owns its lifetime through the submission
+wait; staging writes are ordered on reuse. A new GPU copy invalidates the CPU
+cache. Mixed/multiple consumers and bridge failures retain eager Tier 0.
+`hgi_cpu_download_count`, `hgi_cpu_download_bytes` and `hgi_cpu_download_ns`
+are cumulative bridge telemetry, separate from renderer image readback.
+HgiMetal still copies only color. Native Hgi color targets declare attachment
+usage because Hdx selection composites into them.
+
 The bridge requires color, depth, `primId`, and `instanceId` to match Tier
 0 semantics; resize and target retirement are completion-safe; camera-only
 frames avoid CPU readback/upload; unsupported configurations retain Tier 0; and

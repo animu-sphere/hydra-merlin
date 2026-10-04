@@ -136,6 +136,10 @@ struct HdMerlinHgiVulkanBridgeTelemetry {
   std::uint64_t cpu_upload_count{};
   std::uint64_t cpu_upload_bytes{};
   std::uint64_t cpu_upload_encode_ns{};
+  // Demand-driven RenderBuffer Map transfers, separate from backend readback.
+  std::uint64_t cpu_download_count{};
+  std::uint64_t cpu_download_bytes{};
+  std::uint64_t cpu_download_ns{};
   std::uint64_t gpu_copy_count{};
   std::uint64_t gpu_copy_completion_count{};
   std::uint64_t gpu_copy_pending_count{};
@@ -213,6 +217,8 @@ public:
       bool recreation);
   void DestroyTarget(HgiTextureHandle* target);
   [[nodiscard]] bool Upload(HgiTextureHandle target, const void* data,
+      std::size_t byte_size);
+  [[nodiscard]] bool Download(HgiTextureHandle target, void* data,
       std::size_t byte_size);
   [[nodiscard]] bool Copy(
       HgiTextureHandle target, merlin::vulkan::AovImageExport&& source,
