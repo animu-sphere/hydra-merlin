@@ -81,7 +81,9 @@ jobs:
         run: cmake --build build --config Release --parallel 4
 
       - name: Test source and install-tree consumers
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        run: >-
+          ctest --test-dir build --build-config Release --output-on-failure
+          --no-tests=error -LE '^(gpu|runtime|host-smoke)$'
 
       - name: Install staged SDK
         run: >-

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare Tier 0 and HgiVulkan usdview smoke evidence."""
+"""Compare Tier 0 and native Hgi usdview smoke evidence."""
 
 from __future__ import annotations
 
@@ -25,6 +25,13 @@ PHASES = (
     "readd",
     "resize",
     "selection",
+    "click-unselected",
+    "click-hit",
+    "click-overlay",
+    "click-overlay-hidden",
+    "click-miss",
+    "click-moved",
+    "click-resized-hit",
 )
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
@@ -169,6 +176,11 @@ def main() -> None:
             "maximum_mean_channel_error": MAX_MEAN_CHANNEL_ERROR,
         },
         "images": images,
+        "click_picking": [
+            json.loads((directory / "usdview-first-frame-click-picking.json").read_text(
+                encoding="utf-8"))
+            for directory in (args.tier0, args.gpu_copy)
+        ],
         "summary": {
             "maximum_changed_pixel_fraction": max(
                 image["changed_pixel_fraction"] for image in images

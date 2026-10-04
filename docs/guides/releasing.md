@@ -59,10 +59,15 @@ The tag-driven `Release` workflow rejects a tag unless all of these agree:
 It then performs clean Windows and Linux Core-only Release builds and a macOS
 Apple Silicon Core + Metal Release build. The macOS job installs the same
 checksum-pinned Slang 2026.8 compiler as Metal CI and checks the Xcode Metal
-compiler before configuration. Each platform runs source and isolated
-install-tree tests, installs its SDK into a fresh staging prefix, and publishes
+compiler before configuration. Each platform runs GPU-free source, shader/ABI,
+and isolated install-tree linking tests, installs its SDK into a fresh staging
+prefix, and publishes
 archives, metadata sidecars, and SHA-256 checksum files to the tag's GitHub
 Release. GitHub-generated notes supplement the canonical changelog.
+
+GPU execution uses separate installed-runtime CTest cases and the
+scheduled/manual capability workflows. Release packaging does not require a
+GPU; runtime skips never establish hardware support or performance coverage.
 
 Each SDK contains `merlin-release-metadata.json` under its data directory. The
 file records schema and project versions, dependency constraints, configured
