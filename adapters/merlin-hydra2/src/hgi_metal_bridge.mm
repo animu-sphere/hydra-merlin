@@ -15,6 +15,8 @@
 #endif
 
 #include <chrono>
+#include <cstring>
+#include <unordered_map>
 #include <exception>
 #include <stdexcept>
 
@@ -175,10 +177,19 @@ HgiFormat HdMerlinHgiMetalFormatForRenderBuffer(HdFormat format) noexcept {
   }
 }
 
+struct HdMerlinHgiMetalBridge::NativeResources {
+#if defined(MERLIN_HYDRA2_HAVE_HGI_METAL_NATIVE)
+  // Uint renderer IDs and signed Hgi IDs have identical bits but cannot be
+  // texture-blitted directly. Retain private transfer storage per target.
+  std::unordered_map<HgiTexture*, id<MTLBuffer>> id_transfers;
+#endif
+};
+
 HdMerlinHgiMetalBridge::HdMerlinHgiMetalBridge(bool enabled)
     : enabled_(enabled),
       status_(HdMerlinEvaluateHgiMetalBridgeSupport(
-          enabled, PXR_VERSION, false, false)) {
+          enabled, PXR_VERSION, false, false)),
+      native_(std::make_unique<NativeResources>()) {
 }
 
 HdMerlinHgiMetalBridge::~HdMerlinHgiMetalBridge() = default;
@@ -270,6 +281,20 @@ HgiTextureHandle HdMerlinHgiMetalBridge::CreateTarget(
     if (!target)
       throw std::runtime_error("CreateTexture returned nil");
     std::scoped_lock lock(mutex_);
+#if defined(MERLIN_HYDRA2_HAVE_HGI_METAL_NATIVE)
+    if (descriptor.format == HgiFormatInt32 && status_.gpu_copy) {
+      auto* metal = dynamic_cast<HgiMetal*>(hgi);
+      const auto row_bytes = (static_cast<std::size_t>(descriptor.dimensions[0]) * 4U + 255U) & ~std::size_t{255};
+      id<MTLBuffer> transfer = [metal->GetPrimaryDevice()
+          newBufferWithLength:row_bytes * descriptor.dimensions[1]
+                      options:MTLResourceStorageModePrivate];
+      if (transfer == nil) {
+        hgi->DestroyTexture(&target);
+        throw std::runtime_error("ID transfer allocation failed");
+      }
+      native_->id_transfers.emplace(target.Get(), transfer);
+    }
+#endif
     ++outstanding_targets_;
     ++telemetry_.target_generation;
     ++telemetry_.target_creations;
@@ -290,6 +315,9 @@ void HdMerlinHgiMetalBridge::DestroyTarget(HgiTextureHandle* target) {
   {
     std::scoped_lock lock(mutex_);
     hgi = hgi_;
+#if defined(MERLIN_HYDRA2_HAVE_HGI_METAL_NATIVE)
+    native_->id_transfers.erase(target->Get());
+#endif
   }
   if (hgi != nullptr) {
     hgi->DestroyTexture(target);
@@ -341,6 +369,72 @@ bool HdMerlinHgiMetalBridge::Upload(HgiTextureHandle target, const void* data,
   return true;
 }
 
+bool HdMerlinHgiMetalBridge::Download(
+    HgiTextureHandle target, void* data, std::size_t byte_size) {
+  TRACE_SCOPE("HdMerlinHgiMetalBridge::Download");
+#if defined(MERLIN_HYDRA2_HAVE_HGI_METAL_NATIVE)
+  HgiMetal* metal = nullptr;
+  {
+    std::scoped_lock lock(mutex_);
+    if (!target || !data || !byte_size ||
+        target->GetDescriptor().pixelsByteSize != byte_size) {
+      return false;
+    }
+    metal = dynamic_cast<HgiMetal*>(hgi_);
+  }
+  auto* texture = dynamic_cast<HgiMetalTexture*>(target.Get());
+  if (!metal || !texture) {
+    return false;
+  }
+  const auto start = Clock::now();
+  const auto& desc = target->GetDescriptor();
+  const auto packed_row = static_cast<std::size_t>(desc.dimensions[0]) * 4U;
+  const auto row_bytes = (packed_row + 255U) & ~std::size_t{255};
+  // Hgi's generic download wraps caller memory with newBufferWithBytesNoCopy,
+  // which requires page alignment. RenderBuffer vector storage is unaligned.
+  id<MTLBuffer> readback = [metal->GetPrimaryDevice()
+      newBufferWithLength:row_bytes * desc.dimensions[1]
+                  options:MTLResourceStorageModeShared];
+  id<MTLCommandBuffer> command = metal->GetPrimaryCommandBuffer();
+  if (!readback || !command) {
+    return false;
+  }
+  id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+  if (!blit) {
+    return false;
+  }
+  [blit copyFromTexture:texture->GetTextureId()
+                   sourceSlice:0
+                   sourceLevel:0
+                  sourceOrigin:MTLOriginMake(0, 0, 0)
+                    sourceSize:MTLSizeMake(desc.dimensions[0], desc.dimensions[1], 1)
+                      toBuffer:readback
+             destinationOffset:0
+        destinationBytesPerRow:row_bytes
+      destinationBytesPerImage:row_bytes * desc.dimensions[1]];
+  [blit endEncoding];
+  metal->SetHasWork();
+  metal->CommitPrimaryCommandBuffer(HgiMetal::CommitCommandBuffer_WaitUntilCompleted, true);
+  if (command.status != MTLCommandBufferStatusCompleted) {
+    return false;
+  }
+  for (int row = 0; row < desc.dimensions[1]; ++row) {
+    std::memcpy(static_cast<std::uint8_t*>(data) + row * packed_row,
+        static_cast<const std::uint8_t*>(readback.contents) + row * row_bytes, packed_row);
+  }
+  std::scoped_lock lock(mutex_);
+  ++telemetry_.cpu_download_count;
+  telemetry_.cpu_download_bytes += byte_size;
+  telemetry_.cpu_download_ns += ElapsedNanoseconds(start);
+  return true;
+#else
+  (void)target;
+  (void)data;
+  (void)byte_size;
+  return false;
+#endif
+}
+
 bool HdMerlinHgiMetalBridge::Copy(
     HgiTextureHandle target, merlin::metal::AovImageExport&& source,
     std::shared_ptr<merlin::render::Backend> backend) {
@@ -379,23 +473,35 @@ bool HdMerlinHgiMetalBridge::Copy(
   id<MTLDevice> device = hgi_metal == nullptr ? nil : hgi_metal->GetPrimaryDevice();
   const auto* desc = destination == nullptr ? nullptr
                                             : &destination->GetDescriptor();
+  const bool depth = source.product.aov == merlin::Aov::Depth;
+  const bool ids = source.product.aov == merlin::Aov::PrimId ||
+                   source.product.aov == merlin::Aov::InstanceId;
+  const auto expected_native = depth ? MTLPixelFormatDepth32Float
+                               : ids ? MTLPixelFormatR32Uint
+                                     : MTLPixelFormatRGBA8Unorm;
+  const auto expected_hgi = depth ? HgiFormatFloat32
+                            : ids ? HgiFormatInt32
+                                  : HgiFormatUNorm8Vec4;
+  const auto expected_destination = ids ? MTLPixelFormatR32Sint : expected_native;
   const bool valid = hgi_metal != nullptr && destination != nullptr &&
                      device != nil && hgi_metal->GetQueue() != nil && src != nil &&
                      destination->GetTextureId() != nil &&
                      destination->GetTextureId().device == device &&
-                     source.product.aov == merlin::Aov::Color &&
+                     (source.product.aov == merlin::Aov::Color || depth || ids) &&
                      source.product.width == static_cast<std::uint32_t>(desc->dimensions[0]) &&
                      source.product.height == static_cast<std::uint32_t>(desc->dimensions[1]) &&
                      source.device == reinterpret_cast<std::uintptr_t>((__bridge void*)device) &&
                      source.command_queue != 0 &&
-                     source.native_format == static_cast<std::uint32_t>(MTLPixelFormatRGBA8Unorm) &&
+                     source.native_format == static_cast<std::uint32_t>(expected_native) &&
+                     src.pixelFormat == expected_native &&
+                     destination->GetTextureId().pixelFormat == expected_destination &&
                      (source.native_usage & static_cast<std::uint32_t>(
                                                 MTLTextureUsageRenderTarget)) != 0 &&
                      source.native_storage_mode == static_cast<std::uint32_t>(
                                                        src.storageMode) &&
                      source.completion_event != 0 &&
                      source.renderer_completion == lease->completion_value() &&
-                     desc->format == HgiFormatUNorm8Vec4 && desc->sampleCount == HgiSampleCount1;
+                     desc->format == expected_hgi && desc->sampleCount == HgiSampleCount1;
   if (!valid) {
     release_lease();
     std::scoped_lock lock(mutex_);
@@ -414,15 +520,49 @@ bool HdMerlinHgiMetalBridge::Copy(
     if (blit == nil)
       throw std::runtime_error("no Metal blit encoder");
     const MTLSize size{source.product.width, source.product.height, 1};
-    [blit copyFromTexture:src
-              sourceSlice:0
-              sourceLevel:0
-             sourceOrigin:MTLOriginMake(0, 0, 0)
-               sourceSize:size
-                toTexture:destination->GetTextureId()
-         destinationSlice:0
-         destinationLevel:0
-        destinationOrigin:MTLOriginMake(0, 0, 0)];
+    if (ids) {
+      id<MTLBuffer> transfer = nil;
+      {
+        std::scoped_lock lock(mutex_);
+        const auto found = native_->id_transfers.find(target.Get());
+        if (found != native_->id_transfers.end()) {
+          transfer = found->second;
+        }
+      }
+      if (!transfer) {
+        [blit endEncoding];
+        throw std::runtime_error("missing ID transfer buffer");
+      }
+      const auto row_bytes = (static_cast<std::size_t>(size.width) * 4U + 255U) & ~std::size_t{255};
+      [blit copyFromTexture:src
+                       sourceSlice:0
+                       sourceLevel:0
+                      sourceOrigin:MTLOriginMake(0, 0, 0)
+                        sourceSize:size
+                          toBuffer:transfer
+                 destinationOffset:0
+            destinationBytesPerRow:row_bytes
+          destinationBytesPerImage:row_bytes * size.height];
+      [blit copyFromBuffer:transfer
+                 sourceOffset:0
+            sourceBytesPerRow:row_bytes
+          sourceBytesPerImage:row_bytes * size.height
+                   sourceSize:size
+                    toTexture:destination->GetTextureId()
+             destinationSlice:0
+             destinationLevel:0
+            destinationOrigin:MTLOriginMake(0, 0, 0)];
+    } else {
+      [blit copyFromTexture:src
+                sourceSlice:0
+                sourceLevel:0
+               sourceOrigin:MTLOriginMake(0, 0, 0)
+                 sourceSize:size
+                  toTexture:destination->GetTextureId()
+           destinationSlice:0
+           destinationLevel:0
+          destinationOrigin:MTLOriginMake(0, 0, 0)];
+    }
     [blit endEncoding];
     [command addCompletedHandler:
             [backend = std::move(backend), lease,
@@ -441,6 +581,10 @@ bool HdMerlinHgiMetalBridge::Copy(
                   --bridge->telemetry_.gpu_copy_pending_count;
               }
             }];
+    {
+      std::scoped_lock lock(mutex_);
+      ++telemetry_.gpu_copy_pending_count;
+    }
     hgi_metal->SetHasWork();
     hgi_metal->CommitPrimaryCommandBuffer(
         HgiMetal::CommitCommandBuffer_NoWait, true);
@@ -452,7 +596,6 @@ bool HdMerlinHgiMetalBridge::Copy(
   }
   std::scoped_lock lock(mutex_);
   ++telemetry_.gpu_copy_count;
-  ++telemetry_.gpu_copy_pending_count;
   telemetry_.gpu_copy_bytes += static_cast<std::uint64_t>(
                                    source.product.width) *
                                source.product.height * 4U;

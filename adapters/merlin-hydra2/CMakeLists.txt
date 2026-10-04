@@ -310,6 +310,20 @@ if(MERLIN_BUILD_TESTS)
     )
   endif()
 
+  if(TARGET Merlin::Metal AND TARGET hgiMetal AND MERLIN_ENABLE_HGI_METAL_BRIDGE)
+    add_executable(merlin-hydra2-hgi-metal-aov-test tests/hgi_metal_aov_test.cpp)
+    merlin_target_defaults(merlin-hydra2-hgi-metal-aov-test)
+    target_link_libraries(merlin-hydra2-hgi-metal-aov-test PRIVATE
+      merlin-hydra2-runtime Merlin::Metal Merlin::RenderExtraction)
+    add_test(NAME merlin-hydra2-hgi-metal-aov COMMAND merlin-hydra2-hgi-metal-aov-test)
+    set_tests_properties(merlin-hydra2-hgi-metal-aov PROPERTIES
+      LABELS "hydra;hgi;metal;presentation;gpu;picking" TIMEOUT 30
+      SKIP_RETURN_CODE 77
+      ENVIRONMENT "HGI_ENABLE_VULKAN=0;MTL_DEBUG_LAYER=1;MTL_SHADER_VALIDATION=1"
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib")
+  endif()
+
   if(TARGET Merlin::Vulkan AND TARGET hgiVulkan AND MERLIN_ENABLE_HGI_VULKAN_BRIDGE)
     add_executable(merlin-hydra2-hgi-vulkan-aov-test tests/hgi_vulkan_aov_test.cpp)
     merlin_target_defaults(merlin-hydra2-hgi-vulkan-aov-test)

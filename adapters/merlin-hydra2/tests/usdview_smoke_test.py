@@ -482,3 +482,6 @@ def testUsdviewInputFunction(appController):
     if selected["hgi_transfer_mode"] == "gpu-copy":
         assert selected["hgi_cpu_download_count"] >= 2
         assert selected["hgi_cpu_download_bytes"] > 0
+    if selected.get("hgi_metal_transfer_mode") == "gpu-copy":
+        assert selected["hgi_metal_cpu_download_count"] >= 2
+        assert selected["hgi_metal_cpu_download_bytes"] > 0

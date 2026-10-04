@@ -17,7 +17,14 @@ after its public API and release process are established.
   image readback. Exact depth/ID checks cover motion, resize, removal and Tier 0
   recovery; host selection and existing image comparisons retain validation.
   Bridge download count/bytes/time are reported separately from renderer
-  readback. HgiMetal retains its color-only copy and eager depth/ID readback.
+  readback.
+
+- HgiMetal now copies all four supported AOVs into retained Hgi targets too.
+  Depth composition stays on the GPU; depth/ID Map downloads and caches the
+  current target on demand. Exact AOV tests cover motion, odd-sized resize,
+  removal, repeated Map and Tier 0 recovery. usdview selection exercises ID
+  downloads, while normal Gaussian host frames perform zero image readback.
+  Metal download count/bytes/time are reported separately from renderer counters.
 
 ### Fixed
 
@@ -36,7 +43,22 @@ after its public API and release process are established.
   `gaussian_float_color_frame_count` reports selection, and Gaussian raster
   timestamps include final color conversion. Gaussian reference images change
   to remove accumulated quantization error; SDK consumers must rebuild for the
-  added telemetry field. Metal Gaussian execution is unchanged.
+  added telemetry field.
+
+- Metal Gaussian CPU/GPU sorted streams and tiles now use an RGBA32F working
+  target and one final RGBA8 conversion, with pixel-center ellipse evaluation.
+  A closed-form low-opacity composite anchors the corrected reference. Apple M3
+  host tile comparisons reduce the public 8,192-particle color tail from 15 to
+  6/255; the properly framed 1M host images match exactly. Native viewport
+  comparisons at both sizes differ by at most 1/255. Offscreen depth/ID parity
+  and the two-step color bound remain unchanged. Raster timestamps include
+  conversion; the extra retained working target costs 16 bytes/pixel.
+- HgiMetal projection Y reflection now flips Mesh front-face winding once per
+  reflection change, fixing the macOS usdview movement assertion.
+- The Metal native viewport builds with ARC-compatible Cocoa dialog parenting,
+  distinguishes Gaussian counter readback from image readback, and reports
+  actual tiled/float/fallback frame counts. Generated Gaussian benchmark scenes
+  now author conservative extents so usdview frames the full particle field.
 
 ## [0.16.0] - 2026-09-30
 

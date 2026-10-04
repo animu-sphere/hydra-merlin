@@ -11,7 +11,7 @@ struct GaussianConstants { float2 inverse_extent; };
 struct GaussianVertexOutput
 {
     float4 position : SV_Position;
-    float2 delta : TEXCOORD0;
+    nointerpolation float2 center_pixels : TEXCOORD0;
     nointerpolation float3 conic : TEXCOORD1;
     nointerpolation float3 radiance : COLOR0;
     nointerpolation float opacity : TEXCOORD2;
@@ -31,10 +31,11 @@ GaussianVertexOutput gaussian_metal_vertex(
     float radius = asfloat(gaussian_instances.Load(offset + MERLIN_GAUSSIAN_RADIUS));
     float depth = asfloat(gaussian_instances.Load(offset + MERLIN_GAUSSIAN_DEPTH));
     GaussianVertexOutput output;
-    output.delta = corners[vertex] * radius;
+    float2 delta = corners[vertex] * radius;
+    output.center_pixels = center;
     // Preparation uses the supplied projection's NDC axes. Metal's viewport
     // flips both the center and ellipse, matching the mesh path.
-    output.position = gaussian_raster_position(center, output.delta, depth,
+    output.position = gaussian_raster_position(center, delta, depth,
         gaussian_constants.inverse_extent);
     output.conic = asfloat(gaussian_instances.Load3(offset + MERLIN_GAUSSIAN_CONIC));
     output.radiance = asfloat(gaussian_instances.Load3(offset + MERLIN_GAUSSIAN_RADIANCE));
@@ -54,9 +55,14 @@ struct GaussianFragmentOutput
 [shader("fragment")]
 GaussianFragmentOutput gaussian_metal_fragment(GaussianVertexOutput input)
 {
-    float alpha = gaussian_raster_alpha(input.delta, input.conic, input.opacity);
+    // Use the same pixel center as compute tiles, without interpolated quad
+    // offsets depending on rasterizer subpixel quantization.
+    float2 sample_pixels = float2(input.position.x,
+        1.0f / gaussian_constants.inverse_extent.y - input.position.y);
+    float alpha = gaussian_raster_alpha(sample_pixels - input.center_pixels,
+        input.conic, input.opacity);
     GaussianFragmentOutput output;
-    output.color = float4(max(input.radiance, float3(0)), alpha);
+    output.color = float4(saturate(input.radiance), saturate(alpha));
     output.prim_id = input.resource;
     output.instance_id = input.particle;
     return output;

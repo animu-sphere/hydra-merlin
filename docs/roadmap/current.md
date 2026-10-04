@@ -12,19 +12,25 @@ claims. See the [GPU-driven design](../design/gpu-driven-rendering.md),
 [Gaussian pipeline design](../design/gaussian-rendering.md), and
 [Metal execution plan](../design/metal-gaussian-execution.md).
 
-- [ ] Investigate the sparse 15/255 HgiMetal tiled color tail on the public
-  8,192-particle corpus, then capture larger HgiMetal tiled scenes and native
-  viewport tile output. Retain distinct offscreen and host image policies.
+- [x] Investigate the sparse 15/255 HgiMetal tiled color tail and capture larger
+  host/native viewport tile output. Float accumulation and pixel-center
+  evaluation reduce the 8,192-particle host tail to 6/255; framed 1M host images
+  match exactly and native viewport images differ by at most 1/255. The distinct
+  offscreen and host policies remain unchanged. See the
+  [2026-10-05 delivery evidence](../reports/delivery-history.md#v016x-metal-quality-host-aovs-and-native-viewport).
 - [ ] Broaden Metal Gaussian execution evidence beyond Apple M3 and tune tile
   work on representative scenes. Record total GPU cost as well as raster savings;
   current 65K/1M binning and sorting can outweigh the raster improvement.
-- [ ] Resolve the pre-existing macOS Mesh usdview movement assertion failure.
-  Keep this host gap separate from passing Gaussian and hosted Metal evidence.
+- [x] Resolve the macOS Mesh usdview movement assertion failure. HgiMetal Y
+  reflection now corrects front-face winding; all existing phases and the
+  selection phase pass with validation on Apple M3/OpenUSD 26.08.
 - [ ] Extend same-device/host measurements to other supported GPUs with
   controlled clocks/power before establishing hardware timing gates.
-- [ ] Extend demand-driven Hydra depth/ID readback to HgiMetal, preserving
-  Tier 0 and picking AOV semantics. Its color GPU copy still reads back the
-  other three AOVs. Broaden actual host picking and overlay parity evidence.
+- [x] Extend demand-driven Hydra depth/ID readback to HgiMetal, preserving
+  Tier 0 and picking AOV semantics. Exact current-frame AOV and usdview
+  selection checks pass; normal unselected frames read back no image AOVs.
+- [ ] Broaden actual host click picking and overlay parity evidence beyond
+  the automated Hdx selection and demand-driven ID Map checks.
 
 ## Active carry-over — validation gates
 

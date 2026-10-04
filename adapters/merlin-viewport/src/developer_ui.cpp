@@ -15,7 +15,11 @@
 #include <imgui_impl_glfw.h>
 #ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
 #include <nfd.h>
+#if defined(__APPLE__) && defined(__OBJC__)
+#include <GLFW/glfw3native.h>
+#else
 #include <nfd_glfw3.h>
+#endif
 #endif
 #ifdef MERLIN_VIEWPORT_ENABLE_VULKAN
 #include <imgui_impl_vulkan.h>
@@ -455,7 +459,9 @@ public:
 #ifdef MERLIN_VIEWPORT_ENABLE_NATIVE_FILE_DIALOG
     if (NFD_Init() == NFD_OKAY) {
       nfd_initialized_ = true;
+#if !defined(__APPLE__) || !defined(__OBJC__)
       NFD_SetDisplayPropertiesFromGLFW();
+#endif
     } else {
       const auto* error = NFD_GetError();
       file_dialog_error_ =
@@ -1526,7 +1532,14 @@ private:
     arguments.filterList = filters;
     arguments.filterCount =
         static_cast<nfdfiltersize_t>(std::size(filters));
+#if defined(__APPLE__) && defined(__OBJC__)
+    // NFDe's GLFW helper uses a C cast that is invalid under ARC. Borrow the
+    // Cocoa window without transferring its ownership to the dialog.
+    arguments.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_COCOA;
+    arguments.parentWindow.handle = (__bridge void*)glfwGetCocoaWindow(window_);
+#else
     NFD_GetNativeWindowFromGLFWWindow(window_, &arguments.parentWindow);
+#endif
 
     nfdu8char_t* selected_path{};
     const auto result = NFD_OpenDialogU8_With(&selected_path, &arguments);

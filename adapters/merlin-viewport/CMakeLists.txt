@@ -216,6 +216,19 @@ if(MERLIN_BUILD_TESTS)
     )
   endif()
   if(MERLIN_ENABLE_HYDRA2)
+    if(TARGET Merlin::Metal)
+      add_test(NAME merlin-viewport-metal-gaussian-no-readback
+        COMMAND ${CMAKE_COMMAND}
+          "-DMERLIN_VIEWPORT=$<TARGET_FILE:merlin-viewport>"
+          "-DMERLIN_SCENE=${PROJECT_SOURCE_DIR}/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc"
+          "-DMERLIN_REPORT=${CMAKE_CURRENT_BINARY_DIR}/viewport-metal-gaussian.json"
+          -P "${PROJECT_SOURCE_DIR}/tests/run_metal_gaussian_viewport.cmake")
+      set_tests_properties(merlin-viewport-metal-gaussian-no-readback PROPERTIES
+        LABELS "gpu;viewport;presentation;metal;gaussian" TIMEOUT 60
+        ENVIRONMENT "MTL_DEBUG_LAYER=1"
+        ENVIRONMENT_MODIFICATION
+          "PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/bin;PATH=path_list_prepend:${MERLIN_OPENUSD_RUNTIME_ROOT}/lib")
+    endif()
     if(TARGET Merlin::Vulkan)
       set_property(TEST merlin-viewport-vulkan APPEND PROPERTY
         ENVIRONMENT_MODIFICATION

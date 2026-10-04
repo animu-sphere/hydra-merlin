@@ -157,8 +157,8 @@ wait; staging writes are ordered on reuse. A new GPU copy invalidates the CPU
 cache. Mixed/multiple consumers and bridge failures retain eager Tier 0.
 `hgi_cpu_download_count`, `hgi_cpu_download_bytes` and `hgi_cpu_download_ns`
 are cumulative bridge telemetry, separate from renderer image readback.
-HgiMetal still copies only color. Native Hgi color targets declare attachment
-usage because Hdx selection composites into them.
+HgiMetal follows the same demand-driven non-color contract. Native Hgi color
+targets declare attachment usage because Hdx selection composites into them.
 
 The bridge requires color, depth, `primId`, and `instanceId` to match Tier
 0 semantics; resize and target retirement are completion-safe; camera-only
@@ -213,11 +213,21 @@ Release-time validation evidence for direct-share rejection is in the
 
 The same logical contract applies to Metal: Tier 0 CPU fallback,
 Metal-local texture copy, then optionally same-`MTLDevice` texture sharing.
-The adapter publishes an Hgi-owned color target, while the Metal renderer
-exports a leased AOV texture plus an `MTLSharedEvent`; the Hgi command buffer
+The adapter publishes Hgi-owned color, depth and ID targets, while the Metal
+renderer exports a leased AOV texture plus an `MTLSharedEvent`; the Hgi command buffer
 waits on that event before copying and releases the lease only from its own
 completion callback. This keeps renderer completion, bridge completion, and
 host consumption distinct without a per-frame queue/device idle wait.
+
+Color and Depth32Float use texture blits. Renderer R32Uint ID bits pass through
+a retained private GPU buffer into the Hgi R32Sint texture. Non-color Map uses
+an owned, aligned Metal shared buffer and waits for that command's completion;
+the generic Hgi download cannot wrap unaligned RenderBuffer vector storage.
+Repeated Map reuses the CPU version until the next copy or Tier 0 write.
+Bridge download telemetry is distinct from renderer readback. Completion-handler
+lease release is serialized with backend frame state; native command retention
+keeps targets and private transfer buffers alive during retirement. HgiMetal's
+projection Y reflection also flips Mesh winding when the reflection changes.
 
 Metal device identity, texture storage/usage/pixel format, command queue and
 buffer completion, target lifetime, resize generation, SDR sRGB/Display P3,
