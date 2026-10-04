@@ -410,6 +410,8 @@ struct FrameCounters {
   // selected.
   std::uint64_t gaussian_gpu_tile_raster_dispatch_count{};
   std::uint64_t gaussian_gpu_tile_raster_frame_count{};
+  // Gaussian color is blended in RGBA32F and converted once to the RGBA8 AOV.
+  std::uint64_t gaussian_float_color_frame_count{};
   std::uint64_t gaussian_gpu_tile_raster_overflow_fallback_count{};
   std::uint64_t gaussian_gpu_tile_raster_fallback_count{};
   std::uint64_t gaussian_draw_count{};

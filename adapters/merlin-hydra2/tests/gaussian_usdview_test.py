@@ -7,10 +7,9 @@ from PySide6.QtGui import QImage
 
 MAX_REFERENCE_CHANGED_PIXEL_FRACTION = 0.005
 MAX_REFERENCE_MEAN_CHANNEL_ERROR = 0.5
-# A channel counts as changed above this many 8-bit steps. Tile raster blends
-# front to back once in float instead of once per UNorm draw, so its color
-# moves by a few rounding steps; the renderer's tile raster test bounds that
-# at 6 against the CPU-sorted reference.
+# A channel counts as changed above this many 8-bit steps. Keep distinct host
+# and offscreen policies and the existing six-step tile bound. Vulkan compares
+# against its float-composite baseline; Metal retains the legacy UNorm image.
 REFERENCE_CHANNEL_TOLERANCE = {"sorted-stream": 2, "tiled": 6}
 GAUSSIAN_MODE_SETTING = "merlin:gpuDrivenGaussian:mode"
 GAUSSIAN_RASTER_SETTING = "merlin:gpuDrivenGaussian:raster"

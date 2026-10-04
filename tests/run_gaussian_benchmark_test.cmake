@@ -39,6 +39,11 @@ foreach(fixture IN LISTS MERLIN_GAUSSIAN_FIXTURES)
       if(NOT name STREQUAL "${phase}-${path}" OR NOT samples EQUAL 4)
         message(FATAL_ERROR "${fixture}: wrong phase/samples at ${index}")
       endif()
+      string(JSON float_color GET "${json}" baselines ${index} counters
+          gaussian_float_color_frame_count)
+      if(NOT float_color EQUAL 1)
+        message(FATAL_ERROR "${fixture}: Gaussian image gate needs floating-point color")
+      endif()
       if(NOT path STREQUAL "cpu")
         foreach(counter upload_bytes gaussian_upload_bytes gaussian_attribute_upload_bytes
             allocation_count pipeline_creation_count gaussian_gpu_preparation_fallback_count

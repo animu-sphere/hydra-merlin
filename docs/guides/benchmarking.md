@@ -170,8 +170,13 @@ timed samples. Sorted-stream permits two RGBA8 steps and requires exact
 depth/IDs. Tiled permits six steps, exact depth/primId, and up to 1% depth-tied
 particle-ID differences, matching the existing raster test contract. Every
 comparison records its differences and `passed` result. A tolerance failure
-preserves the complete report and returns failure. The local 10M tiled capture
-exceeds the color bound; its timing is diagnostic evidence, not acceptance.
+preserves the complete report and returns failure. The v0.16.0 local 10M tiled
+capture exceeded the color bound and remains diagnostic evidence. Current
+Vulkan Gaussian paths use a floating-point working target and pixel-center
+ellipse evaluation. The image gate checks `gaussian_float_color_frame_count=1`
+without widening the six-step bound. Final RGBA8 conversion is included in
+Gaussian raster and total GPU/frame cost; reference images can differ from
+the old per-splat UNorm blend. Retain both failed historical and current reports.
 `compare-benchmarks.py` also rejects a failed current image gate, including
 self-comparison, or removal of the baseline's image verification evidence.
 
@@ -188,6 +193,7 @@ cmake -DMERLIN_BENCHMARK=C:/path/to/merlin-benchmark.exe `
 The hardware gate defaults to 1M at 597x540 with four samples. Use the quoted
 `-DMERLIN_GAUSSIAN_FIXTURES=one-million-gaussians;five-million-gaussians` argument
 to include 5M. These are capability/image gates, without timing thresholds.
+Add `ten-million-gaussians` to the same list for the dense-stack regression.
 
 For the host comparison, use a viewer-capable OpenUSD SDK built with Vulkan,
 and build hdMerlin against that same SDK. A GL-only lookdev artifact cannot

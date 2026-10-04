@@ -869,6 +869,8 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       count.gaussian_gpu_tile_raster_dispatch_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_raster_frame_count",
       count.gaussian_gpu_tile_raster_frame_count);
+  WriteCounter(stream, counter_indent, "gaussian_float_color_frame_count",
+      count.gaussian_float_color_frame_count);
   WriteCounter(stream, counter_indent,
       "gaussian_gpu_tile_raster_overflow_fallback_count",
       count.gaussian_gpu_tile_raster_overflow_fallback_count);
@@ -1386,8 +1388,8 @@ GaussianComparison CompareGaussianOutput(std::string name,
     result.prim_id_pixels += reference.prim_id.pixels[i] != candidate.prim_id.pixels[i];
     result.instance_id_pixels += reference.instance_id.pixels[i] != candidate.instance_id.pixels[i];
   }
-  // Existing raster tolerances: UNorm sorted-stream rounding and float tile
-  // composition. Rare depth-tied particle IDs can change at the cutoff rim.
+  // Preserve the existing six-step tiled bound. Both paths now accumulate in
+  // float; rare depth-tied particle IDs can change at the raster cutoff rim.
   const auto tolerance = execution == GaussianExecution::GpuTiled ? 6U : 2U;
   result.passed = !(result.max_color_channel_error > tolerance || result.depth_pixels != 0 ||
       result.prim_id_pixels != 0 ||
@@ -1402,6 +1404,7 @@ void RequireGaussianGpuFrame(const merlin::vulkan::RenderResult& result,
     GaussianExecution execution) {
   const auto& c = result.counters;
   if (c.upload_bytes != 0 || c.gaussian_upload_bytes != 0 ||
+      c.gaussian_float_color_frame_count != 1 ||
       c.gaussian_attribute_upload_bytes != 0 || c.allocation_count != 0 ||
       c.pipeline_creation_count != 0 || c.gaussian_cpu_preparation_skipped_count != 1 ||
       result.cpu_timings.gaussian_preparation_ns != 0 ||

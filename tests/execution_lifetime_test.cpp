@@ -377,6 +377,7 @@ int main(int argc, char** argv) {
     assert(tiled.telemetry.gaussian_gpu_sorted_count == 1);
     assert(tiled.telemetry.gaussian_gpu_raster_instance_count == 1);
     assert(tiled.telemetry.gaussian_gpu_tile_raster_frame_count == 1);
+    assert(tiled.telemetry.gaussian_float_color_frame_count == 1);
     assert(tiled.telemetry.gaussian_gpu_fallback_count == 0);
     assert(tiled.telemetry.gaussian_upload_bytes == 0);
 
@@ -386,6 +387,7 @@ int main(int argc, char** argv) {
         backend->Resolve(backend->Submit(gaussian_request));
     assert(sorted.telemetry.gaussian_gpu_raster_instance_count == 1);
     assert(sorted.telemetry.gaussian_gpu_tile_raster_frame_count == 0);
+    assert(sorted.telemetry.gaussian_float_color_frame_count == 1);
     assert(sorted.telemetry.gaussian_gpu_fallback_count == 0);
 
     gaussian_request.gpu_driven_gaussian.mode =
@@ -394,7 +396,21 @@ int main(int argc, char** argv) {
         backend->Resolve(backend->Submit(gaussian_request));
     assert(reference.telemetry.gaussian_gpu_sorted_count == 0);
     assert(reference.telemetry.gaussian_sorted_count == 1);
+    assert(reference.telemetry.gaussian_float_color_frame_count == 1);
     assert(reference.color.pixels == sorted.color.pixels);
+
+    // The floating-point working attachment never crosses the AOV boundary.
+    // A GPU-only color request exports the converted RGBA8 image, and its
+    // lease retains the frame target through renderer completion.
+    gaussian_request.products = {{merlin::Aov::Color, false}};
+    const auto color_token = backend->Submit(gaussian_request);
+    auto color_export = exporter->AcquireAovImage(color_token, merlin::Aov::Color);
+    assert(color_export.native_format == VK_FORMAT_R8G8B8A8_UNORM);
+    assert((color_export.native_usage_mask & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0);
+    assert(backend->Resolve(color_token).color.pixels.empty());
+    assert(backend->statistics().active_aov_image_leases == 1);
+    exporter->ReleaseAovImage(std::move(color_export.lease));
+    assert(backend->statistics().active_aov_image_leases == 0);
   }
 
   bool consumed{};

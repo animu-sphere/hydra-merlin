@@ -173,8 +173,13 @@ if(MERLIN_BUILD_TESTS)
     if(NOT _merlin_gaussian_reference_image AND
        "${MERLIN_GAUSSIAN_SAMPLE}" STREQUAL
        "${MERLIN_GAUSSIAN_BUNDLED_SAMPLE}")
-      set(_merlin_gaussian_reference_image
-          "${MERLIN_GAUSSIAN_BUNDLED_REFERENCE_IMAGE}")
+      if(TARGET Merlin::Vulkan)
+        set(_merlin_gaussian_reference_image
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/leica-sofort-top8192-reference-vulkan-float.png")
+      else()
+        set(_merlin_gaussian_reference_image
+            "${MERLIN_GAUSSIAN_BUNDLED_REFERENCE_IMAGE}")
+      endif()
     endif()
     if(_merlin_gaussian_reference_image AND
        NOT EXISTS "${_merlin_gaussian_reference_image}")

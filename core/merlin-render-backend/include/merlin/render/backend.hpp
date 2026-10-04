@@ -423,6 +423,8 @@ struct FrameTelemetry {
   std::uint64_t gaussian_gpu_tile_requested_pair_count{};
   std::uint64_t gaussian_gpu_tile_clamped_record_count{};
   std::uint64_t gaussian_gpu_tile_raster_frame_count{};
+  // One when a backend uses floating-point Gaussian color accumulation.
+  std::uint64_t gaussian_float_color_frame_count{};
   std::uint64_t gaussian_gpu_tile_raster_overflow_fallback_count{};
   std::uint64_t gaussian_gpu_fallback_count{};
   // ABI-v1 persistent GPU Scene payload copied from a caller-packed update.
