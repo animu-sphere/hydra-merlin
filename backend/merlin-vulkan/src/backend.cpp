@@ -389,6 +389,8 @@ public:
         native.counters.gaussian_gpu_raster_instance_count;
     result.telemetry.gaussian_gpu_tile_raster_frame_count =
         native.counters.gaussian_gpu_tile_raster_frame_count;
+    result.telemetry.gaussian_float_color_frame_count =
+        native.counters.gaussian_float_color_frame_count;
     result.telemetry.gaussian_gpu_tile_raster_overflow_fallback_count =
         native.counters.gaussian_gpu_tile_raster_overflow_fallback_count;
     result.telemetry.gaussian_gpu_fallback_count =

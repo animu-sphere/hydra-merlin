@@ -2060,6 +2060,8 @@ public:
                << result.telemetry.gaussian_gpu_tile_clamped_record_count
                << " gaussian_gpu_tile_raster_frame_count="
                << result.telemetry.gaussian_gpu_tile_raster_frame_count
+               << " gaussian_float_color_frame_count="
+               << result.telemetry.gaussian_float_color_frame_count
                << " gaussian_gpu_tile_raster_overflow_fallback_count="
                << result.telemetry
                       .gaussian_gpu_tile_raster_overflow_fallback_count

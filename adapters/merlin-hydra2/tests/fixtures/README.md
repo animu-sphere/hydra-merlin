@@ -18,3 +18,12 @@ path. Its SHA-256 digest is
 The host smoke compares later captures against it with a small
 cross-driver tolerance rather than treating PNG byte identity as the rendering
 contract.
+
+`leica-sofort-top8192-reference-vulkan-float.png` is the 597×540 Tier 0
+CPU-sorted Vulkan capture from 2026-10-04, with RGBA32F accumulation, one final
+RGBA8 conversion and pixel-center ellipse evaluation. It was captured on an
+RTX A5000 with driver 597.16, Vulkan SDK 1.4.350.0 and OpenUSD 26.08; HgiVulkan
+color copy produced the same PNG bytes. Its SHA-256 digest is
+`dec8deec02136c53ab0e89624bb31ba89cd6ce234bd1263c204a953731f8eb73`.
+It is the Vulkan float-composite host baseline. The earlier reference remains
+available for the legacy UNorm path and Metal; host tolerances are unchanged.

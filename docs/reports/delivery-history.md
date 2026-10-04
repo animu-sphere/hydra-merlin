@@ -11,6 +11,40 @@ Legend: ✅ done
 
 ---
 
+## v0.16.x Vulkan Gaussian float composite and 10M quality closure
+
+Completed the Vulkan color-discrepancy follow-up on 2026-10-04, based on
+`b0db2b5` plus the working-tree change. CPU/GPU sorted streams and compute tiles
+now use an RGBA32F working attachment and one final conversion to the public
+RGBA8 AOV. Fragment ellipse evaluation uses the actual pixel center. Per-splat
+UNorm quantization and interpolated quad offsets both contributed to the old
+discrepancy; a closed-form 513-particle low-opacity RGBA fixture anchors the
+corrected reference independently of GPU path comparisons.
+
+- RTX A5000, driver 597.16, Vulkan SDK 1.4.350.0, Windows Release/MSVC 19.51:
+  1M/5M/10M captures at 597x540 use forty warmed samples per static/motion path.
+  All twelve final-frame comparisons have exact color, depth, primId and
+  instanceId parity. The six-step tiled color bound is unchanged. Separate
+  four-sample captures at every scale pass with validation enabled and no
+  renderer validation messages.
+- Gaussian raster timestamps include the final GPU conversion. At 10M,
+  static GPU sorted-stream/tiled raster medians are 37.67/1.59 ms, total GPU
+  medians 60.31/57.23 ms, and total frame medians 62.12/59.14 ms. The extra
+  float target costs 16 bytes/pixel per frame context before allocation
+  alignment. Clocks/power are unpinned; these are observations, not hardware
+  timing gates, and stage medians are not additive frame estimates.
+- Final CTest passes 53/53 with no skips, including shader/ABI, four-AOV
+  Gaussian regression and overflow, completion/lease/resize, GPU-only RGBA8
+  export, Mesh/Gaussian usdview, HgiVulkan synchronization/copy and installed
+  SDK consumers. Tier 0 and HgiVulkan color-copy PNG bytes match. A separate
+  float-composite Vulkan PNG records the intentional reference correction;
+  the old shared PNG and host image tolerances are retained.
+- Raw accepted, failed and rejected diagnostic reports remain local in
+  `build/v016x-tile-quality/`, with the dated local
+  `docs/reports/2026-10-04-vulkan-gaussian-tile-quality.md` report. The historical
+  v0.16.0 10M 8/10-step failure remains untouched. Metal Gaussian execution and
+  its host color-tail investigation remain separate incomplete work.
+
 ## v0.16.0 Metal Gaussian tile raster and Apple M3 scale check
 
 Connected the tiled request to the native Metal renderer on 2026-09-30. The

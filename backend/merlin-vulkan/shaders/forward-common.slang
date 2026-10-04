@@ -186,7 +186,7 @@ ForwardFragmentOutput MakeForwardFragmentOutput(
     DrawConstants draw)
 {
     ForwardFragmentOutput output;
-    output.color = color;
+    output.color = saturate(color);
     output.prim_id = draw.prim_id;
     output.instance_id = draw.instance_id;
     return output;

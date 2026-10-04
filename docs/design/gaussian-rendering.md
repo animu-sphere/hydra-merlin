@@ -136,12 +136,35 @@ stored and no record was clamped, it zeroes the sorted-stream draw's
 instance count and publishes the frame for tile raster; otherwise the draws
 rasterize the whole sorted stream and the raster dispatch exits. Resolve
 fails the frame if that choice disagrees with the binning counts, and
-counts overflow fallbacks. Reference parity is a tolerance, not bit
-equality: blending once in float instead of once per UNorm draw moves color
-by a few rounding steps, and the procedural quads interpolate offsets from
-subpixel-snapped corners while compute evaluates the exact offset, so rare
-pixels on a splat's cutoff rim may keep a depth-tied neighbor's particle
-index. Depth and primId stay exact. Delivery and support status live in the
+counts overflow fallbacks. Reference parity is a tolerance, not bit equality.
+Vulkan CPU/GPU sorted-stream and compute tiles accumulate color in an RGBA32F
+working attachment and convert once to the public RGBA8 image. Fragment ellipse
+evaluation subtracts the flat prepared center from `SV_Position.xy`, matching
+compute's pixel-center evaluation instead of interpolating offsets from
+subpixel-snapped quad corners. The old per-splat UNorm blend could stop changing
+at low opacity and differed from float tile composition by more than the
+six-step bound on dense stacks. The reference image therefore changes to remove
+that accumulated quantization error; it is checked against a closed-form
+low-opacity composite as well as GPU execution. Early termination and
+arithmetic precision still require image tolerances. Depth and primId stay
+exact, and the existing bounded particle-ID rim policy remains in force.
+
+The Vulkan working attachment belongs to the frame target and follows its
+completion/export-lease, resize, allocation-budget and retirement rules.
+Export, host GPU copy, CPU readback and native presentation consume the converted
+RGBA8 image. Its final transfer-source layout is published only after the
+conversion; Gaussian raster timestamps include this cost. Mesh-only requests
+retain the RGBA8 attachment. Float Gaussian selection is cached from RGBA32F
+attachment/blend/blit-source and RGBA8 blit-destination format support and is
+reported by `gaussian_float_color_frame_count`. If unsupported, CPU and GPU
+sorted-stream retain the legacy UNorm target. Tile raster additionally requires
+float storage-image support, so required tiled requests reject this condition
+and preferred requests fall back to the sorted stream.
+
+Metal retains its current UNorm reference blend, float tiled accumulation and
+interpolated procedural offsets. Its separate host color-tail investigation
+remains open; Vulkan evidence does not establish Metal parity. Delivery and
+support status live in the
 [current milestone](../roadmap/current.md) and
 [support matrix](../reference/support-matrix.md).
 

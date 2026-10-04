@@ -12,9 +12,6 @@ claims. See the [GPU-driven design](../design/gpu-driven-rendering.md),
 [Gaussian pipeline design](../design/gaussian-rendering.md), and
 [Metal execution plan](../design/metal-gaussian-execution.md).
 
-- [ ] Resolve the Vulkan 10M tiled color discrepancy against the CPU and GPU
-  sorted-stream references. Preserve failing reports and the six-step color
-  bound; current 10M tiled timing is diagnostic evidence only.
 - [ ] Investigate the sparse 15/255 HgiMetal tiled color tail on the public
   8,192-particle corpus, then capture larger HgiMetal tiled scenes and native
   viewport tile output. Retain distinct offscreen and host image policies.

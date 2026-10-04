@@ -8,6 +8,21 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Fixed
+
+- Vulkan Gaussian CPU/GPU sorted-stream and tiled execution now blend into an
+  RGBA32F working target where blend/blit support is available, then convert
+  once to the public RGBA8 color AOV. This fixes low-opacity blend stagnation
+  and dense-stack rounding differences. Fragment ellipse evaluation uses the
+  pixel center rather than interpolated quad offsets. RTX A5000 1M/5M/10M
+  static/motion comparisons retain the six-step tiled bound; the historical
+  v0.16.0 failing reports remain available. Legacy sorted-stream rendering
+  remains the format fallback; tiled execution requires the float target.
+  `gaussian_float_color_frame_count` reports selection, and Gaussian raster
+  timestamps include final color conversion. Gaussian reference images change
+  to remove accumulated quantization error; SDK consumers must rebuild for the
+  added telemetry field. Metal Gaussian execution is unchanged.
+
 ## [0.16.0] - 2026-09-30
 
 ### Fixed

@@ -164,6 +164,7 @@ constexpr std::uint32_t kMinimumVulkanApiVersion = VK_MAKE_API_VERSION(
 constexpr std::uint32_t kMinimumBorrowedVulkanApiVersion = VK_API_VERSION_1_3;
 
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+constexpr VkFormat kGaussianColorFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 constexpr VkFormat kIdFormat = VK_FORMAT_R32_UINT;
 // Frame timestamp pairs: 0/1 graphics submission, 2/3 Gaussian raster
@@ -1400,14 +1401,19 @@ public:
       EnsureDescriptorSetLayout();
       EnsureGeneratedDescriptorSetLayouts();
     }
-    // Storage and sampled target usage is paid only by requests that may
-    // select tile raster.
+    // Gaussian over-blending must not quantize the destination after every
+    // splat. Keep a floating-point working target and convert once to the
+    // public RGBA8 AOV for all execution policies, including the CPU reference.
+    const bool gaussian_float_color = !request.snapshot->gaussians.empty() &&
+        GaussianFloatColorSupported();
+    frame_counters_.gaussian_float_color_frame_count =
+        gaussian_float_color ? 1U : 0U;
     const bool gaussian_tile_raster_images =
-        request.gpu_driven_gaussian_tile_raster !=
+        gaussian_float_color && request.gpu_driven_gaussian_tile_raster !=
             GpuDrivenGaussianTileRasterMode::Disabled &&
         GaussianTileRasterFormatsSupported();
     auto& frame = AcquireFrame(request.width, request.height, request.shaders,
-        cpu_readback_aovs, gaussian_tile_raster_images);
+        cpu_readback_aovs, gaussian_tile_raster_images, gaussian_float_color);
     frame.scene_revision = request.snapshot->revision;
     frame.rendered_aovs = std::move(rendered_aovs);
     frame.cpu_readback_aovs = std::move(cpu_readback_aovs);
@@ -1419,7 +1425,7 @@ public:
       }
     } reset_active_target{active_target_};
     EnsureTarget(frame.target, request.width, request.height, request.shaders,
-        frame.cpu_readback_aovs, gaussian_tile_raster_images);
+        frame.cpu_readback_aovs, gaussian_tile_raster_images, gaussian_float_color);
     if (request.present) {
       PreparePresentation(frame, request.width, request.height);
     } else {
@@ -1722,8 +1728,10 @@ public:
     VkImage image{};
     VkFormat format{VK_FORMAT_UNDEFINED};
     VkImageAspectFlags aspect{};
-    const auto usage =
-        TargetImageUsage(aov, frame.target.gaussian_tile_raster_images);
+    const auto usage = aov == Aov::Color
+        ? TargetImageUsage(aov, false) |
+            (frame.target.gaussian_float_color ? VK_IMAGE_USAGE_TRANSFER_DST_BIT : 0U)
+        : TargetImageUsage(aov, frame.target.gaussian_tile_raster_images);
     switch (aov) {
     case Aov::Color:
       image = frame.target.color;
@@ -1990,6 +1998,10 @@ public:
     VkImage color{};
     VkDeviceMemory color_memory{};
     VkImageView color_view{};
+    VkImage gaussian_color{};
+    VkDeviceMemory gaussian_color_memory{};
+    VkImageView gaussian_color_view{};
+    bool gaussian_float_color{};
     VkImage depth{};
     VkDeviceMemory depth_memory{};
     VkImageView depth_view{};
@@ -5857,7 +5869,8 @@ public:
                 VK_WHOLE_SIZE},
         }};
     const std::array<VkDescriptorImageInfo, 4> images{{
-        {VK_NULL_HANDLE, active_target_->color_view, VK_IMAGE_LAYOUT_GENERAL},
+        {VK_NULL_HANDLE, active_target_->gaussian_color_view,
+            VK_IMAGE_LAYOUT_GENERAL},
         {VK_NULL_HANDLE, active_target_->prim_id_view,
             VK_IMAGE_LAYOUT_GENERAL},
         {VK_NULL_HANDLE, active_target_->instance_id_view,
@@ -5933,8 +5946,9 @@ public:
       return;
     }
     if (!active_target_->gaussian_tile_raster_images) {
-      unavailable("the color and ID formats are not storage images or the "
-                  "depth format is not sampled on this device");
+      unavailable("tile raster requires RGBA32F blend/blit/storage support, "
+                  "RGBA8 blit-destination support, storage ID images and "
+                  "sampled depth on this device");
       return;
     }
     const auto& binning = frame.gaussian_gpu_tiles.constants;
@@ -8053,7 +8067,7 @@ public:
   FrameContext& AcquireFrame(std::uint32_t width, std::uint32_t height,
       const ShaderPaths& shaders,
       const std::vector<Aov>& cpu_readback_aovs,
-      bool gaussian_tile_raster_images) {
+      bool gaussian_tile_raster_images, bool gaussian_float_color) {
     auto reusable = [&](FrameContext& frame) {
       return !frame.outstanding && frame.exported_aov_mask == 0 &&
              frame.target.width == width &&
@@ -8061,7 +8075,8 @@ public:
              frame.target.shaders == shaders &&
              frame.target.cpu_readback_aovs == cpu_readback_aovs &&
              frame.target.gaussian_tile_raster_images ==
-                 gaussian_tile_raster_images;
+                 gaussian_tile_raster_images &&
+             frame.target.gaussian_float_color == gaussian_float_color;
     };
     auto found = std::find_if(frames_.begin(), frames_.end(), reusable);
     if (found == frames_.end()) {
@@ -8165,18 +8180,37 @@ public:
       std::uint32_t height,
       const ShaderPaths& shaders,
       const std::vector<Aov>& cpu_readback_aovs,
-      bool gaussian_tile_raster_images) {
+      bool gaussian_tile_raster_images, bool gaussian_float_color) {
     if (target.width == width && target.height == height &&
         target.shaders == shaders &&
         target.cpu_readback_aovs == cpu_readback_aovs &&
-        target.gaussian_tile_raster_images == gaussian_tile_raster_images) {
+        target.gaussian_tile_raster_images == gaussian_tile_raster_images &&
+        target.gaussian_float_color == gaussian_float_color) {
       ++frame_counters_.pipeline_cache_hits;
       return;
     }
     ++frame_counters_.pipeline_cache_misses;
     DestroyTarget(target);
     CreateTarget(width, height, shaders, cpu_readback_aovs,
-        gaussian_tile_raster_images);
+        gaussian_tile_raster_images, gaussian_float_color);
+  }
+
+  bool GaussianFloatColorSupported() {
+    if (!gaussian_float_color_supported_) {
+      VkFormatProperties source{};
+      VkFormatProperties destination{};
+      vkGetPhysicalDeviceFormatProperties(physical_device_, kGaussianColorFormat,
+          &source);
+      vkGetPhysicalDeviceFormatProperties(physical_device_, kColorFormat,
+          &destination);
+      constexpr auto features = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+          VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+          VK_FORMAT_FEATURE_BLIT_SRC_BIT;
+      gaussian_float_color_supported_ =
+          (source.optimalTilingFeatures & features) == features &&
+          (destination.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
+    }
+    return *gaussian_float_color_supported_;
   }
 
   bool GaussianTileRasterFormatsSupported() {
@@ -8189,7 +8223,8 @@ public:
         return (properties.optimalTilingFeatures & features) == features;
       };
       gaussian_tile_raster_formats_supported_ =
-          supports(kColorFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) &&
+          GaussianFloatColorSupported() &&
+          supports(kGaussianColorFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) &&
           supports(kIdFormat, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) &&
           supports(kDepthFormat, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
     }
@@ -8220,20 +8255,32 @@ public:
   void CreateTarget(std::uint32_t width, std::uint32_t height,
       const ShaderPaths& shaders,
       const std::vector<Aov>& cpu_readback_aovs,
-      bool gaussian_tile_raster_images) {
+      bool gaussian_tile_raster_images, bool gaussian_float_color) {
     active_target_->width = width;
     active_target_->height = height;
     active_target_->shaders = shaders;
     active_target_->cpu_readback_aovs = cpu_readback_aovs;
     active_target_->gaussian_tile_raster_images = gaussian_tile_raster_images;
+    active_target_->gaussian_float_color = gaussian_float_color;
     try {
       active_target_->color = CreateImage(
           width, height, kColorFormat,
-          TargetImageUsage(Aov::Color, gaussian_tile_raster_images),
+          TargetImageUsage(Aov::Color, false) |
+              (gaussian_float_color ? VK_IMAGE_USAGE_TRANSFER_DST_BIT : 0U),
           active_target_->color_memory);
       active_target_->color_view =
           CreateImageView(active_target_->color, kColorFormat,
               VK_IMAGE_ASPECT_COLOR_BIT);
+      if (gaussian_float_color) {
+        active_target_->gaussian_color = CreateImage(width, height,
+            kGaussianColorFormat,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                (gaussian_tile_raster_images ? VK_IMAGE_USAGE_STORAGE_BIT : 0U),
+            active_target_->gaussian_color_memory);
+        active_target_->gaussian_color_view = CreateImageView(
+            active_target_->gaussian_color, kGaussianColorFormat,
+            VK_IMAGE_ASPECT_COLOR_BIT);
+      }
       active_target_->depth = CreateImage(
           width, height, kDepthFormat,
           TargetImageUsage(Aov::Depth, gaussian_tile_raster_images),
@@ -8255,7 +8302,9 @@ public:
           active_target_->instance_id, kIdFormat, VK_IMAGE_ASPECT_COLOR_BIT);
       CreateRenderPass();
       const std::array<VkImageView, 4> views{
-          active_target_->color_view, active_target_->depth_view,
+          gaussian_float_color ? active_target_->gaussian_color_view
+                               : active_target_->color_view,
+          active_target_->depth_view,
           active_target_->prim_id_view,
           active_target_->instance_id_view};
       VkFramebufferCreateInfo framebuffer_info{
@@ -8337,7 +8386,9 @@ public:
 
   void CreateRenderPass() {
     std::array<VkAttachmentDescription, 4> attachments{};
-    attachments[0].format = kColorFormat;
+    attachments[0].format = active_target_->gaussian_float_color
+        ? kGaussianColorFormat
+        : kColorFormat;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -8907,6 +8958,15 @@ public:
     }
     if (target.depth_memory != VK_NULL_HANDLE) {
       memory_budget_.Free(target.depth_memory);
+    }
+    if (target.gaussian_color_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device_, target.gaussian_color_view, nullptr);
+    }
+    if (target.gaussian_color != VK_NULL_HANDLE) {
+      vkDestroyImage(device_, target.gaussian_color, nullptr);
+    }
+    if (target.gaussian_color_memory != VK_NULL_HANDLE) {
+      memory_budget_.Free(target.gaussian_color_memory);
     }
     if (target.color_view != VK_NULL_HANDLE) {
       vkDestroyImageView(device_, target.color_view, nullptr);
@@ -9916,7 +9976,7 @@ public:
     constexpr auto kDepthReadOnly =
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
     const std::array to_compute{
-        image_barrier(active_target_->color, VK_IMAGE_ASPECT_COLOR_BIT,
+        image_barrier(active_target_->gaussian_color, VK_IMAGE_ASPECT_COLOR_BIT,
             kTransferSource, VK_IMAGE_LAYOUT_GENERAL,
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
             VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
@@ -9954,7 +10014,7 @@ public:
         resources.constants.tile_count_y, 1);
     ++frame_counters_.gaussian_gpu_tile_raster_dispatch_count;
     const std::array to_transfer{
-        image_barrier(active_target_->color, VK_IMAGE_ASPECT_COLOR_BIT,
+        image_barrier(active_target_->gaussian_color, VK_IMAGE_ASPECT_COLOR_BIT,
             VK_IMAGE_LAYOUT_GENERAL, kTransferSource,
             VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT),
         image_barrier(active_target_->prim_id, VK_IMAGE_ASPECT_COLOR_BIT,
@@ -9969,6 +10029,51 @@ public:
     vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
         static_cast<std::uint32_t>(to_transfer.size()), to_transfer.data());
+  }
+
+  // Native export, host copies, readback, and presentation all consume the
+  // same RGBA8 image. Quantize the completed Gaussian composite only once.
+  void RecordGaussianColorConversion(VkCommandBuffer command) {
+    VkImageMemoryBarrier source{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    source.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_SHADER_WRITE_BIT;
+    source.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    source.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    source.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    source.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    source.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    source.image = active_target_->gaussian_color;
+    source.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    source.subresourceRange.levelCount = 1;
+    source.subresourceRange.layerCount = 1;
+    auto destination = source;
+    destination.srcAccessMask = 0;
+    destination.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    destination.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    destination.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    destination.image = active_target_->color;
+    const std::array barriers{source, destination};
+    vkCmdPipelineBarrier(command,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
+        static_cast<std::uint32_t>(barriers.size()), barriers.data());
+    VkImageBlit blit{};
+    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.srcSubresource.layerCount = 1;
+    blit.srcOffsets[1] = {static_cast<std::int32_t>(active_target_->width),
+        static_cast<std::int32_t>(active_target_->height), 1};
+    blit.dstSubresource = blit.srcSubresource;
+    blit.dstOffsets[1] = blit.srcOffsets[1];
+    vkCmdBlitImage(command, active_target_->gaussian_color,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, active_target_->color,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+    destination.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    destination.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    destination.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    destination.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &destination);
   }
 
   void RecordGpuDrivenDispatch(VkCommandBuffer command,
@@ -10042,7 +10147,10 @@ public:
       const std::vector<Aov>& cpu_readback_aovs) {
     std::array<VkClearValue, 4> clear{};
     clear[0].color = {
-        {clear_color.x, clear_color.y, clear_color.z, clear_color.w}};
+        {std::clamp(clear_color.x, 0.0F, 1.0F),
+            std::clamp(clear_color.y, 0.0F, 1.0F),
+            std::clamp(clear_color.z, 0.0F, 1.0F),
+            std::clamp(clear_color.w, 0.0F, 1.0F)}};
     clear[1].depthStencil = {1.0F, 0};
     clear[2].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
     clear[3].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
@@ -10269,13 +10377,23 @@ public:
     vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
     record_gaussian_draw(true);
     const bool tile_raster = frame.gaussian_gpu_tile_raster.selected;
-    if (frame.timestamp_pool != VK_NULL_HANDLE && !tile_raster) {
+    if (frame.timestamp_pool != VK_NULL_HANDLE && !tile_raster &&
+        !active_target_->gaussian_float_color) {
       vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
           frame.timestamp_pool, 3);
     }
     vkCmdEndRenderPass(command);
     if (tile_raster) {
       RecordGaussianGpuTileRaster(command, frame);
+      if (frame.timestamp_pool != VK_NULL_HANDLE &&
+          !active_target_->gaussian_float_color) {
+        vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            frame.timestamp_pool, 3);
+      }
+    }
+
+    if (active_target_->gaussian_float_color) {
+      RecordGaussianColorConversion(command);
       if (frame.timestamp_pool != VK_NULL_HANDLE) {
         vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
             frame.timestamp_pool, 3);
@@ -10878,6 +10996,7 @@ public:
   // Lazily queried storage-image support of the color and ID formats and
   // sampled support of the depth format, which tile raster needs.
   std::optional<bool> gaussian_tile_raster_formats_supported_;
+  std::optional<bool> gaussian_float_color_supported_;
   std::uint32_t max_per_stage_descriptor_storage_buffers_{};
   std::uint32_t max_descriptor_set_storage_buffers_{};
   bool owns_vulkan_context_{true};

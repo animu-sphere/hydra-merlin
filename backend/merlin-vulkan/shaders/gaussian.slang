@@ -30,7 +30,7 @@ struct GaussianVertexInput
 struct GaussianVertexOutput
 {
     float4 position : SV_Position;
-    [[vk::location(0)]] float2 delta_pixels : TEXCOORD0;
+    [[vk::location(0)]] nointerpolation float2 center_pixels : TEXCOORD0;
     [[vk::location(1)]] float3 inverse_conic : TEXCOORD1;
     [[vk::location(2)]] float3 radiance : COLOR0;
     [[vk::location(3)]] float opacity : TEXCOORD2;
@@ -39,7 +39,7 @@ struct GaussianVertexOutput
 struct GaussianIdVertexOutput
 {
     float4 position : SV_Position;
-    [[vk::location(0)]] float2 delta_pixels : TEXCOORD0;
+    [[vk::location(0)]] nointerpolation float2 center_pixels : TEXCOORD0;
     [[vk::location(1)]] float3 inverse_conic : TEXCOORD1;
     [[vk::location(2)]] float3 radiance : COLOR0;
     [[vk::location(3)]] float opacity : TEXCOORD2;
@@ -62,9 +62,10 @@ struct GaussianIdOutput
 GaussianVertexOutput gaussian_vertex(GaussianVertexInput input)
 {
     GaussianVertexOutput output;
-    output.delta_pixels = input.corner * input.radius_pixels;
+    float2 delta_pixels = input.corner * input.radius_pixels;
+    output.center_pixels = input.center_pixels;
     output.position = gaussian_raster_position(input.center_pixels,
-        output.delta_pixels, input.depth, gaussian_constants.inverse_viewport_size);
+        delta_pixels, input.depth, gaussian_constants.inverse_viewport_size);
     output.inverse_conic = input.inverse_conic;
     output.radiance = input.radiance;
     output.opacity = input.opacity;
@@ -75,9 +76,10 @@ GaussianVertexOutput gaussian_vertex(GaussianVertexInput input)
 GaussianIdVertexOutput gaussian_id_vertex(GaussianVertexInput input)
 {
     GaussianIdVertexOutput output;
-    output.delta_pixels = input.corner * input.radius_pixels;
+    float2 delta_pixels = input.corner * input.radius_pixels;
+    output.center_pixels = input.center_pixels;
     output.position = gaussian_raster_position(input.center_pixels,
-        output.delta_pixels, input.depth, gaussian_constants.inverse_viewport_size);
+        delta_pixels, input.depth, gaussian_constants.inverse_viewport_size);
     output.inverse_conic = input.inverse_conic;
     output.radiance = input.radiance;
     output.opacity = input.opacity;
@@ -89,18 +91,22 @@ GaussianIdVertexOutput gaussian_id_vertex(GaussianVertexInput input)
 [shader("fragment")]
 GaussianFragmentOutput gaussian_fragment(GaussianVertexOutput input)
 {
+    // Evaluate the same pixel-center offset as tile compute. Interpolating the
+    // quad's corner offsets makes the ellipse depend on hardware subpixel
+    // snapping, which can amplify color and cutoff-ID differences in dense stacks.
     float alpha = gaussian_raster_alpha(
-        input.delta_pixels, input.inverse_conic, input.opacity);
+        input.position.xy - input.center_pixels, input.inverse_conic, input.opacity);
     GaussianFragmentOutput output;
     output.color =
-        float4(max(input.radiance, float3(0.0f, 0.0f, 0.0f)), alpha);
+        float4(saturate(input.radiance), saturate(alpha));
     return output;
 }
 
 [shader("fragment")]
 GaussianIdOutput gaussian_id_fragment(GaussianIdVertexOutput input)
 {
-    gaussian_raster_alpha(input.delta_pixels, input.inverse_conic, input.opacity);
+    gaussian_raster_alpha(input.position.xy - input.center_pixels,
+        input.inverse_conic, input.opacity);
     GaussianIdOutput output;
     // The stream is back-to-front and does not write depth. Integer AOV writes
     // therefore retain the nearest contributing Gaussian in front of opaque

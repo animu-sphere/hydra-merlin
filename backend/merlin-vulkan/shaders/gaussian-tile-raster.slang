@@ -8,12 +8,13 @@
 // Mesh and empty Gaussian subpasses. Each batch of up to 256 records is
 // staged in workgroup memory from the front of the tile's back-to-front
 // range, and a tile stops once every pixel's transmittance is negligible.
-// Every record is evaluated with the procedural fragment stage's expressions
-// and fixed-function state: the three-sigma square and ellipse, the
-// one-UNorm-step alpha floor, clamping to [0, 1] before blending, and the
+// Every record is evaluated with the procedural fragment stage's pixel-center
+// expressions and state: the three-sigma square and ellipse, the
+// one-UNorm-step alpha floor, clamping to [0, 1] before float blending, and the
 // LESS_OR_EQUAL Mesh depth test with clipping to [0, 1]. The composite
 // C + T * destination equals the back-to-front "over" blend, and the first
-// contributing record is the nearest one, which the ID AOVs keep.
+// contributing record is the nearest one, which the ID AOVs keep. The renderer
+// converts the completed RGBA32F composite to the public RGBA8 AOV only once.
 //
 // The kernels bind their own set layout: four storage buffers, three storage
 // images, and one sampled image, each within the Vulkan guaranteed per-stage
@@ -78,7 +79,7 @@ ConstantBuffer<GaussianTileRasterConstants> gaussian_tile_raster_constants;
 [[vk::binding(1, 0)]] RWStructuredBuffer<uint> gaussian_tile_raster_control;
 [[vk::binding(2, 0)]] StructuredBuffer<GaussianPreparedRecord> gaussian_tile_raster_records;
 [[vk::binding(3, 0)]] RWStructuredBuffer<uint> gaussian_tile_raster_draw;
-[[vk::binding(4, 0)]] [format("rgba8")] RWTexture2D<float4> gaussian_tile_raster_color;
+[[vk::binding(4, 0)]] [format("rgba32f")] RWTexture2D<float4> gaussian_tile_raster_color;
 [[vk::binding(5, 0)]] [format("r32ui")] RWTexture2D<uint> gaussian_tile_raster_prim_id;
 [[vk::binding(6, 0)]] [format("r32ui")] RWTexture2D<uint> gaussian_tile_raster_instance_id;
 [[vk::binding(7, 0)]] Texture2D<float> gaussian_tile_raster_depth;
@@ -197,7 +198,7 @@ void gaussian_tile_raster(uint3 group_id : SV_GroupID,
             {
                 continue;
             }
-            // UNorm blending clamps source values before it blends.
+            // Preserve the SDR source clamp used by the reference fragment.
             alpha = saturate(alpha);
             color += transmittance * alpha * saturate(gs_tile_raster_radiance[i].xyz);
             transmittance *= 1.0f - alpha;

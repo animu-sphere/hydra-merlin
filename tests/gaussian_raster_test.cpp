@@ -11,6 +11,8 @@
 #include <merlin/vulkan/renderer.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -143,6 +145,84 @@ void Report(const char* label, const ImageDifference& difference) {
             << difference.instance_id_pixels << " differing pixels\n";
 }
 
+void CheckLowOpacityTiles(merlin::vulkan::Renderer& renderer,
+    const merlin::vulkan::ShaderPaths& shaders) {
+  // A dense stack with weak contributions reproduces the 10M color defect
+  // without the memory/time cost of the scale benchmark. More than two batches
+  // and a nonopaque background exercise both RGB and alpha accumulation.
+  for (const float opacity : {0.01F, 0.02F, 0.05F, 0.7F}) {
+    merlin::RenderWorld world;
+    merlin::GaussianDescriptor gaussian;
+    gaussian.label = "low-opacity-overlap";
+    constexpr std::size_t count = 513;
+    gaussian.positions.assign(count, {0.015625F, 0.015625F, 0.5F});
+    gaussian.covariances.assign(count,
+        {0.01F, 0.0F, 0.0F, 0.01F, 0.0F, 0.0001F});
+    gaussian.opacities.assign(count, opacity);
+    gaussian.spherical_harmonics_coefficients.assign(count,
+        {0.35F, 0.55F, 0.8F});
+    const auto handle = world.CreateGaussian(std::move(gaussian));
+    (void)handle;
+    merlin::extraction::SceneExtractor extractor;
+    extractor.Apply(world, world.Commit());
+    merlin::vulkan::RenderRequest request;
+    request.snapshot = extractor.snapshot();
+    request.width = 64;
+    request.height = 64;
+    request.shaders = shaders;
+    request.clear_color = {0.08F, 0.17F, 0.31F, 0.25F};
+    request.products = {{merlin::Aov::Color, true},
+        {merlin::Aov::Depth, true}, {merlin::Aov::PrimId, true},
+        {merlin::Aov::InstanceId, true}};
+    const auto reference = renderer.Resolve(renderer.Submit(request));
+    Require(reference.counters.gaussian_float_color_frame_count == 1,
+        "CPU Gaussian reference did not use floating-point color");
+    // The center is exactly pixel (32,32). A closed-form over composite catches
+    // RGBA8 blend stagnation even if both execution paths regress together.
+    const float transmittance = std::pow(1.0F - opacity, static_cast<float>(count));
+    const std::array radiance{0.5F + 0.2820947918F * 0.35F,
+        0.5F + 0.2820947918F * 0.55F, 0.5F + 0.2820947918F * 0.8F, 1.0F};
+    const std::array background{0.08F, 0.17F, 0.31F, 0.25F};
+    for (std::uint32_t channel = 0; channel < 4; ++channel) {
+      const auto expected = std::lround(255.0F *
+          (radiance[channel] * (1.0F - transmittance) +
+              background[channel] * transmittance));
+      Require(std::abs(static_cast<long>(Channel(reference, 32, 32, channel)) -
+                  expected) <= 1,
+          "Gaussian reference accumulated low-opacity quantization error");
+    }
+    request.gpu_driven_gaussian_preparation =
+        merlin::vulkan::GpuDrivenGaussianPreparationMode::Require;
+    request.gpu_driven_gaussian_sort =
+        merlin::vulkan::GpuDrivenGaussianSortMode::Require;
+    request.gpu_driven_gaussian_raster =
+        merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
+    const auto sorted = renderer.Resolve(renderer.Submit(request));
+    Require(Compare(reference, sorted).color_pixels == 0,
+        "low-opacity sorted stream changed the reference color");
+    request.gpu_driven_gaussian_tiles =
+        merlin::vulkan::GpuDrivenGaussianTileMode::Require;
+    request.gpu_driven_gaussian_tile_raster =
+        merlin::vulkan::GpuDrivenGaussianTileRasterMode::Require;
+    const auto tiled = renderer.Resolve(renderer.Submit(request));
+    Require(tiled.counters.gaussian_gpu_tile_raster_frame_count == 1 &&
+                tiled.counters.gaussian_float_color_frame_count == 1,
+        "low-opacity fixture did not execute floating-point tile raster");
+    const auto difference = Compare(reference, tiled);
+    std::cout << "opacity " << opacity << " center reference/tiled ";
+    for (std::uint32_t channel = 0; channel < 4; ++channel) {
+      std::cout << static_cast<unsigned>(Channel(reference, 32, 32, channel))
+                << '/' << static_cast<unsigned>(Channel(tiled, 32, 32, channel))
+                << ' ';
+    }
+    std::cout << '\n';
+    Report("low opacity tiles", difference);
+    Require(difference.max_color_channel <= 2 && difference.depth_pixels == 0 &&
+                difference.prim_id_pixels == 0 && difference.instance_id_pixels == 0,
+        "low-opacity tile composite diverged from the CPU reference");
+  }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -177,6 +257,7 @@ int main(int argc, char** argv) {
   }
 
   try {
+    CheckLowOpacityTiles(*renderer, shaders);
     merlin::RenderWorld world;
     merlin::MeshDescriptor mesh;
     mesh.label = "background-quad";
