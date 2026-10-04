@@ -611,6 +611,68 @@ int Benchmark() {
   }
 }
 
+int RunDenseComposite() try {
+  using namespace merlin;
+  metal::BackendFactory factory;
+  if (!factory.availability().available)
+    return 77;
+  render::BackendCreateInfo info;
+  info.enable_validation = true;
+  auto backend = factory.Create(info);
+  RenderWorld world;
+  extraction::SceneExtractor extractor;
+  GaussianDescriptor gaussian;
+  constexpr unsigned count = 512;
+  for (unsigned i = 0; i < count; ++i)
+    gaussian.positions.push_back({1.0F / 64, -1.0F / 64, 0.25F + i * 0.0005F});
+  gaussian.covariances.assign(count, {0.01F, 0, 0, 0.01F, 0, 0.0001F});
+  gaussian.opacities.assign(count, 0.01F);
+  constexpr float sh = 0.2820947918F;
+  gaussian.spherical_harmonics_coefficients.assign(count,
+      {(-0.4F) / sh, (-0.5F) / sh, (-0.5F) / sh});
+  (void)world.CreateGaussian(gaussian);
+  extractor.Apply(world, world.Commit());
+  render::RenderRequest request;
+  request.snapshot = extractor.snapshot();
+  request.width = request.height = 64;
+  request.clear_color = {0, 0, 0, 0};
+  request.products = {{Aov::Color, true}, {Aov::Depth, true},
+      {Aov::PrimId, true}, {Aov::InstanceId, true}};
+  render::RenderResult reference;
+  for (unsigned path = 0; path < 3; ++path) {
+    request.gpu_driven_gaussian.mode = path == 0
+                                           ? render::GpuDrivenGaussianMode::Disabled
+                                           : render::GpuDrivenGaussianMode::Require;
+    request.gpu_driven_gaussian.raster = path == 2
+                                             ? render::GaussianRasterPath::Tiled
+                                             : render::GaussianRasterPath::SortedStream;
+    auto image = backend->Resolve(backend->Submit(request));
+    // Each 0.001 red contribution is below one RGBA8 rounding step. An
+    // attachment rounded after every blend stalls; analytic accumulation does not.
+    const auto expected = int(std::lround(255 * 0.1 * (1 - std::pow(0.99, count))));
+    Require(std::abs(int(Channel(image, 32, 32, 0)) - expected) <= 1,
+        "dense low-opacity Gaussian color stagnated");
+    Require(image.telemetry.gaussian_float_color_frame_count == 1,
+        "Gaussian did not select float color accumulation");
+    if (path == 0) {
+      reference = image;
+    } else {
+      for (std::size_t i = 0; i < image.color.pixels.size(); ++i)
+        Require(std::abs(int(image.color.pixels[i]) - int(reference.color.pixels[i])) <= 2,
+            "dense Gaussian tile/sorted color differs from CPU reference");
+      Require(image.depth.pixels == reference.depth.pixels &&
+                  image.prim_id.pixels == reference.prim_id.pixels &&
+                  image.instance_id.pixels == reference.instance_id.pixels,
+          "dense Gaussian depth/IDs differ from CPU reference");
+    }
+  }
+  Require(backend->statistics().validation_messages == 0, "dense composite validation failed");
+  return 0;
+} catch (const std::exception& error) {
+  std::cerr << error.what() << '\n';
+  return 1;
+}
+
 int main(int argc, char** argv) {
   if (argc == 2 && std::string_view(argv[1]) == "--benchmark") return Benchmark();
   if (argc == 2 && std::string_view(argv[1]) == "--tile-scale") return RunTileScale();
@@ -620,5 +682,8 @@ int main(int argc, char** argv) {
   if (gpu) return gpu;
   const int overflow = RunTileOverflow();
   if (overflow) return overflow;
+  const int dense = RunDenseComposite();
+  if (dense)
+    return dense;
   return RunContracts();
 }

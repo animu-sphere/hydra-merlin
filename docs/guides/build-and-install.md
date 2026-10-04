@@ -179,8 +179,14 @@ compiles and packages Core plus Metal in Debug and Release; local runtime
 evidence exercises an Apple GPU. Metal Gaussian compute/image tests use the
 backend availability probe, including scene-heap support, before GPU execution;
 a non-null Metal device alone is insufficient. Hosted Metal jobs retain CTest
-logs and JUnit results with capability skip reasons. A skipped runtime test
-does not establish GPU coverage. See the
+logs and JUnit results. Required hosted and SDK-release checks exclude the exact
+`gpu`, `runtime`, and `host-smoke` labels. Shader/ABI checks and installed package
+linking run without GPU execution. The scheduled/manual Metal capability
+workflow runs Debug/Release runtime tests and retains skip reasons; a skipped
+runtime test does not establish GPU coverage. Installed execution lives in
+`merlin-metal-install-runtime` and `merlin-vulkan-install-runtime`, whose CTest
+fixture first stages and builds the package consumers. An unfiltered local
+CTest run continues to exercise both package linking and runtime. See the
 [support matrix](../reference/support-matrix.md) for the exact coverage.
 
 ## Shared CMake presets

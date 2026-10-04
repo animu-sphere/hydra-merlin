@@ -875,9 +875,34 @@ add_test(
 )
 set_tests_properties(merlin-install-consumer PROPERTIES
   LABELS packaging
+  FIXTURES_SETUP merlin-installed-package
   RUN_SERIAL TRUE
   TIMEOUT 60
 )
+
+if(TARGET Merlin::Vulkan)
+  add_test(NAME merlin-vulkan-install-runtime
+    COMMAND "${CMAKE_CURRENT_BINARY_DIR}/install-consumer-prefix/${CMAKE_INSTALL_BINDIR}/merlin-headless${CMAKE_EXECUTABLE_SUFFIX}"
+      --report "${PROJECT_BINARY_DIR}/renderer-report.json"
+      --output "${CMAKE_CURRENT_BINARY_DIR}/renderer-install-smoke.ppm"
+      --install-tree)
+  set_tests_properties(merlin-vulkan-install-runtime PROPERTIES
+    LABELS "gpu;runtime;packaging"
+    FIXTURES_REQUIRED merlin-installed-package
+    SKIP_RETURN_CODE 77 RUN_SERIAL TRUE TIMEOUT 60)
+endif()
+if(TARGET Merlin::Metal)
+  set(_merlin_metal_consumer_dir "${CMAKE_CURRENT_BINARY_DIR}/metal-install-consumer-build")
+  if(_merlin_is_multi_config)
+    string(APPEND _merlin_metal_consumer_dir "/$<CONFIG>")
+  endif()
+  add_test(NAME merlin-metal-install-runtime
+    COMMAND "${_merlin_metal_consumer_dir}/merlin-metal-install-consumer${CMAKE_EXECUTABLE_SUFFIX}" --runtime)
+  set_tests_properties(merlin-metal-install-runtime PROPERTIES
+    LABELS "gpu;runtime;packaging;metal"
+    FIXTURES_REQUIRED merlin-installed-package
+    SKIP_RETURN_CODE 77 RUN_SERIAL TRUE TIMEOUT 60)
+endif()
 
 add_test(
   NAME merlin-release-tooling

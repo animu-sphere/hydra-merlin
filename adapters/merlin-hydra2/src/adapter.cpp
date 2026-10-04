@@ -36,7 +36,9 @@
 #include <pxr/imaging/hd/sceneIndexObserver.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hgi/enums.h>
+#include <pxr/imaging/hgi/hgi.h>
 #include <pxr/imaging/hgi/texture.h>
+#include <pxr/imaging/hgi/tokens.h>
 #include <pxr/imaging/hgi/types.h>
 #include <pxr/imaging/hio/image.h>
 #include <pxr/usd/sdf/assetPath.h>
@@ -1184,6 +1186,12 @@ public:
 
   void SetHgiProjectionYReflection(bool reflect) {
     std::scoped_lock lock(mutex_);
+    if (reflect != reflect_hgi_projection_y_) {
+      // Reflection reverses projected winding as well as the viewport Y axis.
+      camera_front_face_ = camera_front_face_ == merlin::FrontFaceWinding::Clockwise
+                               ? merlin::FrontFaceWinding::CounterClockwise
+                               : merlin::FrontFaceWinding::Clockwise;
+    }
     reflect_hgi_projection_y_ = reflect;
   }
 
@@ -1781,12 +1789,9 @@ public:
     std::array<HdMerlinRenderBuffer*,
         static_cast<std::size_t>(merlin::Aov::MotionVector) + 1> gpu_aov_buffers{};
     gpu_aov_buffers[static_cast<std::size_t>(merlin::Aov::Color)] = gpu_color_buffer;
-#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
+#if defined(MERLIN_HYDRA2_ENABLE_VULKAN) || defined(MERLIN_HYDRA2_ENABLE_METAL)
     for (const auto aov : {merlin::Aov::Depth, merlin::Aov::PrimId,
              merlin::Aov::InstanceId}) {
-      if (aov == merlin::Aov::Depth && regression_coverage) {
-        continue;
-      }
       std::size_t consumers{};
       HdMerlinRenderBuffer* candidate{};
       for (const auto& binding : bindings) {
@@ -1859,22 +1864,24 @@ public:
       request_product(merlin::Aov::Depth);
     }
     auto token = renderer_->Submit(request);
-    bool gpu_color_copied{};
     std::vector<HdMerlinRenderBuffer*> gpu_copied_buffers;
     bool gpu_copy_failed{};
-#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
+#if defined(MERLIN_HYDRA2_ENABLE_VULKAN) || defined(MERLIN_HYDRA2_ENABLE_METAL)
     for (std::size_t i = 0; i < gpu_aov_buffers.size(); ++i) {
       auto* buffer = gpu_aov_buffers[i];
       if (buffer == nullptr) {
         continue;
       }
       bool copied{};
-      if (auto* exporter = dynamic_cast<merlin::vulkan::AovImageExporter*>(
-              renderer_.get())) {
+#ifdef MERLIN_HYDRA2_ENABLE_VULKAN
+      using Exporter = merlin::vulkan::AovImageExporter;
+#else
+      using Exporter = merlin::metal::AovImageExporter;
+#endif
+      if (auto* exporter = dynamic_cast<Exporter*>(renderer_.get())) {
         try {
           copied = buffer->CopyAov(
-              exporter->AcquireAovImage(token, static_cast<merlin::Aov>(i)),
-              renderer_);
+              exporter->AcquireAovImage(token, static_cast<merlin::Aov>(i)), renderer_);
         } catch (const merlin::render::RendererError&) {
           copied = false;
         }
@@ -1885,28 +1892,13 @@ public:
         gpu_copy_failed = true;
       }
     }
-#elif defined(MERLIN_HYDRA2_ENABLE_METAL)
-    if (gpu_color_buffer != nullptr) {
-      if (auto* exporter = dynamic_cast<merlin::metal::AovImageExporter*>(
-              renderer_.get())) {
-        try {
-          gpu_color_copied = gpu_color_buffer->CopyColor(
-              exporter->AcquireAovImage(token, merlin::Aov::Color),
-              renderer_);
-        } catch (const merlin::render::RendererError&) {
-          gpu_color_copied = false;
-        }
-      }
-    }
 #endif
     auto result = renderer_->Resolve(token);
-    if (gpu_copy_failed ||
-        (gpu_color_buffer != nullptr && !gpu_color_copied && gpu_copied_buffers.empty())) {
+    if (gpu_copy_failed) {
       for (auto& product : request.products) {
         product.cpu_readback = true;
       }
       result = renderer_->Resolve(renderer_->Submit(request));
-      gpu_color_copied = false;
       gpu_copied_buffers.clear();
     }
     latest_viewport_frame_.timings = result.timings;
@@ -1976,13 +1968,8 @@ public:
           gpu_copied_buffers.end()) {
         written = true;
       } else if (binding.aovName == HdAovTokens->color) {
-        if (gpu_color_copied && buffer == gpu_color_buffer) {
-          written = true;
-        } else {
-          written = buffer->WriteColor(result.color.pixels,
-              result.color.product.width,
-              result.color.product.height);
-        }
+        written = buffer->WriteColor(result.color.pixels,
+            result.color.product.width, result.color.product.height);
       } else if (HdAovHasDepthSemantic(binding.aovName)) {
         written = buffer->WriteDepth(result.depth.pixels,
             result.depth.product.width,
@@ -2285,6 +2272,9 @@ public:
                << " hgi_coarse_wait_count="
                << hgi_vulkan_telemetry.coarse_wait_count
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+               << " hgi_metal_cpu_download_count=" << hgi_metal_telemetry.cpu_download_count
+               << " hgi_metal_cpu_download_bytes=" << hgi_metal_telemetry.cpu_download_bytes
+               << " hgi_metal_cpu_download_ns=" << hgi_metal_telemetry.cpu_download_ns
                << " hgi_metal_gpu_copy_count="
                << hgi_metal_telemetry.gpu_copy_count
                << " hgi_metal_gpu_copy_completion_count="
@@ -3969,21 +3959,23 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   gpu_copy_ready_ = false;
   converged_ = false;
   data_.assign(pixels * pixel_size, 0);
-  // Native HgiVulkan keeps depth/IDs on the GPU as well. Host depth composition
+  // Native Hgi targets keep depth/IDs on the GPU. Host depth composition
   // consumes the texture; selection and picking download only when Map is used.
-  // Other host compositions retain the color-only target and Tier 0 buffers.
+  // Non-native host compositions retain Tier 0 buffers.
   const HgiFormat hgi_format = HdMerlinHgiFormatForRenderBuffer(format);
-  const bool native_aov_target = hgi_vulkan_bridge_ &&
-                                 hgi_vulkan_bridge_->status().gpu_copy &&
-                                 !(format == HdFormatFloat32 && RegressionCoverageRequested());
+  const bool native_aov_target =
+      (hgi_vulkan_bridge_ && hgi_vulkan_bridge_->status().gpu_copy)
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+      || (hgi_metal_bridge_ && hgi_metal_bridge_->status().gpu_copy)
+#endif
+      ;
   if (!reusable_target && pixels != 0 &&
       (format == HdFormatUNorm8Vec4 || native_aov_target) &&
       hgi_format != HgiFormatInvalid && dimensions[2] == 1) {
     HgiTextureDesc descriptor;
     descriptor.debugName = GetId().GetString();
     descriptor.usage = HgiTextureUsageBitsShaderRead;
-    if (format == HdFormatUNorm8Vec4 && hgi_vulkan_bridge_ &&
-        hgi_vulkan_bridge_->status().gpu_copy) {
+    if (format == HdFormatUNorm8Vec4 && native_aov_target) {
       // Hdx selection highlighting composites directly into the color AOV.
       descriptor.usage |= HgiTextureUsageBitsColorTarget;
     } else if (format == HdFormatFloat32) {
@@ -4001,7 +3993,7 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
           hgi_vulkan_bridge_->CreateTarget(descriptor, recreation);
     }
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-    if (hgi_metal_bridge_ && format == HdFormatUNorm8Vec4) {
+    if (hgi_metal_bridge_) {
       hgi_metal_target_ =
           hgi_metal_bridge_->CreateTarget(descriptor, recreation);
     }
@@ -4044,9 +4036,17 @@ void* HdMerlinRenderBuffer::Map() {
   if (gpu_only_) {
     // Color remains a presentation-only resource. Non-color CPU consumers
     // download the latest target exactly once between renderer submissions.
-    if (format_ == HdFormatUNorm8Vec4 || !hgi_vulkan_target_ ||
-        !hgi_vulkan_bridge_ || !hgi_vulkan_bridge_->Download(
-            hgi_vulkan_target_, data_.data(), data_.size())) {
+    if (format_ == HdFormatUNorm8Vec4) {
+      return nullptr;
+    }
+    bool downloaded = hgi_vulkan_target_ && hgi_vulkan_bridge_ &&
+                      hgi_vulkan_bridge_->Download(hgi_vulkan_target_, data_.data(), data_.size());
+#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
+    if (hgi_metal_target_ && hgi_metal_bridge_) {
+      downloaded = hgi_metal_bridge_->Download(hgi_metal_target_, data_.data(), data_.size());
+    }
+#endif
+    if (!downloaded) {
       return nullptr;
     }
     gpu_only_ = false;
@@ -4152,7 +4152,7 @@ bool HdMerlinRenderBuffer::CanGpuCopyAov(merlin::Aov aov) const {
          ((hgi_vulkan_target_ && hgi_vulkan_bridge_ &&
               hgi_vulkan_bridge_->status().gpu_copy) ||
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-             (aov == merlin::Aov::Color && hgi_metal_target_ && hgi_metal_bridge_ &&
+             (hgi_metal_target_ && hgi_metal_bridge_ &&
                  hgi_metal_bridge_->status().gpu_copy));
 #else
              false);
@@ -4194,12 +4194,16 @@ bool HdMerlinRenderBuffer::CopyAov(
   return true;
 }
 
-bool HdMerlinRenderBuffer::CopyColor(
+bool HdMerlinRenderBuffer::CopyAov(
     merlin::metal::AovImageExport&& source,
     std::shared_ptr<merlin::render::Backend> backend) {
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
   std::scoped_lock lock(mutex_);
-  if (!hgi_metal_target_ || !hgi_metal_bridge_) {
+  if (map_count_ != 0 || !hgi_metal_target_ || !hgi_metal_bridge_) {
+    if (auto* exporter = dynamic_cast<merlin::metal::AovImageExporter*>(backend.get());
+        exporter != nullptr && source.lease) {
+      exporter->ReleaseAovImage(std::move(source.lease));
+    }
     return false;
   }
   if (!hgi_metal_bridge_->Copy(hgi_metal_target_, std::move(source),
@@ -4442,12 +4446,18 @@ void HdMerlinRenderDelegate::SetDrivers(const HdDriverVector& drivers) {
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
   impl_->hgi_metal_bridge->SetDrivers(drivers);
 #endif
-  const bool hgi_projection_y_reflection =
-#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-      impl_->hgi_metal_bridge->status().hgi_owned_targets;
-#else
-      false;
-#endif
+  // HgiMetal reflects the host projection even when presentation falls back
+  // to CPU RenderBuffers. Camera orientation is a driver contract, independent
+  // of whether a native-copy bridge was built or negotiated successfully.
+  bool hgi_projection_y_reflection = false;
+  for (const auto* driver : drivers) {
+    if (driver && driver->name == HgiTokens->renderDriver &&
+        driver->driver.IsHolding<Hgi*>()) {
+      const auto* hgi = driver->driver.UncheckedGet<Hgi*>();
+      hgi_projection_y_reflection = hgi && hgi->GetAPIName() == HgiTokens->Metal;
+      break;
+    }
+  }
   impl_->bridge->SetHgiProjectionYReflection(hgi_projection_y_reflection);
 }
 

@@ -403,6 +403,15 @@ fragment FragmentOutput merlin_fragment_gpu_scene(
   return shade(input, constants, effective_material, texture_sample);
 }
 
+kernel void merlin_convert_color(
+    texture2d<float, access::read> source [[texture(0)]],
+    texture2d<float, access::write> destination [[texture(1)]],
+    uint2 pixel [[thread_position_in_grid]]) {
+  if (pixel.x < destination.get_width() && pixel.y < destination.get_height()) {
+    destination.write(source.read(pixel), pixel);
+  }
+}
+
 struct PresentationVertexOutput {
   float4 position [[position]];
   float2 texcoord;
@@ -533,6 +542,10 @@ AovImageLease::AovImageLease(AovImageLease&& other) noexcept
 
 class Backend::Impl {
 public:
+  // Hgi completion handlers release export leases while the execution thread
+  // submits/resolves frames. Serialize their shared frame/pending state.
+  mutable std::mutex state_mutex;
+
   Impl(const render::BackendCreateInfo& info, BackendOptions options)
       : owner_(++g_owner), options_(options),
         texture_slots_(options.texture_capacity),
@@ -831,7 +844,10 @@ public:
 
     FrameBuild build;
     Reconcile(*request.snapshot, build);
-    EnsureTargets(frame, request.width, request.height, build);
+    EnsureTargets(frame, request.width, request.height,
+        !request.snapshot->gaussians.empty() ||
+            request.gpu_driven_gaussian.mode != render::GpuDrivenGaussianMode::Disabled,
+        build);
     if (bindless_) {
       EncodeArgumentBuffer(frame, build);
     }
@@ -1210,6 +1226,7 @@ private:
     std::uint32_t width{};
     std::uint32_t height{};
     id<MTLTexture> color;
+    id<MTLTexture> gaussian_color = nil;
     id<MTLTexture> depth;
     id<MTLTexture> prim_id;
     id<MTLTexture> instance_id;
@@ -1698,6 +1715,12 @@ private:
               : String(error.localizedDescription),
           static_cast<std::int32_t>(error.code));
     }
+    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
+    float_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (!float_pipeline_)
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "create Metal float Forward pipeline", String(error.localizedDescription));
+    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
     if (bindless_) {
       id<MTLFunction> gpu_scene_vertex =
           [library_ newFunctionWithName:@"merlin_vertex_gpu_scene"];
@@ -1725,6 +1748,11 @@ private:
       }
     }
     if (bindless_) {
+      descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
+      float_gpu_scene_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:descriptor error:&error];
+      if (!float_gpu_scene_pipeline_)
+        throw render::RendererError(render::RendererErrorCode::BackendFailure,
+            "create Metal float GPU Scene pipeline", String(error.localizedDescription));
       argument_encoder_ = [fragment newArgumentEncoderWithBufferIndex:3];
       if (argument_encoder_ == nil) {
         throw render::RendererError(render::RendererErrorCode::BackendFailure,
@@ -1747,7 +1775,7 @@ private:
     gaussian.label = @"hdMerlin Gaussian";
     gaussian.vertexFunction = [gaussian_library newFunctionWithName:@"gaussian_metal_vertex"];
     gaussian.fragmentFunction = [gaussian_library newFunctionWithName:@"gaussian_metal_fragment"];
-    gaussian.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    gaussian.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
     gaussian.colorAttachments[0].blendingEnabled = YES;
     gaussian.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
     gaussian.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
@@ -1763,6 +1791,12 @@ private:
           error == nil ? "newRenderPipelineState returned nil" : String(error.localizedDescription),
           static_cast<std::int32_t>(error.code));
     }
+    color_convert_pipeline_ = [device_ newComputePipelineStateWithFunction:
+            [library_ newFunctionWithName:@"merlin_convert_color"]
+                                                                     error:&error];
+    if (!color_convert_pipeline_)
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "create Metal color conversion pipeline", String(error.localizedDescription));
     try {
       gaussian_execution_ = std::make_unique<GaussianExecution>(device_, gaussian_library,
           options_.gaussian_scratch_budget_bytes);
@@ -2227,10 +2261,8 @@ private:
   }
 
   void EnsureTargets(FrameContext& frame, std::uint32_t width,
-      std::uint32_t height, FrameBuild& build) {
-    if (frame.width == width && frame.height == height && frame.color != nil) {
-      return;
-    }
+      std::uint32_t height, bool gaussian_color, FrameBuild& build) {
+    const bool reuse = frame.width == width && frame.height == height && frame.color != nil;
     auto texture = [&](MTLPixelFormat format, MTLTextureUsage usage) {
       MTLTextureDescriptor* descriptor =
           [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
@@ -2247,11 +2279,19 @@ private:
       }
       ++build.telemetry.allocation_count;
       build.telemetry.image_allocation_bytes +=
-          static_cast<std::uint64_t>(width) * height * 4U;
+          static_cast<std::uint64_t>(width) * height * (format == MTLPixelFormatRGBA32Float ? 16U : 4U);
       return value;
     };
     const auto gaussian_usage = MTLTextureUsageRenderTarget |
         MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    if (reuse) {
+      if (gaussian_color && !frame.gaussian_color)
+        frame.gaussian_color = texture(MTLPixelFormatRGBA32Float, gaussian_usage);
+      return;
+    }
+    id<MTLTexture> float_color = gaussian_color
+                                     ? texture(MTLPixelFormatRGBA32Float, gaussian_usage)
+                                     : nil;
     id<MTLTexture> color =
         texture(MTLPixelFormatRGBA8Unorm, gaussian_usage);
     id<MTLTexture> depth =
@@ -2282,6 +2322,7 @@ private:
     frame.width = width;
     frame.height = height;
     frame.color = color;
+    frame.gaussian_color = float_color;
     frame.depth = depth;
     frame.prim_id = prim_id;
     frame.instance_id = instance_id;
@@ -2559,6 +2600,8 @@ private:
       if (result.telemetry.gaussian_gpu_tile_raster_frame_count)
         result.timings.gaussian_raster_ns = duration(kGaussianTileRasterBegin, kGaussianTileRasterEnd);
     }
+    if (result.telemetry.gaussian_float_color_frame_count)
+      result.timings.gaussian_raster_ns += duration(kGaussianColorConvertBegin, kGaussianColorConvertEnd);
   }
 
   void PrepareGaussians(const render::RenderRequest& request,
@@ -2633,7 +2676,10 @@ private:
       const render::RenderRequest& request, FrameBuild& build) {
     MTLRenderPassDescriptor* pass =
         [MTLRenderPassDescriptor renderPassDescriptor];
-    pass.colorAttachments[0].texture = frame.color;
+    const bool float_color = !request.snapshot->gaussians.empty() ||
+                             request.gpu_driven_gaussian.mode != render::GpuDrivenGaussianMode::Disabled;
+    pass.colorAttachments[0].texture = float_color ? frame.gaussian_color : frame.color;
+    build.telemetry.gaussian_float_color_frame_count = float_color ? 1 : 0;
     pass.colorAttachments[0].loadAction = MTLLoadActionClear;
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     pass.colorAttachments[0].clearColor =
@@ -2661,7 +2707,7 @@ private:
           "encode Metal render pass",
           "renderCommandEncoder returned nil");
     }
-    [encoder setRenderPipelineState:pipeline_];
+    [encoder setRenderPipelineState:float_color ? float_pipeline_ : pipeline_];
     [encoder setDepthStencilState:depth_state_];
     const MTLViewport viewport{0.0,
         0.0,
@@ -2817,8 +2863,9 @@ private:
 
       const bool use_gpu_scene = gpu_scene_ready && !material.module;
       const auto material_constants = MakeMaterial(material, *request.snapshot);
-      [encoder setRenderPipelineState:use_gpu_scene ? gpu_scene_pipeline_
-                                                    : pipeline_];
+      [encoder setRenderPipelineState:use_gpu_scene
+                                          ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
+                                          : (float_color ? float_pipeline_ : pipeline_)];
       [encoder setVertexBuffer:geometry->second.vertices offset:0 atIndex:0];
       [encoder setFragmentBytes:&material_constants
                          length:sizeof(material_constants)
@@ -2904,6 +2951,7 @@ private:
       [encoder setVertexBuffer:instances offset:0 atIndex:MERLIN_GAUSSIAN_INSTANCES_BINDING];
       const Vec2 inverse_extent{1.0F / request.width, 1.0F / request.height};
       [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
+      [encoder setFragmentBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
       // Color blends back-to-front; integer IDs retain the nearest contributing
       // particle. Test against opaque mesh depth without replacing that depth.
       if (frame.gaussian_execution) {
@@ -2922,8 +2970,26 @@ private:
     [encoder endEncoding];
     if (frame.gaussian_execution && frame.gaussian_execution->tiled)
       gaussian_execution_->EncodeTileRaster(*frame.gaussian_execution, command,
-          frame.color, frame.depth, frame.prim_id, frame.instance_id,
+          frame.gaussian_color, frame.depth, frame.prim_id, frame.instance_id,
           frame.gaussian_timestamps);
+    if (float_color) {
+      auto descriptor = [MTLComputePassDescriptor computePassDescriptor];
+      if (sample_raster) {
+        descriptor.sampleBufferAttachments[0].sampleBuffer = frame.gaussian_timestamps;
+        descriptor.sampleBufferAttachments[0].startOfEncoderSampleIndex = kGaussianColorConvertBegin;
+        descriptor.sampleBufferAttachments[0].endOfEncoderSampleIndex = kGaussianColorConvertEnd;
+      }
+      id<MTLComputeCommandEncoder> convert = [command computeCommandEncoderWithDescriptor:descriptor];
+      if (!convert)
+        throw render::RendererError(render::RendererErrorCode::BackendFailure,
+            "encode Metal color conversion", "compute encoder returned nil");
+      [convert setComputePipelineState:color_convert_pipeline_];
+      [convert setTexture:frame.gaussian_color atIndex:0];
+      [convert setTexture:frame.color atIndex:1];
+      [convert dispatchThreads:MTLSizeMake(request.width, request.height, 1)
+          threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
+      [convert endEncoding];
+    }
   }
 
   void EncodePresentation(id<MTLCommandBuffer> command, FrameContext& frame,
@@ -3141,6 +3207,9 @@ private:
   id<MTLRenderPipelineState> presentation_pipeline_;
   id<MTLDepthStencilState> depth_state_;
   id<MTLRenderPipelineState> gaussian_pipeline_;
+  id<MTLRenderPipelineState> float_pipeline_;
+  id<MTLRenderPipelineState> float_gpu_scene_pipeline_;
+  id<MTLComputePipelineState> color_convert_pipeline_;
   id<MTLDepthStencilState> gaussian_depth_state_;
   id<MTLBuffer> gaussian_buffer_ = nil;
   std::unique_ptr<GaussianResidency> gaussian_residency_;
@@ -3202,43 +3271,52 @@ const render::RendererCapabilities& Backend::capabilities() const noexcept {
 }
 
 render::RendererStatistics Backend::statistics() const noexcept {
+  std::scoped_lock lock(impl_->state_mutex);
   return impl_->statistics();
 }
 
 MetalStatistics Backend::metal_statistics() const noexcept {
+  std::scoped_lock lock(impl_->state_mutex);
   return impl_->metal_statistics();
 }
 
 std::optional<render::PresentationTarget>
 Backend::default_presentation_target() const noexcept {
+  std::scoped_lock lock(impl_->state_mutex);
   return impl_->default_presentation_target();
 }
 
 void Backend::ResizePresentationTarget(render::PresentationTarget target,
     std::uint32_t width,
     std::uint32_t height) {
+  std::scoped_lock lock(impl_->state_mutex);
   impl_->ResizePresentationTarget(target, width, height);
 }
 
 render::CompletionToken Backend::Submit(const render::RenderRequest& request) {
+  std::scoped_lock lock(impl_->state_mutex);
   return impl_->Submit(request);
 }
 
 bool Backend::IsComplete(render::CompletionToken token) const {
+  std::scoped_lock lock(impl_->state_mutex);
   return impl_->IsComplete(token);
 }
 
 AovImageExport Backend::AcquireAovImage(render::CompletionToken token,
     Aov aov) {
+  std::scoped_lock lock(impl_->state_mutex);
   return impl_->AcquireAovImage(token, aov);
 }
 
 void Backend::ReleaseAovImage(AovImageLease&& lease) {
+  std::scoped_lock lock(impl_->state_mutex);
   impl_->ReleaseAovImage(std::move(lease));
 }
 
 render::RenderResult Backend::Resolve(render::CompletionToken token,
     std::chrono::nanoseconds timeout) {
+  std::scoped_lock lock(impl_->state_mutex);
   return impl_->Resolve(token, timeout);
 }
 

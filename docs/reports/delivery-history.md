@@ -13,16 +13,19 @@ Legend: ✅ done
 
 ## v0.16.x Windows/Linux validation closure
 
-Closed the active follow-up scope on 2026-10-05 with Linux Vulkan coverage,
+Reactivated the previously deferred Linux Vulkan work and closed the active
+follow-up scope on 2026-10-05 with Linux Vulkan coverage,
 following the Vulkan 10M color-quality and HgiVulkan readback work below.
-The remaining Metal color-tail, macOS Mesh movement, HgiMetal readback and
-broader GPU/performance items remain incomplete in the next-cycle backlog.
+The Metal color-tail, macOS Mesh movement, HgiMetal readback and Apple M3 click
+coverage have separate accepted records below. Broader GPU/performance and
+HgiVulkan Qt click evidence remain incomplete in the next-cycle backlog.
 This is a work-scope closure; it does not create a release tag or extend Metal
 support claims.
 
 - Ubuntu 26.04 / WSL2 x64, GCC 15.2, Slang 2026.8, LunarG SDK 1.4.350.1,
   Mesa 26.0.3 lavapipe (LLVM 21.1.8), loader 1.4.341 and device API 1.4.335:
-  Debug and Release each pass all 41 CTest cases with no skips. Production
+  After integrating `b3b1c25`, Debug and Release each pass all 42 CTest cases
+  with no skips, including the separate installed Vulkan runtime. Production
   SPIR-V passes `spirv-val --target-env vulkan1.4`. Gaussian CPU/GPU sorted
   and tiled parity, validation, resource lifetime/update, X11 viewport
   reference/resize and build/install consumers all execute on the CPU driver.
@@ -47,6 +50,111 @@ support claims.
 Raw local captures are in `build/lavapipe-debug/`, `build/lavapipe-release/`
 and `build/lavapipe-windows-{build,test}.log`; the hosted workflow uploads
 JUnit, validation/image artifacts, capabilities and X11 viewport evidence.
+## v0.16.x click picking, overlay parity and CI separation
+
+Completed the Apple M3 host and CI-separation slice on 2026-10-05, based on
+`ff88c3c` plus the working-tree changes. Linux Vulkan work is deferred at the
+user's request. Other Apple GPUs, controlled hardware timing and execution of
+the added HgiVulkan click cases remain open; the Windows GPU runner was offline.
+
+- Actual Qt left-button events traverse usdview's narrowed-frustum pick task
+  and selection signal. They select `/World/OrientationProbe`, deselect on a
+  background click, and select the moved probe after an odd-sized resize.
+  Retina logical/physical coordinates are recorded with the selected path.
+  Separate assertions prove the selection highlight and real OpenGL axes are
+  visible and that deselection restores the unselected image.
+- A bridge-disabled Metal build exposed upside-down Tier 0 output and a
+  background click hitting an unrelated Mesh. Host projection reflection now
+  follows the Hgi render driver independently of native-copy negotiation.
+  Both bridge-disabled Tier 0 and HgiMetal pass the complete usdview sequence.
+- The regression-only coverage depth readback had suppressed the native depth
+  target. HdxAovInputTask returns early when native color is supplied, so it did
+  not upload that CPU depth; subsequent OpenGL axis composition lost depth.
+  Coverage readback now coexists with all four native AOV exports. Normal
+  presentation remains demand-driven; diagnostic tests still read only their
+  requested coverage depth. Click/selection phases permit required ID Map but
+  continue to reject host upload of native color.
+- Apple M3/macOS 15.7.9, AppleClang 17, Slang 2026.8 and OpenUSD 26.08:
+  **all 21 Tier 0/HgiMetal Mesh images match exactly**, including prior edits,
+  actual click hit/miss, moved/resized selection and visible/hidden axis
+  captures. The existing changed-pixel (0.25%) and mean-error (0.25 channel
+  units) limits are unchanged. Diagnostic baseline CPU readback remains
+  5,158,080/1,289,520 bytes for Tier 0/GPU copy at 597x540; timings are local
+  observations, not hardware gates.
+- Hosted PR and SDK-release checks exclude only the exact `gpu`, `runtime` and
+  `host-smoke` labels, preserving CPU GPU-Scene and GPU-driven contract tests,
+  shader/ABI checks, MaterialX generation and package consumers. Installed
+  Vulkan/Metal execution now has separate GPU cases with an install fixture.
+  The weekly/manual Metal workflow retains Debug/Release runtime JUnit/logs and
+  capability skips separately from build support; timings are never universal
+  PR gates. Windows manual capability CI includes the installed Vulkan runtime.
+- Core CTest passed **17/17**, Metal/Hydra CTest **34/34 without skips**, and
+  native viewport/settings CTest **6/6 without skips**. The GPU-free filter is
+  also exercised under the filesystem/process sandbox. Explicit SPIR-V
+  validation and broader independent Hydra compile coverage remain carry-over
+  work rather than newly claimed evidence.
+
+Raw comparison/trace/click reports remain local in
+`build/metal-hydra/usdview-metal-comparison.json`,
+`build/metal-hydra/adapters/merlin-hydra2/usdview-install/` and the equivalent
+`build/metal-hydra-tier0/` tree. Local JUnit results are retained in those build
+trees and `build/metal-viewport-followup/` under the report policy.
+
+## v0.16.x Metal quality, host AOVs and native viewport
+
+Completed the locally testable Metal follow-up on 2026-10-05, based on
+`589688b` plus the working-tree changes. Apple M3/macOS 15.7.9, OpenUSD 26.08,
+Slang 2026.8 and AppleClang 16 were used. This closes the color-tail/larger
+capture, Mesh movement and Metal demand-readback implementation items; broader
+hardware, controlled timing, actual click picking/overlay coverage and CI
+separation remain on the roadmap.
+
+- Metal CPU/GPU sorted streams and tiles now accumulate in RGBA32F and convert
+  once to the exported RGBA8 image, with pixel-center ellipse evaluation.
+  A closed-form 512-splat low-opacity fixture independently checks the corrected
+  reference. Offscreen 65K/1M tests pass the unchanged two-step color and exact
+  depth/ID policies; the scale capture has zero color difference. Overflow,
+  hidden/removal, mixed Mesh composition, leases and resize also pass.
+- API-validated HgiMetal captures use forty warmed samples for each of six
+  static/camera CPU/sorted/tiled phases at 597x540. The public 8,192-particle
+  corpus has maximum sorted/tiled differences of 1/6 channel units, replacing
+  the historical tiled 15-unit tail. The properly framed deterministic 1M scene
+  matches exactly in all four final policy comparisons. Every measured GPU
+  sample has zero prepared upload/allocation/fallback, zero image readback and
+  zero bridge downloads; sorted/tiled control telemetry is 64/108 bytes.
+- The generated scale scene lacked extent, so usdview originally displayed a
+  small patch. The generator now authors conservative three-sigma bounds; the
+  accepted 1M capture covers about 410x410 pixels. Old unframed captures remain
+  local as limited evidence. Alternating camera phases end at their common
+  reset camera; final images and per-sample counters provide distinct checks.
+- Native viewport eight-frame tiled captures at 8,192 and 1M particles have
+  maximum 1/255 CPU-reference differences at the physical 1194x1080 Retina
+  extent. All eight frames select tile/float rendering, with no overflow or CPU
+  fallback. A separate no-capture regression presents eight frames with zero
+  image readback and exactly 864 counter bytes. Viewport reports now distinguish
+  these bytes and actual path selection; Cocoa dialog parenting builds under ARC.
+- HgiMetal copies depth and both ID targets alongside color. Exact current
+  non-color Map tests cover motion, odd-sized resize, removal, cache reuse and
+  Tier 0 recovery. ID Uint/Sint transfer stays on the GPU; Map owns aligned
+  storage. Completion-handler lease release is serialized with backend state.
+  Mesh projection reflection now flips front-face winding, and all usdview
+  Mesh phases including Hdx selection pass. Regression logging still deliberately
+  requests one depth image; normal benchmark frames request none.
+- Full Metal/Hydra/native viewport CTest passes **39/39 without skips**, and
+  Core CTest passes **17/17**. Offscreen and AOV tests run Metal API and shader
+  validation. Large host captures run API validation with shader validation off;
+  the shader-instrumented host stalled in Apple OpenGL-driver compilation before
+  renderer submission. The failed attempt and stack sample remain local.
+- Raster timestamps include final conversion; the retained float attachment
+  costs 16 bytes/pixel per frame context. API/shader-instrumented offscreen
+  warmed camera GPU medians are sorted/tiled 11.48/7.90 ms at 65K and
+  64.77/51.60 ms at 1M; raster medians are 8.45/2.36 and 41.49/11.48 ms.
+  These are local observations with unpinned power/clocks and some concurrent
+  GPU work, not performance gates or additive stage estimates.
+
+Raw reports/logs remain local in `build/metal-hydra/metal-host-8192-float-api/`,
+`build/metal-viewport-followup/metal-host-1m-framed/`, native captures in the latter
+build directory, and `docs/reports/2026-10-05-metal-v016-followup.md`.
 
 ## v0.16.x HgiVulkan demand-driven depth/ID readback
 

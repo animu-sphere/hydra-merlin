@@ -224,13 +224,15 @@ $env:PATH = "$sdk/bin;$sdk/lib;" + $env:PATH
 
 Use `scripts/create-gaussian-benchmark.py output.usdc --particles 1000000`
 with this Python environment for the deterministic scale corpus. Its positions,
-covariance and degree-0 coefficients match the renderer fixture, but usdview
-frames its own perspective camera. Compare policies within each experiment;
+covariance and degree-0 coefficients match the renderer fixture. The generator
+authors a conservative three-sigma extent so usdview frames the particle field;
+older generated scenes without extent can produce misleadingly small coverage.
+usdview frames its own perspective camera. Compare policies within each experiment;
 do not interpret renderer versus host times as identical-camera measurements.
 Host comparison checks image parity for every policy, fixed extent/sample count,
 and the selected-AOV readback saving. Native HgiVulkan normal unselected frames
 now keep all four images on the GPU and perform no renderer image readback or
-bridge download. HgiMetal still reads back the three non-color images.
+bridge download. HgiMetal now follows the same four-AOV GPU copy contract.
 The host benchmark sets `MERLIN_HYDRA2_REGRESSION_COVERAGE=0` so diagnostic
 logging does not force a depth payload. Other regression captures retain eager
 depth coverage by default; that one diagnostic AOV is separate from host
@@ -247,7 +249,8 @@ The capture compares the CPU reference, required GPU sorted stream and required
 GPU tiled raster. Each path
 has static and alternating-camera samples, a screenshot and per-sample
 allocation/upload checks. The host report uses the HgiMetal copy counters and
-accounts for one mapped readback of the three non-color AOVs. GPU Gaussian
+checks zero renderer image readback and zero bridge downloads on unselected
+GPU-copy frames. GPU Gaussian
 frames add 32 bytes of control plus 32 bytes per resource to readback telemetry;
 tiled frames add another 44 bytes of pair/selection counters.
 
@@ -269,6 +272,8 @@ cmake "-DMERLIN_BUILD_DIR=$build" "-DMERLIN_PXR_ROOT=$sdk" \
   "-DMERLIN_TESTUSDVIEW=$sdk/bin/testusdview" \
   "-DMERLIN_GAUSSIAN_SAMPLE=$scene" \
   -DMERLIN_GAUSSIAN_HOST_BACKEND=metal \
+  -DMERLIN_GAUSSIAN_VALIDATE=ON \
+  -DMERLIN_GAUSSIAN_SHADER_VALIDATE=OFF \
   -DMERLIN_GAUSSIAN_FRAMES=40 \
   "-DMERLIN_STAGE_DIR=$build/metal-host-8192" \
   -P tests/run_gaussian_host_benchmark.cmake
@@ -287,6 +292,20 @@ compute pass. The delegate's
 `gaussian_gpu_timestamps_available` field and each report stage's availability
 distinguish unsupported sampling from a zero active duration.
 These one-device observations are not timing gates.
+
+Metal API validation and shader validation are separate options. Shader
+validation defaults to the API-validation setting; explicitly disabling it
+records `metal_shader_validation_enabled: false` in capture provenance. The
+2026-10-05 large usdview captures use API validation with shader validation off:
+instrumenting the host OpenGL driver stalled before renderer submission. Metal
+offscreen and AOV tests separately pass with both validators enabled. Gaussian
+raster timestamps include the final float-to-RGBA8 conversion.
+
+Native viewport benchmark JSON separates `image_readback_bytes` from total
+`readback_bytes`, which includes GPU control/counter telemetry. It also reports
+actual sorted/tiled, overflow, CPU fallback and float-color frame counts.
+`merlin-viewport-metal-gaussian-no-readback` requires eight presented tiled
+frames, no image readback/fallback/overflow, and 8 * 108 bytes of counters.
 
 ### Reference baselines
 

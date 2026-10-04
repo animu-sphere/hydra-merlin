@@ -161,9 +161,16 @@ sorted-stream retain the legacy UNorm target. Tile raster additionally requires
 float storage-image support, so required tiled requests reject this condition
 and preferred requests fall back to the sorted stream.
 
-Metal retains its current UNorm reference blend, float tiled accumulation and
-interpolated procedural offsets. Its separate host color-tail investigation
-remains open; Vulkan evidence does not establish Metal parity. Delivery and
+Metal now also accumulates CPU/GPU sorted streams and compute tiles in an
+RGBA32F working target and converts once to the public RGBA8 AOV. Fragment
+ellipse evaluation reconstructs the pixel center with the same coordinate
+convention as tiles; radiance remains clamped as in the UNorm reference.
+The frame retains the extra 16-byte/pixel target through completion and export
+leases. Mesh-only disabled requests retain RGBA8; Gaussian-enabled empty frames
+still select the float pipeline so indirect draws and removal remain compatible.
+Metal reports float selection and includes final conversion in raster timestamps.
+Independent Apple M3 tests cover a closed-form low-opacity composite, exact
+offscreen depth/IDs, and separate host/native viewport image policies. Delivery and
 support status live in the
 [current milestone](../roadmap/current.md) and
 [support matrix](../reference/support-matrix.md).

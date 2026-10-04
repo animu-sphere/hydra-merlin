@@ -28,6 +28,13 @@ def main():
         positions[index] = Gf.Vec3f((index % 1000) * 0.0018 - 0.9,
             ((index // 1000) % 1000) * 0.0018 - 0.9, 0.1 + ((index // 1_000_000) % 10) * 0.03)
     splat.CreateAttribute("positions", Sdf.ValueTypeNames.Point3fArray).Set(positions)
+    # ParticleField has no automatic extent computation in this OpenUSD
+    # runtime. Author conservative three-sigma bounds so usdview frames the
+    # particles instead of leaving the free camera at its default distance.
+    UsdGeom.Boundable(splat).CreateExtentAttr(Vt.Vec3fArray([
+        Gf.Vec3f(-0.906, -0.906, 0.094),
+        Gf.Vec3f(0.9042, 0.9042, 0.106 + ((count - 1) // 1_000_000) * 0.03),
+    ]))
     splat.CreateAttribute("scales", Sdf.ValueTypeNames.Float3Array).Set(
         Vt.Vec3fArray([Gf.Vec3f(0.002)] * count))
     splat.CreateAttribute("orientations", Sdf.ValueTypeNames.QuatfArray).Set(

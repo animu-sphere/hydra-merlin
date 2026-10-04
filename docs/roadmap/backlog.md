@@ -15,19 +15,14 @@ deferral does not expand current support claims. See the
 [Gaussian pipeline design](../design/gaussian-rendering.md) and
 [Metal execution plan](../design/metal-gaussian-execution.md).
 
-- [ ] Investigate the sparse 15/255 HgiMetal tiled color tail on the public
-  8,192-particle corpus, then capture larger HgiMetal tiled scenes and native
-  viewport tile output. Retain distinct offscreen and host image policies.
 - [ ] Broaden Metal Gaussian execution evidence beyond Apple M3 and tune tile
   work on representative scenes. Record total GPU cost as well as raster savings;
   current 65K/1M binning and sorting can outweigh the raster improvement.
-- [ ] Resolve the pre-existing macOS Mesh usdview movement assertion failure.
-  Keep this host gap separate from passing Gaussian and hosted Metal evidence.
 - [ ] Extend same-device/host measurements to other supported GPUs with
   controlled clocks/power before establishing hardware timing gates.
-- [ ] Extend demand-driven Hydra depth/ID readback to HgiMetal, preserving
-  Tier 0 and picking AOV semantics. Its color GPU copy still reads back the
-  other three AOVs. Broaden actual host picking and overlay parity evidence.
+- [ ] Run the new Qt mouse-click/axis-overlay regressions on HgiVulkan with
+  OpenUSD 26.05 and 26.08. Apple M3/OpenUSD 26.08 Tier 0 and HgiMetal evidence
+  is archived in the [delivery history](../reports/delivery-history.md#v016x-click-picking-overlay-parity-and-ci-separation).
 - [ ] Add Linux Vulkan real-GPU, native Wayland viewport and Hydra-host
   execution evidence separately from Mesa lavapipe and the Xvfb/X11 smoke.
 

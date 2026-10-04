@@ -115,6 +115,9 @@ struct HdMerlinHgiMetalBridgeTelemetry {
   std::uint64_t cpu_upload_count{};
   std::uint64_t cpu_upload_bytes{};
   std::uint64_t cpu_upload_encode_ns{};
+  std::uint64_t cpu_download_count{};
+  std::uint64_t cpu_download_bytes{};
+  std::uint64_t cpu_download_ns{};
   std::uint64_t gpu_copy_count{};
   std::uint64_t gpu_copy_completion_count{};
   std::uint64_t gpu_copy_pending_count{};
@@ -151,6 +154,8 @@ public:
   void DestroyTarget(HgiTextureHandle* target);
   [[nodiscard]] bool Upload(HgiTextureHandle target, const void* data,
       std::size_t byte_size);
+  [[nodiscard]] bool Download(HgiTextureHandle target, void* data,
+      std::size_t byte_size);
   [[nodiscard]] bool Copy(
       HgiTextureHandle target, merlin::metal::AovImageExport&& source,
       std::shared_ptr<merlin::render::Backend> backend);
@@ -165,6 +170,8 @@ private:
   std::uint64_t outstanding_targets_{};
   HdMerlinHgiMetalBridgeStatus status_;
   HdMerlinHgiMetalBridgeTelemetry telemetry_;
+  struct NativeResources;
+  std::unique_ptr<NativeResources> native_;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

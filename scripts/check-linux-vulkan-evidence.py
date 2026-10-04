@@ -20,6 +20,7 @@ REQUIRED_TESTS = (
     "merlin-benchmark-compare",
     "merlin-viewport-vulkan",
     "merlin-install-consumer",
+    "merlin-vulkan-install-runtime",
 )
 
 

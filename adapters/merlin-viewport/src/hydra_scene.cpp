@@ -370,11 +370,20 @@ bool HasVisibleColor(const std::vector<std::uint8_t>& rgba) {
   return false;
 }
 
+struct GaussianViewportEvidence {
+  std::uint64_t sorted_frames{};
+  std::uint64_t tiled_frames{};
+  std::uint64_t overflow_frames{};
+  std::uint64_t float_frames{};
+  std::uint64_t cpu_fallback_frames{};
+  std::uint64_t image_readback_bytes{};
+};
+
 void WriteBenchmark(const std::filesystem::path& path,
     const render::BackendSelection& selection,
     const render::RendererStatistics& statistics,
     std::uint64_t frames, std::uint64_t elapsed_ns,
-    std::uint64_t gpu_ns) {
+    std::uint64_t gpu_ns, const GaussianViewportEvidence& gaussian) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path());
   }
@@ -396,6 +405,12 @@ void WriteBenchmark(const std::filesystem::path& path,
          << "  \"gpu_average_frame_ns\": "
          << (frames == 0 ? 0 : gpu_ns / frames) << ",\n"
          << "  \"readback_bytes\": " << statistics.readback_bytes << ",\n"
+         << "  \"image_readback_bytes\": " << gaussian.image_readback_bytes << ",\n"
+         << "  \"gaussian_gpu_sorted_stream_frames\": " << gaussian.sorted_frames << ",\n"
+         << "  \"gaussian_gpu_tiled_frames\": " << gaussian.tiled_frames << ",\n"
+         << "  \"gaussian_gpu_overflow_frames\": " << gaussian.overflow_frames << ",\n"
+         << "  \"gaussian_float_color_frames\": " << gaussian.float_frames << ",\n"
+         << "  \"gaussian_cpu_fallback_frames\": " << gaussian.cpu_fallback_frames << ",\n"
          << "  \"presentation_copy_bytes\": "
          << statistics.presentation_copy_bytes << ",\n"
          << "  \"frames_presented\": " << statistics.frames_presented
@@ -557,6 +572,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   bool resized_for_test{};
   std::uint64_t frames{};
   std::uint64_t gpu_ns{};
+  GaussianViewportEvidence gaussian_evidence;
   std::uint64_t latest_frame_ns{};
   HdMerlinViewportFrame latest_viewport_frame;
   DeveloperUiRendererSettings renderer_settings;
@@ -851,6 +867,14 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       diagnostic_history.Record(DeveloperUiDiagnosticOrigin::Host, frames,
           diagnostic);
     }
+    const auto& telemetry = latest_viewport_frame.telemetry;
+    gaussian_evidence.sorted_frames += telemetry.gaussian_gpu_raster_instance_count > 0;
+    gaussian_evidence.tiled_frames += telemetry.gaussian_gpu_tile_raster_frame_count;
+    gaussian_evidence.overflow_frames += telemetry.gaussian_gpu_tile_raster_overflow_fallback_count;
+    gaussian_evidence.float_frames += telemetry.gaussian_float_color_frame_count;
+    gaussian_evidence.cpu_fallback_frames += telemetry.gaussian_gpu_fallback_count;
+    gaussian_evidence.image_readback_bytes +=
+        static_cast<std::uint64_t>(width) * height * 4U * telemetry.cpu_readback_aov_count;
     gpu_ns += latest_viewport_frame.timings.gpu_execution_ns;
     ++frames;
     if (benchmark_snapshot_pending) {
@@ -865,7 +889,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
               .count());
       const std::filesystem::path path = "merlin-viewport-benchmark.json";
       WriteBenchmark(path, selection, backend->statistics(), frames,
-          elapsed_ns, gpu_ns);
+          elapsed_ns, gpu_ns, gaussian_evidence);
       saved_benchmark = MakeUiBenchmark(
           frames - comparison_start_frame, comparison_elapsed_ns,
           gpu_ns - comparison_start_gpu_ns, path);
@@ -989,7 +1013,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
   const auto statistics = backend->statistics();
   if (!options.benchmark.empty()) {
     WriteBenchmark(options.benchmark, selection, statistics, frames,
-        elapsed_ns, gpu_ns);
+        elapsed_ns, gpu_ns, gaussian_evidence);
   }
   if (options.resize_test && statistics.presentation_recreates == 0) {
     throw std::runtime_error(
@@ -999,7 +1023,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
     throw std::runtime_error(
         "backend validation reported Hydra viewport messages");
   }
-  if (!readback_requested && statistics.readback_bytes != 0) {
+  if (!readback_requested && gaussian_evidence.image_readback_bytes != 0) {
     throw std::runtime_error(
         "Hydra viewport performed an unexpected CPU readback");
   }

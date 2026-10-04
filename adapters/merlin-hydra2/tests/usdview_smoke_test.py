@@ -1,7 +1,11 @@
 import os
+import json
 
 from pxr import Gf, Sdf, Trace, UsdGeom, UsdShade, Vt
+from pxr.Usdviewq.common import PickModes, SelectionHighlightModes
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QImage
+from PySide6.QtTest import QTest
 
 
 def _read_events():
@@ -224,6 +228,81 @@ def _check_mesh_orientation(app_controller):
         edit=lambda _: mesh.GetOrientationAttr().Set(UsdGeom.Tokens.leftHanded))
     assert (pixels("orientation-restored-left") ==
             pixels("orientation-only-left"))
+
+
+def _check_click_picking(app_controller):
+    """Send real Qt mouse events through usdview's narrowed-frustum pick task."""
+    view = app_controller._stageView
+    model = app_controller._dataModel
+    model.viewSettings.pickMode = PickModes.PRIMS
+    model.viewSettings.selHighlightMode = SelectionHighlightModes.ALWAYS
+    model.selection.clearPrims()
+    evidence = []
+    path = Sdf.Path("/World/OrientationProbe")
+
+    def click(phase, point, expected):
+        os.environ["MERLIN_HYDRA2_REGRESSION_PHASE"] = phase
+        hits = []
+        def selected(prim_path, *args):
+            hits.append(str(prim_path))
+        view.signalPrimSelected.connect(selected)
+        try:
+            QTest.mouseClick(view, Qt.MouseButton.LeftButton,
+                             Qt.KeyboardModifier.NoModifier, point)
+        finally:
+            view.signalPrimSelected.disconnect(selected)
+        assert hits == [expected], f"{phase}: expected {expected}, got {hits}"
+        if expected:
+            assert model.selection.getPrimPaths() == [Sdf.Path(expected)]
+        else:
+            assert model.selection.getPrimPaths() == [Sdf.Path.absoluteRootPath]
+        _render_phase(app_controller, phase)
+        evidence.append({"phase": phase, "hit": hits[0],
+                         "logical_position": [point.x(), point.y()],
+                         "device_pixel_ratio": view.devicePixelRatioF()})
+
+    def projected_center():
+        camera, aspect = view.resolveCamera()
+        frustum = camera.frustum
+        transform = UsdGeom.Xformable(model.stage.GetPrimAtPath(path)).ComputeLocalToWorldTransform(
+            model.currentFrame)
+        center = transform.Transform(Gf.Vec3d(0, 0, 0.2))
+        ndc = (frustum.ComputeViewMatrix() * frustum.ComputeProjectionMatrix()).Transform(center)
+        viewport = (view.computeCameraViewport(aspect) if view._cropImageToCameraViewport
+                    else view.computeWindowViewport())
+        ratio = view.devicePixelRatioF()
+        return QPoint(round((viewport[0] + (ndc[0] + 1) * viewport[2] / 2) / ratio),
+                      round((viewport[1] + (1 - ndc[1]) * viewport[3] / 2) / ratio))
+
+    _render_phase(app_controller, "click-unselected", size=(597, 540))
+    click("click-hit", projected_center(), str(path))
+    # Check that the host's real OpenGL axis overlay is present, then compare
+    # its composited image across Tier 0 and GPU copy using the existing policy.
+    _render_phase(app_controller, "click-overlay")
+    draw_axis = view.DrawAxis
+    view.DrawAxis = lambda _: None
+    try:
+        _render_phase(app_controller, "click-overlay-hidden")
+    finally:
+        view.DrawAxis = draw_axis
+    root, _ = os.path.splitext(os.environ["MERLIN_HYDRA2_SMOKE_IMAGE"])
+    def pixels(phase):
+        image = QImage(root + "-" + phase + ".png").convertToFormat(
+            QImage.Format.Format_RGBA8888)
+        assert not image.isNull()
+        return bytes(image.constBits())[:image.sizeInBytes()]
+    assert pixels("click-unselected") != pixels("click-hit"), "selection highlight absent"
+    assert pixels("click-overlay") != pixels("click-overlay-hidden"), "axis overlay absent"
+    click("click-miss", QPoint(5, 5), "")
+    assert pixels("click-unselected") == pixels("click-miss"), "deselection changed the scene"
+    UsdGeom.Xformable(model.stage.GetPrimAtPath(path)).AddTranslateOp().Set(Gf.Vec3d(0.65, 0, 0))
+    _render_phase(app_controller, "click-moved", size=(401, 301))
+    click("click-resized-hit", projected_center(), str(path))
+    model.selection.clearPrims()
+    with open(root + "-click-picking.json", "w", encoding="utf-8") as stream:
+        json.dump({"schema": "merlin-usdview-click-picking/v1", "clicks": evidence},
+                  stream, indent=2)
+        stream.write("\n")
 
 
 def testUsdviewInputFunction(appController):
@@ -482,3 +561,7 @@ def testUsdviewInputFunction(appController):
     if selected["hgi_transfer_mode"] == "gpu-copy":
         assert selected["hgi_cpu_download_count"] >= 2
         assert selected["hgi_cpu_download_bytes"] > 0
+    if selected.get("hgi_metal_transfer_mode") == "gpu-copy":
+        assert selected["hgi_metal_cpu_download_count"] >= 2
+        assert selected["hgi_metal_cpu_download_bytes"] > 0
+    _check_click_picking(appController)

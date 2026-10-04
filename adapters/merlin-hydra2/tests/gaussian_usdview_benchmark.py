@@ -96,31 +96,36 @@ def testUsdviewInputFunction(appController):
             assert int(event["allocation_count"]) == 0
         assert int(event["pipeline_creation_count"]) == 0
         assert int(event["gaussian_visible_count"]) > 0
+        assert int(event["gaussian_float_color_frame_count"]) == 1
         products.add(tuple(event[key] for key in (
             "width", "height", "requested_aov_mask", "cpu_readback_aov_mask")))
         transfer_modes.add(event[bridge + "transfer_mode"])
         gpu_copy = event[bridge + "transfer_mode"] == "gpu-copy"
-        cpu_aovs = (0 if backend == "vulkan" else 3) if gpu_copy else 4
+        cpu_aovs = 0 if gpu_copy else 4
         assert int(event["cpu_readback_aov_count"]) == cpu_aovs
         if backend == "metal":
             # GPU execution reads 32 bytes of control plus 32 bytes of
-            # counters per resource, separate from the three image AOVs.
-            expected = int(event["width"]) * int(event["height"]) * 12
+            # counters per resource, separate from image AOVs.
+            expected = int(event["width"]) * int(event["height"]) * 4 * cpu_aovs
             if event["gaussian_gpu_mode"] != "disabled":
                 expected += 32 + 32 * int(event["gaussian_resources"])
                 if backend == "metal" and event["gaussian_raster_path"] == "tiled":
                     expected += 44
             assert int(event["readback_bytes"]) == expected
-        assert int(event["map_count"]) == (1 if backend == "metal" else cpu_aovs)
-        if backend == "vulkan" and gpu_copy:
-            assert int(event["readback_bytes"]) == 0
-            assert int(event["hgi_cpu_download_count"]) == 0
-            assert int(event["hgi_cpu_download_bytes"]) == 0
+        expected_maps = cpu_aovs
+        if backend == "metal":
+            expected_maps = int(cpu_aovs > 0)
+        assert int(event["map_count"]) == expected_maps
+        if gpu_copy:
+            if backend == "vulkan":
+                assert int(event["readback_bytes"]) == 0
+            assert int(event[bridge + "cpu_download_count"]) == 0
+            assert int(event[bridge + "cpu_download_bytes"]) == 0
         assert bool(int(event["cpu_readback_aov_mask"]) & 1) is (not gpu_copy)
         assert int(event[bridge + "coarse_wait_count"]) == 0
         if gpu_copy:
             assert int(event[bridge + "gpu_copy_count"]) > 0
-            assert int(event[bridge + "gpu_copy_pending_count"]) <= (4 if backend == "vulkan" else 1)
+            assert int(event[bridge + "gpu_copy_pending_count"]) <= 4
         if event["gaussian_gpu_mode"] != "disabled":
             smoke.check_gpu_policy([event], "require", event["gaussian_raster_path"])
             assert int(event["upload_bytes"]) == 0
@@ -141,8 +146,7 @@ def testUsdviewInputFunction(appController):
         "gaussian_gpu_tile_raster_overflow_fallback_count", "readback_bytes", "map_count",
         "cpu_readback_aov_count", "cpu_readback_aov_mask") + tuple(bridge + suffix for suffix in (
             "coarse_wait_count", "gpu_copy_count", "gpu_copy_completion_count", "gpu_copy_pending_count"))
-    if backend == "vulkan":
-        audit_keys += ("hgi_cpu_download_count", "hgi_cpu_download_bytes")
+    audit_keys += (bridge + "cpu_download_count", bridge + "cpu_download_bytes")
     phase_audit = {phase: {key: {"min": min(int(event[key]) for event in measured if event["phase"] == phase),
                               "max": max(int(event[key]) for event in measured if event["phase"] == phase)}
                          for key in audit_keys} for phase in phase_counts}
