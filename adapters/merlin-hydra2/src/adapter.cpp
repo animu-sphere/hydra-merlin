@@ -36,7 +36,9 @@
 #include <pxr/imaging/hd/sceneIndexObserver.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hgi/enums.h>
+#include <pxr/imaging/hgi/hgi.h>
 #include <pxr/imaging/hgi/texture.h>
+#include <pxr/imaging/hgi/tokens.h>
 #include <pxr/imaging/hgi/types.h>
 #include <pxr/imaging/hio/image.h>
 #include <pxr/usd/sdf/assetPath.h>
@@ -1790,9 +1792,6 @@ public:
 #if defined(MERLIN_HYDRA2_ENABLE_VULKAN) || defined(MERLIN_HYDRA2_ENABLE_METAL)
     for (const auto aov : {merlin::Aov::Depth, merlin::Aov::PrimId,
              merlin::Aov::InstanceId}) {
-      if (aov == merlin::Aov::Depth && regression_coverage) {
-        continue;
-      }
       std::size_t consumers{};
       HdMerlinRenderBuffer* candidate{};
       for (const auto& binding : bindings) {
@@ -3965,12 +3964,11 @@ bool HdMerlinRenderBuffer::Allocate(const GfVec3i& dimensions, HdFormat format,
   // Non-native host compositions retain Tier 0 buffers.
   const HgiFormat hgi_format = HdMerlinHgiFormatForRenderBuffer(format);
   const bool native_aov_target =
-      ((hgi_vulkan_bridge_ && hgi_vulkan_bridge_->status().gpu_copy)
+      (hgi_vulkan_bridge_ && hgi_vulkan_bridge_->status().gpu_copy)
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-          || (hgi_metal_bridge_ && hgi_metal_bridge_->status().gpu_copy)
+      || (hgi_metal_bridge_ && hgi_metal_bridge_->status().gpu_copy)
 #endif
-              ) &&
-      !(format == HdFormatFloat32 && RegressionCoverageRequested());
+      ;
   if (!reusable_target && pixels != 0 &&
       (format == HdFormatUNorm8Vec4 || native_aov_target) &&
       hgi_format != HgiFormatInvalid && dimensions[2] == 1) {
@@ -4448,12 +4446,18 @@ void HdMerlinRenderDelegate::SetDrivers(const HdDriverVector& drivers) {
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
   impl_->hgi_metal_bridge->SetDrivers(drivers);
 #endif
-  const bool hgi_projection_y_reflection =
-#ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-      impl_->hgi_metal_bridge->status().hgi_owned_targets;
-#else
-      false;
-#endif
+  // HgiMetal reflects the host projection even when presentation falls back
+  // to CPU RenderBuffers. Camera orientation is a driver contract, independent
+  // of whether a native-copy bridge was built or negotiated successfully.
+  bool hgi_projection_y_reflection = false;
+  for (const auto* driver : drivers) {
+    if (driver && driver->name == HgiTokens->renderDriver &&
+        driver->driver.IsHolding<Hgi*>()) {
+      const auto* hgi = driver->driver.UncheckedGet<Hgi*>();
+      hgi_projection_y_reflection = hgi && hgi->GetAPIName() == HgiTokens->Metal;
+      break;
+    }
+  }
   impl_->bridge->SetHgiProjectionYReflection(hgi_projection_y_reflection);
 }
 

@@ -152,6 +152,10 @@ material, lighting, fallback, compatibility, and performance evidence in the
 
 ## Cross-cutting planned work
 
+- **Linux Vulkan (deferred):** Add configuration/shader builds, headless
+  execution with Mesa lavapipe, optional real-GPU evidence, and GLFW viewport
+  smoke coverage for supported window systems. Deferred from active v0.16.x
+  follow-up on 2026-10-05; no new Linux Vulkan support claim is made.
 - **GPU capability matrix:** Expand validated NVIDIA/AMD and optional Intel
   hardware profiles and add Metal GPU evidence; separate missing-runner evidence
   from product failure. Extend feature/limit reporting before new paths use it.

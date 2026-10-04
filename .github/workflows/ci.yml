@@ -46,21 +46,7 @@ jobs:
 
       - name: Install pinned Slang for Metal
         if: matrix.preset == 'metal'
-        shell: bash
-        run: |
-          case "$(uname -m)" in
-            arm64) slang_arch=aarch64; slang_sha=13949e0fc81f5c0bcde9a195190706740f1cc77af9c558f9f1b598e9bea3c606 ;;
-            x86_64) slang_arch=x86_64; slang_sha=ff143c6fb6d6aa08545c1f4c68f14df06a92d52bccd5ad9cf2810ccd9cd61bfa ;;
-            *) exit 1 ;;
-          esac
-          curl --fail --location --retry 3 \
-            "https://github.com/shader-slang/slang/releases/download/v2026.8/slang-2026.8-macos-${slang_arch}.tar.gz" \
-            -o "$RUNNER_TEMP/slang.tar.gz"
-          echo "$slang_sha  $RUNNER_TEMP/slang.tar.gz" | shasum -a 256 --check
-          mkdir -p "$RUNNER_TEMP/slang"
-          tar -xzf "$RUNNER_TEMP/slang.tar.gz" -C "$RUNNER_TEMP/slang"
-          echo "$RUNNER_TEMP/slang/bin" >> "$GITHUB_PATH"
-          xcrun --find metal
+        run: bash .github/scripts/setup-slang.sh
 
       - name: Configure Core or Metal (macOS)
         if: runner.os == 'macOS'
@@ -70,7 +56,10 @@ jobs:
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
 
       - name: Test source and install-tree consumers
-        run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure --output-junit test-results.xml
+        run: >-
+          ctest --test-dir build --build-config ${{ matrix.build_type }}
+          --output-on-failure --no-tests=error -LE '^(gpu|runtime|host-smoke)$'
+          --output-junit test-results.xml
 
       - name: Upload Metal test evidence
         if: always() && matrix.preset == 'metal'

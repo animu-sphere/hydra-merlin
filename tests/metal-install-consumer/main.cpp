@@ -1,10 +1,12 @@
 #include <merlin/metal/backend.hpp>
 
 #include <cassert>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <string_view>
 
-int main() {
+int main(int argc, char** argv) {
   merlin::metal::StableResourceTable table(1);
   const auto slot = table.Acquire(1, 0);
   assert(slot.index == 0);
@@ -12,8 +14,14 @@ int main() {
   assert(table.telemetry().in_use == 1);
   merlin::metal::BackendFactory factory;
   assert(factory.kind() == merlin::render::BackendKind::Metal);
-  // Exercise the embedded library from an installed target without shader paths.
-  if (factory.availability().available) {
+  // Package linking is GPU-free. A separate runtime gate exercises the
+  // embedded library from the installed target without shader paths.
+  if (argc == 2 && std::string_view(argv[1]) == "--runtime") {
+    const auto availability = factory.availability();
+    if (!availability.available) {
+      std::cout << "Metal install runtime unavailable: " << availability.detail << '\n';
+      return 77;
+    }
     auto backend = factory.Create({});
     assert(backend);
     merlin::render::RenderRequest request;

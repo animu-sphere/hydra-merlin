@@ -10,6 +10,15 @@ after its public API and release process are established.
 
 ### Added
 
+- usdview regressions now send Qt mouse clicks through the host pick task,
+  checking prim selection, background deselection, movement/resize, selection
+  highlighting and visible axis overlays. Apple M3/OpenUSD 26.08 Tier 0 and
+  HgiMetal images match exactly across all 21 compared phases.
+- Hosted PR and SDK release checks now run GPU-free source, shader/ABI and
+  install-tree consumers. Installed Vulkan/Metal execution has separate GPU
+  tests with CTest fixtures; Metal runtime/capability checks run weekly or on
+  manual dispatch in Debug/Release, retaining explicit capability skips.
+
 - Native HgiVulkan presentation now copies depth, primId and instanceId into
   retained Hgi targets alongside color. Depth composition uses the GPU texture;
   selection and CPU consumers download non-color AOVs only on RenderBuffer Map,
@@ -27,6 +36,12 @@ after its public API and release process are established.
   Metal download count/bytes/time are reported separately from renderer counters.
 
 ### Fixed
+
+- HgiMetal host projection correction now follows the render driver even when
+  the Metal copy bridge is disabled, fixing upside-down Tier 0 output and
+  incorrect click picking. Diagnostic depth readback also preserves the native
+  depth texture used by Hdx composition, fixing missing/incorrect axis overlays
+  when GPU color and CPU coverage diagnostics are used together.
 
 - Vulkan image readback now orders writes to reused staging buffers. HgiVulkan
   Map downloads likewise order staging reuse, and native Hgi color targets

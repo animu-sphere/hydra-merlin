@@ -66,7 +66,8 @@ if(marker_contents MATCHES "hgi_metal_transfer_mode=gpu-copy")
 endif()
 foreach(phase IN ITEMS
     baseline points topology primvar transform visibility camera
-    material_parameter diagnostic recovery remove readd resize)
+    material_parameter diagnostic recovery remove readd resize selection
+    click-unselected click-hit click-overlay click-overlay-hidden click-miss click-moved click-resized-hit)
   if(NOT marker_contents MATCHES "phase=${phase} ")
     message(FATAL_ERROR
       "Merlin regression log is missing the ${phase} phase:\n${marker_contents}")
@@ -185,7 +186,7 @@ if(MERLIN_FORCE_HGI_VULKAN)
       "Vulkan Hgi target path unexpectedly mapped the color RenderBuffer")
   endif()
   if(NOT marker_contents MATCHES
-     "cpu_readback_aov_count=1 .*aov_image_export_count=3")
+     "cpu_readback_aov_count=1 .*aov_image_export_count=4")
     message(FATAL_ERROR
       "Vulkan Hgi GPU copy did not leave only regression coverage depth on CPU")
   endif()
@@ -222,11 +223,13 @@ if(MERLIN_FORCE_HGI_VULKAN)
           "Vulkan Hgi ${phase_name} phase has no ${stage} evidence")
       endif()
     endforeach()
-    if(phase_name STREQUAL "selection")
-      # ID Map/download is required by Hdx selection highlighting.
-      continue()
-    endif()
     foreach(stage IN ITEMS render_buffer_map host_upload)
+      if(stage STREQUAL "render_buffer_map" AND
+         (phase_name STREQUAL "selection" OR phase_name MATCHES "^click-"))
+        # The narrowed-frustum pick task and Hdx highlighting consume IDs;
+        # color must still stay on the GPU without a host upload.
+        continue()
+      endif()
       string(JSON available GET "${performance_json}" phases ${index}
              stages ${stage} available)
       if(available)
@@ -237,7 +240,7 @@ if(MERLIN_FORCE_HGI_VULKAN)
   endforeach()
 elseif(hgi_metal_gpu_copy)
   if(NOT marker_contents MATCHES
-     "cpu_readback_aov_count=1 .*aov_image_export_count=3")
+     "cpu_readback_aov_count=1 .*aov_image_export_count=4")
     message(FATAL_ERROR "HgiMetal must leave only regression coverage depth on CPU")
   endif()
   if(map_available)
@@ -262,10 +265,11 @@ elseif(hgi_metal_gpu_copy)
     if(phase_name STREQUAL "unlabeled")
       continue()
     endif()
-    if(phase_name STREQUAL "selection")
-      continue()
-    endif()
     foreach(stage IN ITEMS render_buffer_map host_upload)
+      if(stage STREQUAL "render_buffer_map" AND
+         (phase_name STREQUAL "selection" OR phase_name MATCHES "^click-"))
+        continue()
+      endif()
       string(JSON available GET "${performance_json}" phases ${index}
              stages ${stage} available)
       if(available)

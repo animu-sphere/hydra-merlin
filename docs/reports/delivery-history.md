@@ -11,6 +11,56 @@ Legend: ✅ done
 
 ---
 
+## v0.16.x click picking, overlay parity and CI separation
+
+Completed the Apple M3 host and CI-separation slice on 2026-10-05, based on
+`ff88c3c` plus the working-tree changes. Linux Vulkan work is deferred at the
+user's request. Other Apple GPUs, controlled hardware timing and execution of
+the added HgiVulkan click cases remain open; the Windows GPU runner was offline.
+
+- Actual Qt left-button events traverse usdview's narrowed-frustum pick task
+  and selection signal. They select `/World/OrientationProbe`, deselect on a
+  background click, and select the moved probe after an odd-sized resize.
+  Retina logical/physical coordinates are recorded with the selected path.
+  Separate assertions prove the selection highlight and real OpenGL axes are
+  visible and that deselection restores the unselected image.
+- A bridge-disabled Metal build exposed upside-down Tier 0 output and a
+  background click hitting an unrelated Mesh. Host projection reflection now
+  follows the Hgi render driver independently of native-copy negotiation.
+  Both bridge-disabled Tier 0 and HgiMetal pass the complete usdview sequence.
+- The regression-only coverage depth readback had suppressed the native depth
+  target. HdxAovInputTask returns early when native color is supplied, so it did
+  not upload that CPU depth; subsequent OpenGL axis composition lost depth.
+  Coverage readback now coexists with all four native AOV exports. Normal
+  presentation remains demand-driven; diagnostic tests still read only their
+  requested coverage depth. Click/selection phases permit required ID Map but
+  continue to reject host upload of native color.
+- Apple M3/macOS 15.7.9, AppleClang 17, Slang 2026.8 and OpenUSD 26.08:
+  **all 21 Tier 0/HgiMetal Mesh images match exactly**, including prior edits,
+  actual click hit/miss, moved/resized selection and visible/hidden axis
+  captures. The existing changed-pixel (0.25%) and mean-error (0.25 channel
+  units) limits are unchanged. Diagnostic baseline CPU readback remains
+  5,158,080/1,289,520 bytes for Tier 0/GPU copy at 597x540; timings are local
+  observations, not hardware gates.
+- Hosted PR and SDK-release checks exclude only the exact `gpu`, `runtime` and
+  `host-smoke` labels, preserving CPU GPU-Scene and GPU-driven contract tests,
+  shader/ABI checks, MaterialX generation and package consumers. Installed
+  Vulkan/Metal execution now has separate GPU cases with an install fixture.
+  The weekly/manual Metal workflow retains Debug/Release runtime JUnit/logs and
+  capability skips separately from build support; timings are never universal
+  PR gates. Windows manual capability CI includes the installed Vulkan runtime.
+- Core CTest passed **17/17**, Metal/Hydra CTest **34/34 without skips**, and
+  native viewport/settings CTest **6/6 without skips**. The GPU-free filter is
+  also exercised under the filesystem/process sandbox. Explicit SPIR-V
+  validation and broader independent Hydra compile coverage remain carry-over
+  work rather than newly claimed evidence.
+
+Raw comparison/trace/click reports remain local in
+`build/metal-hydra/usdview-metal-comparison.json`,
+`build/metal-hydra/adapters/merlin-hydra2/usdview-install/` and the equivalent
+`build/metal-hydra-tier0/` tree. Local JUnit results are retained in those build
+trees and `build/metal-viewport-followup/` under the report policy.
+
 ## v0.16.x Metal quality, host AOVs and native viewport
 
 Completed the locally testable Metal follow-up on 2026-10-05, based on
