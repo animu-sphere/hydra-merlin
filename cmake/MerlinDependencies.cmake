@@ -59,6 +59,14 @@ macro(merlin_find_vulkan_dependencies)
     set(_merlin_vulkan_sdk_path "$ENV{VULKAN_SDK}")
     cmake_path(GET _merlin_vulkan_sdk_path FILENAME
                _merlin_vulkan_sdk_version)
+    # LunarG's Linux VULKAN_SDK ends in an architecture directory below
+    # the version, unlike the Windows SDK prefix.
+    if(_merlin_vulkan_sdk_version MATCHES "^(x86_64|aarch64)$")
+      cmake_path(GET _merlin_vulkan_sdk_path PARENT_PATH
+                 _merlin_vulkan_sdk_parent)
+      cmake_path(GET _merlin_vulkan_sdk_parent FILENAME
+                 _merlin_vulkan_sdk_version)
+    endif()
   endif()
   set(MERLIN_VULKAN_SDK_DETECTED_VERSION
       "${_merlin_vulkan_sdk_version}" PARENT_SCOPE)

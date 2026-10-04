@@ -7,7 +7,26 @@ capability, integration, or benchmark evidence changes the dependency order.
 
 ## Phase D — GPU scalability and shading quality
 
-### Late v0.16.x onward — Forward lighting and shading quality
+### Deferred from v0.16.x — Metal quality and broader platform evidence
+
+The Windows/Linux validation follow-up closes within its recorded scope.
+These items remain incomplete and move to the next release cycle; their
+deferral does not expand current support claims. See the
+[Gaussian pipeline design](../design/gaussian-rendering.md) and
+[Metal execution plan](../design/metal-gaussian-execution.md).
+
+- [ ] Broaden Metal Gaussian execution evidence beyond Apple M3 and tune tile
+  work on representative scenes. Record total GPU cost as well as raster savings;
+  current 65K/1M binning and sorting can outweigh the raster improvement.
+- [ ] Extend same-device/host measurements to other supported GPUs with
+  controlled clocks/power before establishing hardware timing gates.
+- [ ] Run the new Qt mouse-click/axis-overlay regressions on HgiVulkan with
+  OpenUSD 26.05 and 26.08. Apple M3/OpenUSD 26.08 Tier 0 and HgiMetal evidence
+  is archived in the [delivery history](../reports/delivery-history.md#v016x-click-picking-overlay-parity-and-ci-separation).
+- [ ] Add Linux Vulkan real-GPU, native Wayland viewport and Hydra-host
+  execution evidence separately from Mesa lavapipe and the Xvfb/X11 smoke.
+
+### Next cycle onward — Forward lighting and shading quality
 
 **Goal:** Stabilize native and Hydra-hosted Forward images under camera motion,
 including camera-light energy, direct/environment lighting, linear/sRGB
@@ -28,8 +47,8 @@ white clipping or flicker; costs and unsupported lighting are diagnosed.
 quality thresholds; retain `Exact` as the validation path.
 
 **Depends on:** Image-producing GPU Gaussian tiling from
-[v0.16.0](../releases/v0.16.0.md), with remaining quality checks in the
-[current work](current.md). See the
+[v0.16.0](../releases/v0.16.0.md), with the deferred Metal quality checks above
+completed before expanding Metal claims. See the
 [Gaussian rendering design](../design/gaussian-rendering.md).
 
 **Exit:** Rejection, pair, saturation, and early-termination counters accompany
@@ -152,10 +171,6 @@ material, lighting, fallback, compatibility, and performance evidence in the
 
 ## Cross-cutting planned work
 
-- **Linux Vulkan (deferred):** Add configuration/shader builds, headless
-  execution with Mesa lavapipe, optional real-GPU evidence, and GLFW viewport
-  smoke coverage for supported window systems. Deferred from active v0.16.x
-  follow-up on 2026-10-05; no new Linux Vulkan support claim is made.
 - **GPU capability matrix:** Expand validated NVIDIA/AMD and optional Intel
   hardware profiles and add Metal GPU evidence; separate missing-runner evidence
   from product failure. Extend feature/limit reporting before new paths use it.

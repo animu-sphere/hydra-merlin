@@ -35,6 +35,9 @@ target_link_libraries(merlin-viewport-imgui
   PUBLIC glfw
 )
 target_compile_features(merlin-viewport-imgui PUBLIC cxx_std_20)
+# The viewport uses Vulkan/Metal; ImGui's GLFW input backend does not need
+# GLFW's default OpenGL header inclusion (absent on minimal Linux runners).
+target_compile_definitions(merlin-viewport-imgui PRIVATE GLFW_INCLUDE_NONE)
 if(MSVC)
   target_compile_options(merlin-viewport-imgui PRIVATE /W0)
 else()

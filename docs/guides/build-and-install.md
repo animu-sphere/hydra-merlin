@@ -21,6 +21,7 @@ Runtime dependencies are needed by the resulting application or host.
 | --- | --- | --- |
 | Core only | None | Platform C++ runtime; no GPU SDK, Slang or OpenUSD |
 | Windows / Vulkan | Visual Studio 2022 C++ tools, Vulkan 1.4 headers/loader, Slang 2026.8.x; validated SDK: 1.4.350.0 | Vulkan 1.4-capable GPU/driver and loader; packaged shader artifacts |
+| Linux / Vulkan | C++20 compiler, Ninja, Vulkan development loader, SDK 1.4.350.1 tools/headers, Slang 2026.8 | Vulkan 1.4 loader and driver; Mesa 25+ lavapipe provides CPU execution; packaged shader artifacts |
 | macOS / Metal | Xcode with macOS SDK and offline `metal`/`metallib` tools, Slang 2026.8.x; Ninja for the commands below | macOS Metal framework and a supported GPU; local runtime validation is on Apple Silicon |
 | Hydra 2 on either backend | OpenUSD 26.05 or 26.08 shared-library SDK matching the compiler and architecture | Matching OpenUSD libraries and plugin resources |
 | usdview host | The Hydra build above | The OpenUSD package's compatible Python, Qt bindings and Python dependencies, including PyOpenGL/NumPy |
@@ -53,6 +54,51 @@ can also be selected with
 the Vulkan SDK. Keep the compiler's accompanying libraries alongside it.
 GPU execution additionally needs a compatible vendor driver; installing SDK
 headers alone does not provide Vulkan 1.4 hardware support.
+
+### Linux lavapipe validation
+
+The Linux Vulkan workflow uses Ubuntu 26.04, Mesa lavapipe, pinned LunarG SDK
+1.4.350.1 and standalone Slang 2026.8. The SDK supplies headers, SPIR-V tools and
+validation layers; the distribution supplies the loader and software driver.
+Mesa lavapipe gained Vulkan 1.4 in
+[Mesa 25.0](https://docs.mesa3d.org/relnotes/25.0.0.html). Older distribution
+packages can still expose only Vulkan 1.3; installing SDK headers cannot upgrade
+the driver's API. Use `vulkaninfo --summary` to check the actual device.
+
+From the repository root on Ubuntu 26.04:
+
+```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends -y \
+  build-essential cmake ninja-build curl libvulkan-dev mesa-vulkan-drivers \
+  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb xauth
+source .github/scripts/setup-vulkan-linux.sh
+vulkaninfo --summary
+cmake --preset vulkan -B build-linux -G Ninja \
+  -DMERLIN_SLANGC_EXECUTABLE="$PWD/.ci/linux-vulkan/slang-2026.8/bin/slangc" \
+  -DCMAKE_BUILD_TYPE=Release -DMERLIN_BUILD_VIEWPORT=ON -DGLFW_BUILD_WAYLAND=OFF
+cmake --build build-linux --parallel 4
+mkdir -p build-linux/evidence
+build-linux/adapters/merlin-headless/merlin-headless \
+  --probe --validate --metadata build-linux/evidence/lavapipe.json
+xvfb-run -a ctest --test-dir build-linux --output-on-failure \
+  --no-tests=error --output-junit lavapipe-tests.xml
+python3 scripts/check-linux-vulkan-evidence.py \
+  --metadata build-linux/evidence/lavapipe.json --junit build-linux/lavapipe-tests.xml
+```
+
+The sourced setup verifies archive SHA-256 values, exports the SDK/compiler paths,
+and selects exactly one system lavapipe ICD through `VK_DRIVER_FILES` and the
+legacy `VK_ICD_FILENAMES`. Its `.ci` tools remain reusable by later build shells.
+The evidence checker requires Mesa's `llvmpipe` Vulkan driver, API 1.4, validation,
+and passing shader ABI, headless, Gaussian, lifetime/update/material, benchmark
+contract, X11 viewport and install-consumer cases. A required test skip fails the
+gate; optional capability skips remain visible. The workflow separately validates
+every production SPIR-V artifact with `spirv-val --target-env vulkan1.4`.
+
+This proves software-driver correctness and X11 presentation under Xvfb. Native
+Wayland, Linux Hydra hosts, other drivers and hardware performance require
+separate evidence. Software execution has no GPU timing threshold.
 
 ### macOS dependency setup
 

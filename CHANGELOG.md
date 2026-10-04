@@ -10,6 +10,12 @@ after its public API and release process are established.
 
 ### Added
 
+- Linux Vulkan CI now builds Debug/Release with pinned Vulkan SDK 1.4.350.1
+  and Slang 2026.8, validates production SPIR-V, and runs Mesa lavapipe
+  headless, Gaussian, resource-lifetime/update, X11 viewport and install-tree
+  consumer checks. Required runtime skips, a wrong driver/API and missing
+  validation fail the evidence gate. Software execution has no timing threshold;
+  native Wayland, Linux Hydra and other GPU evidence remain separate follow-ups.
 - usdview regressions now send Qt mouse clicks through the host pick task,
   checking prim selection, background deselection, movement/resize, selection
   highlighting and visible axis overlays. Apple M3/OpenUSD 26.08 Tier 0 and
@@ -37,6 +43,13 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Vulkan lifetime tests size their exhaustion limit from the constructor's
+  retained allocations, preserving the same render-time denial on dedicated
+  and unified-memory devices such as lavapipe.
+- The Vulkan/Metal viewport's GLFW input and presentation adapters no longer
+  require OpenGL development headers on minimal Linux build environments.
+- Linux Vulkan SDK metadata now reads the version above the architecture
+  directory instead of reporting `x86_64` as the SDK version.
 - HgiMetal host projection correction now follows the render driver even when
   the Metal copy bridge is disabled, fixing upside-down Tier 0 output and
   incorrect click picking. Diagnostic depth readback also preserves the native

@@ -1,0 +1,101 @@
+name: Linux Vulkan CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-vulkan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lavapipe:
+    name: Linux Vulkan / lavapipe / ${{ matrix.build_type }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Install Mesa and X11 viewport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            mesa-vulkan-drivers libvulkan-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev xvfb xauth
+
+      - name: Restore pinned Vulkan and Slang tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/linux-vulkan
+          key: linux-x64-vulkan-1.4.350.1-slang-2026.8
+
+      - name: Provision SDK and select lavapipe
+        run: source .github/scripts/setup-vulkan-linux.sh
+
+      - name: Record software driver environment
+        run: |
+          mkdir -p build-linux/evidence
+          dpkg-query -W mesa-vulkan-drivers > build-linux/evidence/mesa-version.txt
+          vulkaninfo --summary > build-linux/evidence/vulkaninfo.txt
+
+      - name: Configure Vulkan and X11 viewport
+        run: >-
+          cmake --preset vulkan -B build-linux -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DMERLIN_SLANGC_EXECUTABLE=${{ github.workspace }}/.ci/linux-vulkan/slang-2026.8/bin/slangc
+          -DMERLIN_BUILD_VIEWPORT=ON -DGLFW_BUILD_WAYLAND=OFF
+
+      - name: Build renderer and shader artifacts
+        run: cmake --build build-linux --parallel 4
+
+      - name: Validate production SPIR-V
+        run: |
+          mapfile -t shaders < <(find build-linux/backend/merlin-vulkan/shaders -name '*.spv' | sort)
+          test "${#shaders[@]}" -gt 0
+          for shader in "${shaders[@]}"; do
+            spirv-val --target-env vulkan1.4 "$shader"
+          done
+
+      - name: Require lavapipe and Vulkan validation
+        run: |
+          build-linux/adapters/merlin-headless/merlin-headless \
+            --probe --validate --metadata build-linux/evidence/lavapipe.json
+
+      # This gate checks correctness and resource contracts, without timing
+      # thresholds. Xvfb exercises X11 presentation; Wayland is separate work.
+      - name: Run source, headless, X11 viewport, and installed consumers
+        run: >-
+          xvfb-run -a ctest --test-dir build-linux --output-on-failure
+          --no-tests=error --output-junit lavapipe-tests.xml
+
+      - name: Reject missing or skipped required runtime coverage
+        run: >-
+          python3 scripts/check-linux-vulkan-evidence.py
+          --metadata build-linux/evidence/lavapipe.json
+          --junit build-linux/lavapipe-tests.xml
+
+      - name: Upload Linux Vulkan evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-lavapipe-${{ matrix.build_type }}
+          if-no-files-found: warn
+          path: |
+            build-linux/evidence
+            build-linux/renderer-report.json
+            build-linux/lavapipe-tests.xml
+            build-linux/Testing/Temporary/LastTest.log
+            build-linux/tests/merlin-vulkan-capabilities.json
+            build-linux/tests/merlin-benchmark*.json
+            build-linux/tests/offscreen-artifacts
+            build-linux/tests/validation-artifacts
+            build-linux/adapters/merlin-viewport/viewport-benchmark.json
