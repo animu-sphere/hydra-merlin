@@ -7,6 +7,13 @@ foreach(_config "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
          "CMAKE_CXX_FLAGS${_config}" "${CMAKE_CXX_FLAGS${_config}}")
 endforeach()
 
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME merlin-linux-vulkan-evidence
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/linux_vulkan_evidence_test.py")
+  set_tests_properties(merlin-linux-vulkan-evidence PROPERTIES LABELS "ci;core")
+endif()
+
 add_executable(merlin-render-world-tests
   render_world_test.cpp
 )

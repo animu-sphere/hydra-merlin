@@ -11,6 +11,43 @@ Legend: ✅ done
 
 ---
 
+## v0.16.x Windows/Linux validation closure
+
+Closed the active follow-up scope on 2026-10-05 with Linux Vulkan coverage,
+following the Vulkan 10M color-quality and HgiVulkan readback work below.
+The remaining Metal color-tail, macOS Mesh movement, HgiMetal readback and
+broader GPU/performance items remain incomplete in the next-cycle backlog.
+This is a work-scope closure; it does not create a release tag or extend Metal
+support claims.
+
+- Ubuntu 26.04 / WSL2 x64, GCC 15.2, Slang 2026.8, LunarG SDK 1.4.350.1,
+  Mesa 26.0.3 lavapipe (LLVM 21.1.8), loader 1.4.341 and device API 1.4.335:
+  Debug and Release each pass all 41 CTest cases with no skips. Production
+  SPIR-V passes `spirv-val --target-env vulkan1.4`. Gaussian CPU/GPU sorted
+  and tiled parity, validation, resource lifetime/update, X11 viewport
+  reference/resize and build/install consumers all execute on the CPU driver.
+- A new hosted Linux Vulkan workflow defines the same Debug/Release checks
+  separately from Core/MaterialX generation and hardware capability workflows.
+  It records Mesa/driver evidence and rejects missing or skipped required
+  runtime cases, a wrong driver/API or disabled validation. A small regression
+  suite exercises those false-success cases. Hosted results remain distinct
+  from these local captures.
+- The first local run exposed a dedicated-memory assumption in the exhaustion
+  test: lavapipe counts constructor buffers against its device-local budget.
+  The test now leaves one byte beyond measured retained allocations and still
+  requires the render-time image denial and unchanged retained memory. The
+  adjusted lifetime test and evidence-checker regressions also pass on Windows
+  RTX A5000/MSVC Release (2/2 CTest).
+- Xvfb initially lacked its shared-library and keyboard-compiler dependencies
+  locally. Installing the full distribution packages fixed the environment;
+  the final full runs above include successful viewport execution. Existing GCC
+  aggregate-initializer warnings are not claimed resolved. Linux native Wayland,
+  Hydra hosts, real GPUs and hardware timing gates remain separate work.
+
+Raw local captures are in `build/lavapipe-debug/`, `build/lavapipe-release/`
+and `build/lavapipe-windows-{build,test}.log`; the hosted workflow uploads
+JUnit, validation/image artifacts, capabilities and X11 viewport evidence.
+
 ## v0.16.x HgiVulkan demand-driven depth/ID readback
 
 Completed the Vulkan slice on 2026-10-04, based on `7a85e96` plus the

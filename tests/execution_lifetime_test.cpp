@@ -440,7 +440,16 @@ int main(int argc, char** argv) {
   // available byte evidence and the denial remains visible in telemetry.
   merlin::vulkan::RendererOptions limited_options;
   limited_options.frames_in_flight = 2;
-  limited_options.vram_limit_bytes = 1;
+  // CPU and unified-memory devices can count the constructor's host-visible
+  // buffers as device-local allocations. Leave exactly one byte beyond those
+  // persistent resources, so the denial is exercised during Render everywhere.
+  std::uint64_t initial_allocated_bytes{};
+  {
+    merlin::vulkan::Renderer probe_renderer(limited_options);
+    initial_allocated_bytes = probe_renderer.statistics()
+                                  .memory_budget.renderer_allocated_bytes;
+  }
+  limited_options.vram_limit_bytes = initial_allocated_bytes + 1;
   merlin::vulkan::Renderer limited_renderer(limited_options);
   bool exhausted{};
   try {
@@ -453,10 +462,13 @@ int main(int argc, char** argv) {
   }
   assert(exhausted);
   const auto limited_statistics = limited_renderer.statistics();
-  assert(limited_statistics.memory_budget.configured_limit_bytes == 1);
-  assert(limited_statistics.memory_budget.effective_limit_bytes == 1);
+  assert(limited_statistics.memory_budget.configured_limit_bytes ==
+         limited_options.vram_limit_bytes);
+  assert(limited_statistics.memory_budget.effective_limit_bytes ==
+         limited_options.vram_limit_bytes);
   assert(limited_statistics.memory_budget.exhaustion_count == 1);
-  assert(limited_statistics.memory_budget.renderer_allocated_bytes == 0);
+  assert(limited_statistics.memory_budget.renderer_allocated_bytes ==
+         initial_allocated_bytes);
 
   // A failed replacement must not strand the old resource in a retirement
   // list that only a nonexistent completion token could collect. Size the

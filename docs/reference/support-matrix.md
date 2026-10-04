@@ -1,6 +1,6 @@
 # Support matrix
 
-**Last reviewed:** 2026-10-04
+**Last reviewed:** 2026-10-05
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -12,12 +12,21 @@ work, but is not currently claimed as supported evidence.
 | --- | --- | --- | --- | --- | --- |
 | Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 and 26.08 | Core hosted CI plus local Vulkan/MaterialX, native viewport, Hydra host-presentation, and Gaussian corpus validation; capability workflow retains the hardware evidence |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Not continuously exercised | Core hosted CI |
+| Linux x64, Ubuntu 26.04 / WSL2 with GCC 15.2 and Ninja | Debug/Release | Debug/Release with Mesa 26.0.3 lavapipe, Vulkan 1.4.335 and SDK 1.4.350.1 | X11 under Xvfb, including reference images and resize | Not exercised | Local Debug/Release 41/41 CTest, no skips; production SPIR-V validation and installed consumers; matching hosted Linux Vulkan workflow added |
 | macOS 14, Apple Silicon, AppleClang 16 | Debug/Release | Native Metal offscreen Debug/Release; Vulkan not claimed | Native Metal `CAMetalLayer` viewport; Vulkan not claimed | Release with OpenUSD 26.08 and Metal | Hosted compile/package coverage plus local Apple GPU runtime AOV/residency, native presentation, and Kitchen Set Hydra validation |
 
 A repository-scoped Windows x64 GPU runner is enrolled with the `vulkan-1.4`
 label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
 Release on demand; it is capability evidence rather than a per-commit required
 check.
+
+The `Linux Vulkan CI` workflow defines Debug/Release compilation, production
+SPIR-V validation, Mesa lavapipe headless and Xvfb/X11 runtime checks on Ubuntu
+26.04. It records the installed Mesa version and actual renderer capabilities,
+and rejects skipped required cases, a different driver, an API below Vulkan 1.4
+or unavailable Khronos validation. The local WSL2 captures above are separate
+from hosted-run results. Linux real-GPU, native Wayland and Hydra execution
+remain unverified; lavapipe has no hardware timing acceptance threshold.
 
 The hosted workflow also defines GPU-free MaterialX generation and installed
 consumer checks on Windows 2022 and Ubuntu 24.04, in Debug and Release. This

@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Linux Vulkan CI now builds Debug/Release with pinned Vulkan SDK 1.4.350.1
+  and Slang 2026.8, validates production SPIR-V, and runs Mesa lavapipe
+  headless, Gaussian, resource-lifetime/update, X11 viewport and install-tree
+  consumer checks. Required runtime skips, a wrong driver/API and missing
+  validation fail the evidence gate. Software execution has no timing threshold;
+  native Wayland, Linux Hydra and other GPU evidence remain separate follow-ups.
+
 - Native HgiVulkan presentation now copies depth, primId and instanceId into
   retained Hgi targets alongside color. Depth composition uses the GPU texture;
   selection and CPU consumers download non-color AOVs only on RenderBuffer Map,
@@ -20,6 +27,10 @@ after its public API and release process are established.
   readback. HgiMetal retains its color-only copy and eager depth/ID readback.
 
 ### Fixed
+
+- Vulkan lifetime tests size their exhaustion limit from the constructor's
+  retained allocations, preserving the same render-time denial on dedicated
+  and unified-memory devices such as lavapipe.
 
 - Vulkan image readback now orders writes to reused staging buffers. HgiVulkan
   Map downloads likewise order staging reuse, and native Hgi color targets

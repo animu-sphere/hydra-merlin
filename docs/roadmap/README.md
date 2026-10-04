@@ -160,7 +160,7 @@ Every milestone defines its release gates in six categories:
   opaque indexed Mesh only. Forward remains the image reference and fallback;
   transparent Mesh, Gaussian primitives, and overlays keep specialized passes.
 - **Harden the reference image before alternate shading expands.** Beginning in
-  late v0.16.x, Forward lighting, color management, tone mapping, and
+  the cycle following v0.16.x, Forward lighting, color management, tone mapping, and
   camera-motion stability receive fixture-backed quality work before broader
   MaterialX and Visibility shading claims. Host camera lights remain explicit
   inputs rather than a hidden or renderer-specific exposure override.
