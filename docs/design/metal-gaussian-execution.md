@@ -1,7 +1,7 @@
 # Metal Gaussian execution plan
 
-**Status:** Phase 3 tile raster connected in the native Metal renderer with Apple M3 offscreen and 8,192-particle HgiMetal host evidence; larger host and broader hardware evidence remain open.
-**Last reviewed:** 2026-09-30
+**Status:** Phase 3 tile raster connected with Apple M3 offscreen, 8,192-particle/1M HgiMetal and native viewport evidence; broader hardware and controlled timing gates remain open.
+**Last reviewed:** 2026-10-05
 
 Move Gaussian projection, culling, sorting and rasterization onto the Metal GPU
 without making CPU work proportional to particle count during camera motion.
@@ -92,8 +92,8 @@ this path to renderer frame contexts, persistent attributes and completion
 telemetry. Controlled HgiMetal sorted-stream captures cover the public
 8,192-particle corpus and a deterministic 1M scene. Native Metal tile raster
 has separate Apple M3 offscreen image/performance evidence and an 8,192-particle
-HgiMetal host capture; larger tile host and wider hardware evidence remain
-unfinished.
+HgiMetal host capture. The 2026-10-05 follow-up below adds framed 1M host
+and native viewport captures; wider hardware evidence remains unfinished.
 
 Establish repeatable static, camera-motion and particle-edit captures before
 changing execution. Use the existing public Gaussian corpus and deterministic
@@ -245,7 +245,22 @@ the tradeoff. A same-day HgiMetal GPU-copy run selected tile raster on the
 public 8,192-particle corpus and passed the host image policy, but reached a
 15/255 channel difference on 0.0183% of pixels above the six-unit threshold.
 The four-sample moving GPU median was 3.45 ms tiled versus 2.79 ms sorted.
-Larger host captures, other Apple GPUs and scene-dependent tuning remain open.
+That 2026-09-30 result is historical. On 2026-10-05, Metal CPU/GPU sorted
+streams and tiles switched to a retained RGBA32F working target plus one final
+RGBA8 conversion; fragment evaluation now reconstructs the pixel center.
+A closed-form 512-splat low-opacity test validates the corrected reference.
+Current 40-sample API-validated host comparisons have a maximum 6/255 tiled
+color difference on the public corpus and exact framed 1M policy images.
+Eight-frame native viewport captures at both sizes differ by at most 1/255,
+with tile/float selection on every frame and no overflow or CPU fallback.
+The benchmark generator now authors a conservative extent; the 1M host camera
+covers about 410x410 pixels within 597x540 instead of a small unframed patch.
+Offscreen 65K/1M scale tests pass with API and shader validation and zero color
+difference, retaining exact depth/IDs and the existing two-step acceptance bound.
+Gaussian raster timestamps include final conversion; the extra target consumes
+16 bytes/pixel per retained frame context. Total device times remain distinct
+from stage savings. Other Apple GPUs, controlled clocks/power and scene-dependent
+tuning remain open. See the [delivery evidence](../reports/delivery-history.md#v016x-metal-quality-host-aovs-and-native-viewport).
 
 Connect the complete frame path on the GPU:
 

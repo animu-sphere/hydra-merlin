@@ -105,7 +105,7 @@ public:
   [[nodiscard]] bool CopyAov(
       merlin::vulkan::AovImageExport&& source,
       std::shared_ptr<merlin::render::Backend> backend);
-  [[nodiscard]] bool CopyColor(
+  [[nodiscard]] bool CopyAov(
       merlin::metal::AovImageExport&& source,
       std::shared_ptr<merlin::render::Backend> backend);
   void SetConverged(bool converged);

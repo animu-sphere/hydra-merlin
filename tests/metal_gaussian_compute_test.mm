@@ -297,6 +297,9 @@ std::array<id<MTLBuffer>, 4> Raster(id<MTLDevice> device,
   const merlin::Vec2 inverse_extent{1.0F / width, 1.0F / height};
   [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent)
                  atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
+  [encoder setFragmentBytes:&inverse_extent
+                     length:sizeof(inverse_extent)
+                    atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
   if (indirect) {
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle indirectBuffer:indirect indirectBufferOffset:0];
   } else if (count) {

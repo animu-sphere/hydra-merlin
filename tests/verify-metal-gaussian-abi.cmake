@@ -22,6 +22,10 @@ require_json("${_vertex}" 0 parameters 1 type elementType fields 0 binding offse
 require_json("${_vertex}" 2 parameters 1 type elementType fields 0 type elementCount)
 require_json("${_fragment}" gaussian_metal_fragment entryPoints 0 name)
 require_json("${_fragment}" fragment entryPoints 0 stage)
+require_json("${_fragment}" gaussian_constants parameters 1 name)
+require_json("${_fragment}" constantBuffer parameters 1 binding kind)
+require_json("${_fragment}" 1 parameters 1 binding index)
+require_json("${_fragment}" 8 parameters 1 type elementVarLayout binding size)
 foreach(_index RANGE 0 2)
   require_json("${_fragment}" "${_index}"
     entryPoints 0 result type fields ${_index} binding index)

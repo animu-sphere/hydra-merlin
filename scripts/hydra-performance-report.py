@@ -79,6 +79,9 @@ COUNTERS = (
     "hgi_cpu_download_count",
     "hgi_cpu_download_bytes",
     "hgi_cpu_download_ns",
+    "hgi_metal_cpu_download_count",
+    "hgi_metal_cpu_download_bytes",
+    "hgi_metal_cpu_download_ns",
     "visible_primitive_count",
     "wait_count",
     "map_count",
@@ -97,6 +100,9 @@ COUNTERS = (
     "geometry_cache_misses",
 )
 ADDITIVE_COUNTERS = {
+    "hgi_metal_cpu_download_count",
+    "hgi_metal_cpu_download_bytes",
+    "hgi_metal_cpu_download_ns",
     "snapshot_visited_records",
     "snapshot_copied_records",
     "snapshot_rebuilt_draws",
@@ -209,7 +215,7 @@ TRACE_STAGE_NAMES = {
         "HdMerlinHgiVulkanBridge::Upload",
         "HgiGLOps::CopyTextureCpuToGpu",
     ),
-    "gpu_copy_ns": ("HdMerlinHgiVulkanBridge::Copy",),
+    "gpu_copy_ns": ("HdMerlinHgiVulkanBridge::Copy", "HdMerlinHgiMetalBridge::Copy"),
     "host_composite_ns": (
         "HdxColorCorrectionTask::Execute",
         "HdxColorizeSelectionTask::Execute",

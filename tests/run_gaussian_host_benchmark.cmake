@@ -18,6 +18,9 @@ endif()
 if(NOT DEFINED MERLIN_GAUSSIAN_VALIDATE)
   set(MERLIN_GAUSSIAN_VALIDATE 0)
 endif()
+if(NOT DEFINED MERLIN_GAUSSIAN_SHADER_VALIDATE)
+  set(MERLIN_GAUSSIAN_SHADER_VALIDATE ${MERLIN_GAUSSIAN_VALIDATE})
+endif()
 if(MERLIN_GAUSSIAN_VALIDATE)
   set(validation 1)
 else()
@@ -43,12 +46,18 @@ if(NOT renderer_library_count EQUAL 1)
 endif()
 list(GET renderer_libraries 0 renderer_library)
 file(SHA256 "${renderer_library}" renderer_sha256)
+set(metal_shader_validation 0)
+if(MERLIN_GAUSSIAN_HOST_BACKEND STREQUAL "metal" AND
+   MERLIN_GAUSSIAN_VALIDATE AND MERLIN_GAUSSIAN_SHADER_VALIDATE)
+  set(metal_shader_validation 1)
+endif()
 file(WRITE "${MERLIN_STAGE_DIR}/capture-provenance.json"
   "{\n  \"schema\": \"merlin-gaussian-host-capture/v1\",\n"
   "  \"scene_sha256\": \"${scene_sha256}\",\n"
   "  \"runtime_config_sha256\": \"${runtime_config_sha256}\",\n"
   "  \"renderer_sha256\": \"${renderer_sha256}\",\n"
   "  \"validation_enabled\": ${validation},\n"
+  "  \"metal_shader_validation_enabled\": ${metal_shader_validation},\n"
   "  \"measured_frames\": ${MERLIN_GAUSSIAN_FRAMES}\n}\n")
 cmake_path(CONVERT "${MERLIN_PXR_ROOT}/bin;${MERLIN_PXR_ROOT}/lib;$ENV{PATH}"
   TO_NATIVE_PATH_LIST runtime_path NORMALIZE)
@@ -62,6 +71,14 @@ if(MERLIN_GAUSSIAN_HOST_BACKEND STREQUAL "metal")
   list(APPEND host_environment "HGI_ENABLE_VULKAN=0" "HGIVULKAN_DEBUG=0"
     "MERLIN_GAUSSIAN_EXPECT_TRANSFER_MODE=gpu-copy")
   set(merlin_test_backend metal)
+  if(MERLIN_GAUSSIAN_VALIDATE)
+    list(APPEND host_environment "MTL_DEBUG_LAYER=1")
+    if(MERLIN_GAUSSIAN_SHADER_VALIDATE)
+      list(APPEND host_environment "MTL_SHADER_VALIDATION=1")
+    else()
+      list(APPEND host_environment "MTL_SHADER_VALIDATION=0")
+    endif()
+  endif()
 elseif(MERLIN_FORCE_HGI_VULKAN)
   list(APPEND host_environment "HGI_ENABLE_VULKAN=1" "HGIVULKAN_DEBUG=${validation}"
     "MERLIN_GAUSSIAN_EXPECT_TRANSFER_MODE=gpu-copy")

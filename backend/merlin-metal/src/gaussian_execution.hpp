@@ -6,7 +6,9 @@
 
 namespace merlin::metal {
 
-inline constexpr NSUInteger kGaussianTimestampCount = 10;
+inline constexpr NSUInteger kGaussianTimestampCount = 12;
+inline constexpr NSUInteger kGaussianColorConvertBegin = 10;
+inline constexpr NSUInteger kGaussianColorConvertEnd = 11;
 inline constexpr NSUInteger kGaussianPrepareBegin = 0;
 inline constexpr NSUInteger kGaussianPrepareEnd = 1;
 inline constexpr NSUInteger kGaussianSortBegin = 2;
