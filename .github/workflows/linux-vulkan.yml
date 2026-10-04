@@ -91,6 +91,7 @@ jobs:
           if-no-files-found: warn
           path: |
             build-linux/evidence
+            build-linux/renderer-report.json
             build-linux/lavapipe-tests.xml
             build-linux/Testing/Temporary/LastTest.log
             build-linux/tests/merlin-vulkan-capabilities.json
