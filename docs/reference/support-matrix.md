@@ -20,12 +20,14 @@ label. The manual capability workflow exercises Vulkan Debug/Release and Hydra
 Release on demand; it is capability evidence rather than a per-commit required
 check.
 
-The `Linux Vulkan CI` workflow defines Debug/Release compilation, production
+The `Linux Vulkan CI` workflow runs Debug/Release compilation, production
 SPIR-V validation, Mesa lavapipe headless and Xvfb/X11 runtime checks on Ubuntu
 26.04. It records the installed Mesa version and actual renderer capabilities,
 and rejects skipped required cases, a different driver, an API below Vulkan 1.4
-or unavailable Khronos validation. The local WSL2 captures above are separate
-from hosted-run results. Linux real-GPU, native Wayland and Hydra execution
+or unavailable Khronos validation. Both configurations passed all 42 tests in
+[Linux Vulkan CI run 37229280702](https://github.com/animu-sphere/hydra-merlin/actions/runs/37229280702).
+The local WSL2 captures above are separate from these hosted-run results.
+Linux real-GPU, native Wayland and Hydra execution
 remain unverified; lavapipe has no hardware timing acceptance threshold.
 Required hosted and SDK-release tests keep shader/ABI and installed package
 linking independent of GPU execution. The weekly/manual Metal capability
