@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-10-05
+
 ### Added
 
 - Linux Vulkan CI now builds Debug/Release with pinned Vulkan SDK 1.4.350.1
@@ -1150,7 +1152,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.0...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.1...main
+[0.16.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.14.0...v0.14.1

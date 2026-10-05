@@ -1,7 +1,7 @@
 # Current
 
 Active and immediately next work lives here. Shipped changes are recorded in
-the [changelog](../../CHANGELOG.md) and [v0.16.0 release record](../releases/v0.16.0.md);
+the [changelog](../../CHANGELOG.md) and [v0.16.1 release record](../releases/v0.16.1.md);
 current support claims live in the [support matrix](../reference/support-matrix.md).
 
 ## Next — validation gates
