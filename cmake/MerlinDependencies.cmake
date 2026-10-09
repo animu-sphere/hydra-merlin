@@ -1,6 +1,7 @@
 # Keep imported targets and detected-version outputs in the owning directory.
 # Macros preserve the existing directory scope, including PARENT_SCOPE exports.
 include_guard(GLOBAL)
+include(MerlinOpenUSDPython)
 
 if(MERLIN_ENABLE_MATERIALX)
   include(MerlinMaterialX)
@@ -79,6 +80,7 @@ macro(merlin_find_hydra_dependencies)
     find_package(Vulkan REQUIRED COMPONENTS shaderc_combined)
   endif()
   find_package(pxr CONFIG REQUIRED)
+  merlin_rebind_openusd_python_includes()
   include(GNUInstallDirs)
 
   get_target_property(_merlin_pxr_include_dirs hd INTERFACE_INCLUDE_DIRECTORIES)

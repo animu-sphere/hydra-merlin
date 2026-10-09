@@ -20,10 +20,17 @@ record establishes local implementation evidence only.
 - Windows x64, Visual Studio 2026 generator with the v143 toolset (MSVC
   19.40.33821), Python 3.13.14, Vulkan SDK 1.4.350.0 and Slang 2026.8:
   both OpenUSD SDKs build Hydra, the native HgiVulkan bridge and shader artifacts.
-  Each final GPU-free CTest selection passes 35/35 cases without skips and
+  Each final GPU-free CTest selection passes 36/36 cases without skips and
   passes the evidence checker. Both selections also pass with Vulkan ICD
   discovery pointed at a nonexistent file. The Core-only configuration passes
   19/19 cases, including installed consumer linking.
+- The initial hosted configure failures exposed the 26.05 SDK's exact Python
+  3.13.14 requirement and producer Python include directories retained in both
+  SDK exports. The workflow now pins that patch; imported target includes are
+  rebound after SDK version validation without changing artifact files. A
+  configure regression covers an unavailable producer directory. Both SDKs
+  build and pass the final selection using a separate consumer header/library
+  root; hosted rerun results remain pending.
 - Installed plugin discovery uses the package fixture and checks the requested
   resource directory, with ambient plugin discovery paths cleared. Core and
   Vulkan installed consumers link separately from device/render execution.

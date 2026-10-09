@@ -42,7 +42,8 @@ jobs:
         id: python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.13'
+          # The 26.05 SDK's pxrConfig requires this exact patch version.
+          python-version: '3.13.14'
           architecture: x64
       - name: Restore pinned Vulkan SDK
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

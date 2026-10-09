@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 
 
 REQUIRED_TESTS = (
+    "merlin-openusd-python-includes",
     "merlin-hydra2-discovery",
     "merlin-hydra2-install-discovery",
     "merlin-hydra2-render-buffer",

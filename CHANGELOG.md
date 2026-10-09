@@ -20,6 +20,9 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Hydra SDK consumption now rebinds producer Python header directories on
+  imported OpenUSD targets to the validated consumer Python includes. Hosted
+  Hydra CI pins Python 3.13.14 to satisfy the 26.05 SDK's exact patch requirement.
 - The Vulkan offscreen smoke now has `gpu`/`runtime` CTest labels, keeping it
   out of hosted compilation and SDK package checks that exclude device execution.
   Unfiltered local and Linux lavapipe validation still run it.

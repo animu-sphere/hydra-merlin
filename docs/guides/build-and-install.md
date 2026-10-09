@@ -197,11 +197,17 @@ Its configure step disables post-link renderer execution with
 `-DMERLIN_GENERATE_RENDERER_REPORT=OFF`. The evidence checker requires this
 setting and rejects missing/skipped selected cases or accidental host/device
 test selection. OpenUSD SDK provisioning uses verified OCI artifacts
-and the SDK's Python 3.13 ABI, and omits `ost runtime validate`, which probes
+and Python 3.13.14 (required exactly by the 26.05 SDK), and omits
+`ost runtime validate`, which probes
 devices and renders through a host. The capability workflow opts into that
 validation separately. The copy-only Windows Vulkan SDK is supplemented with
 the SHA-256-pinned upstream VMA 3.3.0 header; no prepared GPU runner is needed
 for compilation. Hosted Hydra results remain pending until both SDK jobs run.
+After OpenUSD's Python version validation, Merlin rebinds the Python header
+directories exported by the SDK's `python` target to the consumer's
+`Python3::Python` include directories. Other dependency directories and the
+verified SDK files remain unchanged. A configure regression uses an unavailable
+producer path to cover consumption from a different machine.
 
 ## Shared CMake presets
 

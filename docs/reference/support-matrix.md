@@ -54,7 +54,10 @@ labels. Artifact verification and SDK materialization do not call OpenStrata's
 device/render validation in this gate, and `MERLIN_GENERATE_RENDERER_REPORT=OFF`
 disables post-link renderer execution. These SDKs contain Release libraries
 only, so Debug is excluded to preserve the MSVC runtime/iterator ABI.
-Local v143 builds pass 35/35 selected tests for each SDK, including with Vulkan
+The workflow pins Python 3.13.14 because the 26.05 package requires that exact
+patch. Imported OpenUSD targets use the validated consumer Python headers,
+replacing producer Python directories without modifying the verified SDK files.
+Local v143 builds pass 36/36 selected tests for each SDK, including with Vulkan
 ICD discovery disabled; details are in the
 [delivery history](../reports/delivery-history.md#hosted-hydra-compilation-gate--local-validation-2026-10-10).
 The first hosted results remain pending; adding the workflow does not establish
