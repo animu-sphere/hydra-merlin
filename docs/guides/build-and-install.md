@@ -189,6 +189,30 @@ fixture first stages and builds the package consumers. An unfiltered local
 CTest run continues to exercise both package linking and runtime. See the
 [support matrix](../reference/support-matrix.md) for the exact coverage.
 
+The separate `Hydra compilation CI` workflow builds the pinned Windows shared
+OpenUSD 26.05/26.08 Release SDKs on hosted Windows 2022 runners. It checks CPU
+adapter contracts, shader ABI, installed Core/Vulkan consumer linking and installed
+Hydra plugin discovery with the same exact runtime-label exclusion above.
+Its configure step disables post-link renderer execution with
+`-DMERLIN_GENERATE_RENDERER_REPORT=OFF`. The evidence checker requires this
+setting and rejects missing/skipped selected cases or accidental host/device
+test selection. OpenUSD SDK provisioning uses verified OCI artifacts
+and Python 3.13.14 (required exactly by the 26.05 SDK), and omits
+`ost runtime validate`, which probes
+devices and renders through a host. The capability workflow opts into that
+validation separately. The copy-only Windows Vulkan SDK is supplemented with
+the SHA-256-pinned upstream VMA 3.3.0 header; no prepared GPU runner is needed
+for compilation. Hosted CPU/package executables also need the Vulkan loader
+DLL even without device execution. The workflow opts into a SHA-256-verified
+LunarG 1.4.350.0 x64 runtime ZIP and adds its loader directory to `PATH` without
+installing a driver; capability jobs retain the system loader.
+Hosted Hydra results remain pending until both SDK jobs pass.
+After OpenUSD's Python version validation, Merlin rebinds the Python header
+directories exported by the SDK's `python` target to the consumer's
+`Python3::Python` include directories. Other dependency directories and the
+verified SDK files remain unchanged. A configure regression uses an unavailable
+producer path to cover consumption from a different machine.
+
 ## Shared CMake presets
 
 The checked-in presets work without OpenStrata. They select existing feature

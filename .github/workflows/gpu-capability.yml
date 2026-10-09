@@ -184,37 +184,7 @@ jobs:
 
       - name: Pull and materialize the HgiVulkan runtime
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force .ost-ci | Out-Null
-          ost artifact show $env:OST_RUNTIME_ARTIFACT --json *> $null
-          if ($LASTEXITCODE -eq 0) {
-            ost artifact verify $env:OST_RUNTIME_ARTIFACT --json |
-              Out-File -Encoding utf8 .ost-ci/runtime-cache-verify.json
-            if ($LASTEXITCODE -ne 0) { throw "cached OpenUSD runtime verification failed" }
-          } else {
-            ost artifact pull $env:OST_RUNTIME_REMOTE `
-              --expect-artifact $env:OST_RUNTIME_ARTIFACT `
-              --require-kind runtime `
-              --require-openusd cy2026/windows/x86_64/vulkan `
-              --require-openusd-version ${{ matrix.openusd }} `
-              --require-sbom --require-provenance --json |
-              Tee-Object -FilePath .ost-ci/runtime-pull.json
-            if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime pull failed" }
-          }
-          ost runtime pull cy2026 --profile usd `
-            --from-artifact $env:OST_RUNTIME_ARTIFACT --force
-          if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime materialization failed" }
-          ost runtime validate cy2026 --profile usd --json |
-            Tee-Object -FilePath .ost-ci/runtime-validate.json
-          if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime validation failed" }
-          $runtime = (ost runtime show cy2026 --profile usd --json |
-            ConvertFrom-Json).data
-          if ($LASTEXITCODE -ne 0) { throw "OpenUSD runtime inspection failed" }
-          $root = Join-Path $env:OST_HOME "runtimes/$($runtime.id)"
-          if (-not (Test-Path -LiteralPath $root)) {
-            throw "materialized OpenUSD runtime is missing: $root"
-          }
-          "OPENUSD_ROOT=$root" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+        run: .github/scripts/setup-openusd.ps1 -Version ${{ matrix.openusd }} -ValidateRuntime
 
       - name: Configure Hydra
         shell: pwsh

@@ -1,21 +1,24 @@
+param([switch]$ProvisionLoader)
+
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
 $version = "1.4.350.0"
 $expectedSha256 = "855b27ba05d2d8119c5114c5d4ff870ca38f2c632b11e1bb9923b9b7e6ecfe7b"
 $workspace = if ($env:GITHUB_WORKSPACE) { $env:GITHUB_WORKSPACE } else { (Get-Location).Path }
-$hostSdkRoot = $env:VULKAN_SDK
 $sdkRoot = Join-Path $workspace ".ci/vulkan-sdk/$version"
 $sdkBin = Join-Path $sdkRoot "Bin"
 $slangc = Join-Path $sdkBin "slangc.exe"
 
-# Files the capability jobs rely on. HgiVulkan's public vk_mem_alloc.h wrapper
+# Files the compilation and capability jobs rely on. HgiVulkan's public wrapper
 # includes the SDK-provided vma/vk_mem_alloc.h, so an executable-only cache is
 # not a complete development SDK.
 $requiredFiles = @(
   "Bin/slangc.exe",
   "Bin/vulkaninfoSDK.exe",
-  "Include/vma/vk_mem_alloc.h"
+  "Include/vulkan/vulkan.h",
+  "Lib/vulkan-1.lib",
+  "Lib/shaderc_combined.lib"
 )
 function Get-MissingVulkanFile {
   foreach ($file in $requiredFiles) {
@@ -36,6 +39,11 @@ if (Get-MissingVulkanFile) {
     throw "LunarG Vulkan SDK $version hashes to $actualSha256, expected $expectedSha256"
   }
   if (Test-Path -LiteralPath $sdkRoot) {
+    $resolvedSdkRoot = [IO.Path]::GetFullPath($sdkRoot)
+    $allowedRoot = [IO.Path]::GetFullPath((Join-Path $workspace '.ci/vulkan-sdk')) + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedSdkRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "SDK replacement path is outside the workspace tool directory: $resolvedSdkRoot"
+    }
     Remove-Item -LiteralPath $sdkRoot -Recurse -Force
   }
   & $installer --root $sdkRoot --accept-licenses --default-answer `
@@ -45,24 +53,17 @@ if (Get-MissingVulkanFile) {
   }
 }
 
-# LunarG's copy-only component omits the VMA header even though the full SDK of
-# the same pinned version contains it. Seed that external development header
-# from the prepared self-host toolchain, then cache the complete SDK prefix.
+# LunarG's copy-only component omits VMA. Fetch the exact upstream header used
+# by this SDK so a hosted runner needs no preinstalled self-host toolchain.
 $vmaRelativePath = "Include/vma/vk_mem_alloc.h"
 $vmaPath = Join-Path $sdkRoot $vmaRelativePath
+$vmaSha256 = '90ce12fc4a2466235a09ae02905dd0c13aee80c1bbf11b331ab61230c2ceb112'
 if (-not (Test-Path -LiteralPath $vmaPath)) {
-  $hostSdkCandidates = @($hostSdkRoot, "C:/VulkanSDK/$version") |
-    Where-Object { $_ } |
-    Select-Object -Unique
-  foreach ($candidate in $hostSdkCandidates) {
-    $hostVma = Join-Path $candidate $vmaRelativePath
-    if (Test-Path -LiteralPath $hostVma) {
-      New-Item -ItemType Directory -Force (Split-Path $vmaPath) | Out-Null
-      Copy-Item -LiteralPath $hostVma -Destination $vmaPath
-      Write-Host "Seeded VMA from the prepared Vulkan SDK $candidate"
-      break
-    }
-  }
+  New-Item -ItemType Directory -Force (Split-Path $vmaPath) | Out-Null
+  Invoke-WebRequest 'https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.3.0/include/vk_mem_alloc.h' -OutFile $vmaPath
+}
+if ((Get-FileHash -Algorithm SHA256 $vmaPath).Hash.ToLowerInvariant() -ne $vmaSha256) {
+  throw "VMA 3.3.0 header checksum mismatch: $vmaPath"
 }
 
 $missingFile = Get-MissingVulkanFile
@@ -73,6 +74,38 @@ if ($missingFile) {
 $env:VULKAN_SDK = $sdkRoot
 $env:VK_LAYER_PATH = $sdkBin
 $env:PATH = "$sdkBin;$env:PATH"
+
+# A copy-only SDK has import libraries but no Vulkan loader. CPU/package tests
+# still link that DLL on GPU-free runners. Keep this local loader opt-in so
+# capability jobs continue using their driver-installed system loader.
+if ($ProvisionLoader) {
+  $downloads = Join-Path $workspace '.ci/downloads'
+  $runtimeZip = Join-Path $downloads "VulkanRT-X64-$version-Components.zip"
+  $runtimeSha256 = '23ce69f32cef3e2799617e2b1776cd0c71030d23a91f8375821cc40d76b185b9'
+  New-Item -ItemType Directory -Force $downloads | Out-Null
+  if (-not (Test-Path -LiteralPath $runtimeZip)) {
+    Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanRT-X64-$version-Components.zip" -OutFile $runtimeZip
+  }
+  if ((Get-FileHash -Algorithm SHA256 $runtimeZip).Hash.ToLowerInvariant() -ne $runtimeSha256) {
+    throw "Vulkan runtime $version archive checksum mismatch: $runtimeZip"
+  }
+  $loaderRoot = Join-Path $workspace ".ci/vulkan-loader/$version"
+  Expand-Archive -LiteralPath $runtimeZip -DestinationPath $loaderRoot -Force
+  $loaderBin = Join-Path $loaderRoot "VulkanRT-X64-$version-Components/x64"
+  $loaderDll = Join-Path $loaderBin 'vulkan-1.dll'
+  # Loading the DLL and resolving its entry point needs no Vulkan device/ICD.
+  $loaderHandle = [Runtime.InteropServices.NativeLibrary]::Load($loaderDll)
+  try {
+    [Runtime.InteropServices.NativeLibrary]::GetExport($loaderHandle, 'vkGetInstanceProcAddr') | Out-Null
+  } finally {
+    [Runtime.InteropServices.NativeLibrary]::Free($loaderHandle)
+  }
+  $env:PATH = "$loaderBin;$env:PATH"
+  if ($env:GITHUB_PATH) {
+    $loaderBin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+  }
+  Write-Host "Vulkan $version x64 loader (no driver installation): $loaderDll"
+}
 
 if ($env:GITHUB_ENV) {
   "VULKAN_SDK=$sdkRoot" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV

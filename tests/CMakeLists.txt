@@ -8,7 +8,16 @@ foreach(_config "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
 endforeach()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
+add_test(NAME merlin-openusd-python-includes
+  COMMAND "${CMAKE_COMMAND}"
+    -S "${CMAKE_CURRENT_SOURCE_DIR}/openusd-python-includes"
+    -B "${CMAKE_CURRENT_BINARY_DIR}/openusd-python-includes"
+    "-DMERLIN_SOURCE_DIR=${PROJECT_SOURCE_DIR}")
+set_tests_properties(merlin-openusd-python-includes PROPERTIES LABELS "ci;core;hydra")
 if(Python3_Interpreter_FOUND)
+  add_test(NAME merlin-hosted-hydra-evidence
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/hosted_hydra_evidence_test.py")
+  set_tests_properties(merlin-hosted-hydra-evidence PROPERTIES LABELS "ci;core")
   add_test(NAME merlin-linux-vulkan-evidence
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/linux_vulkan_evidence_test.py")
   set_tests_properties(merlin-linux-vulkan-evidence PROPERTIES LABELS "ci;core")
@@ -796,6 +805,7 @@ if(TARGET merlin-headless)
             --artifact-dir "${CMAKE_CURRENT_BINARY_DIR}/offscreen-artifacts"
             --output "${CMAKE_CURRENT_BINARY_DIR}/merlin-smoke.ppm"
   )
+  set_tests_properties(merlin-vulkan-offscreen PROPERTIES LABELS "gpu;runtime")
   add_test(
     NAME merlin-vulkan-validation
     COMMAND merlin-headless

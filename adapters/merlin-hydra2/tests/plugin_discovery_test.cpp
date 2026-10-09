@@ -1,10 +1,12 @@
 #include <pxr/pxr.h>
 
+#include <pxr/base/plug/plugin.h>
 #include <pxr/base/plug/registry.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include <pxr/imaging/hd/pluginRenderDelegateUniqueHandle.h>
 
+#include <filesystem>
 #include <iostream>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -18,6 +20,11 @@ int main(int argc, char** argv) {
   // RegisterPlugins returns only newly discovered plugins. An ambient
   // PXR_PLUGINPATH_NAME may have registered this module before main().
   (void)plugins;
+  const auto plugin = PlugRegistry::GetInstance().GetPluginWithName("hdMerlin");
+  if (!plugin || !std::filesystem::equivalent(plugin->GetResourcePath(), argv[1])) {
+    std::cerr << "hdMerlin was not discovered from the requested resource directory\n";
+    return 1;
+  }
   const TfToken plugin_id("HdMerlinRendererPlugin");
   if (!HdRendererPluginRegistry::GetInstance().IsRegisteredPlugin(plugin_id)) {
     std::cerr << "HdMerlinRendererPlugin was not discovered\n";

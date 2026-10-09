@@ -1,3 +1,6 @@
+# Script mode does not inherit the parent project's policy settings.
+cmake_minimum_required(VERSION 3.24)
+
 # Every field describing how an artifact was compiled arrives in
 # MERLIN_SHADER_RECORDS_FILE, which _merlin_compile_shader writes from the same
 # values it passes to slangc, and the sources it compiled arrive in the depfile

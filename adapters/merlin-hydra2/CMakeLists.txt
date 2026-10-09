@@ -226,9 +226,24 @@ if(MERLIN_BUILD_TESTS)
   )
   set(MERLIN_OPENUSD_RUNTIME_ROOT "${_merlin_pxr_root}" PARENT_SCOPE)
   set_tests_properties(merlin-hydra2-discovery PROPERTIES
+    LABELS "hydra;discovery"
+    ENVIRONMENT "PXR_PLUGINPATH_NAME="
     ENVIRONMENT_MODIFICATION
       "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
   )
+
+  # Exercise the staged module and its relative plugInfo library path without
+  # rendering. The package fixture stages and links consumers first.
+  add_test(NAME merlin-hydra2-install-discovery
+    COMMAND merlin-hydra2-discovery-test
+      "${PROJECT_BINARY_DIR}/tests/install-consumer-prefix/${_merlin_hydra_install_dir}/resources")
+  set_tests_properties(merlin-hydra2-install-discovery PROPERTIES
+    LABELS "hydra;packaging;discovery"
+    FIXTURES_REQUIRED merlin-installed-package
+    RUN_SERIAL TRUE
+    ENVIRONMENT "PXR_PLUGINPATH_NAME="
+    ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib")
 
   add_executable(merlin-hydra2-render-buffer-test
     tests/render_buffer_test.cpp
@@ -244,6 +259,7 @@ if(MERLIN_BUILD_TESTS)
   add_test(NAME merlin-hydra2-render-buffer
            COMMAND merlin-hydra2-render-buffer-test)
   set_tests_properties(merlin-hydra2-render-buffer PROPERTIES
+    LABELS "hydra;render-buffer"
     ENVIRONMENT_MODIFICATION
       "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib"
   )

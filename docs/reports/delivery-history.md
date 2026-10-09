@@ -11,6 +11,52 @@ Legend: ✅ done
 
 ---
 
+## Hosted Hydra compilation gate — local validation, 2026-10-10
+
+Added an independent Windows 2022 Release workflow for the pinned OpenUSD
+26.05/26.08 Vulkan SDK artifacts. The first hosted runs remain pending; this
+record establishes local implementation evidence only.
+
+- Windows x64, Visual Studio 2026 generator with the v143 toolset (MSVC
+  19.40.33821), Python 3.13.14, Vulkan SDK 1.4.350.0 and Slang 2026.8:
+  both OpenUSD SDKs build Hydra, the native HgiVulkan bridge and shader artifacts.
+  Each final GPU-free CTest selection passes 36/36 cases without skips and
+  passes the evidence checker. Both selections also pass with Vulkan ICD
+  discovery pointed at a nonexistent file. The Core-only configuration passes
+  20/20 cases, including installed consumer linking and the Python include
+  regression.
+- The initial hosted configure failures exposed the 26.05 SDK's exact Python
+  3.13.14 requirement and producer Python include directories retained in both
+  SDK exports. The workflow now pins that patch; imported target includes are
+  rebound after SDK version validation without changing artifact files. A
+  configure regression covers an unavailable producer directory. Both SDKs
+  build and pass the final selection using a separate consumer header/library
+  root; hosted rerun results remain pending.
+- The next hosted run reached shader generation and exposed unset script-mode
+  policies under CMake 3.31. The manifest script now initializes the project's
+  CMake 3.24 policy baseline. CMake 3.31.6 reproduces the original failure and
+  regenerates identical manifest contents except for the recorded CMake
+  version with the fix.
+- Both hosted SDK builds then passed, but CPU/package tests exposed the absent
+  Vulkan loader DLL on GPU-free Windows runners. The hosted job now opts into
+  a SHA-256-verified LunarG 1.4.350.0 runtime ZIP, adds only its x64 loader path
+  and checks DLL loading/entry-point resolution without device creation.
+  Capability jobs retain their system loader; no driver is installed.
+- Installed plugin discovery uses the package fixture and checks the requested
+  resource directory, with ambient plugin discovery paths cleared. Core and
+  Vulkan installed consumers link separately from device/render execution.
+- The gate disables post-link renderer reports, omits OpenStrata device/render
+  validation and excludes the exact `gpu`, `runtime` and `host-smoke` labels.
+  The Vulkan offscreen smoke was missing runtime labels; it now has them.
+  Nine evidence-checker regressions cover missing/duplicate results, skips,
+  failures, accidental device selection and enabled post-link execution.
+- Pinned ost 0.23.8 successfully verifies/materializes the cached 26.08 SDK
+  without runtime validation. VMA 3.3.0 provisioning works without an existing
+  SDK header and rejects a corrupt header cache. Actionlint validates the new
+  workflow and the capability workflow (with its existing custom runner label).
+  Hardware execution, scheduled Metal capability checks and timing claims
+  remain separate from the hosted compilation gate.
+
 ## v0.16.x Windows/Linux validation closure
 
 Reactivated the previously deferred Linux Vulkan work and closed the active

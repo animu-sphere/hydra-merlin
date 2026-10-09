@@ -1,6 +1,6 @@
 # Support matrix
 
-**Last reviewed:** 2026-10-05
+**Last reviewed:** 2026-10-10
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -42,6 +42,28 @@ graph generation, the Core material ABI/diagnostics, and package linking.
 All four configurations passed in [Core CI run 36710851814](https://github.com/animu-sphere/hydra-merlin/actions/runs/36710851814)
 on 2026-09-30. This evidence does not expand the Vulkan, Metal-target, or Hydra
 runtime claims above.
+
+The independent `Hydra compilation CI` workflow defines Windows 2022 Release
+builds against the same pinned OpenUSD 26.05/26.08 Vulkan SDK artifacts as the
+capability workflow. It builds the native HgiVulkan bridge, runs CPU
+RenderBuffer/settings/bridge/standard-Gaussian ingestion contracts and shader
+ABI checks, links installed Core/Vulkan consumers, and loads the installed plugin from
+its staged resource directory without rendering. It rejects missing/skipped
+cases and test selection containing the exact `gpu`, `runtime` or `host-smoke`
+labels. Artifact verification and SDK materialization do not call OpenStrata's
+device/render validation in this gate, and `MERLIN_GENERATE_RENDERER_REPORT=OFF`
+disables post-link renderer execution. These SDKs contain Release libraries
+only, so Debug is excluded to preserve the MSVC runtime/iterator ABI.
+The workflow pins Python 3.13.14 because the 26.05 package requires that exact
+patch. Imported OpenUSD targets use the validated consumer Python headers,
+replacing producer Python directories without modifying the verified SDK files.
+Hosted CPU/package tests use the pinned LunarG 1.4.350.0 loader DLL from a
+verified runtime ZIP, without installing a driver or probing a device.
+Local v143 builds pass 36/36 selected tests for each SDK, including with Vulkan
+ICD discovery disabled; details are in the
+[delivery history](../reports/delivery-history.md#hosted-hydra-compilation-gate--local-validation-2026-10-10).
+The first hosted results remain pending; adding the workflow does not establish
+host/device execution or expand the platform claims above.
 
 ## Dependency contract
 
