@@ -57,6 +57,8 @@ only, so Debug is excluded to preserve the MSVC runtime/iterator ABI.
 The workflow pins Python 3.13.14 because the 26.05 package requires that exact
 patch. Imported OpenUSD targets use the validated consumer Python headers,
 replacing producer Python directories without modifying the verified SDK files.
+Hosted CPU/package tests use the pinned LunarG 1.4.350.0 loader DLL from a
+verified runtime ZIP, without installing a driver or probing a device.
 Local v143 builds pass 36/36 selected tests for each SDK, including with Vulkan
 ICD discovery disabled; details are in the
 [delivery history](../reports/delivery-history.md#hosted-hydra-compilation-gate--local-validation-2026-10-10).

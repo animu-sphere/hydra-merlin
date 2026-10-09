@@ -1,3 +1,5 @@
+param([switch]$ProvisionLoader)
+
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
@@ -72,6 +74,38 @@ if ($missingFile) {
 $env:VULKAN_SDK = $sdkRoot
 $env:VK_LAYER_PATH = $sdkBin
 $env:PATH = "$sdkBin;$env:PATH"
+
+# A copy-only SDK has import libraries but no Vulkan loader. CPU/package tests
+# still link that DLL on GPU-free runners. Keep this local loader opt-in so
+# capability jobs continue using their driver-installed system loader.
+if ($ProvisionLoader) {
+  $downloads = Join-Path $workspace '.ci/downloads'
+  $runtimeZip = Join-Path $downloads "VulkanRT-X64-$version-Components.zip"
+  $runtimeSha256 = '23ce69f32cef3e2799617e2b1776cd0c71030d23a91f8375821cc40d76b185b9'
+  New-Item -ItemType Directory -Force $downloads | Out-Null
+  if (-not (Test-Path -LiteralPath $runtimeZip)) {
+    Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanRT-X64-$version-Components.zip" -OutFile $runtimeZip
+  }
+  if ((Get-FileHash -Algorithm SHA256 $runtimeZip).Hash.ToLowerInvariant() -ne $runtimeSha256) {
+    throw "Vulkan runtime $version archive checksum mismatch: $runtimeZip"
+  }
+  $loaderRoot = Join-Path $workspace ".ci/vulkan-loader/$version"
+  Expand-Archive -LiteralPath $runtimeZip -DestinationPath $loaderRoot -Force
+  $loaderBin = Join-Path $loaderRoot "VulkanRT-X64-$version-Components/x64"
+  $loaderDll = Join-Path $loaderBin 'vulkan-1.dll'
+  # Loading the DLL and resolving its entry point needs no Vulkan device/ICD.
+  $loaderHandle = [Runtime.InteropServices.NativeLibrary]::Load($loaderDll)
+  try {
+    [Runtime.InteropServices.NativeLibrary]::GetExport($loaderHandle, 'vkGetInstanceProcAddr') | Out-Null
+  } finally {
+    [Runtime.InteropServices.NativeLibrary]::Free($loaderHandle)
+  }
+  $env:PATH = "$loaderBin;$env:PATH"
+  if ($env:GITHUB_PATH) {
+    $loaderBin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+  }
+  Write-Host "Vulkan $version x64 loader (no driver installation): $loaderDll"
+}
 
 if ($env:GITHUB_ENV) {
   "VULKAN_SDK=$sdkRoot" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV

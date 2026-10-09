@@ -52,7 +52,7 @@ jobs:
           key: lunarg-vulkan-sdk-windows-x64-1.4.350.0-vma
       - name: Provision Vulkan development files and Slang
         shell: pwsh
-        run: .github/scripts/setup-vulkan.ps1
+        run: .github/scripts/setup-vulkan.ps1 -ProvisionLoader
       - name: Bootstrap pinned ost 0.23.8
         shell: pwsh
         run: .github/scripts/setup-ost.ps1 -Version 0.23.8

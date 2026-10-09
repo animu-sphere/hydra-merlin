@@ -37,6 +37,11 @@ record establishes local implementation evidence only.
   CMake 3.24 policy baseline. CMake 3.31.6 reproduces the original failure and
   regenerates identical manifest contents except for the recorded CMake
   version with the fix.
+- Both hosted SDK builds then passed, but CPU/package tests exposed the absent
+  Vulkan loader DLL on GPU-free Windows runners. The hosted job now opts into
+  a SHA-256-verified LunarG 1.4.350.0 runtime ZIP, adds only its x64 loader path
+  and checks DLL loading/entry-point resolution without device creation.
+  Capability jobs retain their system loader; no driver is installed.
 - Installed plugin discovery uses the package fixture and checks the requested
   resource directory, with ambient plugin discovery paths cleared. Core and
   Vulkan installed consumers link separately from device/render execution.

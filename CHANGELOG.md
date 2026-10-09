@@ -20,6 +20,8 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Hosted Hydra CPU/package tests now provision the pinned Vulkan loader DLL
+  separately from the copy-only development SDK, without installing a driver.
 - Shader manifest generation now initializes CMake script policies, enabling
   its `IN_LIST` checks on supported CMake 3.x versions as well as CMake 4.x.
 - Hydra SDK consumption now rebinds producer Python header directories on
