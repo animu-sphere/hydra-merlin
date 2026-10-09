@@ -8,6 +8,22 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Independent hosted Windows Hydra compilation CI for the pinned OpenUSD 26.05
+  and 26.08 shared Release SDKs. The gate builds the native HgiVulkan bridge,
+  checks CPU adapter contracts and shader ABI, links installed Core/Vulkan consumers,
+  and loads the installed plugin without rendering. Missing/skipped required
+  cases and accidental host/device test selection fail the evidence check.
+  SDK provisioning verifies artifacts and VMA without a preinstalled toolchain;
+  OpenUSD device/render validation remains in the separate capability workflow.
+
+### Fixed
+
+- The Vulkan offscreen smoke now has `gpu`/`runtime` CTest labels, keeping it
+  out of hosted compilation and SDK package checks that exclude device execution.
+  Unfiltered local and Linux lavapipe validation still run it.
+
 ## [0.16.1] - 2026-10-05
 
 ### Added

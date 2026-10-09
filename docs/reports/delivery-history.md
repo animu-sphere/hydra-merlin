@@ -11,6 +11,34 @@ Legend: ✅ done
 
 ---
 
+## Hosted Hydra compilation gate — local validation, 2026-10-10
+
+Added an independent Windows 2022 Release workflow for the pinned OpenUSD
+26.05/26.08 Vulkan SDK artifacts. The first hosted runs remain pending; this
+record establishes local implementation evidence only.
+
+- Windows x64, Visual Studio 2026 generator with the v143 toolset (MSVC
+  19.40.33821), Python 3.13.14, Vulkan SDK 1.4.350.0 and Slang 2026.8:
+  both OpenUSD SDKs build Hydra, the native HgiVulkan bridge and shader artifacts.
+  Each final GPU-free CTest selection passes 35/35 cases without skips and
+  passes the evidence checker. Both selections also pass with Vulkan ICD
+  discovery pointed at a nonexistent file. The Core-only configuration passes
+  19/19 cases, including installed consumer linking.
+- Installed plugin discovery uses the package fixture and checks the requested
+  resource directory, with ambient plugin discovery paths cleared. Core and
+  Vulkan installed consumers link separately from device/render execution.
+- The gate disables post-link renderer reports, omits OpenStrata device/render
+  validation and excludes the exact `gpu`, `runtime` and `host-smoke` labels.
+  The Vulkan offscreen smoke was missing runtime labels; it now has them.
+  Nine evidence-checker regressions cover missing/duplicate results, skips,
+  failures, accidental device selection and enabled post-link execution.
+- Pinned ost 0.23.8 successfully verifies/materializes the cached 26.08 SDK
+  without runtime validation. VMA 3.3.0 provisioning works without an existing
+  SDK header and rejects a corrupt header cache. Actionlint validates the new
+  workflow and the capability workflow (with its existing custom runner label).
+  Hardware execution, scheduled Metal capability checks and timing claims
+  remain separate from the hosted compilation gate.
+
 ## v0.16.x Windows/Linux validation closure
 
 Reactivated the previously deferred Linux Vulkan work and closed the active

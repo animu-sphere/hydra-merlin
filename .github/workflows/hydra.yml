@@ -1,0 +1,104 @@
+name: Hydra compilation CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hydra-compilation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hydra:
+    name: Hydra / Windows / OpenUSD ${{ matrix.openusd }} / Release
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      OST_HOME: ${{ github.workspace }}/.ost-ci-home
+      MSBUILDDISABLENODEREUSE: 1
+      OST_RUNTIME_ARTIFACT: ${{ matrix.artifact_digest }}
+      OST_RUNTIME_REMOTE: ${{ matrix.oci_reference }}
+    strategy:
+      fail-fast: false
+      # These shared OpenUSD SDKs contain Release libraries only. Debug would
+      # cross the MSVC runtime/iterator ABI boundary and is deliberately absent.
+      matrix:
+        include:
+          - openusd: "26.05"
+            artifact_digest: sha256:e6944385f7b53e5c029c258503b053a9ab1cab2ad7e0f676b403f3d79b17b4fd
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:44471d4b66caebc61af2ad69225102a01fc611056136fbffe6bc8e1a38dc1eda
+          - openusd: "26.08"
+            artifact_digest: sha256:baa53948498586283d4ad0ee94d9b00357f885fe022b972d627de8ec6367592e
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:29118734a8048313cf7bd8774e23e3cc8477226eae7cdd85002f73af286f109a
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Select the SDK's Python ABI
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - name: Restore pinned Vulkan SDK
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/vulkan-sdk/1.4.350.0
+          key: lunarg-vulkan-sdk-windows-x64-1.4.350.0-vma
+      - name: Provision Vulkan development files and Slang
+        shell: pwsh
+        run: .github/scripts/setup-vulkan.ps1
+      - name: Bootstrap pinned ost 0.23.8
+        shell: pwsh
+        run: .github/scripts/setup-ost.ps1 -Version 0.23.8
+      - name: Restore pinned OpenUSD artifact
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ost-ci-home/artifacts
+          key: ost-runtime-windows-cy2026-usd-${{ env.OST_RUNTIME_ARTIFACT }}
+      - name: Verify and materialize OpenUSD SDK
+        shell: pwsh
+        run: .github/scripts/setup-openusd.ps1 -Version ${{ matrix.openusd }}
+      - name: Configure Hydra and native HgiVulkan bridge
+        shell: pwsh
+        run: >-
+          cmake --preset vulkan-hydra -B build-hydra -G "Visual Studio 17 2022" -A x64
+          -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON
+          -DMERLIN_GENERATE_RENDERER_REPORT=OFF
+          "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}"
+          "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib"
+          "-DPython3_INCLUDE_DIR=$env:pythonLocation/include"
+      - name: Build renderer, plugin, tests and shader artifacts
+        run: cmake --build build-hydra --config Release --parallel 4 -- /nodeReuse:false
+      - name: Record GPU-free test selection
+        shell: pwsh
+        run: >-
+          ctest --test-dir build-hydra -C Release -LE '^(gpu|runtime|host-smoke)$'
+          --show-only=json-v1 | Out-File -Encoding utf8 build-hydra/test-selection.json
+      - name: Test CPU contracts, shader ABI and installed packages
+        run: >-
+          ctest --test-dir build-hydra -C Release --output-on-failure --no-tests=error
+          -LE '^(gpu|runtime|host-smoke)$' --output-junit hydra-tests.xml
+      - name: Require Hydra cases and reject device execution in this gate
+        run: >-
+          python scripts/check-hosted-hydra-evidence.py
+          --selection build-hydra/test-selection.json --junit build-hydra/hydra-tests.xml
+          --cache build-hydra/CMakeCache.txt
+      - name: Upload Hydra compilation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hydra-compilation-windows-openusd-${{ matrix.openusd }}-Release
+          if-no-files-found: warn
+          path: |
+            .ost-ci/*.json
+            build-hydra/test-selection.json
+            build-hydra/hydra-tests.xml
+            build-hydra/merlin-release-metadata.json
+            build-hydra/CMakeCache.txt
+            build-hydra/Testing/Temporary/LastTest.log
