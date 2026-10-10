@@ -11,6 +11,42 @@ Legend: ✅ done
 
 ---
 
+## Forward first-frame camera sweep — 2026-10-10
+
+Added independent `merlin-hydra2-forward-motion-{tier0,hgi-vulkan,comparison}`
+CTest gates alongside the existing converged lighting fixture. A 17-pose,
+0-to-30-degree yaw route advances and returns without idle/convergence frames.
+For color/white, linear/sRGB and Camera Light ON/OFF, each framebuffer capture
+must record exactly one render carrying the camera edit and exactly equal the
+settled image of that pose. The tests retain separate images, per-frame JSON,
+structural counters and Chrome traces; the Windows GPU capability workflow
+selects and archives them. No renderer lighting or output policy was changed.
+
+- Windows, RTX A5000, Release/Ninja, Vulkan SDK 1.4.350.0 and Slang 2026.8.x.
+  This uses the existing OpenUSD 26.08 shared SDK in `build/hydra-ci-check` and
+  `build/forward-hgi-ninja`, with a local wrapper importing the matching lookdev
+  runtime's Usdviewq host. Hdx/HgiVulkan and renderer dependencies use the shared
+  SDK. This assembled host is not an unmodified runtime-package claim.
+- `ctest --test-dir build/forward-hgi-ninja -C Release -R
+  '^merlin-hydra2-forward-(lighting|motion)' --output-on-failure`: 8/8 pass,
+  including the native material fixture dependency and existing lighting gates.
+  Both motion hosts pass all 256 immediate captures, including exact first-frame
+  versus settled-pose equality and headroom. Geometry fetch/upload, new pipeline
+  creation and Vulkan validation messages remain zero throughout the sweep.
+- All 393 Tier 0/HgiVulkan images (baseline, 136 settled references, 256 moving
+  frames) have changed-pixel fraction, mean-channel error and maximum-channel
+  error zero. The bridge checks retain GPU copy without color Map or host upload.
+  Baseline CPU readback is 482804 bytes versus Tier 0's 1931216 bytes. Timings are
+  observations, not acceptance gates.
+- Workflow actionlint and `git diff --check` pass. The custom `vulkan-1.4`
+  runner-label warning is excluded from actionlint, as for the existing workflow.
+
+The sweep updates an authored camera between synchronous screenshot operations;
+it does not synthesize Qt mouse navigation or prescribe a frame rate. Kitchen,
+unrestricted interactive navigation, OpenUSD 26.05 host execution, Metal,
+generated-material Hydra ingestion and native swapchain output remain unverified.
+The broader Forward lighting exit therefore stays open.
+
 ## Forward directional identity and Hydra light energy — 2026-10-10
 
 Implemented the shared single-directional selection/normalization and the

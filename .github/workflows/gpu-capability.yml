@@ -200,7 +200,7 @@ jobs:
         run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer|hgi-vulkan-bridge)|viewport-(vulkan|hydra))$" --output-on-failure
 
       - name: Run Tier 0 and HgiVulkan usdview regressions
-        run: ctest --test-dir build -C Release -R "^merlin-hydra2-(usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison))$" --output-on-failure --verbose
+        run: ctest --test-dir build -C Release -R "^merlin-hydra2-(usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-motion-(tier0|hgi-vulkan|comparison))$" --output-on-failure --verbose
 
       - name: Upload usdview evidence
         if: always()
@@ -221,6 +221,10 @@ jobs:
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.json
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.png
             build/adapters/merlin-hydra2/forward-lighting-*-comparison.json
+            build/adapters/merlin-hydra2/forward-motion-*-install/*.log
+            build/adapters/merlin-hydra2/forward-motion-*-install/*.json
+            build/adapters/merlin-hydra2/forward-motion-*-install/*.png
+            build/adapters/merlin-hydra2/forward-motion-comparison.json
             build/tests/forward-images-handwritten/**
             build/adapters/merlin-viewport/viewport*.json
             build/Testing/Temporary/LastTest.log

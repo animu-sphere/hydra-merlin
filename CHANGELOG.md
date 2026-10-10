@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Independent Forward first-frame camera sweeps cover color/white patches,
+  linear/sRGB output and Camera Light ON/OFF. Each immediate moving frame must
+  render once and exactly match its settled pose, including the return leg,
+  without geometry fetch/upload or pipeline creation. Optional Tier 0/HgiVulkan
+  comparison retains all references and moving images, counters and traces in
+  the GPU capability workflow. General interactive navigation, Kitchen, other
+  SDKs and Metal remain separate quality gates.
 - Focused Forward image fixtures for Camera Light ON/OFF, rotated/returned
   cameras, color/white patches, explicit zero energy, and handwritten/generated
   Vulkan material parity. Independent usdview CTest gates check linear/sRGB
