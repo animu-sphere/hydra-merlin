@@ -317,10 +317,29 @@ int main(int argc, char** argv) {
   lit_instance.material = lit_material_handle;
   const auto lit_instance_handle =
       lighting_world.CreateInstance(lit_instance);
+  merlin::LightDescriptor ignored_light;
+  ignored_light.type = merlin::LightType::Point;
+  const auto ignored_light_handle = lighting_world.CreateLight(ignored_light);
   lighting_world.CreateLight(merlin::LightDescriptor{});
+  merlin::LightDescriptor later_light;
+  later_light.color = {1.0F, 0.0F, 0.0F};
+  lighting_world.CreateLight(later_light);
   lighting_extractor.Apply(lighting_world, lighting_world.Commit());
   const auto front_lit = renderer->Render(
       *lighting_extractor.snapshot(), 64, 64, shaders);
+
+  // Dense light-table compaction must preserve the selected light and every
+  // AOV, without geometry uploads or a new shading pipeline.
+  lighting_world.Remove(ignored_light_handle);
+  lighting_extractor.Apply(lighting_world, lighting_world.Commit());
+  const auto compacted = renderer->Render(
+      *lighting_extractor.snapshot(), 64, 64, shaders);
+  assert(compacted.color.pixels == front_lit.color.pixels);
+  assert(compacted.depth.pixels == front_lit.depth.pixels);
+  assert(compacted.prim_id.pixels == front_lit.prim_id.pixels);
+  assert(compacted.instance_id.pixels == front_lit.instance_id.pixels);
+  assert(compacted.counters.upload_bytes == 0);
+  assert(compacted.counters.pipeline_creation_count == 0);
 
   constexpr float half = 0.5F;
   constexpr float sqrt_three_over_two = 0.8660254F;

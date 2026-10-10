@@ -8,6 +8,7 @@ endif()
 
 add_library(merlin-hydra2-runtime STATIC
   src/adapter.cpp
+  src/distant_light.cpp
   src/hgi_vulkan_bridge.cpp
 )
 merlin_target_defaults(merlin-hydra2-runtime)
@@ -267,6 +268,17 @@ if(MERLIN_BUILD_TESTS)
   add_executable(merlin-hydra2-render-settings-test
     tests/render_settings_test.cpp
   )
+
+  add_executable(merlin-hydra2-distant-light-test tests/distant_light_test.cpp)
+  merlin_target_defaults(merlin-hydra2-distant-light-test)
+  target_link_libraries(merlin-hydra2-distant-light-test PRIVATE merlin-hydra2-runtime)
+  target_compile_definitions(merlin-hydra2-distant-light-test PRIVATE
+    NOMINMAX _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING)
+  add_test(NAME merlin-hydra2-distant-light COMMAND merlin-hydra2-distant-light-test)
+  set_tests_properties(merlin-hydra2-distant-light PROPERTIES
+    LABELS "hydra;lighting;core"
+    ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib")
   merlin_target_defaults(merlin-hydra2-render-settings-test)
   target_link_libraries(merlin-hydra2-render-settings-test
     PRIVATE merlin-hydra2-runtime)

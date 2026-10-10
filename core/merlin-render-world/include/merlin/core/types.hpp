@@ -418,6 +418,8 @@ struct LightDescriptor {
   std::string label;
   LightType type{LightType::Directional};
   Vec3 color{1.0F, 1.0F, 1.0F};
+  // Directional intensity is the face-on unit-albedo Lambert response, before
+  // the renderer's lighting/output policy. Hosts convert source radiance units.
   float intensity{1.0F};
   // Directional lights emit along transformed local -Z; shading uses the
   // opposite transformed +Z vector toward the source.

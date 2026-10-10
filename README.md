@@ -308,6 +308,7 @@ argument buffers, completion, and readback.
 - [Delivery history](docs/reports/delivery-history.md)
 - [Release records](docs/releases/README.md)
 - [Renderer architecture](docs/design/renderer-architecture.md)
+- [Forward lighting boundary](docs/design/forward-lighting.md)
 - [MaterialXGenSlang material boundary](docs/design/materialxgenslang-boundary.md)
 - [Multi-backend shader and presentation strategy](docs/design/multibackend-slang-materialx.md)
 - [GPU-driven rendering policy](docs/design/gpu-driven-rendering.md)

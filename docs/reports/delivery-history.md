@@ -11,11 +11,46 @@ Legend: ✅ done
 
 ---
 
+## Forward directional identity and Hydra light energy — 2026-10-10
+
+Implemented the shared single-directional selection/normalization and the
+Hydra radiance-to-Lambert conversion described in the
+[Forward lighting boundary](../design/forward-lighting.md). Stable light
+handles survive dense table compaction. Both backends consume the common
+directional result; Metal computes it once per render encoding. The Hydra
+adapter converts angle, normalize, exposure and diffuse before committing a
+light and rejects an invalid update atomically with named recovery.
+
+- Windows x64, Visual Studio 2026/v143, Release, Vulkan SDK 1.4.350.0 and
+  Slang 2026.8: Core passes 21/21 cases, including the shared CPU contract and
+  installed consumer. OpenUSD 26.05 and 26.08 each pass all 38 selected
+  GPU-free tests without skips, including the new actual Sprim transport
+  test, shader/ABI, installed Core/Vulkan consumers and plugin discovery.
+- The Vulkan device selection passes 7/7 related cases: shared input,
+  shader/GPU Scene ABI, Gaussian raster, resource lifetime/update and material
+  images. The light compaction image regression requires exact color/depth/ID
+  output, zero geometry upload and no new pipeline. Vulkan material validation
+  messages remain zero.
+- The Hydra energy test independently integrates radiance over spherical caps
+  at 0.53/10/60/180 degrees, checks normalize/exposure/diffuse and delta/zero
+  cases, and captures rotation, parameter edits, clean Sync, atomic rejection,
+  invalid initial input/retry and removal through the delegate. Both new CPU
+  cases are now required by the hosted evidence checker.
+- This is local evidence for the new code. The hosted run below predates this
+  lighting work. Native Metal compilation/runtime and Camera Light ON/OFF
+  Kitchen/host image differentials remain incomplete; the input conversion
+  does not establish Vulkan/Metal output parity or the broader Forward exit.
+
 ## Hosted Hydra compilation gate — local validation, 2026-10-10
 
 Added an independent Windows 2022 Release workflow for the pinned OpenUSD
-26.05/26.08 Vulkan SDK artifacts. The first hosted runs remain pending; this
-record establishes local implementation evidence only.
+26.05/26.08 Vulkan SDK artifacts. Both hosted configurations passed all 36
+selected tests without failures or skips in
+[run 37973871651](https://github.com/animu-sphere/hydra-merlin/actions/runs/37973871651)
+for main commit `5b7754d` on 2026-10-10 (JST). Downloaded JUnit evidence and
+successful selection/evidence-check steps confirm the CPU, shader/ABI,
+installed consumers and plugin discovery gate. Host/device execution remains
+separate. The local implementation history follows.
 
 - Windows x64, Visual Studio 2026 generator with the v143 toolset (MSVC
   19.40.33821), Python 3.13.14, Vulkan SDK 1.4.350.0 and Slang 2026.8:
@@ -31,7 +66,7 @@ record establishes local implementation evidence only.
   rebound after SDK version validation without changing artifact files. A
   configure regression covers an unavailable producer directory. Both SDKs
   build and pass the final selection using a separate consumer header/library
-  root; hosted rerun results remain pending.
+  root; the final hosted rerun also passes both configurations as recorded above.
 - The next hosted run reached shader generation and exposed unset script-mode
   policies under CMake 3.31. The manifest script now initializes the project's
   CMake 3.24 policy baseline. CMake 3.31.6 reproduces the original failure and

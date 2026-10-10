@@ -20,6 +20,23 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Forward directional lighting now selects the smallest stable light handle
+  rather than the first dense table slot, preventing unrelated light removal
+  from changing the rendered illumination. Vulkan and Metal share normalization,
+  including a +Z recovery for degenerate axes and finite extreme-scale handling;
+  invalid selected color/intensity is rejected. Zero intensity and the existing
+  no-directional-light diagnostic fallback remain explicit. CPU/install and
+  Vulkan image regressions cover the shared contract; native Metal validation
+  and camera-light image/output parity remain pending.
+- Hydra distant lights now convert UsdLux radiance, angle, normalize, exposure
+  and diffuse to a face-on Lambert response. Hdx's 15000/0.53-degree camera
+  light becomes approximately 0.321 rather than a 15000 shading multiplier,
+  without changing global exposure. Authored distant-light images also change;
+  native Core intensity keeps its direct-response meaning. Invalid input,
+  overflow and angles above the current 180-degree approximation limit report
+  `hydra.light.invalid-parameters` and retain the previous light atomically
+  (or omit an invalid initial light). CPU integration and actual Sprim transport
+  regressions are required in the hosted Hydra compilation gate.
 - Hosted Hydra CPU/package tests now provision the pinned Vulkan loader DLL
   separately from the copy-only development SDK, without installing a driver.
 - Shader manifest generation now initializes CMake script policies, enabling

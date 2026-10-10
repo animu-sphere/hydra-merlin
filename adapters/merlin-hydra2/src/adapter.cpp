@@ -1,4 +1,5 @@
 #include "adapter.hpp"
+#include "distant_light.hpp"
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/quath.h>
@@ -2677,30 +2678,61 @@ public:
     g_hydra_telemetry.light_sync_count.fetch_add(1,
         std::memory_order_relaxed);
     (void)render_param;
+    if (*dirty_bits == HdLight::Clean) {
+      return;
+    }
     merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
+    auto requested = descriptor_;
     if ((*dirty_bits & HdLight::DirtyTransform) != 0) {
-      descriptor_.transform = ToMerlinMatrix(delegate->GetTransform(GetId()));
+      requested.transform = ToMerlinMatrix(delegate->GetTransform(GetId()));
       aspects |= merlin::ChangeAspect::Transform;
     }
-    if ((*dirty_bits & HdLight::DirtyParams) != 0) {
-      merlin::Vec4 color{descriptor_.color.x, descriptor_.color.y,
-          descriptor_.color.z, 1.0F};
+    if ((*dirty_bits & HdLight::DirtyParams) != 0 || !applied_) {
+      merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
       const auto color_value =
           delegate->GetLightParamValue(GetId(), HdLightTokens->color);
-      (void)ReadColor(color_value, color);
-      descriptor_.color = {color.x, color.y, color.z};
-      float intensity = 1.0F;
-      const auto intensity_value =
-          delegate->GetLightParamValue(GetId(), HdLightTokens->intensity);
-      (void)ReadScalar(intensity_value, intensity);
-      float exposure{};
-      const auto exposure_value =
-          delegate->GetLightParamValue(GetId(), HdLightTokens->exposure);
-      (void)ReadScalar(exposure_value, exposure);
-      descriptor_.intensity = intensity * std::pow(2.0F, exposure);
+      bool valid = color_value.IsEmpty() || ReadColor(color_value, color);
+      merlin::hydra::detail::DistantLightEnergy energy;
+      const auto read_scalar = [&](const TfToken& name, float& destination) {
+        const auto value = delegate->GetLightParamValue(GetId(), name);
+        return value.IsEmpty() || ReadScalar(value, destination);
+      };
+      valid &= read_scalar(HdLightTokens->intensity, energy.intensity);
+      valid &= read_scalar(HdLightTokens->exposure, energy.exposure);
+      valid &= read_scalar(HdLightTokens->angle, energy.angle_degrees);
+      valid &= read_scalar(HdLightTokens->diffuse, energy.diffuse);
+      const auto normalize =
+          delegate->GetLightParamValue(GetId(), HdLightTokens->normalize);
+      if (!normalize.IsEmpty()) {
+        valid &= normalize.IsHolding<bool>();
+        if (normalize.IsHolding<bool>()) {
+          energy.normalize = normalize.UncheckedGet<bool>();
+        }
+      }
+      const auto nonnegative_finite = [](float value) {
+        return std::isfinite(value) && value >= 0.0F;
+      };
+      valid &= nonnegative_finite(color.x) && nonnegative_finite(color.y) &&
+               nonnegative_finite(color.z);
+      const auto response =
+          merlin::hydra::detail::NormalizeDistantLightEnergy(energy);
+      if (!valid || !response) {
+        ReportHydraDiagnostic("hydra.light.invalid-parameters", GetId(),
+            "Distant light requires finite nonnegative color/intensity/diffuse, "
+            "finite exposure, angle in [0, 180], bool normalize and a "
+            "representable diffuse response",
+            merlin::DiagnosticDisposition::Rejected,
+            applied_ ? "keep-previous-light" : "omit-invalid-light");
+        *dirty_bits = HdLight::Clean;
+        return;
+      }
+      requested.color = {color.x, color.y, color.z};
+      requested.intensity = *response;
       aspects |= merlin::ChangeAspect::LightParameters;
     }
+    descriptor_ = std::move(requested);
     bridge_->SyncLight(GetId(), descriptor_, aspects);
+    applied_ = true;
     *dirty_bits = HdLight::Clean;
   }
 
@@ -2711,6 +2743,7 @@ public:
 private:
   std::shared_ptr<SceneBridge> bridge_;
   merlin::LightDescriptor descriptor_;
+  bool applied_{};
 };
 
 class HdMerlinMesh final : public HdMesh {
