@@ -13,6 +13,8 @@ REQUIRED_TESTS = (
     "merlin-hydra2-install-discovery",
     "merlin-hydra2-render-buffer",
     "merlin-hydra2-render-settings",
+    "merlin-hydra2-distant-light",
+    "merlin-forward-lighting",
     "merlin-hydra2-hgi-vulkan-bridge",
     "merlin-hydra2-gaussian-usd",
     "merlin-shader-abi",

@@ -3,6 +3,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <merlin/metal/backend.hpp>
+#include <merlin/render/forward_lighting.hpp>
 #include "gaussian_metallib.hpp"
 #include "gaussian_raster_abi.hpp"
 #include "gaussian_execution.hpp"
@@ -2393,32 +2394,12 @@ private:
 
   static MaterialConstants
   MakeMaterial(const extraction::MaterialRecord& material,
-      const extraction::FrameSnapshot& snapshot) {
+      const render::ForwardDirectionalLighting& lighting) {
     MaterialConstants result{};
     result.base_color = material.parameters.base_color;
-    result.light_direction_intensity = {0.0F, 0.0F, 1.0F, 1.0F};
-    result.light_color_alpha_cutoff = {1.0F, 1.0F, 1.0F,
-        material.parameters.alpha_cutoff};
-    const auto light =
-        std::find_if(snapshot.lights.begin(), snapshot.lights.end(),
-            [](const auto& candidate) {
-              return candidate.type == LightType::Directional;
-            });
-    if (light != snapshot.lights.end()) {
-      auto x = light->transform.values[8];
-      auto y = light->transform.values[9];
-      auto z = light->transform.values[10];
-      const auto length = std::sqrt(x * x + y * y + z * z);
-      if (length > 0.0F) {
-        x /= length;
-        y /= length;
-        z /= length;
-      }
-      result.light_direction_intensity = {x, y, z, light->intensity};
-      result.light_color_alpha_cutoff.x = light->color.x;
-      result.light_color_alpha_cutoff.y = light->color.y;
-      result.light_color_alpha_cutoff.z = light->color.z;
-    }
+    result.light_direction_intensity = lighting.direction_intensity;
+    result.light_color_alpha_cutoff = {lighting.color.x, lighting.color.y,
+        lighting.color.z, material.parameters.alpha_cutoff};
     return result;
   }
 
@@ -2700,6 +2681,8 @@ private:
     pass.depthAttachment.storeAction = MTLStoreActionStore;
     pass.depthAttachment.clearDepth = 1.0;
 
+    const auto lighting =
+        render::ExtractForwardDirectionalLighting(*request.snapshot);
     id<MTLRenderCommandEncoder> encoder =
         [command renderCommandEncoderWithDescriptor:pass];
     if (encoder == nil) {
@@ -2862,7 +2845,7 @@ private:
       }
 
       const bool use_gpu_scene = gpu_scene_ready && !material.module;
-      const auto material_constants = MakeMaterial(material, *request.snapshot);
+      const auto material_constants = MakeMaterial(material, lighting);
       [encoder setRenderPipelineState:use_gpu_scene
                                           ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
                                           : (float_color ? float_pipeline_ : pipeline_)];

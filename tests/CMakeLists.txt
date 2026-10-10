@@ -8,6 +8,11 @@ foreach(_config "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
 endforeach()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
+add_executable(merlin-forward-lighting-tests forward_lighting_test.cpp)
+merlin_target_defaults(merlin-forward-lighting-tests)
+target_link_libraries(merlin-forward-lighting-tests PRIVATE Merlin::RenderBackend)
+add_test(NAME merlin-forward-lighting COMMAND merlin-forward-lighting-tests)
+set_tests_properties(merlin-forward-lighting PROPERTIES LABELS "core;lighting")
 add_test(NAME merlin-openusd-python-includes
   COMMAND "${CMAKE_COMMAND}"
     -S "${CMAKE_CURRENT_SOURCE_DIR}/openusd-python-includes"

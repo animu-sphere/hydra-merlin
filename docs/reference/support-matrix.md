@@ -10,7 +10,7 @@ work, but is not currently claimed as supported evidence.
 
 | Platform | Core | Vulkan/headless | Vulkan viewport | Hydra 2 | Evidence level |
 | --- | --- | --- | --- | --- | --- |
-| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 and 26.08 | Core hosted CI plus local Vulkan/MaterialX, native viewport, Hydra host-presentation, and Gaussian corpus validation; capability workflow retains the hardware evidence |
+| Windows x64, Visual Studio 2022 | Debug/Release | Debug/Release with Vulkan 1.4 | Debug/Release with GLFW; Release with Hydra USD loading | Release with OpenUSD 26.05 and 26.08 | Core and GPU-free Hydra hosted CI plus local Vulkan/MaterialX, native viewport, Hydra host-presentation, and Gaussian corpus validation; capability workflow retains the hardware evidence |
 | Linux x64, hosted runner with Ninja | Debug/Release | Not continuously exercised | Not continuously exercised | Not continuously exercised | Core hosted CI |
 | Linux x64, Ubuntu 26.04 / WSL2 with GCC 15.2 and Ninja | Debug/Release | Debug/Release with Mesa 26.0.3 lavapipe, Vulkan 1.4.335 and SDK 1.4.350.1 | X11 under Xvfb, including reference images and resize | Not exercised | Local Debug/Release 42/42 CTest, no skips; production SPIR-V validation and installed consumers/runtime; matching hosted Linux Vulkan workflow added |
 | macOS 14, Apple Silicon, AppleClang 16 | Debug/Release | Native Metal offscreen Debug/Release; Vulkan not claimed | Native Metal `CAMetalLayer` viewport; Vulkan not claimed | Release with OpenUSD 26.08 and Metal | Hosted compile/package coverage plus local Apple GPU runtime AOV/residency, native presentation, and Kitchen Set Hydra validation |
@@ -62,8 +62,10 @@ verified runtime ZIP, without installing a driver or probing a device.
 Local v143 builds pass 36/36 selected tests for each SDK, including with Vulkan
 ICD discovery disabled; details are in the
 [delivery history](../reports/delivery-history.md#hosted-hydra-compilation-gate--local-validation-2026-10-10).
-The first hosted results remain pending; adding the workflow does not establish
-host/device execution or expand the platform claims above.
+Both hosted SDK configurations passed 36/36 cases without skips in
+[Hydra compilation CI run 37973871651](https://github.com/animu-sphere/hydra-merlin/actions/runs/37973871651)
+on 2026-10-10 (JST), for main commit `5b7754d`. Hosted compilation/package
+coverage does not establish host/device execution.
 
 ## Dependency contract
 
@@ -96,7 +98,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Backend-neutral renderer contract | `Merlin::RenderBackend` provides factory/selection, renderer capabilities and limits, logical presentation/completion handles, submit/resolve, common telemetry, and errors without concrete GPU/window types |
 | Native Vulkan viewport | `merlin-viewport` provides GLFW window/input, a Dear ImGui capability/timing/residency/AOV/material diagnostic surface, usdview-style tumble/track/dolly/frame-all navigation with Y/Z `upAxis`, resize, click-triggered ID picking, screenshots, benchmark mode, vsync selection, and optional Hydra USD loading |
 | Vulkan swapchain presentation | GPU-only offscreen-to-swapchain blit with per-image completion, out-of-date/resize recovery, zero CPU readback by default, and exact offscreen product parity evidence |
-| Basic Vulkan material shading | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available |
+| Basic Vulkan material shading | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available. Vulkan/Metal share stable-handle single-directional selection and normalization. Hydra distant radiance is converted using angle, normalize, exposure and diffuse; host differential images and cross-backend lighting-output parity remain incomplete (see the [Forward lighting boundary](../design/forward-lighting.md)) |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available for Mesh and the CPU-sorted Gaussian MVP; Gaussian `primId` is the resource handle and `instanceId` is the zero-based particle index of the nearest contributing splat in front of opaque depth |
 | Explicit submit/completion/timeout-aware resolve | Available |
 | Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |

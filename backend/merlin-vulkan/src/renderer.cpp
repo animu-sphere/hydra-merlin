@@ -1,4 +1,6 @@
 #include <merlin/vulkan/renderer.hpp>
+#include <merlin/render/backend.hpp>
+#include <merlin/render/forward_lighting.hpp>
 #include "environment_lighting.hpp"
 #include "gaussian_preparation.hpp"
 #include "memory_type.hpp"
@@ -6292,40 +6294,14 @@ public:
     }
   }
 
-  struct DirectionalLighting {
-    Vec4 direction_intensity{0.0F, 0.0F, 1.0F, 1.0F};
-    Vec3 color{1.0F, 1.0F, 1.0F};
-  };
-
-  static DirectionalLighting ExtractDirectionalLighting(
+  static render::ForwardDirectionalLighting ExtractDirectionalLighting(
       const extraction::FrameSnapshot& snapshot) {
-    DirectionalLighting result;
-    const auto directional =
-        std::find_if(snapshot.lights.begin(), snapshot.lights.end(),
-            [](const extraction::LightRecord& light) {
-              return light.type == LightType::Directional;
-            });
-    if (directional == snapshot.lights.end()) {
-      return result;
+    try {
+      return render::ExtractForwardDirectionalLighting(snapshot);
+    } catch (const render::RendererError& error) {
+      throw RendererError(RendererErrorCode::InvalidRequest,
+          error.operation(), error.what());
     }
-    // Directional lights emit along local -Z. Lambert shading needs the
-    // opposite vector, from the surface toward the source, so transform +Z.
-    auto x = directional->transform.values[8];
-    auto y = directional->transform.values[9];
-    auto z = directional->transform.values[10];
-    const auto length = std::sqrt(x * x + y * y + z * z);
-    if (length > 0.0F) {
-      x /= length;
-      y /= length;
-      z /= length;
-    } else {
-      x = 0.0F;
-      y = 0.0F;
-      z = 1.0F;
-    }
-    result.direction_intensity = {x, y, z, directional->intensity};
-    result.color = directional->color;
-    return result;
   }
 
   void EnsureEnvironmentLighting(const std::filesystem::path& path) {
@@ -6339,7 +6315,7 @@ public:
 
   MaterialUniforms MakeMaterialUniforms(
       const extraction::MaterialRecord& material,
-      const DirectionalLighting& lighting) const {
+      const render::ForwardDirectionalLighting& lighting) const {
     MaterialUniforms result{};
     result.base_color = material.parameters.base_color;
     result.light_direction_intensity = lighting.direction_intensity;
@@ -6670,6 +6646,7 @@ public:
     if (material_records_.empty()) {
       return;
     }
+    const auto lighting = ExtractDirectionalLighting(snapshot);
     const auto material_count =
         static_cast<std::uint32_t>(material_records_.size());
     const auto uniform_stride =
@@ -6762,7 +6739,6 @@ public:
     Check(vkMapMemory(device_, frame.material_uniforms.memory, 0,
               uniform_bytes, 0, &mapped),
         "map bindless material uniform buffer");
-    const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
       const auto uniforms = MakeMaterialUniforms(material, lighting);
@@ -6892,6 +6868,7 @@ public:
       PrepareBindlessMaterialDescriptors(frame, snapshot);
       return;
     }
+    const auto lighting = ExtractDirectionalLighting(snapshot);
     const auto& cached = frame.material_descriptor_source;
     const bool reuse_descriptors = cached &&
                                    cached->source_id == snapshot.source_id &&
@@ -6981,7 +6958,6 @@ public:
     Check(vkMapMemory(device_, frame.material_uniforms.memory, 0,
               uniform_bytes, 0, &mapped),
         "map material uniform buffer");
-    const auto lighting = ExtractDirectionalLighting(snapshot);
     for (std::uint32_t i = 0; i < material_count; ++i) {
       const auto& material = material_records_[i];
       const auto uniforms = MakeMaterialUniforms(material, lighting);
