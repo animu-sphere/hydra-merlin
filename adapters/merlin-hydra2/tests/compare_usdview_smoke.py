@@ -40,6 +40,15 @@ LIGHTING_PHASES = tuple(
     for light in ("off", "on")
     for pose in ("static", "moving", "restored")
 )
+MOTION_PHASES = tuple(
+    f"motion-{albedo}-{output}-{light}-{leg}-{index:02d}"
+    for albedo in ("color", "white")
+    for output in ("linear", "srgb")
+    for light in ("off", "on")
+    for leg, indices in (("reference", range(17)), ("out", range(1, 17)),
+                         ("back", range(15, -1, -1)))
+    for index in indices
+)
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
 
@@ -49,7 +58,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("tier0", type=Path)
     parser.add_argument("gpu_copy", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--forward-lighting-only", action="store_true")
+    fixture = parser.add_mutually_exclusive_group()
+    fixture.add_argument("--forward-lighting-only", action="store_true")
+    fixture.add_argument("--forward-motion-only", action="store_true")
     return parser.parse_args()
 
 
@@ -170,13 +181,31 @@ def performance_evidence(tier0: dict, gpu_copy: dict) -> dict:
 
 def main() -> None:
     args = parse_args()
+    forward_only = args.forward_lighting_only or args.forward_motion_only
+    phases = PHASES
+    forward_reports = []
+    if forward_only:
+        fixture = "motion" if args.forward_motion_only else "lighting"
+        phases = ("baseline",) + (
+            MOTION_PHASES if args.forward_motion_only else LIGHTING_PHASES)
+        for directory in (args.tier0, args.gpu_copy):
+            report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
+                                .read_text(encoding="utf-8"))
+            if report["schema"] != f"merlin-usdview-forward-{fixture}/v1":
+                raise ValueError(f"unexpected Forward {fixture} schema in {directory}")
+            if args.forward_motion_only:
+                expected = [phase for phase in MOTION_PHASES if "-reference-" not in phase]
+                if [phase["phase"] for phase in report["phases"]] != expected:
+                    raise ValueError(f"missing or reordered motion captures in {directory}")
+                if any(phase["render_count"] != 1 for phase in report["phases"]):
+                    raise ValueError(f"motion capture rendered more than once in {directory}")
+            forward_reports.append(report)
     images = [
         compare_image(
             args.tier0 / f"usdview-first-frame-{phase}.png",
             args.gpu_copy / f"usdview-first-frame-{phase}.png",
         )
-        for phase in (("baseline",) + LIGHTING_PHASES
-                      if args.forward_lighting_only else PHASES)
+        for phase in phases
     ]
     evidence = {
         "schema": "merlin-hydra-presentation-comparison/v1",
@@ -188,13 +217,10 @@ def main() -> None:
         "click_picking": [
             json.loads((directory / "usdview-first-frame-click-picking.json").read_text(
                 encoding="utf-8"))
-            for directory in (() if args.forward_lighting_only else (args.tier0, args.gpu_copy))
+            for directory in (() if forward_only else (args.tier0, args.gpu_copy))
         ],
-        "forward_lighting": [
-            json.loads((directory / "usdview-first-frame-forward-lighting.json").read_text(
-                encoding="utf-8"))
-            for directory in ((args.tier0, args.gpu_copy) if args.forward_lighting_only else ())
-        ],
+        "forward_lighting": forward_reports if args.forward_lighting_only else [],
+        "forward_motion": forward_reports if args.forward_motion_only else [],
         "summary": {
             "maximum_changed_pixel_fraction": max(
                 image["changed_pixel_fraction"] for image in images

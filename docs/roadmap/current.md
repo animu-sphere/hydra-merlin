@@ -15,9 +15,12 @@ contracts and current image limitations are in the
   and usdview linear/sRGB output. Native/Tier 0 center comparison and optional
   Tier 0/HgiVulkan image comparison are independent CTest gates.
 - [ ] Extend the local OpenUSD 26.08 HgiVulkan fixture evidence to 26.05 and
-  broaden continuous-motion/Kitchen coverage before changing ambient/direct balance,
-  exposure or tone mapping. Generated material host ingestion remains outside
-  the current Hydra subset.
+  broaden the bounded first-frame camera sweep to interactive navigation and
+  Kitchen coverage before changing ambient/direct balance, exposure or tone
+  mapping. The color/white sweep now covers 256 immediate frames per presentation
+  path; its [local evidence](../reports/delivery-history.md#forward-first-frame-camera-sweep--2026-10-10)
+  does not establish general navigation quality. Generated material host ingestion
+  remains outside the current Hydra subset.
 - [ ] Validate the shared directional selection on native Metal, then align
   Vulkan/Metal lighting and output transforms with declared image tolerances.
 

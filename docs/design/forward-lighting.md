@@ -93,10 +93,26 @@ error bounds. Camera/light/output edits require zero geometry fetch/upload and
 zero pipeline creation after setup. PPM/PNG images, center samples, structural
 counters and host traces accompany the checks.
 
-Continuous navigation and Kitchen scenes, explicit exposure/tone-mapping
-selection, and native Metal evidence remain incomplete. These focused converged
-host captures do not establish absence of transient flicker during navigation,
-or cross-backend lighting/output parity.
+A separate first-frame motion gate sweeps 17 poses from 0 to 30 degrees of yaw
+and back in 1.875-degree steps. Each color/white, linear/sRGB and Camera Light
+ON/OFF combination first records converged references, then captures 32
+successive camera edits without processing the event loop or waiting for
+convergence. The synchronous framebuffer grab must produce exactly one renderer
+event per capture, with the camera change present. Every immediate image must
+equal its independently captured settled pose exactly; this also checks the
+return leg. All 256 moving frames per presentation path retain color headroom,
+zero geometry fetch/upload, zero pipeline creation and zero validation messages.
+The separate Tier 0/HgiVulkan comparison covers the baseline, 136 references
+and 256 moving frames using the existing full-image tolerances. Images,
+per-frame counters and host traces are retained independently of the converged
+lighting gate.
+
+This bounded sweep edits an authored camera between captures. General interactive
+navigation, Qt mouse-driven motion and Kitchen scenes, explicit exposure/tone-mapping
+selection, and native Metal evidence remain incomplete. Framebuffer capture adds
+readback and disk I/O, so the sweep is not a timing gate or evidence for the
+absence of flicker at an unrestricted navigation rate. Cross-backend
+lighting/output parity is also still unverified.
 
 ## Regression evidence
 
@@ -131,6 +147,19 @@ cases. Native MaterialX comparison is part of `merlin-vulkan-generated-material`
 when that optional compiler and its Forward artifacts are enabled. Native output
 lives under `tests/forward-images-{handwritten,generated}/{color,white}`; host
 output lives under `adapters/merlin-hydra2/forward-lighting-*-install`.
+
+Run the independent first-frame motion cases with
+`-R '^merlin-hydra2-forward-motion'`. Their evidence lives under
+`adapters/merlin-hydra2/forward-motion-*-install`, with the separate
+`forward-motion-comparison.json` report. The Windows GPU capability workflow
+selects and archives these cases alongside the existing lighting fixtures;
+GPU-free hosted Hydra validation still excludes them through `host-smoke`/`gpu`.
+
+Local 2026-10-10 Release validation on RTX A5000/OpenUSD 26.08 passes 8/8
+lighting/motion cases including the native fixture dependency. Both presentation
+paths pass all 256 one-render captures; all 393 motion-comparison images have
+zero observed channel error. Environment and limits are recorded in the
+[delivery history](../reports/delivery-history.md#forward-first-frame-camera-sweep--2026-10-10).
 
 Local 2026-10-10 Release validation on RTX A5000/OpenUSD 26.08 passes all five
 native/Tier 0/HgiVulkan cases. The 25 presented images (baseline plus 24 fixture
