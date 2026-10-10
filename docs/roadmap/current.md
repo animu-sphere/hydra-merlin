@@ -10,10 +10,14 @@ The shared directional-input boundary and Hydra radiance conversion are implemen
 contracts and current image limitations are in the
 [Forward lighting design](../design/forward-lighting.md).
 
-- [ ] Establish focused Camera Light ON/OFF and static/moving differential
-  fixtures before changing ambient/direct balance, linear/sRGB conversion,
-  exposure or tone mapping. Cover native, Tier 0 and Hgi presentation and
-  handwritten/generated material behavior.
+- [x] Add focused Vulkan Camera Light ON/OFF, rotated-camera and return-to-view
+  fixtures for color/white patches, native handwritten/generated materials,
+  and usdview linear/sRGB output. Native/Tier 0 center comparison and optional
+  Tier 0/HgiVulkan image comparison are independent CTest gates.
+- [ ] Extend the local OpenUSD 26.08 HgiVulkan fixture evidence to 26.05 and
+  broaden continuous-motion/Kitchen coverage before changing ambient/direct balance,
+  exposure or tone mapping. Generated material host ingestion remains outside
+  the current Hydra subset.
 - [ ] Validate the shared directional selection on native Metal, then align
   Vulkan/Metal lighting and output transforms with declared image tolerances.
 

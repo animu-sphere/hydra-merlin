@@ -707,6 +707,7 @@ if(TARGET merlin-headless)
         "${_merlin_materialx_artifact_source_dir}/standard-surface.mtlx"
         "${MERLIN_MATERIALX_STANDARD_SURFACE_FORWARD_SPV}"
         "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/assets/environment.hdr"
+        "${CMAKE_CURRENT_BINARY_DIR}/forward-images-generated"
     )
     set_tests_properties(merlin-vulkan-generated-material PROPERTIES
       LABELS "gpu;materials;materialx;vulkan"
@@ -777,10 +778,12 @@ if(TARGET merlin-headless)
   add_test(
     NAME merlin-vulkan-material-resources
     COMMAND merlin-material-resource-tests
-            "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+      "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+      "${CMAKE_CURRENT_BINARY_DIR}/forward-images-handwritten"
   )
   set_tests_properties(merlin-vulkan-material-resources PROPERTIES
-    LABELS "gpu;materials"
+    LABELS "gpu;materials;lighting"
+    FIXTURES_SETUP merlin-forward-lighting-native
     SKIP_RETURN_CODE 77
     TIMEOUT 60
   )

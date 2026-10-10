@@ -33,6 +33,13 @@ PHASES = (
     "click-moved",
     "click-resized-hit",
 )
+LIGHTING_PHASES = tuple(
+    f"lighting-{albedo}-{output}-{light}-{pose}"
+    for albedo in ("color", "white")
+    for output in ("linear", "srgb")
+    for light in ("off", "on")
+    for pose in ("static", "moving", "restored")
+)
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
 
@@ -42,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("tier0", type=Path)
     parser.add_argument("gpu_copy", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--forward-lighting-only", action="store_true")
     return parser.parse_args()
 
 
@@ -167,7 +175,8 @@ def main() -> None:
             args.tier0 / f"usdview-first-frame-{phase}.png",
             args.gpu_copy / f"usdview-first-frame-{phase}.png",
         )
-        for phase in PHASES
+        for phase in (("baseline",) + LIGHTING_PHASES
+                      if args.forward_lighting_only else PHASES)
     ]
     evidence = {
         "schema": "merlin-hydra-presentation-comparison/v1",
@@ -179,7 +188,12 @@ def main() -> None:
         "click_picking": [
             json.loads((directory / "usdview-first-frame-click-picking.json").read_text(
                 encoding="utf-8"))
-            for directory in (args.tier0, args.gpu_copy)
+            for directory in (() if args.forward_lighting_only else (args.tier0, args.gpu_copy))
+        ],
+        "forward_lighting": [
+            json.loads((directory / "usdview-first-frame-forward-lighting.json").read_text(
+                encoding="utf-8"))
+            for directory in ((args.tier0, args.gpu_copy) if args.forward_lighting_only else ())
         ],
         "summary": {
             "maximum_changed_pixel_fraction": max(
