@@ -587,5 +587,67 @@ if(MERLIN_BUILD_TESTS)
           "merlin-hydra2-usdview-tier0;merlin-hydra2-usdview-hgi-vulkan"
       )
     endif()
+    # Keep the lighting gate independent of topology, selection and picking.
+    # The installed plugin and the real host composition still use the shared
+    # smoke runner, telemetry and presentation comparison tolerances.
+    set(_merlin_forward_modes tier0)
+    if(TARGET Merlin::Vulkan AND TARGET hgiVulkan)
+      list(APPEND _merlin_forward_modes hgi-vulkan)
+    endif()
+    foreach(_merlin_forward_mode IN LISTS _merlin_forward_modes)
+      set(_merlin_forward_force_vulkan OFF)
+      if(_merlin_forward_mode STREQUAL "hgi-vulkan")
+        set(_merlin_forward_force_vulkan ON)
+      endif()
+      add_test(
+        NAME merlin-hydra2-forward-lighting-${_merlin_forward_mode}
+        COMMAND ${CMAKE_COMMAND}
+          "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+          "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+          "-DMERLIN_CONFIG=$<CONFIG>"
+          "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-${_merlin_forward_mode}-install"
+          "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+          "-DMERLIN_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}"
+          "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+          "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+          "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+          "-DMERLIN_HYDRA2_TEST_BACKEND=${_merlin_hydra2_test_backend}"
+          "-DMERLIN_FORCE_HGI_VULKAN=${_merlin_forward_force_vulkan}"
+          "-DMERLIN_FORWARD_LIGHTING_ONLY=ON"
+          "-DMERLIN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_lighting_usdview_test.py"
+          "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake")
+      set_tests_properties(merlin-hydra2-forward-lighting-${_merlin_forward_mode} PROPERTIES
+        LABELS "host-smoke;gpu;lighting;presentation"
+        TIMEOUT 90 RUN_SERIAL TRUE
+        FIXTURES_SETUP merlin-forward-lighting-${_merlin_forward_mode})
+    endforeach()
+    if(TARGET Merlin::Vulkan AND TARGET merlin-headless)
+      add_test(
+        NAME merlin-hydra2-forward-lighting-native-comparison
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_forward_lighting_native.py"
+          "${CMAKE_BINARY_DIR}/tests/forward-images-handwritten"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-tier0-install/usdview-first-frame-forward-lighting.json"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-native-comparison.json")
+      set_tests_properties(merlin-hydra2-forward-lighting-native-comparison PROPERTIES
+        LABELS "host-smoke;gpu;lighting;presentation;comparison"
+        TIMEOUT 15 RUN_SERIAL TRUE
+        FIXTURES_REQUIRED "merlin-forward-lighting-native;merlin-forward-lighting-tier0")
+    endif()
+    if(TARGET Merlin::Vulkan AND TARGET hgiVulkan)
+      add_test(
+        NAME merlin-hydra2-forward-lighting-comparison
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_usdview_smoke.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-tier0-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-hgi-vulkan-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-comparison.json"
+          --forward-lighting-only)
+      set_tests_properties(merlin-hydra2-forward-lighting-comparison PROPERTIES
+        LABELS "host-smoke;gpu;lighting;presentation;comparison"
+        TIMEOUT 15 RUN_SERIAL TRUE
+        FIXTURES_REQUIRED "merlin-forward-lighting-tier0;merlin-forward-lighting-hgi-vulkan")
+    endif()
   endif()
 endif()

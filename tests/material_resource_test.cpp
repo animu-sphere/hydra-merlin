@@ -5,6 +5,7 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
+#include "forward_image_fixture.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -38,8 +39,8 @@ std::uint32_t CenterBrightness(const merlin::vulkan::RenderResult& result) {
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "usage: material_resource_test SHADER_DIR\n";
+  if (argc != 3) {
+    std::cerr << "usage: material_resource_test SHADER_DIR IMAGE_DIR\n";
     return 1;
   }
   const std::filesystem::path shader_dir = argv[1];
@@ -384,6 +385,13 @@ int main(int argc, char** argv) {
   const auto ground_brightness = CenterBrightness(ground_ibl);
   assert(sky_brightness > ground_brightness + 3U ||
          ground_brightness > sky_brightness + 3U);
+  merlin::MaterialDescriptor image_material;
+  image_material.parameters.base_color = {0.4F, 0.1875F, 0.1F, 1};
+  merlin::tests::RunForwardImageFixture(*renderer, shaders, image_material,
+      std::filesystem::path(argv[2]) / "color");
+  image_material.parameters.base_color = {1, 1, 1, 1};
+  merlin::tests::RunForwardImageFixture(*renderer, shaders, image_material,
+      std::filesystem::path(argv[2]) / "white");
   assert(renderer->statistics().validation_messages == 0);
 
   std::cout << "MaterialIR texture/sampler and variant contract verified\n";

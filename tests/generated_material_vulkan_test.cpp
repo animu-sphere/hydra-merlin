@@ -5,6 +5,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/materialx/compiler.hpp>
 #include <merlin/vulkan/renderer.hpp>
+#include "forward_image_fixture.hpp"
 
 #include <cassert>
 #include <array>
@@ -51,10 +52,10 @@ void Require(bool condition, const char* message) {
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 8) {
+  if (argc != 9) {
     std::cerr << "usage: generated_material_vulkan_test "
                  "SHADER_DIR DOCUMENT DATA_ROOT ARTIFACT_SPV "
-                 "STANDARD_DOCUMENT STANDARD_ARTIFACT_SPV ENVIRONMENT\n";
+                 "STANDARD_DOCUMENT STANDARD_ARTIFACT_SPV ENVIRONMENT IMAGE_DIR\n";
     return 1;
   }
 
@@ -357,6 +358,20 @@ int main(int argc, char** argv) {
   assert(fallback.material_diagnostics.front().category ==
          merlin::MaterialDiagnosticCategory::CacheIncompatible);
 
+  merlin::MaterialDescriptor image_material;
+  image_material.parameters.base_color = {0.4F, 0.1875F, 0.1F, 1};
+  image_material.module = compiled.module->logical_module;
+  image_material.generated_parameters = compiled.module->parameter_defaults;
+  image_material.generated_resources.key = compiled.module->resource_key;
+  merlin::tests::RunForwardImageFixture(*renderer, shaders, image_material,
+      std::filesystem::path(argv[8]) / "color");
+  image_material.parameters.base_color = {1, 1, 1, 1};
+  for (auto& parameter : image_material.generated_parameters.entries) {
+    parameter.values.at(0) = merlin::Vec3{1, 1, 1};
+  }
+  image_material.generated_parameters.key = "sha256:forward-image-white";
+  merlin::tests::RunForwardImageFixture(*renderer, shaders, image_material,
+      std::filesystem::path(argv[8]) / "white");
   assert(renderer->statistics().validation_messages == 0);
   return 0;
 }

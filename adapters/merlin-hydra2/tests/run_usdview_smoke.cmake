@@ -28,6 +28,10 @@ if(MERLIN_FORCE_HGI_VULKAN)
     "HGIVULKAN_DEBUG=1")
 endif()
 
+set(usdview_timeout 50)
+if(MERLIN_FORWARD_LIGHTING_ONLY)
+  set(usdview_timeout 80)
+endif()
 execute_process(
   COMMAND "${MERLIN_CMAKE_COMMAND}" -E env
     ${hgi_environment}
@@ -38,6 +42,7 @@ execute_process(
     "MERLIN_HYDRA2_TEST_BACKEND=${MERLIN_HYDRA2_TEST_BACKEND}"
     "MERLIN_HYDRA2_REGRESSION_LOG=${marker}"
     "MERLIN_HYDRA2_SMOKE_IMAGE=${image}"
+    "MERLIN_USDVIEW_SMOKE_HELPERS=${CMAKE_CURRENT_LIST_DIR}/usdview_smoke_test.py"
     "${MERLIN_PYTHON}" "${MERLIN_TESTUSDVIEW}" "${scene}"
     --renderer Merlin --camera /Camera
     --traceToFile "${host_trace}" --traceFormat chrome
@@ -45,7 +50,7 @@ execute_process(
   RESULT_VARIABLE usdview_result
   OUTPUT_VARIABLE usdview_output
   ERROR_VARIABLE usdview_error
-  TIMEOUT 50
+  TIMEOUT ${usdview_timeout}
 )
 if(NOT usdview_result EQUAL 0)
   message(FATAL_ERROR
@@ -64,10 +69,28 @@ set(hgi_metal_gpu_copy FALSE)
 if(marker_contents MATCHES "hgi_metal_transfer_mode=gpu-copy")
   set(hgi_metal_gpu_copy TRUE)
 endif()
-foreach(phase IN ITEMS
-    baseline points topology primvar transform visibility camera
-    material_parameter diagnostic recovery remove readd resize selection
-    click-unselected click-hit click-overlay click-overlay-hidden click-miss click-moved click-resized-hit)
+set(lighting_phases)
+foreach(albedo IN ITEMS color white)
+  foreach(output IN ITEMS linear srgb)
+    foreach(light IN ITEMS off on)
+      foreach(pose IN ITEMS static moving restored)
+        list(APPEND lighting_phases "lighting-${albedo}-${output}-${light}-${pose}")
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+if(MERLIN_FORWARD_LIGHTING_ONLY)
+  if(NOT EXISTS "${MERLIN_STAGE_DIR}/usdview-first-frame-forward-lighting.json")
+    message(FATAL_ERROR "usdview did not produce Forward lighting evidence")
+  endif()
+  set(required_phases baseline ${lighting_phases})
+else()
+  set(required_phases
+      baseline points topology primvar transform visibility camera
+      material_parameter diagnostic recovery remove readd resize selection
+      click-unselected click-hit click-overlay click-overlay-hidden click-miss click-moved click-resized-hit)
+endif()
+foreach(phase IN LISTS required_phases)
   if(NOT marker_contents MATCHES "phase=${phase} ")
     message(FATAL_ERROR
       "Merlin regression log is missing the ${phase} phase:\n${marker_contents}")

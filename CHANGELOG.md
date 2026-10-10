@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Focused Forward image fixtures for Camera Light ON/OFF, rotated/returned
+  cameras, color/white patches, explicit zero energy, and handwritten/generated
+  Vulkan material parity. Independent usdview CTest gates check linear/sRGB
+  output, native/Tier 0 center samples and optional Tier 0/HgiVulkan images,
+  retaining images, counters and traces. OFF explicitly tests the current
+  no-source diagnostic fallback. Kitchen/navigation and Metal parity remain
+  separate quality gates.
 - Independent hosted Windows Hydra compilation CI for the pinned OpenUSD 26.05
   and 26.08 shared Release SDKs. The gate builds the native HgiVulkan bridge,
   checks CPU adapter contracts and shader ABI, links installed Core/Vulkan consumers,

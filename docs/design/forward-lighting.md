@@ -70,11 +70,33 @@ energy stays zero and clean Sync does not revise the light. This conversion
 changes images of authored Hydra distant lights too; native Core-authored
 intensity remains a directly specified Lambert response.
 
-The next slice must establish image/output parity. Differential fixtures must
-cover Camera Light ON/OFF,
-static/moving cameras, linear/sRGB boundaries, explicit exposure/tone mapping,
-native/Tier 0/Hgi presentation and handwritten/generated materials. Broader
-lighting and output parity remain gated by those fixtures and backend evidence.
+Focused Vulkan fixtures now cover Camera Light ON/OFF, static and rotated camera
+poses, return to the original pose, and color/white patches. Native Forward
+compares handwritten and generated MaterialX prototype evaluation; usdview uses
+the supported UsdPreviewSurface subset. This does not claim generated-material
+Hydra ingestion. The host fixture switches the real Camera Light checkbox and
+compares disabled color correction with the host sRGB transfer function.
+
+Camera Light OFF removes the host source. With no authored directional source,
+Merlin selects its unit-white +Z diagnostic fallback, so OFF is brighter than
+Hdx's converted camera light. It is not an ambient-only mode. The native fixture
+also tests an explicit zero-energy source separately, which retains only ambient
+fill. Tests record this distinction instead of silently equating OFF with zero.
+
+Repeated native frames and returned poses require exact color/depth/ID equality.
+Generated versus handwritten color allows one RGBA8 step, with exact depth/IDs.
+Native versus Tier 0 compares interior center RGB with one-step tolerance;
+different native/host projections preclude full-image equality. Host sRGB centers
+allow two steps after the independently evaluated transfer function. Tier 0/Hgi
+full-image comparison retains the existing 0.25% changed-pixel and 0.25 mean-channel
+error bounds. Camera/light/output edits require zero geometry fetch/upload and
+zero pipeline creation after setup. PPM/PNG images, center samples, structural
+counters and host traces accompany the checks.
+
+Continuous navigation and Kitchen scenes, explicit exposure/tone-mapping
+selection, and native Metal evidence remain incomplete. These focused converged
+host captures do not establish absence of transient flicker during navigation,
+or cross-backend lighting/output parity.
 
 ## Regression evidence
 
@@ -95,3 +117,28 @@ An injected backend captures the actual Sprim-to-snapshot path, including
 rotation, parameter-only edits, unchanged revisions, atomic rejection,
 initial rejection/retry and removal. These tests verify input energy; they do
 not establish the remaining usdview Kitchen image or native Metal claims.
+
+Run the focused fixtures in a Vulkan/Hydra build with testusdview available:
+
+```powershell
+ctest --test-dir build/vulkan-hydra -C Release `
+  -R '^merlin-hydra2-forward-lighting' --output-on-failure
+```
+
+CTest also selects the native material fixture needed by the center comparison.
+An SDK exporting `hgiVulkan` adds the separate Hgi host and full-image comparison
+cases. Native MaterialX comparison is part of `merlin-vulkan-generated-material`
+when that optional compiler and its Forward artifacts are enabled. Native output
+lives under `tests/forward-images-{handwritten,generated}/{color,white}`; host
+output lives under `adapters/merlin-hydra2/forward-lighting-*-install`.
+
+Local 2026-10-10 Release validation on RTX A5000/OpenUSD 26.08 passes all five
+native/Tier 0/HgiVulkan cases. The 25 presented images (baseline plus 24 fixture
+phases) match exactly across Tier 0 and HgiVulkan; all 12 native/host center
+comparisons and both color/white generated-material comparisons have zero
+observed channel error. The native material run plus its three compilation
+fixtures passes 5/5, and the Core lighting/Hydra energy/install-consumer/runtime
+selection passes 4/4. These are local fixture results, not Kitchen, OpenUSD 26.05,
+Metal, continuous-navigation, or timing guarantees. The separate lookdev SDK's
+existing comprehensive smoke fails its authored-normal handedness image check
+before reaching any lighting fixture; the independent gate remains usable.
