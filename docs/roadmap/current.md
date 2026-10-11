@@ -11,13 +11,15 @@ default SH/Reinhard output profile are implemented. Their contracts and remainin
 validation requirements are in the
 [Forward lighting design](../design/forward-lighting.md).
 
-- [ ] Validate the updated Metal output in Debug/Release with native analytic
+- [x] Validate the updated Metal output in Debug/Release with native analytic
   centers, three normal-only environment samples, repeated/restored AOVs,
   resource counters and API/shader validation. Earlier Apple M3 captures used
-  constant ambient and uncompressed output; they do not validate the new profile.
-- [ ] Run the updated Metal native/Tier 0 and Tier 0/HgiMetal lighting, camera
+  constant ambient and uncompressed output; refreshed Apple M3 captures pass
+  all 44 analytic centers and exact Debug/Release image comparisons.
+- [x] Run the updated Metal native/Tier 0 and Tier 0/HgiMetal lighting, camera
   sweep and Qt navigation gates. White OFF must retain headroom in linear/sRGB;
-  saturation is no longer an accepted diagnostic result.
+  saturation is no longer an accepted diagnostic result. All 12 native/host
+  centers and 851 Tier 0/HgiMetal images match exactly.
 - [ ] Compare independently captured Vulkan/Metal default-output reports using
   `tests/compare_forward_backends.py`: 20 native center pairs within 1/255 and
   24 host center pairs within 2/255 for each presentation mode. Preserve the

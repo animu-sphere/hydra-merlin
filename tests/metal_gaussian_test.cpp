@@ -198,11 +198,26 @@ int RunImages(bool gpu) {
     instance.material = material_handle;
     world.CreateInstance(instance);
     g.opacities[0] = 0.5F;
+    g.visible = false;
+    world.UpdateGaussian(handle, g);
+    request.snapshot = snapshot();
+    const auto opaque = render();
+    Require(Channel(opaque, 32, 32, 0) == 0 &&
+                Channel(opaque, 32, 32, 1) == 0 &&
+                Channel(opaque, 32, 32, 2) > 0 &&
+                Channel(opaque, 32, 32, 2) < 255,
+        "opaque blue mesh lost Forward output headroom");
+    g.visible = true;
     world.UpdateGaussian(handle, g);
     request.snapshot = snapshot();
     const auto mixed = render();
-    Require(Channel(mixed, 32, 32, 0) > 105 && Channel(mixed, 32, 32, 1) == 0 &&
-                Channel(mixed, 32, 32, 2) > 120,
+    // Red is unit radiance, so its independently captured Gaussian-only
+    // channel measures alpha. Composite the current opaque Forward response
+    // rather than assuming that the blue mesh shades to uncompressed white.
+    const auto expected_blue = Channel(opaque, 32, 32, 2) * (1.0F - red / 255.0F);
+    Require(std::abs(int(Channel(mixed, 32, 32, 0)) - int(red)) <= 1 &&
+                Channel(mixed, 32, 32, 1) == 0 &&
+                std::abs(Channel(mixed, 32, 32, 2) - expected_blue) <= 1.0F,
         "mesh/Gaussian depth composition failed");
     Require(std::abs(mixed.depth.pixels.at(32 * mixed.depth.row_pitch_bytes / 4 + 32) - 0.45F) < 0.001F,
         "Gaussian changed opaque depth");

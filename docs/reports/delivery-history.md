@@ -11,6 +11,54 @@ Legend: ✅ done
 
 ---
 
+## Refreshed Metal default-output validation — 2026-10-11
+
+Validated `fe8de56` with the Gaussian composition regression correction below
+on Apple M3, macOS 15.7.9, AppleClang 17, Slang 2026.8 and OpenUSD 26.08.
+These captures use `forward-sh-l2-reinhard/v1`, replacing the pre-alignment
+Metal evidence for the current output profile.
+
+```sh
+cmake --build build/metal-forward-lighting --parallel 4
+cmake --build build/metal-forward-lighting-debug --parallel 4
+ctest --test-dir build/metal-forward-lighting --output-on-failure --no-tests=error --output-junit v0162-metal-tests.xml
+ctest --test-dir build/metal-forward-lighting-debug --output-on-failure --no-tests=error --output-junit v0162-debug-tests.xml
+cmake --build build/metal-hydra --parallel 4
+ctest --test-dir build/metal-hydra --output-on-failure --no-tests=error --output-junit v0162-forward-host-tests.xml -R '^merlin-(hydra2-(forward-(lighting|motion|navigation).*|install-discovery|hgi-metal-aov)|metal-forward-lighting|backend-boundaries|install-consumer|metal-install-runtime)$'
+cmake --build build/metal-hydra-tier0 --parallel 4
+ctest --test-dir build/metal-hydra-tier0 --output-on-failure --no-tests=error --output-junit v0162-tier0-tests.xml -R '^merlin-(hydra2-forward-lighting.*|metal-forward-lighting)$'
+```
+
+Debug and Release each pass all 33 tests without skips. All 44 native analytic
+centers have zero error; the 44 PPM images and two JSON reports match exactly
+between configurations. Repeated/restored four-AOV gates, steady-state resource
+counters and API/shader validation pass. White OFF is `[121, 122, 122]` in the
+linear native AOV, retaining headroom; ON, rotated ON and zero energy are
+`[64, 64, 65]`, `[58, 59, 60]` and `[14, 15, 17]`.
+
+The initial Release run failed the mixed Mesh/Gaussian composition assertion,
+which assumed an uncompressed opaque blue channel above 240. The corrected
+regression independently captures the opaque Mesh and Gaussian-only alpha,
+then checks their expected composite within one channel unit. It preserves
+green occlusion, exact depth/picking and CPU/GPU differential checks rather
+than lowering the old brightness threshold. The successful full reruns include
+this correction; the initial failed log remains in `/tmp`.
+
+The bridge-enabled host selection passes 16/16; the separately bridge-disabled
+native/Tier 0 selection passes 3/3, both without skips. All 12 native/Tier 0
+linear centers and all 851 Tier 0/HgiMetal images (25 lighting, 393 sweep,
+433 Qt navigation) match exactly. White OFF host centers are `[121, 122, 122]`
+linear and `[183, 184, 184]` sRGB. Immediate/settled replay and restored-image
+checks, zero steady geometry uploads/pipeline creation, installed discovery,
+consumer/runtime and native HgiMetal AOV checks pass. Host tests use API
+validation; native/AOV tests additionally use shader validation.
+
+JUnit, native images and host PNG/JSON/trace artifacts remain in the build
+directories above; `/tmp/merlin-v0162-*` retains build/test logs. Independent
+Vulkan/Metal comparison and release checks remain pending. Broader Kitchen,
+generated Metal materials, other GPUs/SDKs, unrestricted navigation and timing
+remain outside this bounded validation.
+
 ## Forward default output alignment — 2026-10-11
 
 Moved the existing Radiance loader and Lambert-convolved l=2 SH projection into
