@@ -18,9 +18,12 @@ contracts and current image limitations are in the
   broaden the bounded first-frame camera sweep to interactive navigation and
   Kitchen coverage before changing ambient/direct balance, exposure or tone
   mapping. The color/white sweep now covers 256 immediate frames per presentation
-  path; its [local evidence](../reports/delivery-history.md#forward-first-frame-camera-sweep--2026-10-10)
-  does not establish general navigation quality. Generated material host ingestion
-  remains outside the current Hydra subset.
+  path; a separate Qt Alt+mouse tumble/truck/zoom fixture now covers 192 immediate
+  frames per path, including exact replay/reference and restored-view checks.
+  These bounded captures do not establish unrestricted navigation or Kitchen
+  quality. See the [Forward lighting design](../design/forward-lighting.md) for
+  the gates and evidence. Generated material host ingestion remains outside the
+  current Hydra subset.
 - [ ] Validate the shared directional selection on native Metal, then align
   Vulkan/Metal lighting and output transforms with declared image tolerances.
 

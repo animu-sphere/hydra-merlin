@@ -599,12 +599,17 @@ if(MERLIN_BUILD_TESTS)
       if(_merlin_forward_mode STREQUAL "hgi-vulkan")
         set(_merlin_forward_force_vulkan ON)
       endif()
-      foreach(_merlin_forward_fixture IN ITEMS lighting motion)
+      foreach(_merlin_forward_fixture IN ITEMS lighting motion navigation)
         set(_merlin_forward_motion OFF)
+        set(_merlin_forward_navigation OFF)
         set(_merlin_forward_timeout 90)
         if(_merlin_forward_fixture STREQUAL "motion")
           set(_merlin_forward_motion ON)
           set(_merlin_forward_timeout 180)
+        endif()
+        if(_merlin_forward_fixture STREQUAL "navigation")
+          set(_merlin_forward_navigation ON)
+          set(_merlin_forward_timeout 240)
         endif()
         add_test(
           NAME merlin-hydra2-forward-${_merlin_forward_fixture}-${_merlin_forward_mode}
@@ -622,6 +627,7 @@ if(MERLIN_BUILD_TESTS)
             "-DMERLIN_FORCE_HGI_VULKAN=${_merlin_forward_force_vulkan}"
             "-DMERLIN_FORWARD_LIGHTING_ONLY=ON"
             "-DMERLIN_FORWARD_MOTION_ONLY=${_merlin_forward_motion}"
+            "-DMERLIN_FORWARD_NAVIGATION_ONLY=${_merlin_forward_navigation}"
             "-DMERLIN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_lighting_usdview_test.py"
             "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake")
@@ -669,6 +675,18 @@ if(MERLIN_BUILD_TESTS)
         LABELS "host-smoke;gpu;lighting;presentation;comparison"
         TIMEOUT 120 RUN_SERIAL TRUE
         FIXTURES_REQUIRED "merlin-forward-motion-tier0;merlin-forward-motion-hgi-vulkan")
+      add_test(
+        NAME merlin-hydra2-forward-navigation-comparison
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_usdview_smoke.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-navigation-tier0-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-navigation-hgi-vulkan-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-navigation-comparison.json"
+          --forward-navigation-only)
+      set_tests_properties(merlin-hydra2-forward-navigation-comparison PROPERTIES
+        LABELS "host-smoke;gpu;lighting;presentation;comparison"
+        TIMEOUT 120 RUN_SERIAL TRUE
+        FIXTURES_REQUIRED "merlin-forward-navigation-tier0;merlin-forward-navigation-hgi-vulkan")
     endif()
   endif()
 endif()

@@ -49,6 +49,16 @@ MOTION_PHASES = tuple(
                          ("back", range(15, -1, -1)))
     for index in indices
 )
+NAVIGATION_PHASES = tuple(
+    f"navigation-{albedo}-{output}-{light}-{gesture}-{capture}"
+    for albedo in ("color", "white")
+    for output in ("linear", "srgb")
+    for light in ("off", "on")
+    for gesture in ("tumble", "truck", "zoom")
+    for capture in (("start",) + tuple(
+        f"{kind}-{index:02d}" for kind in ("reference", "immediate")
+        for index in range(8)) + ("restored",))
+)
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
 
@@ -61,6 +71,7 @@ def parse_args() -> argparse.Namespace:
     fixture = parser.add_mutually_exclusive_group()
     fixture.add_argument("--forward-lighting-only", action="store_true")
     fixture.add_argument("--forward-motion-only", action="store_true")
+    fixture.add_argument("--forward-navigation-only", action="store_true")
     return parser.parse_args()
 
 
@@ -181,24 +192,30 @@ def performance_evidence(tier0: dict, gpu_copy: dict) -> dict:
 
 def main() -> None:
     args = parse_args()
-    forward_only = args.forward_lighting_only or args.forward_motion_only
+    forward_only = (args.forward_lighting_only or args.forward_motion_only or
+                    args.forward_navigation_only)
     phases = PHASES
     forward_reports = []
     if forward_only:
-        fixture = "motion" if args.forward_motion_only else "lighting"
-        phases = ("baseline",) + (
-            MOTION_PHASES if args.forward_motion_only else LIGHTING_PHASES)
+        fixture = ("navigation" if args.forward_navigation_only else
+                   "motion" if args.forward_motion_only else "lighting")
+        fixture_phases = {"lighting": LIGHTING_PHASES, "motion": MOTION_PHASES,
+                          "navigation": NAVIGATION_PHASES}[fixture]
+        phases = ("baseline",) + fixture_phases
         for directory in (args.tier0, args.gpu_copy):
             report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
                                 .read_text(encoding="utf-8"))
             if report["schema"] != f"merlin-usdview-forward-{fixture}/v1":
                 raise ValueError(f"unexpected Forward {fixture} schema in {directory}")
-            if args.forward_motion_only:
-                expected = [phase for phase in MOTION_PHASES if "-reference-" not in phase]
+            if args.forward_motion_only or args.forward_navigation_only:
+                if args.forward_navigation_only:
+                    expected = [phase for phase in fixture_phases if "-immediate-" in phase]
+                else:
+                    expected = [phase for phase in fixture_phases if "-reference-" not in phase]
                 if [phase["phase"] for phase in report["phases"]] != expected:
-                    raise ValueError(f"missing or reordered motion captures in {directory}")
+                    raise ValueError(f"missing or reordered {fixture} captures in {directory}")
                 if any(phase["render_count"] != 1 for phase in report["phases"]):
-                    raise ValueError(f"motion capture rendered more than once in {directory}")
+                    raise ValueError(f"{fixture} capture rendered more than once in {directory}")
             forward_reports.append(report)
     images = [
         compare_image(
@@ -221,6 +238,7 @@ def main() -> None:
         ],
         "forward_lighting": forward_reports if args.forward_lighting_only else [],
         "forward_motion": forward_reports if args.forward_motion_only else [],
+        "forward_navigation": forward_reports if args.forward_navigation_only else [],
         "summary": {
             "maximum_changed_pixel_fraction": max(
                 image["changed_pixel_fraction"] for image in images
