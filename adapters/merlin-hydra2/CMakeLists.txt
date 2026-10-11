@@ -623,7 +623,7 @@ if(MERLIN_BUILD_TESTS)
         if(_merlin_forward_fixture STREQUAL "scene")
           set(_merlin_forward_scene "${MERLIN_FORWARD_SCENE}")
           set(_merlin_forward_script "${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_scene_usdview_test.py")
-          set(_merlin_forward_timeout 300)
+          set(_merlin_forward_timeout 600)
         endif()
         add_test(
           NAME merlin-hydra2-forward-${_merlin_forward_fixture}-${_merlin_forward_mode}

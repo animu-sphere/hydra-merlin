@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QApplication
 
 
 def check_forward_navigation(app_controller, shader, root, ext,
-                             render_phase, read_events, scene_metadata=None):
+                             render_phase, read_events, scene_metadata=None,
+                             viewpoints=None):
     view = app_controller._stageView
     settings = app_controller._dataModel.viewSettings
     # Resolve the authored starting camera before switching. Avoid the optional
@@ -19,6 +20,8 @@ def check_forward_navigation(app_controller, shader, root, ext,
     view.switchToFreeCamera(False)
     render_phase(app_controller, "navigation-start")
     initial = view.copyViewState()
+    if viewpoints is None:
+        viewpoints = ((None, initial),)
     origin = QPointF(view.width() // 2, view.height() // 2)
     offsets = (8, 16, 24, 32, 24, 16, 8, 0)
     gestures = (("tumble", Qt.MouseButton.LeftButton),
@@ -49,7 +52,9 @@ def check_forward_navigation(app_controller, shader, root, ext,
     fixture = "scene" if scene_metadata is not None else "navigation"
     albedos = (("authored", None),) if scene_metadata is not None else (
         ("color", Gf.Vec3f(0.4, 0.1875, 0.1)), ("white", Gf.Vec3f(1)))
-    for albedo, value in albedos:
+    for viewpoint, initial, albedo, value in (
+            (name, state, albedo, value) for name, state in viewpoints
+            for albedo, value in albedos):
         if shader is not None:
             shader.GetInput("diffuseColor").Set(value)
         for output, correction in (("linear", ColorCorrectionModes.DISABLED),
@@ -58,7 +63,8 @@ def check_forward_navigation(app_controller, shader, root, ext,
             for enabled in (False, True):
                 settings.ambientLightOnly = enabled
                 for gesture, button in gestures:
-                    prefix = f"{fixture}-{albedo}-{output}-{'on' if enabled else 'off'}-{gesture}"
+                    view_prefix = f"{fixture}-{viewpoint}" if viewpoint else fixture
+                    prefix = f"{view_prefix}-{albedo}-{output}-{'on' if enabled else 'off'}-{gesture}"
                     view.restoreViewState(initial)
                     start_event = render_phase(app_controller, prefix + "-start")
                     expected_draws = start_event["draw_count"]
@@ -66,8 +72,18 @@ def check_forward_navigation(app_controller, shader, root, ext,
                         assert expected_draws == 1
                     else:
                         assert expected_draws > 1
+                        recorded_view = next(item for item in scene_metadata["viewpoints"]
+                                             if item["name"] == viewpoint)
+                        assert [list(row) for row in camera_matrix()] == recorded_view["camera_transform"], (
+                            f"{prefix}: starting camera differs from recorded viewpoint")
                     starting_image = pixels(prefix + "-start")[0]
-                    starting_images[(albedo, output, enabled, gesture)] = starting_image
+                    starting_images[(viewpoint, albedo, output, enabled, gesture)] = starting_image
+                    if scene_metadata is not None and gesture == "tumble":
+                        for previous, _ in viewpoints:
+                            key = (previous, albedo, output, enabled, gesture)
+                            if previous != viewpoint and key in starting_images:
+                                assert starting_images[key] != starting_image, (
+                                    f"{prefix}: starting viewpoints have identical images")
                     references = []
                     reference_cameras = []
                     for reference in (True, False):
@@ -131,6 +147,7 @@ def check_forward_navigation(app_controller, shader, root, ext,
                                 evidence.append({
                                     "phase": phase, "reference_phase": f"{prefix}-reference-{index:02d}",
                                     "gesture": gesture, "step": index,
+                                    "viewpoint": viewpoint,
                                     "logical_offset": offset, "device_pixel_ratio": view.devicePixelRatioF(),
                                     "albedo": albedo, "output": output, "camera_light": enabled,
                                     "center_rgb": center, "render_count": len(events),
@@ -158,18 +175,20 @@ def check_forward_navigation(app_controller, shader, root, ext,
             for field in ("points_fetch_count", "topology_fetch_count",
                           "primvar_fetch_count", "upload_bytes", "pipeline_creation_count"):
                 assert event[field] == 0, f"{event['phase']}: unexpected {field}"
-        for gesture, _ in gestures:
-            for output in ("linear", "srgb"):
-                assert (starting_images[("authored", output, False, gesture)] !=
-                        starting_images[("authored", output, True, gesture)]), (
-                    f"{gesture}: Camera Light toggle had no image effect")
-            for enabled in (False, True):
-                assert (starting_images[("authored", "linear", enabled, gesture)] !=
-                        starting_images[("authored", "srgb", enabled, gesture)]), (
-                    f"{gesture}: output transform had no image effect")
+        for viewpoint, _ in viewpoints:
+            for gesture, _ in gestures:
+                for output in ("linear", "srgb"):
+                    assert (starting_images[(viewpoint, "authored", output, False, gesture)] !=
+                            starting_images[(viewpoint, "authored", output, True, gesture)]), (
+                        f"{viewpoint}-{gesture}: Camera Light toggle had no image effect")
+                for enabled in (False, True):
+                    assert (starting_images[(viewpoint, "authored", "linear", enabled, gesture)] !=
+                            starting_images[(viewpoint, "authored", "srgb", enabled, gesture)]), (
+                        f"{viewpoint}-{gesture}: output transform had no image effect")
 
     with open(root + f"-forward-{fixture}.json", "w", encoding="utf-8") as stream:
-        json.dump({"schema": f"merlin-usdview-forward-{fixture}/v1",
+        version = 2 if scene_metadata is not None else 1
+        json.dump({"schema": f"merlin-usdview-forward-{fixture}/v{version}",
                    "input_policy": "qt-alt-mouse-press-move-release",
                    "capture_policy": "one-render-no-event-loop-no-convergence-wait",
                    "gestures": [name for name, _ in gestures], "steps_per_gesture": len(offsets),

@@ -16,12 +16,14 @@ contracts and current image limitations are in the
   Tier 0/HgiVulkan image comparison are independent CTest gates.
 - [x] Add an opt-in authored multi-mesh USD navigation gate with Camera Light
   ON/OFF and linear/sRGB output, exact immediate/settled replay, and a separate
-  Tier 0/HgiVulkan comparison. Local OpenUSD 26.08 Kitchen_set evidence covers
-  1,788 meshes and 96 immediate captures per path; broader quality remains open.
+  Tier 0/HgiVulkan comparison. The fixture now includes full, quarter and opposite
+  starting views with 288 immediate captures per path. Local Kitchen_set evidence
+  is recorded in the [Forward lighting design](../design/forward-lighting.md);
+  broader quality remains open.
 - [ ] Extend the local OpenUSD 26.08 HgiVulkan fixture evidence to 26.05 and
-  broaden the bounded first-frame camera sweep to interactive navigation and
-  additional Kitchen viewpoints before changing ambient/direct balance, exposure
-  or tone mapping. The color/white sweep now covers 256 immediate frames per presentation
+  extend navigation evidence beyond bounded mouse routes and three relative
+  Kitchen views before changing ambient/direct balance, exposure or tone mapping.
+  The color/white sweep now covers 256 immediate frames per presentation
   path; a separate Qt Alt+mouse tumble/truck/zoom fixture now covers 192 immediate
   frames per path, including exact replay/reference and restored-view checks.
   These bounded captures do not establish unrestricted navigation or Kitchen
