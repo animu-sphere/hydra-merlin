@@ -15,21 +15,23 @@ after its public API and release process are established.
   installed Core consumption. Native Forward fixtures isolate three environment
   directions; an offline Vulkan/Metal comparator checks independent native and
   linear/sRGB host center evidence and rejects stale or incomplete reports.
-  Fresh Metal execution and actual cross-backend comparisons remain required.
+  Refreshed Apple M3 Metal execution passes; actual cross-backend comparisons
+  remain required.
 
 - Metal Forward host fixtures now compare native/Tier 0 center RGB and
   Tier 0/HgiMetal images for Camera Light ON/OFF and linear/sRGB output.
   Independent camera-sweep and Qt navigation comparisons retain first-frame
-  replay checks, resource counters and host traces. The existing uncompressed
-  white OFF saturation is checked explicitly; cross-backend output alignment
-  remains open.
+  replay checks, resource counters and host traces. Refreshed SH/Reinhard
+  captures retain white OFF headroom in both output modes; all 851 host image
+  pairs match exactly. Cross-backend output alignment remains open.
 - Native Metal Forward image fixtures cover color/white patches, camera-light
   ON/OFF inputs, world-space light independence from camera motion, rotated and
   returned cameras, zero energy, stable-handle selection through table compaction,
   extreme/degenerate axes, invalid-energy rejection and recovery. PPM images
   and analytic center comparisons accompany exact repeated/restored AOV checks
   and zero steady-state uploads, allocations and pipeline creation. Local Apple
-  M3 Debug/Release validation passes; cross-backend output parity remains open.
+  M3 Debug/Release validation passes all 44 analytic centers under the updated
+  SH/Reinhard profile; cross-backend output parity remains open.
 - Opt-in external multi-mesh USD Forward navigation fixtures, configured with
   `MERLIN_FORWARD_SCENE`, preserve authored geometry/materials and exercise
   Camera Light ON/OFF and linear/sRGB output through Qt tumble/truck/zoom.
@@ -68,9 +70,14 @@ after its public API and release process are established.
   conventional, argument-buffer and GPU Scene paths share this shading function.
   White Camera Light OFF now requires color headroom in native and host fixtures;
   the former uncompressed saturation exception is removed. Vulkan's configurable
-  HDR environment remains available. Metal compilation/runtime validation of the
-  changed output is pending, so this is not yet a backend parity support claim.
+  HDR environment remains available. Refreshed Apple M3 Debug/Release
+  compilation/runtime and Tier 0/HgiMetal host gates pass; actual backend
+  comparisons remain required for a parity support claim.
 
+- Metal Mesh/Gaussian composition regression now independently captures the
+  opaque Forward response and Gaussian alpha, then checks their composite
+  within one RGBA8 step. Depth, picking, green occlusion and CPU/GPU
+  differential gates remain intact under the compressed Mesh output.
 - Metal Forward Tier 0 fixtures now disable the HgiMetal bridge at delegate
   creation through `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1`, ensuring the
   reference actually uses CPU readback. Separate HgiMetal cases require GPU
