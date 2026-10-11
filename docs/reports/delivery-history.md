@@ -11,6 +11,59 @@ Legend: ✅ done
 
 ---
 
+## Forward Kitchen starting viewpoints — 2026-10-11
+
+Expanded the opt-in external scene gate from one frame-all view to three
+independently derived free-camera poses: `full`, `quarter` (+45-degree yaw,
+-15-degree pitch, 0.8 distance scale), and `opposite` (-45-degree yaw,
++15-degree pitch, 0.65 distance scale). Every pose runs Camera Light ON/OFF,
+linear/sRGB and the eight-step Qt tumble/truck/zoom replay. Initial camera
+transforms and recipes are recorded in `merlin-usdview-forward-scene/v2`; the
+comparison rejects missing/reordered viewpoint captures or mismatched inputs.
+The two additional views must visibly differ from each other and the full view.
+Camera restoration, one-render exact settled-reference equality, zero geometry
+fetch/upload, zero pipeline creation and clean validation retain their gates.
+
+This fixture contains 288 immediate captures per presentation path and 649
+Tier 0/HgiVulkan image comparisons. It uses the same locally supplied Kitchen
+asset and assembled RTX A5000/OpenUSD 26.08 environment recorded below. Relative
+camera offsets do not establish interior coverage, unrestricted navigation rate,
+OpenUSD 26.05, Metal or broader lighting quality.
+
+Initial `ctest --test-dir build/forward-hgi-ninja -C Release -R
+'^merlin-hydra2-forward-scene' --output-on-failure` passes 3/3. Both paths pass
+all 288 exact immediate/settled-reference captures with 1,788 draws, zero geometry
+fetch/upload, zero pipeline creation and zero diagnostics/validation messages.
+All 649 comparisons pass the existing bounds: maximum changed-pixel fraction
+`0.00004970961301066271` (six pixels, about 0.005%), maximum mean-channel error
+`0.0018268282781418546`. Tier 0 minimum coverage across the three views is
+36,186 pixels. A stored-PNG saturation peak contains 17 pixels, all with alpha
+178/255 in the inspected OFF/sRGB opposite-view truck capture. This is not proof
+of displayed-color clipping. Large host traces and reports increased validation
+overhead; the CMake Hgi gate now extracts each phase once before checking its
+stages, retaining all existing transfer and availability assertions.
+
+Final Release validation, including the recorded starting-camera assertion and
+phase-local CMake checks, passes 19/19:
+
+```powershell
+ctest --test-dir build/forward-hgi-ninja -C Release `
+  -R '^merlin-(hydra2-forward-(lighting|motion|navigation|scene).*|install-consumer|vulkan-install-runtime|forward-lighting|hydra2-distant-light|hydra-performance-report)$' `
+  --output-on-failure
+```
+
+The selection includes the native material fixture, existing lighting/motion/
+navigation comparisons, Core/Hydra lighting contracts, performance-report
+contracts and installed Core/Vulkan consumers/runtime. Both scene paths again
+pass all 288 exact captures. Final scene presentation comparison covers 649
+images with maximum changed-pixel fraction `0.00004142467750888559` (five pixels,
+about 0.0041%), maximum mean-channel error `0.0019738858832983987` and maximum
+individual channel error 169. Sparse differences pass the aggregate bounds;
+they do not establish exact presentation parity. The 17-pixel stored-PNG
+saturation peak remains unchanged. Incremental Release configure/build, Python
+syntax checks and `git diff --check` pass. The final local CTest log is preserved
+at `build/forward-viewpoints-final-tests.log`.
+
 ## Forward external Kitchen navigation — 2026-10-11
 
 Added opt-in `merlin-hydra2-forward-scene-{tier0,hgi-vulkan,comparison}` gates,

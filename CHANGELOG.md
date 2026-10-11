@@ -16,6 +16,9 @@ after its public API and release process are established.
   Immediate/settled replay and restored images must match exactly without
   geometry fetch/upload or new pipelines; Tier 0/HgiVulkan comparison retains
   independent images, scene identity, clipping observations, counters and traces.
+  Three independent frame-all-relative starting views now exercise 288 immediate
+  captures per presentation path and 649 Tier 0/HgiVulkan comparisons, with
+  version-2 scene evidence recording view recipes and starting camera matrices.
 - Independent Forward first-frame camera sweeps cover color/white patches,
   linear/sRGB output and Camera Light ON/OFF. Each immediate moving frame must
   render once and exactly match its settled pose, including the return leg,

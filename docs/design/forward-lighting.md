@@ -124,24 +124,30 @@ with the existing full-image tolerances.
 
 An opt-in external scene gate uses `MERLIN_FORWARD_SCENE` to open a multi-mesh
 USD stage directly, preserving authored geometry, transforms, materials and up
-axis. It frames the full stage with usdview's free camera and reuses the eight-step
-Qt tumble/truck/zoom routes for Camera Light ON/OFF and linear/sRGB output.
-Authored scene lights are disabled to isolate the camera source. All 96 immediate
-frames must render once, exactly match their settled reference and replayed camera,
+axis. Three independent starting views derive from usdview's frame-all free camera:
+`full` retains it; `quarter` adds yaw +45 degrees, pitch -15 degrees and distance
+scale 0.8; `opposite` adds yaw -45 degrees, pitch +15 degrees and distance scale
+0.65. Rotations use the free camera's stage-up-axis convention. Each view reuses
+the eight-step Qt tumble/truck/zoom routes for Camera Light ON/OFF and linear/sRGB
+output, and starting views must have distinct images. Authored scene lights are
+disabled to isolate the camera source. All 288 immediate frames per presentation
+path must render once, exactly match their settled reference and replayed camera,
 preserve draw counts, and avoid geometry fetch/upload or pipeline creation.
 Camera restoration is exact; camera-light and output toggles must visibly change
-the starting image. The report records source/root-layer SHA-256, mesh count,
-coverage, diagnostics and full-frame stored-PNG RGB saturation fractions
+the starting image at every viewpoint. The `merlin-usdview-forward-scene/v2`
+report records the view recipe and initial camera matrix, source/root-layer SHA-256,
+mesh count, coverage, diagnostics and full-frame stored-PNG RGB saturation fractions
 (`clipped_pixel_fraction`). These count any RGB channel equal to 255, including
 unassociated translucent samples, and do not establish displayed-color clipping.
 They are observations, without a universal threshold for arbitrary assets;
 the focused patch headroom gate remains separate. Root-layer identity alone does
-not pin referenced layers or textures. Tier 0/HgiVulkan compares 217 images with
+not pin referenced layers or textures. Tier 0/HgiVulkan compares 649 images with
 the existing tolerances and verifies matching scene metadata. The asset is supplied
 locally; it is neither bundled nor automatically downloaded.
 
 These bounded sweeps edit an authored camera or synchronously dispatch Qt mouse
-events between captures. Unrestricted interactive navigation and broader Kitchen quality,
+events between captures. The three relative views do not establish interior scene
+coverage. Unrestricted interactive navigation and broader Kitchen quality,
 explicit exposure/tone-mapping selection, and native Metal evidence remain
 incomplete. Framebuffer capture adds
 readback and disk I/O, so the sweep is not a timing gate or evidence for the
@@ -216,7 +222,8 @@ paths pass all 256 one-render captures; all 393 motion-comparison images have
 zero observed channel error. Environment and limits are recorded in the
 [delivery history](../reports/delivery-history.md#forward-first-frame-camera-sweep--2026-10-10).
 
-Local 2026-10-11 Release validation of the external scene gates on the same host
+Initial 2026-10-11 Release validation of the single-view external scene gates
+on the same host
 passes 3/3 for the supplied Kitchen_set stage (1,788 meshes, Z up). Both paths
 pass all 96 immediate captures with exact settled-pose equality. All 217
 presentation comparisons are within the existing tolerances; the final maximum
@@ -226,6 +233,16 @@ proof of displayed-color clipping. The full final selection passes 18/18,
 including existing Forward and installed-package/runtime checks.
 Environment, scene identity and limits are in the
 [Kitchen delivery record](../reports/delivery-history.md#forward-external-kitchen-navigation--2026-10-11).
+
+The three-view expansion on the same host passes all 288 immediate captures per
+path with exact settled-reference images. The 649-image Tier 0/HgiVulkan comparison
+passes the unchanged aggregate tolerances; the final full selection passes 19/19,
+including existing Forward and installed-package/runtime gates. Captured draws remain 1,788 and
+geometry fetch/upload, pipeline creation, diagnostics and validation messages
+remain zero. Stored-PNG saturation reaches 17 pixels in a closer-view OFF/sRGB
+capture; those inspected samples all have alpha 178/255. This remains an
+observation rather than proof of displayed-color clipping. Validation commands
+and scope are in the [viewpoint delivery record](../reports/delivery-history.md#forward-kitchen-starting-viewpoints--2026-10-11).
 
 Local 2026-10-11 Release validation on the same RTX A5000/assembled OpenUSD 26.08
 host passes 11/11 lighting/motion/navigation cases, including the native fixture

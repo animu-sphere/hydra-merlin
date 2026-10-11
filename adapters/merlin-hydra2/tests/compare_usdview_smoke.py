@@ -60,7 +60,8 @@ NAVIGATION_PHASES = tuple(
         for index in range(8)) + ("restored",))
 )
 SCENE_PHASES = tuple(
-    f"scene-authored-{output}-{light}-{gesture}-{capture}"
+    f"scene-{viewpoint}-authored-{output}-{light}-{gesture}-{capture}"
+    for viewpoint in ("full", "quarter", "opposite")
     for output in ("linear", "srgb")
     for light in ("off", "on")
     for gesture in ("tumble", "truck", "zoom")
@@ -216,8 +217,16 @@ def main() -> None:
         for directory in (args.tier0, args.gpu_copy):
             report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
                                 .read_text(encoding="utf-8"))
-            if report["schema"] != f"merlin-usdview-forward-{fixture}/v1":
+            version = 2 if args.forward_scene_only else 1
+            if report["schema"] != f"merlin-usdview-forward-{fixture}/v{version}":
                 raise ValueError(f"unexpected Forward {fixture} schema in {directory}")
+            if args.forward_scene_only:
+                names = [view["name"] for view in report["scene"]["viewpoints"]]
+                if names != ["full", "quarter", "opposite"]:
+                    raise ValueError(f"missing or reordered scene viewpoints in {directory}")
+                if any(not phase["phase"].startswith(f"scene-{phase['viewpoint']}-")
+                       for phase in report["phases"]):
+                    raise ValueError(f"scene captures have inconsistent viewpoints in {directory}")
             if args.forward_motion_only or args.forward_navigation_only or args.forward_scene_only:
                 if args.forward_navigation_only or args.forward_scene_only:
                     expected = [phase for phase in fixture_phases if "-immediate-" in phase]
