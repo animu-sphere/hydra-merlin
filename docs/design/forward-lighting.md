@@ -122,8 +122,26 @@ out/back steps are not assumed to undo each other. Tier 0/HgiVulkan compares
 433 images, including baseline, references, moving frames and restored views,
 with the existing full-image tolerances.
 
+An opt-in external scene gate uses `MERLIN_FORWARD_SCENE` to open a multi-mesh
+USD stage directly, preserving authored geometry, transforms, materials and up
+axis. It frames the full stage with usdview's free camera and reuses the eight-step
+Qt tumble/truck/zoom routes for Camera Light ON/OFF and linear/sRGB output.
+Authored scene lights are disabled to isolate the camera source. All 96 immediate
+frames must render once, exactly match their settled reference and replayed camera,
+preserve draw counts, and avoid geometry fetch/upload or pipeline creation.
+Camera restoration is exact; camera-light and output toggles must visibly change
+the starting image. The report records source/root-layer SHA-256, mesh count,
+coverage, diagnostics and full-frame stored-PNG RGB saturation fractions
+(`clipped_pixel_fraction`). These count any RGB channel equal to 255, including
+unassociated translucent samples, and do not establish displayed-color clipping.
+They are observations, without a universal threshold for arbitrary assets;
+the focused patch headroom gate remains separate. Root-layer identity alone does
+not pin referenced layers or textures. Tier 0/HgiVulkan compares 217 images with
+the existing tolerances and verifies matching scene metadata. The asset is supplied
+locally; it is neither bundled nor automatically downloaded.
+
 These bounded sweeps edit an authored camera or synchronously dispatch Qt mouse
-events between captures. Unrestricted interactive navigation and Kitchen scenes,
+events between captures. Unrestricted interactive navigation and broader Kitchen quality,
 explicit exposure/tone-mapping selection, and native Metal evidence remain
 incomplete. Framebuffer capture adds
 readback and disk I/O, so the sweep is not a timing gate or evidence for the
@@ -178,11 +196,36 @@ live under `adapters/merlin-hydra2/forward-navigation-*-install`, with a separat
 and archives these gates for both OpenUSD versions; CI selection alone does not
 establish successful 26.05 execution.
 
+Configure an existing Hydra/host build with an external stage and run its
+independent scene gate:
+
+```powershell
+cmake -S . -B build/vulkan-hydra -DMERLIN_FORWARD_SCENE=C:/assets/Kitchen_set/Kitchen_set.usd
+ctest --test-dir build/vulkan-hydra -C Release -R '^merlin-hydra2-forward-scene' --output-on-failure
+```
+
+An empty path leaves the scene cases unregistered; an explicitly configured
+missing file fails configure. Images, per-frame JSON, structural counters and
+host traces live under `adapters/merlin-hydra2/forward-scene-*-install`, with
+`forward-scene-comparison.json` alongside them. These optional local asset cases
+are not provisioned by the GPU capability workflow.
+
 Local 2026-10-10 Release validation on RTX A5000/OpenUSD 26.08 passes 8/8
 lighting/motion cases including the native fixture dependency. Both presentation
 paths pass all 256 one-render captures; all 393 motion-comparison images have
 zero observed channel error. Environment and limits are recorded in the
 [delivery history](../reports/delivery-history.md#forward-first-frame-camera-sweep--2026-10-10).
+
+Local 2026-10-11 Release validation of the external scene gates on the same host
+passes 3/3 for the supplied Kitchen_set stage (1,788 meshes, Z up). Both paths
+pass all 96 immediate captures with exact settled-pose equality. All 217
+presentation comparisons are within the existing tolerances; the final maximum
+changed-pixel fraction is about 0.005%, not zero. At most three stored-PNG pixels
+have saturated channels; inspected samples have alpha 178/255, so this is not
+proof of displayed-color clipping. The full final selection passes 18/18,
+including existing Forward and installed-package/runtime checks.
+Environment, scene identity and limits are in the
+[Kitchen delivery record](../reports/delivery-history.md#forward-external-kitchen-navigation--2026-10-11).
 
 Local 2026-10-11 Release validation on the same RTX A5000/assembled OpenUSD 26.08
 host passes 11/11 lighting/motion/navigation cases, including the native fixture

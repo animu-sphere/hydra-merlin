@@ -10,6 +10,12 @@ after its public API and release process are established.
 
 ### Added
 
+- Opt-in external multi-mesh USD Forward navigation fixtures, configured with
+  `MERLIN_FORWARD_SCENE`, preserve authored geometry/materials and exercise
+  Camera Light ON/OFF and linear/sRGB output through Qt tumble/truck/zoom.
+  Immediate/settled replay and restored images must match exactly without
+  geometry fetch/upload or new pipelines; Tier 0/HgiVulkan comparison retains
+  independent images, scene identity, clipping observations, counters and traces.
 - Independent Forward first-frame camera sweeps cover color/white patches,
   linear/sRGB output and Camera Light ON/OFF. Each immediate moving frame must
   render once and exactly match its settled pose, including the return leg,

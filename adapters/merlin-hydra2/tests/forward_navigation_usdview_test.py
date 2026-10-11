@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 
 def check_forward_navigation(app_controller, shader, root, ext,
-                             render_phase, read_events):
+                             render_phase, read_events, scene_metadata=None):
     view = app_controller._stageView
     settings = app_controller._dataModel.viewSettings
     # Resolve the authored starting camera before switching. Avoid the optional
@@ -25,6 +25,7 @@ def check_forward_navigation(app_controller, shader, root, ext,
                 ("truck", Qt.MouseButton.MiddleButton),
                 ("zoom", Qt.MouseButton.RightButton))
     evidence = []
+    starting_images = {}
 
     def send_mouse(kind, point, button, held):
         # Send actual Qt events to the widget so StageView chooses/updates its
@@ -45,19 +46,28 @@ def check_forward_navigation(app_controller, shader, root, ext,
     def camera_matrix():
         return view.resolveCamera()[0].transform
 
-    for albedo, value in (("color", Gf.Vec3f(0.4, 0.1875, 0.1)),
-                          ("white", Gf.Vec3f(1))):
-        shader.GetInput("diffuseColor").Set(value)
+    fixture = "scene" if scene_metadata is not None else "navigation"
+    albedos = (("authored", None),) if scene_metadata is not None else (
+        ("color", Gf.Vec3f(0.4, 0.1875, 0.1)), ("white", Gf.Vec3f(1)))
+    for albedo, value in albedos:
+        if shader is not None:
+            shader.GetInput("diffuseColor").Set(value)
         for output, correction in (("linear", ColorCorrectionModes.DISABLED),
                                    ("srgb", ColorCorrectionModes.SRGB)):
             settings.colorCorrectionMode = correction
             for enabled in (False, True):
                 settings.ambientLightOnly = enabled
                 for gesture, button in gestures:
-                    prefix = f"navigation-{albedo}-{output}-{'on' if enabled else 'off'}-{gesture}"
+                    prefix = f"{fixture}-{albedo}-{output}-{'on' if enabled else 'off'}-{gesture}"
                     view.restoreViewState(initial)
-                    render_phase(app_controller, prefix + "-start")
+                    start_event = render_phase(app_controller, prefix + "-start")
+                    expected_draws = start_event["draw_count"]
+                    if scene_metadata is None:
+                        assert expected_draws == 1
+                    else:
+                        assert expected_draws > 1
                     starting_image = pixels(prefix + "-start")[0]
+                    starting_images[(albedo, output, enabled, gesture)] = starting_image
                     references = []
                     reference_cameras = []
                     for reference in (True, False):
@@ -102,7 +112,7 @@ def check_forward_navigation(app_controller, shader, root, ext,
                                 assert event["camera_aspects"] & (1 << 7), f"{phase}: camera edit was not rendered"
                                 assert event["buffers_written"] == 4
                                 assert event["covered_pixels"] > 0
-                                assert event["draw_count"] == 1
+                                assert event["draw_count"] == expected_draws
                                 assert event["validation_enabled"] == 1
                                 assert event["validation_messages"] == 0
                                 assert event["generated_material_fallback_count"] == 0
@@ -110,13 +120,24 @@ def check_forward_navigation(app_controller, shader, root, ext,
                                               "primvar_fetch_count", "upload_bytes",
                                               "pipeline_creation_count"):
                                     assert event[field] == 0, f"{phase}: unexpected {field}"
-                                assert all(0 < channel < 255 for channel in center), f"{phase}: lost headroom: {center}"
+                                if scene_metadata is None:
+                                    assert all(0 < channel < 255 for channel in center), f"{phase}: lost headroom: {center}"
+                                # Scene centers may be background or dark geometry.
+                                # Count saturated stored-PNG RGB, including
+                                # unassociated translucent samples. This alone
+                                # does not establish displayed-color clipping.
+                                rgb = (image[i:i + 3] for i in range(0, len(image), 4))
+                                clipped = sum(any(c == 255 for c in pixel) for pixel in rgb)
                                 evidence.append({
                                     "phase": phase, "reference_phase": f"{prefix}-reference-{index:02d}",
                                     "gesture": gesture, "step": index,
                                     "logical_offset": offset, "device_pixel_ratio": view.devicePixelRatioF(),
                                     "albedo": albedo, "output": output, "camera_light": enabled,
                                     "center_rgb": center, "render_count": len(events),
+                                    "draw_count": event["draw_count"],
+                                    "covered_pixels": event["covered_pixels"],
+                                    "clipped_pixel_fraction": clipped / (len(image) // 4),
+                                    "diagnostic_count": event["diagnostic_count"],
                                     "camera_resource_revision": event["camera_resource_revision"],
                                     "upload_bytes": event["upload_bytes"],
                                     "pipeline_creation_count": event["pipeline_creation_count"]})
@@ -130,11 +151,29 @@ def check_forward_navigation(app_controller, shader, root, ext,
                     render_phase(app_controller, prefix + "-restored")
                     assert pixels(prefix + "-restored")[0] == starting_image, f"{prefix}: restoring camera changed image"
 
-    with open(root + "-forward-navigation.json", "w", encoding="utf-8") as stream:
-        json.dump({"schema": "merlin-usdview-forward-navigation/v1",
+    if scene_metadata is not None:
+        for event in read_events():
+            if not event["phase"].startswith("scene-"):
+                continue
+            for field in ("points_fetch_count", "topology_fetch_count",
+                          "primvar_fetch_count", "upload_bytes", "pipeline_creation_count"):
+                assert event[field] == 0, f"{event['phase']}: unexpected {field}"
+        for gesture, _ in gestures:
+            for output in ("linear", "srgb"):
+                assert (starting_images[("authored", output, False, gesture)] !=
+                        starting_images[("authored", output, True, gesture)]), (
+                    f"{gesture}: Camera Light toggle had no image effect")
+            for enabled in (False, True):
+                assert (starting_images[("authored", "linear", enabled, gesture)] !=
+                        starting_images[("authored", "srgb", enabled, gesture)]), (
+                    f"{gesture}: output transform had no image effect")
+
+    with open(root + f"-forward-{fixture}.json", "w", encoding="utf-8") as stream:
+        json.dump({"schema": f"merlin-usdview-forward-{fixture}/v1",
                    "input_policy": "qt-alt-mouse-press-move-release",
                    "capture_policy": "one-render-no-event-loop-no-convergence-wait",
                    "gestures": [name for name, _ in gestures], "steps_per_gesture": len(offsets),
                    "first_frame_reference_channel_tolerance": 0,
+                   "scene": scene_metadata,
                    "phases": evidence}, stream, indent=2)
         stream.write("\n")

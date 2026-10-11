@@ -11,6 +11,58 @@ Legend: ✅ done
 
 ---
 
+## Forward external Kitchen navigation — 2026-10-11
+
+Added opt-in `merlin-hydra2-forward-scene-{tier0,hgi-vulkan,comparison}` gates,
+configured with `MERLIN_FORWARD_SCENE`. The stage opens directly; geometry,
+materials, transforms, visibility and up axis remain authored. The fixture frames
+the whole scene and isolates the host camera light by disabling authored lights.
+Qt Alt+mouse tumble/truck/zoom routes reuse the focused navigation contract:
+settled references, cloned-state replay, one-render immediate captures and exact
+camera/image restoration. Camera Light ON/OFF and linear/sRGB toggles must change
+the starting image. Every scene phase after setup forbids geometry fetch/upload
+and pipeline creation. Scene identity, coverage, diagnostics, clipping fractions,
+images and host traces accompany the independent presentation comparison.
+
+Local validation uses Windows, RTX A5000 (NVIDIA 597.16, device Vulkan 1.4.329),
+Release/Ninja, Vulkan SDK 1.4.350.0, Slang 2026.8.x and the assembled OpenUSD 26.08
+host documented in the [focused lighting report](2026-10-10-forward-lighting-fixtures.md).
+The locally supplied Pixar `Kitchen_set.usd` has 1,788 meshes, Z up and root-layer
+SHA-256 `8f5cd40029d7bbb57b745a181b92e08515829236f9da4c9b2181851c7af5859b`.
+That hash does not pin the referenced layers/textures; the asset is not bundled
+or downloaded by the test infrastructure.
+
+- The initial independent scene selection passes 3/3. Both presentation paths
+  pass 96 immediate captures with exact settled-pose image equality. Captured
+  draws remain 1,788; uploads, pipeline creation and validation messages are zero.
+  Initial stored-PNG saturated-channel fractions are zero.
+- The 217 Tier 0/HgiVulkan image comparisons pass the unchanged 0.25% changed-pixel
+  and 0.25 mean-channel bounds. The initial run's maximum changed-pixel fraction
+  is `0.000024854806505331357` (about 0.0025%), with maximum mean-channel error
+  `0.0010584005103520268`; presentation is within tolerance, not exactly equal.
+- HgiVulkan retains GPU copy without color Map or host upload. Baseline readback
+  is 482804 bytes versus Tier 0's 1931216 bytes; timing samples are observations.
+- Final `ctest --test-dir build/forward-hgi-ninja -C Release -R
+  '^merlin-(hydra2-forward-(lighting|motion|navigation|scene).*|install-consumer|vulkan-install-runtime|forward-lighting|hydra2-distant-light)$'
+  --output-on-failure` passes 18/18, including the native material fixture.
+  The maximum scene changed-pixel fraction is `0.00004970961301066271` (six
+  pixels, about 0.005%), maximum mean-channel error is `0.0011578197363733523`,
+  and maximum individual channel error is 171. Sparse differences remain within
+  the existing aggregate gates; they are not exact presentation parity.
+  Both paths still pass all 96 exact first-frame/reference captures.
+- The final `clipped_pixel_fraction` reaches `0.000024854806505331357` (three
+  stored-PNG pixels), only in Camera Light OFF/sRGB captures. This field counts
+  unassociated RGBA8888 RGB equal to 255. The inspected peak pixels are
+  `(228,255,255,178)`, `(229,255,255,178)` and `(231,255,255,178)` in RGBA;
+  their translucent alpha means this count alone does not establish displayed
+  color clipping. Broad image quality remains independently gated.
+- Incremental Release build, Python syntax and `git diff --check` pass.
+
+This establishes bounded Kitchen overview navigation on one local host. It does
+not establish arbitrary navigation rate, interior/multiple viewpoints, authored
+scene-light quality, physically based lighting, OpenUSD 26.05, Metal or generated
+material Hydra ingestion. The broader Forward lighting exit remains open.
+
 ## Forward Qt mouse navigation — 2026-10-11
 
 Added independent `merlin-hydra2-forward-navigation-{tier0,hgi-vulkan,comparison}`
