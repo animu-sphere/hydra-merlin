@@ -11,6 +11,65 @@ Legend: ✅ done
 
 ---
 
+## Native Metal Forward lighting — 2026-10-11
+
+Added the independent `merlin-metal-forward-lighting` GPU gate and archived
+its `tests/forward-images-metal` artifacts in scheduled Metal capability CI.
+Local validation uses Apple M3 (10 GPU cores), macOS 15.7.9, AppleClang 17,
+Xcode 16.4 offline Metal tools and the SHA-256-pinned Slang 2026.8 arm64 archive
+(`13949e0fc81f5c0bcde9a195190706740f1cc77af9c558f9f1b598e9bea3c606`).
+Base is `75f7186` plus working-tree changes. Both builds disable Vulkan, Hydra,
+MaterialX and the viewport; no OpenUSD runtime participates. No release or push
+was performed.
+
+Color/white patches each exercise 19 phases with an independent one-step
+analytic center tolerance, three exact repeated AOV frames per phase, exact
+camera return and fallback recovery, stable-handle selection/table compaction,
+retained snapshots, extreme/degenerate axes and six rejected energy/color
+inputs. Frame contexts are warmed before the zero-upload/allocation/pipeline
+gates. CTest enables `MTL_DEBUG_LAYER=1` and `MTL_SHADER_VALIDATION=1`; native
+device execution requires access outside the restricted sandbox.
+
+Validation commands:
+
+```sh
+cmake --preset metal -B build/metal-forward-lighting -G Ninja \
+  -DMERLIN_SLANGC_EXECUTABLE=/tmp/merlin-forward-slang/bin/slangc \
+  -DMERLIN_BUILD_VIEWPORT=OFF
+cmake --build build/metal-forward-lighting --parallel 4
+ctest --test-dir build/metal-forward-lighting --output-on-failure \
+  --no-tests=error --output-junit metal-tests.xml
+cmake -S . -B build/metal-forward-lighting-debug -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug -DMERLIN_ENABLE_VULKAN=OFF \
+  -DMERLIN_ENABLE_METAL=ON -DMERLIN_BUILD_VIEWPORT=OFF \
+  -DMERLIN_SLANGC_EXECUTABLE=/tmp/merlin-forward-slang/bin/slangc
+cmake --build build/metal-forward-lighting-debug --parallel 4 --target \
+  merlin-metal-forward-lighting-tests merlin-metal-backend-tests \
+  merlin-forward-lighting-tests
+ctest --test-dir build/metal-forward-lighting-debug --output-on-failure \
+  -R '^merlin-(metal-forward-lighting|metal-backend|forward-lighting)$' \
+  --no-tests=error --output-junit forward-lighting-tests.xml
+```
+
+Release passes 31/31, including Metal Gaussian/ABI/residency and installed
+consumer/runtime regressions. Focused Debug passes 3/3; Core Release separately
+passes 21/21. No tests are skipped. All 38 center samples have zero observed
+analytic error; all 38 PPM images and both reports match exactly between Debug
+and Release. Repeated/restored AOVs are exact, edit/static upload/allocation/
+pipeline counters are zero and validation messages are zero. White OFF remains
+255 under the existing Metal output profile; ON, rotated ON and zero energy
+centers are 108, 98 and 38. This verifies the declared native diagnostic profile,
+not host transfer functions, generated Metal materials, Kitchen/navigation,
+cross-backend output parity or timing. Existing aggregate-initializer, Metal
+`fastMathEnabled` deprecation and generated-MSL warnings remain in build logs;
+this is not warning-free build evidence.
+
+Local logs are `/tmp/merlin-forward-metal-{build,ctest}.log` and
+`/tmp/merlin-forward-metal-debug-{configure,build,ctest}.log`; JUnit and
+PPM/JSON artifacts remain in their build directories. Completed native Metal
+selection validation is removed from current work; Vulkan/Metal lighting and
+output alignment remains incomplete.
+
 ## Forward Kitchen starting viewpoints — 2026-10-11
 
 Expanded the opt-in external scene gate from one frame-all view to three

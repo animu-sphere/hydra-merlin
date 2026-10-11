@@ -21,7 +21,7 @@ deferral does not expand current support claims. See the
 - [ ] Extend same-device/host measurements to other supported GPUs with
   controlled clocks/power before establishing hardware timing gates.
 - [ ] Run the new Qt mouse-click/axis-overlay regressions on HgiVulkan with
-  OpenUSD 26.05 and 26.08. Apple M3/OpenUSD 26.08 Tier 0 and HgiMetal evidence
+  OpenUSD 26.08. Apple M3/OpenUSD 26.08 Tier 0 and HgiMetal evidence
   is archived in the [delivery history](../reports/delivery-history.md#v016x-click-picking-overlay-parity-and-ci-separation).
 - [ ] Add Linux Vulkan real-GPU, native Wayland viewport and Hydra-host
   execution evidence separately from Mesa lavapipe and the Xvfb/X11 smoke.

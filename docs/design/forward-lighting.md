@@ -148,9 +148,10 @@ locally; it is neither bundled nor automatically downloaded.
 These bounded sweeps edit an authored camera or synchronously dispatch Qt mouse
 events between captures. The three relative views do not establish interior scene
 coverage. Unrestricted interactive navigation and broader Kitchen quality,
-explicit exposure/tone-mapping selection, and native Metal evidence remain
-incomplete. Framebuffer capture adds
-readback and disk I/O, so the sweep is not a timing gate or evidence for the
+explicit exposure/tone-mapping selection, and Metal host camera-light evidence
+remain incomplete. Native Metal diagnostic image evidence is recorded below.
+Framebuffer capture adds readback and disk I/O, so the sweep is not a timing gate
+or evidence for the
 absence of flicker at an unrestricted navigation rate. Cross-backend
 lighting/output parity is also still unverified.
 
@@ -163,8 +164,47 @@ material regression renders differently colored directional inputs, removes an
 unselected Point record that moves the last table slot, and requires exact
 color/depth/primId/instanceId parity with zero geometry upload and no pipeline
 creation. Installed Core consumers compile and link the same helper. Metal
-uses the common implementation; native Metal compilation/runtime validation
-still requires an Apple host.
+uses the common implementation; the independent native Metal fixture now
+validates that implementation on an Apple GPU.
+
+The native `merlin-metal-forward-lighting` gate covers the same color/white
+patches and converted Hdx camera-light amplitude through Core-authored inputs,
+without a Hydra host or OpenUSD SDK. Nineteen phases per patch include ON/OFF,
+camera-only motion with a world-space source, rotated and restored camera/light
+poses, explicit zero energy, colored stable-handle selection through table
+compaction, retained snapshots, light translation, extreme/degenerate axes,
+selected-source removal and no-source recovery. Six invalid energy/color inputs
+per patch must reject and recover to an exact valid image. Stable-handle values
+include the generation, so creation order alone does not determine selection.
+
+An independent analytic center oracle checks Metal's current
+`albedo * (0.15 + light_color * 0.85 * max(N dot L, 0) * intensity)` profile
+within one RGBA8 step. Three repeats per phase and returned views require exact
+color/depth/primId/instanceId equality. The fixture warms all frame contexts
+before requiring zero uploads, allocations and pipeline creation for edits and
+static frames. White OFF is `[255, 255, 255]` under Metal's uncompressed
+diagnostic fallback, while the converted Hdx ON center is `[108, 108, 108]`,
+rotated ON is `[98, 98, 98]`, and zero energy is `[38, 38, 38]`. Recording this
+existing saturation does not establish Vulkan/Metal output parity or the broader
+Forward quality exit.
+
+Run this native gate in a Metal build:
+
+```sh
+ctest --test-dir build/metal -R '^merlin-metal-forward-lighting$' --output-on-failure
+```
+
+CTest enables Metal
+API and shader validation; unavailable devices return an explicit capability
+skip. PPM images, expected/actual center RGB, resource counters and rejection
+counts live under `tests/forward-images-metal/{color,white}`. The scheduled
+Debug/Release Metal capability workflow selects the gate and archives its images
+and reports. Local Apple M3/macOS 15.7.9/AppleClang 17/Slang 2026.8 validation on
+2026-10-11 passes the full Release Metal selection 31/31 and the focused Debug
+selection 3/3 without skips. All 38 center comparisons have zero observed error,
+all 38 PPM images and both reports match exactly between Debug and Release, and
+validation messages remain zero. Commands and scope are in the
+[Metal delivery record](../reports/delivery-history.md#native-metal-forward-lighting--2026-10-11).
 
 The GPU-free Hydra energy regression independently integrates a spherical
 light cap at four angles and checks normalized size invariance, exposure and

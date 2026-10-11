@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Native Metal Forward image fixtures cover color/white patches, camera-light
+  ON/OFF inputs, world-space light independence from camera motion, rotated and
+  returned cameras, zero energy, stable-handle selection through table compaction,
+  extreme/degenerate axes, invalid-energy rejection and recovery. PPM images
+  and analytic center comparisons accompany exact repeated/restored AOV checks
+  and zero steady-state uploads, allocations and pipeline creation. Local Apple
+  M3 Debug/Release validation passes; cross-backend output parity remains open.
 - Opt-in external multi-mesh USD Forward navigation fixtures, configured with
   `MERLIN_FORWARD_SCENE`, preserve authored geometry/materials and exercise
   Camera Light ON/OFF and linear/sRGB output through Qt tumble/truck/zoom.
@@ -49,8 +56,8 @@ after its public API and release process are established.
   including a +Z recovery for degenerate axes and finite extreme-scale handling;
   invalid selected color/intensity is rejected. Zero intensity and the existing
   no-directional-light diagnostic fallback remain explicit. CPU/install and
-  Vulkan image regressions cover the shared contract; native Metal validation
-  and camera-light image/output parity remain pending.
+  Vulkan/Metal image regressions cover the shared contract; cross-backend
+  camera-light image/output parity remains pending.
 - Hydra distant lights now convert UsdLux radiance, angle, normalize, exposure
   and diffuse to a face-on Lambert response. Hdx's 15000/0.53-degree camera
   light becomes approximately 0.321 rather than a 15000 shading multiplier,
