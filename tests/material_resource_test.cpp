@@ -385,6 +385,7 @@ int main(int argc, char** argv) {
   const auto ground_brightness = CenterBrightness(ground_ibl);
   assert(sky_brightness > ground_brightness + 3U ||
          ground_brightness > sky_brightness + 3U);
+  // The common fixture includes normal-only SH fill comparisons across backends.
   merlin::MaterialDescriptor image_material;
   image_material.parameters.base_color = {0.4F, 0.1875F, 0.1F, 1};
   merlin::tests::RunForwardImageFixture(*renderer, shaders, image_material,

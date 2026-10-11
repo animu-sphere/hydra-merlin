@@ -4,41 +4,29 @@ Active and immediately next work lives here. Shipped changes are recorded in
 the [changelog](../../CHANGELOG.md) and [v0.16.1 release record](../releases/v0.16.1.md);
 current support claims live in the [support matrix](../reference/support-matrix.md).
 
-## Active — Forward lighting quality
+## Active — v0.16.2 Forward output alignment
 
-The shared directional-input boundary and Hydra radiance conversion are implemented; their
-contracts and current image limitations are in the
+The shared directional-input boundary, Hydra radiance conversion and common
+default SH/Reinhard output profile are implemented. Their contracts and remaining
+validation requirements are in the
 [Forward lighting design](../design/forward-lighting.md).
 
-- [x] Add focused Vulkan Camera Light ON/OFF, rotated-camera and return-to-view
-  fixtures for color/white patches, native handwritten/generated materials,
-  and usdview linear/sRGB output. Native/Tier 0 center comparison and optional
-  Tier 0/HgiVulkan image comparison are independent CTest gates.
-- [x] Add an opt-in authored multi-mesh USD navigation gate with Camera Light
-  ON/OFF and linear/sRGB output, exact immediate/settled replay, and a separate
-  Tier 0/HgiVulkan comparison. The fixture now includes full, quarter and opposite
-  starting views with 288 immediate captures per path. Local Kitchen_set evidence
-  is recorded in the [Forward lighting design](../design/forward-lighting.md);
-  broader quality remains open.
-- [ ] Extend navigation evidence beyond bounded mouse routes and three relative
-  Kitchen views before changing ambient/direct balance, exposure or tone mapping.
-  The color/white sweep now covers 256 immediate frames per presentation
-  path; a separate Qt Alt+mouse tumble/truck/zoom fixture now covers 192 immediate
-  frames per path, including exact replay/reference and restored-view checks.
-  These bounded captures do not establish unrestricted navigation or Kitchen
-  quality. The [Forward lighting design](../design/forward-lighting.md) records
-  the gates and evidence. Generated material host ingestion remains outside the
-  current Hydra subset.
-- [ ] Align Vulkan/Metal lighting and output transforms with declared image
-  tolerances. Native Metal directional selection and the current diagnostic
-  response are validated on Apple M3 in Debug/Release; evidence and remaining
-  output differences are in the [Forward lighting design](../design/forward-lighting.md).
-  Focused Metal native/Tier 0 center and Tier 0/HgiMetal lighting, sweep and Qt
-  navigation gates now cover the existing diagnostic output. White OFF still
-  saturates under Metal's uncompressed profile; backend output alignment and
-  broader scene quality remain incomplete.
+- [ ] Validate the updated Metal output in Debug/Release with native analytic
+  centers, three normal-only environment samples, repeated/restored AOVs,
+  resource counters and API/shader validation. Earlier Apple M3 captures used
+  constant ambient and uncompressed output; they do not validate the new profile.
+- [ ] Run the updated Metal native/Tier 0 and Tier 0/HgiMetal lighting, camera
+  sweep and Qt navigation gates. White OFF must retain headroom in linear/sRGB;
+  saturation is no longer an accepted diagnostic result.
+- [ ] Compare independently captured Vulkan/Metal default-output reports using
+  `tests/compare_forward_backends.py`: 20 native center pairs within 1/255 and
+  24 host center pairs within 2/255 for each presentation mode. Preserve the
+  independent full-image host, exact replay/AOV and installed-runtime gates.
+- [ ] Finish release preparation and hosted checks, then publish v0.16.2 only
+  after the changed Metal profile and actual backend comparisons pass.
 
-The broader Forward quality exit and dependencies remain in the
+Unrestricted navigation, interior Kitchen views, generated host material
+ingestion and the broader Forward quality exit remain in the
 [backlog](backlog.md#next-cycle-onward--forward-lighting-and-shading-quality).
 
 Historical producer-session evidence and remaining OpenStrata integration asks

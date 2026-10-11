@@ -77,14 +77,23 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
 
   std::ofstream report(output / "comparison.json");
   report << "{\n  \"schema\": \"merlin-metal-forward-lighting/v1\",\n"
-            "  \"color_aov\": \"linear-rgba8-without-tone-mapping\",\n"
+            "  \"color_aov\": \"linear-rgba8-with-embedded-reinhard\",\n"
+            "  \"lighting_profile\": \"forward-sh-l2-reinhard/v1\",\n"
             "  \"off_policy\": \"unit-white-plus-z-diagnostic-fallback\",\n"
             "  \"analytic_tolerance\": 1,\n  \"repeat_count\": 3,\n"
             "  \"phases\": [\n";
   bool first = true;
-  // Independent face-on Lambert oracle for Metal's declared diagnostic profile.
+  // Independent +Z evaluation of the packaged environment, projected from HDR.
+  // The CPU gate checks the embedded SH against the source HDR separately.
   // It deliberately does not call ExtractForwardDirectionalLighting.
   const std::array<double, 3> base{albedo.x, albedo.y, albedo.z};
+  std::array<double, 3> environment{
+      0.947761416 * 0.2820947918 + 0.325469345 * 0.4886025119 -
+          0.0461782999 * 0.6307831306,
+      1.00647175 * 0.2820947918 + 0.341748059 * 0.4886025119 -
+          0.0449634455 * 0.6307831306,
+      1.12809479 * 0.2820947918 + 0.369059116 * 0.4886025119 -
+          0.0430846624 * 0.6307831306};
   const auto capture = [&](const std::string& phase, double intensity,
                            double cosine = 1.0,
                            merlin::Vec3 color = {1, 1, 1}) {
@@ -123,17 +132,16 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
     for (std::size_t channel = 0; channel < 3; ++channel) {
       actual[channel] = result.color.pixels[
           32U * result.color.row_pitch_bytes + 32U * 4U + channel];
+      const auto linear = base[channel] *
+          (0.15 * environment[channel] + 0.85 * intensity * cosine * light_color[channel]);
       expected[channel] = static_cast<int>(std::lround(255 * std::clamp(
-          base[channel] * (0.15 + 0.85 * intensity * cosine * light_color[channel]),
-          0.0, 1.0)));
+          linear / (1.0 + linear), 0.0, 1.0)));
       maximum_error = std::max(maximum_error,
           std::abs(actual[channel] - expected[channel]));
       Require(maximum_error <= 1, phase + " differs from analytic response");
-      // White OFF is intentionally 255 under the existing Metal profile.
-      if (expected[channel] < 254) {
-        Require(actual[channel] > 0 && actual[channel] < 255,
-            phase + " lost color headroom");
-      }
+      // Very dark normal-only SH samples can legitimately quantize to zero.
+      Require((expected[channel] == 0 || actual[channel] > 0) && actual[channel] < 255,
+          phase + " lost color headroom");
     }
     std::ofstream image(output / (phase + ".ppm"), std::ios::binary);
     image << "P6\n64 64\n255\n";
@@ -272,6 +280,42 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
   (void)capture("selected-removed", fill.intensity, 1, fill.color);
   world.Remove(remaining_handle);
   Require(Same(off, capture("all-lights-removed", 1)), "fallback did not recover");
+  // Independent SH samples, same normal-only fixture as Vulkan. The direct
+  // +Z diagnostic source is perpendicular to all three normals.
+  const std::array<std::array<double, 3>, 3> environment_samples{{
+      {0.947761416 * 0.2820947918 + 0.417900145 * 0.4886025119 +
+           0.0461782999 * 0.3153915653 + 0.108191431 * 0.5462742153,
+       1.00647175 * 0.2820947918 + 0.473879695 * 0.4886025119 +
+           0.0449634455 * 0.3153915653 + 0.107941866 * 0.5462742153,
+       1.12809479 * 0.2820947918 + 0.577024102 * 0.4886025119 +
+           0.0430846624 * 0.3153915653 + 0.10881608 * 0.5462742153},
+      {0.947761416 * 0.2820947918 - 0.417900145 * 0.4886025119 +
+           0.0461782999 * 0.3153915653 + 0.108191431 * 0.5462742153,
+       1.00647175 * 0.2820947918 - 0.473879695 * 0.4886025119 +
+           0.0449634455 * 0.3153915653 + 0.107941866 * 0.5462742153,
+       1.12809479 * 0.2820947918 - 0.577024102 * 0.4886025119 +
+           0.0430846624 * 0.3153915653 + 0.10881608 * 0.5462742153},
+      {0.947761416 * 0.2820947918 - 0.294570357 * 0.4886025119 +
+           0.0461782999 * 0.3153915653 - 0.108191431 * 0.5462742153,
+       1.00647175 * 0.2820947918 - 0.322227687 * 0.4886025119 +
+           0.0449634455 * 0.3153915653 - 0.107941866 * 0.5462742153,
+       1.12809479 * 0.2820947918 - 0.367371589 * 0.4886025119 +
+           0.0430846624 * 0.3153915653 - 0.10881608 * 0.5462742153},
+  }};
+  std::size_t sample{};
+  for (const auto& [phase, normal] : std::array{
+           std::pair{"environment-up", merlin::Vec3{0, 1, 0}},
+           std::pair{"environment-down", merlin::Vec3{0, -1, 0}},
+           std::pair{"environment-side", merlin::Vec3{1, 0, 0}}}) {
+    mesh.normals.assign(4, normal);
+    world.UpdateMesh(instance.mesh, mesh, merlin::ChangeAspect::Primvars);
+    for (std::uint32_t frame = 0;
+         frame < backend.capabilities().limits.max_frames_in_flight; ++frame) {
+      (void)render();
+    }
+    environment = environment_samples[sample++];
+    (void)capture(phase, 1, 0);
+  }
   report << "\n  ],\n  \"rejected_input_count\": " << rejected_inputs
          << ",\n  \"validation_messages\": " << backend.statistics().validation_messages
          << "\n}\n";

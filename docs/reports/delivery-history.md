@@ -11,6 +11,74 @@ Legend: ✅ done
 
 ---
 
+## Forward default output alignment — 2026-10-11
+
+Moved the existing Radiance loader and Lambert-convolved l=2 SH projection into
+the GPU-independent RenderBackend library. Core consumers can load/evaluate it;
+all 27 embedded default RGB coefficients are checked against the packaged HDR
+within 1e-6. Vulkan retains its configurable HDR path and native error boundary.
+Metal's shared Forward shader now consumes those default coefficients and applies
+Vulkan's Reinhard compression before linear RGBA8 output. Its internal host/MSL
+material block grows from 48 to 192 bytes with size/offset assertions; the public
+Metal options remain unchanged. Custom Vulkan environments are outside the
+default-output comparison scope.
+
+Native fixtures add +Y, -Y and +X normal-only environment samples. The Metal
+analytic oracle and host fixtures now require white OFF headroom. Dark
+environment-only channels may quantize to zero without allowing saturation.
+Reports identify `forward-sh-l2-reinhard/v1`; the offline backend comparator
+requires 20 native center pairs within 1/255 and optionally 24 same-presentation
+host pairs within 2/255. It rejects stale profiles, missing/duplicate phases,
+invalid RGB, saturation, uploads and pipeline creation. Four GPU-free boundary
+tests cover acceptance/rejection; they are not backend execution evidence.
+
+Base is `89389b6` plus the `codex/forward-output-parity` changes. Windows Release
+validation uses MSVC 19.51.36256, NVIDIA RTX A5000/driver 597.16, Vulkan SDK
+1.4.350.0, Slang 2026.8 and the existing assembled OpenUSD 26.08 SDK. The optional
+Kitchen_set stage contains 1,788 meshes. Commands below run from a VS 2026
+developer environment; the existing Vulkan and MaterialX build directories were
+rebuilt before their tests.
+
+```powershell
+cmake --preset core -B build/release-v0.16.2-core -G "Visual Studio 18 2026" -A x64
+cmake --build build/release-v0.16.2-core --config Release --parallel 4
+ctest --test-dir build/release-v0.16.2-core -C Release --output-on-failure --no-tests=error --output-junit core-tests.xml
+
+$env:VK_LAYER_PATH='C:/VulkanSDK/1.4.350.0/Bin'
+ctest --test-dir build/forward-hgi-ninja -C Release -R '^merlin-(environment-lighting|shader-abi|vulkan-material-resources|hydra2-forward-(lighting|motion|navigation|scene).*|install-consumer|vulkan-install-runtime|hydra2-distant-light|forward-lighting)$' --output-on-failure --no-tests=error --output-junit forward-output-tests.xml
+ctest --test-dir build/forward-hgi-ninja -C Release -R '^merlin-(vulkan-material-resources|hydra2-forward-lighting-native-comparison|install-consumer|vulkan-install-runtime|environment-lighting|shader-abi|forward-backend-comparison)$' --output-on-failure --no-tests=error --output-junit forward-output-final-tests.xml
+ctest --test-dir build/mesh-materialx-validation -C Release -R '^merlin-vulkan-generated-material$' --output-on-failure --no-tests=error --output-junit forward-output-generated-tests.xml
+python -B tests/forward_backend_comparison_test.py
+```
+
+Core passes 23/23, the final Vulkan/native/install selection passes 8/8, and
+generated MaterialX compilation/runtime passes 4/4; no final tests skip. The
+earlier 20-case Vulkan selection passed all 12 lighting/motion/navigation/scene
+host cases but failed native material and install-consumer cases, preventing
+their two dependent comparisons/runtimes. An old 1.3 validation-layer path
+produced a warning; a valid dark environment channel hit the former positive
+RGB bound; and install-consumer compilation lacked the VS developer environment.
+The final rerun uses the 1.4 layer, the environment-only zero allowance and the
+developer environment. Historical failed logs are retained separately from the
+successful final JUnit reports.
+
+All 12 native/Tier 0 linear center pairs have zero observed error. Handwritten
+and generated Vulkan materials match at all 20 centers, including the new SH
+directions. Tier 0/HgiVulkan comparisons match all 25 lighting, 393 sweep and
+433 Qt navigation images exactly. The 649 Kitchen images pass unchanged
+tolerances: maximum changed-pixel fraction `4.970961301066271e-5` and maximum
+mean channel error `0.0015099294951988799`. Each host retains exact settled/replay
+and restored-image gates, zero steady geometry uploads/pipeline creation and
+clean diagnostics; these bounded capture tests do not measure interactive timing.
+
+The final Metal fixture C++ source also compiles under MSVC, which verifies
+portable source syntax only. Metal backend/MSL compilation, Debug/Release Apple
+GPU native execution, refreshed Tier 0/HgiMetal lighting/sweep/navigation and
+actual independent Vulkan/Metal report comparison remain pending. Earlier
+Apple M3 evidence below predates this shader change and cannot satisfy those
+gates. No remote Mac operation, version bump, release tag or parity support
+claim is part of this change; v0.16.2 remains open.
+
 ## Metal Forward host lighting and navigation — 2026-10-11
 
 Extended the existing Forward fixtures to Metal native/Tier 0 center comparison

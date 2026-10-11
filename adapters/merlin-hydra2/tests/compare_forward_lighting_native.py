@@ -25,6 +25,8 @@ def main():
                          else "merlin-forward-image-fixture/v1")
         if native["schema"] != native_schema:
             raise ValueError("unsupported native lighting report")
+        if native.get("lighting_profile") != "forward-sh-l2-reinhard/v1" or host.get("lighting_profile") != native["lighting_profile"]:
+            raise ValueError("native/host lighting profiles differ")
         native_phases = {phase["name"]: phase for phase in native["phases"]}
         if native["off_policy"] != host["off_policy"]:
             raise ValueError("native/host OFF semantics differ")

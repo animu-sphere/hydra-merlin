@@ -1,6 +1,6 @@
-#include "environment_lighting.hpp"
+#include <merlin/render/diffuse_environment.hpp>
 
-#include <merlin/vulkan/renderer.hpp>
+#include <merlin/render/backend.hpp>
 
 #include <algorithm>
 #include <array>
@@ -50,9 +50,19 @@ int main(int argc, char** argv) {
     return 1;
   }
   const auto environment =
-      merlin::vulkan::detail::LoadDiffuseEnvironment(argv[1]);
+      merlin::render::LoadDiffuseEnvironment(argv[1]);
   assert(environment.width == 1024);
   assert(environment.height == 512);
+  const auto packaged = merlin::render::PackagedDiffuseEnvironment();
+  assert(packaged.width == environment.width && packaged.height == environment.height);
+  for (std::size_t i = 0; i < environment.coefficients.size(); ++i) {
+    const auto& a = environment.coefficients[i];
+    const auto& b = packaged.coefficients[i];
+    assert(std::abs(a.x - b.x) < 1.0e-6F);
+    assert(std::abs(a.y - b.y) < 1.0e-6F);
+    assert(std::abs(a.z - b.z) < 1.0e-6F);
+    assert(a.w == b.w);
+  }
   for (const auto& coefficient : environment.coefficients) {
     assert(std::isfinite(coefficient.x));
     assert(std::isfinite(coefficient.y));
@@ -62,11 +72,11 @@ int main(int argc, char** argv) {
   assert(environment.coefficients[0].y > 0.0F);
   assert(environment.coefficients[0].z > 0.0F);
 
-  const auto up = merlin::vulkan::detail::EvaluateDiffuseEnvironment(
+  const auto up = merlin::render::EvaluateDiffuseEnvironment(
       environment, {0.0F, 1.0F, 0.0F});
-  const auto horizon = merlin::vulkan::detail::EvaluateDiffuseEnvironment(
+  const auto horizon = merlin::render::EvaluateDiffuseEnvironment(
       environment, {1.0F, 0.0F, 0.0F});
-  const auto down = merlin::vulkan::detail::EvaluateDiffuseEnvironment(
+  const auto down = merlin::render::EvaluateDiffuseEnvironment(
       environment, {0.0F, -1.0F, 0.0F});
   assert(Finite(up));
   assert(Finite(horizon));
@@ -80,13 +90,13 @@ int main(int argc, char** argv) {
                             "merlin-uniform-environment.hdr";
   WriteUniformEnvironment(uniform_path);
   const auto uniform =
-      merlin::vulkan::detail::LoadDiffuseEnvironment(uniform_path);
+      merlin::render::LoadDiffuseEnvironment(uniform_path);
   for (const auto& normal :
       {merlin::Vec3{0.0F, 1.0F, 0.0F}, merlin::Vec3{1.0F, 0.0F, 0.0F},
           merlin::Vec3{0.0F, 0.0F, -1.0F},
           merlin::Vec3{0.577F, -0.577F, 0.577F}}) {
     const auto value =
-        merlin::vulkan::detail::EvaluateDiffuseEnvironment(uniform, normal);
+        merlin::render::EvaluateDiffuseEnvironment(uniform, normal);
     assert(std::abs(value.x - 1.0F) < 0.01F);
     assert(std::abs(value.y - 1.0F) < 0.01F);
     assert(std::abs(value.z - 1.0F) < 0.01F);
@@ -95,11 +105,11 @@ int main(int argc, char** argv) {
 
   bool missing_rejected{};
   try {
-    (void)merlin::vulkan::detail::LoadDiffuseEnvironment(
+    (void)merlin::render::LoadDiffuseEnvironment(
         std::filesystem::path(argv[1]).parent_path() / "missing.hdr");
-  } catch (const merlin::vulkan::RendererError& error) {
+  } catch (const merlin::render::RendererError& error) {
     missing_rejected =
-        error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest &&
+        error.code() == merlin::render::RendererErrorCode::InvalidRequest &&
         error.operation() == "load environment HDR";
   }
   assert(missing_rejected);

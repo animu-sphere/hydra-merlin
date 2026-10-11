@@ -17,14 +17,8 @@ _read_events = _helpers["_read_events"]
 
 
 def check_center_headroom(center, albedo, enabled, phase):
-    # Metal's declared uncompressed diagnostic profile saturates white OFF.
-    # Check that exact response; retain the strict headroom gate everywhere else.
-    if (os.environ.get("MERLIN_HYDRA2_TEST_BACKEND") == "metal" and
-            albedo == "white" and not enabled):
-        assert center == [255, 255, 255], f"{phase}: unexpected Metal white OFF: {center}"
-    else:
-        assert all(0 < channel < 255 for channel in center), (
-            f"{phase}: center lost color headroom: {center}")
+    assert all(0 < channel < 255 for channel in center), (
+        f"{phase}: center lost color headroom: {center}")
 
 
 def _check_forward_lighting(app_controller):
@@ -157,9 +151,8 @@ def _check_forward_lighting(app_controller):
     with open(root + "-forward-lighting.json", "w", encoding="utf-8") as stream:
         json.dump({"schema": "merlin-usdview-forward-lighting/v1",
                    "backend": os.environ["MERLIN_HYDRA2_TEST_BACKEND"],
-                   "white_off_policy": ("saturated-uncompressed-diagnostic"
-                       if os.environ["MERLIN_HYDRA2_TEST_BACKEND"] == "metal"
-                       else "headroom-required"),
+                   "white_off_policy": "headroom-required",
+                   "lighting_profile": "forward-sh-l2-reinhard/v1",
                    "off_policy": "unit-white-plus-z-diagnostic-fallback",
                    "srgb_center_tolerance": 2, "phases": evidence}, stream, indent=2)
         stream.write("\n")

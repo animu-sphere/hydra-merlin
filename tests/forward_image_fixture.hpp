@@ -5,16 +5,20 @@
 #include <merlin/vulkan/renderer.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace merlin::tests {
 
 inline void RequireForwardImage(bool condition, const std::string& message) {
   if (!condition) {
+    std::cerr << "Forward image fixture: " << message << '\n';
     throw std::runtime_error("Forward image fixture: " + message);
   }
 }
@@ -69,6 +73,7 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
   report << "{\n  \"schema\": \"merlin-forward-image-fixture/v1\",\n"
             "  \"off_policy\": \"unit-white-plus-z-diagnostic-fallback\",\n"
             "  \"color_aov\": \"linear-rgba8-with-embedded-reinhard\",\n"
+            "  \"lighting_profile\": \"forward-sh-l2-reinhard/v1\",\n"
             "  \"material_parity_tolerance\": 1,\n  \"phases\": [\n";
   bool first = true;
   const auto capture = [&](const char* phase) {
@@ -104,8 +109,9 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
       world.UpdateMaterial(material_handle, material, ChangeAspect::MaterialModule);
     }
     for (std::size_t channel = 0; channel < 3; ++channel) {
-      RequireForwardImage(center(result, channel) > 0 && center(result, channel) < 255,
-          "center lost color headroom");
+      const bool environment_sample = std::string(phase).starts_with("environment-");
+      RequireForwardImage((environment_sample || center(result, channel) > 0) && center(result, channel) < 255,
+          std::string(phase) + " center lost color headroom");
     }
     std::ofstream image(output / (std::string(phase) + ".ppm"), std::ios::binary);
     image << "P6\n64 64\n255\n";
@@ -167,6 +173,17 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
                             center(moving, channel) > center(zero, channel) &&
                             center(off_moving, channel) == center(off, channel),
         "unexpected directional response");
+  }
+  // Rotate only shading normals to isolate SH fill from direct lighting and
+  // projection. Warm the changed vertex data before measuring steady frames.
+  for (const auto& [phase, normal] : std::array{
+           std::pair{"environment-up", Vec3{0, 1, 0}},
+           std::pair{"environment-down", Vec3{0, -1, 0}},
+           std::pair{"environment-side", Vec3{1, 0, 0}}}) {
+    mesh.normals.assign(4, normal);
+    world.UpdateMesh(instance.mesh, mesh, ChangeAspect::Primvars);
+    (void)render();
+    (void)capture(phase);
   }
   report << "\n  ]\n}\n";
   RequireForwardImage(bool(report), "report write failed");
