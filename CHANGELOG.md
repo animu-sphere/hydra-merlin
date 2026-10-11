@@ -10,6 +10,13 @@ after its public API and release process are established.
 
 ### Added
 
+- Shared GPU-independent diffuse-environment loading and Lambert SH projection,
+  with embedded packaged coefficients verified against the source HDR and
+  installed Core consumption. Native Forward fixtures isolate three environment
+  directions; an offline Vulkan/Metal comparator checks independent native and
+  linear/sRGB host center evidence and rejects stale or incomplete reports.
+  Fresh Metal execution and actual cross-backend comparisons remain required.
+
 - Metal Forward host fixtures now compare native/Tier 0 center RGB and
   Tier 0/HgiMetal images for Camera Light ON/OFF and linear/sRGB output.
   Independent camera-sweep and Qt navigation comparisons retain first-frame
@@ -55,6 +62,14 @@ after its public API and release process are established.
   OpenUSD device/render validation remains in the separate capability workflow.
 
 ### Fixed
+
+- Metal Forward now evaluates the packaged SH ambient fill and applies the same
+  Reinhard compression as Vulkan before the linear RGBA8 color AOV. Its
+  conventional, argument-buffer and GPU Scene paths share this shading function.
+  White Camera Light OFF now requires color headroom in native and host fixtures;
+  the former uncompressed saturation exception is removed. Vulkan's configurable
+  HDR environment remains available. Metal compilation/runtime validation of the
+  changed output is pending, so this is not yet a backend parity support claim.
 
 - Metal Forward Tier 0 fixtures now disable the HgiMetal bridge at delegate
   creation through `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1`, ensuring the

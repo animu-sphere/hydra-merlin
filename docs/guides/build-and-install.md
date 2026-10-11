@@ -495,7 +495,8 @@ to include the native center and host image comparisons. Metal host fixtures
 enable API validation; native Metal gates separately enable shader validation.
 Host runs require an available GPU and window
 service. See the [Forward lighting boundary](../design/forward-lighting.md)
-for current output differences and saturation policy.
+for the common output profile, independent backend comparison command and
+remaining Metal validation requirements.
 
 ## Optional MaterialX compiler
 

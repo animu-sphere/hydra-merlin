@@ -4,6 +4,7 @@
 
 #include <merlin/metal/backend.hpp>
 #include <merlin/render/forward_lighting.hpp>
+#include <merlin/render/diffuse_environment.hpp>
 #include "gaussian_metallib.hpp"
 #include "gaussian_raster_abi.hpp"
 #include "gaussian_execution.hpp"
@@ -126,6 +127,7 @@ struct alignas(16) MaterialConstants {
   Vec4 base_color;
   Vec4 light_direction_intensity;
   Vec4 light_color_alpha_cutoff;
+  std::array<Vec4, 9> diffuse_environment;
 };
 
 struct alignas(16) GpuSceneDrawConstants {
@@ -140,7 +142,8 @@ static_assert(offsetof(extraction::DrawVertex, color) == 24);
 static_assert(offsetof(extraction::DrawVertex, texcoord) == 40);
 static_assert(sizeof(extraction::DrawVertex) == 48);
 static_assert(sizeof(DrawConstants) == 144);
-static_assert(sizeof(MaterialConstants) == 48);
+static_assert(sizeof(MaterialConstants) == 192);
+static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
@@ -180,7 +183,9 @@ struct MaterialConstants {
   float4 base_color;
   float4 light_direction_intensity;
   float4 light_color_alpha_cutoff;
+  float4 diffuse_environment[9];
 };
+static_assert(sizeof(MaterialConstants) == 192, "MaterialConstants must match the host ABI");
 
 struct VertexOutput {
   float4 position [[position]];
@@ -225,18 +230,31 @@ FragmentOutput shade(
     color *= texture_sample;
   }
   if ((draw.feature_mask & kDirectionalLightFlag) != 0u) {
-    float n_dot_l = max(dot(normalize(input.shading_normal),
+    float3 normal = normalize(input.shading_normal);
+    float x = normal.x, y = normal.y, z = normal.z;
+    float3 environment =
+        material.diffuse_environment[0].rgb * 0.2820947918f +
+        material.diffuse_environment[1].rgb * (0.4886025119f * y) +
+        material.diffuse_environment[2].rgb * (0.4886025119f * z) +
+        material.diffuse_environment[3].rgb * (0.4886025119f * x) +
+        material.diffuse_environment[4].rgb * (1.0925484306f * x * y) +
+        material.diffuse_environment[5].rgb * (1.0925484306f * y * z) +
+        material.diffuse_environment[6].rgb * (0.3153915653f * (3.0f * z * z - 1.0f)) +
+        material.diffuse_environment[7].rgb * (1.0925484306f * x * z) +
+        material.diffuse_environment[8].rgb * (0.5462742153f * (x * x - y * y));
+    float n_dot_l = max(dot(normal,
                             normalize(material.light_direction_intensity.xyz)),
                         0.0);
-    color.rgb *= 0.15 + material.light_color_alpha_cutoff.rgb *
+    color.rgb *= 0.15f * max(environment, float3(0.0f)) + material.light_color_alpha_cutoff.rgb *
         (0.85 * n_dot_l * material.light_direction_intensity.w);
+    color.rgb = color.rgb / (float3(1.0f) + color.rgb);
   }
   if ((draw.feature_mask & kMaskedAlphaFlag) != 0u &&
       color.a < material.light_color_alpha_cutoff.a) {
     discard_fragment();
   }
   FragmentOutput output;
-  output.color = color;
+  output.color = saturate(color);
   output.prim_id = draw.prim_id;
   output.instance_id = draw.instance_id;
   return output;
@@ -2400,6 +2418,7 @@ private:
     result.light_direction_intensity = lighting.direction_intensity;
     result.light_color_alpha_cutoff = {lighting.color.x, lighting.color.y,
         lighting.color.z, material.parameters.alpha_cutoff};
+    result.diffuse_environment = render::PackagedDiffuseEnvironment().coefficients;
     return result;
   }
 

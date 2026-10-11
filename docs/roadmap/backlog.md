@@ -32,8 +32,9 @@ deferral does not expand current support claims. See the
 including camera-light energy, direct/environment lighting, linear/sRGB
 boundaries, exposure, tone mapping, and handwritten/generated material parity.
 
-Directional selection and Hydra energy conversion are implemented; active fixture
-work is tracked in [current](current.md#active--forward-lighting-quality) and
+Directional selection, Hydra energy conversion and default output alignment are
+implemented; remaining v0.16.2 backend evidence is tracked in
+[current](current.md#active--v0162-forward-output-alignment) and
 the [Forward lighting boundary](../design/forward-lighting.md).
 
 **Depends on:** The [v0.16.0 GPU-driven foundation](../releases/v0.16.0.md) and a

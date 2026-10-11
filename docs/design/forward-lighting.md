@@ -33,13 +33,22 @@ variants or GPU resource identity.
 
 ## Current image behavior and remaining work
 
-The basic Vulkan shader uses the packaged diffuse SH environment as 0.15
-ambient fill plus 0.85 of the selected Lambert direct term, then applies an
-embedded Reinhard compression before the UNorm color AOV. Metal currently
-uses constant 0.15 ambient fill plus the same 0.85 direct term without that
-compression. These are current diagnostic profiles; shared directional input
-does not establish cross-backend lighting-image parity. `RendererSettings`
-still rejects nonzero exposure and selectable tone mapping.
+Vulkan and Metal now implement the same default diagnostic output profile:
+0.15 of the packaged diffuse SH environment plus 0.85 of the selected Lambert
+direct term, followed by component-wise Reinhard compression before the linear
+UNorm color AOV. Metal no longer uses constant ambient fill or uncompressed
+white output. Alpha is preserved until the existing mask/attachment conversion;
+host sRGB conversion still happens after the linear AOV.
+
+`Merlin::RenderBackend` owns the GPU-independent Radiance loader, Lambert SH
+projection/evaluation and the embedded packaged coefficients. The CPU gate
+compares all embedded coefficients with the source HDR within 1e-6. Embedding
+the 9 vectors gives Metal SDK consumers the same default without a runtime
+asset-path dependency. Vulkan retains its configurable HDR path and native
+error boundary; custom Vulkan environments have no Metal parity claim.
+This code alignment still requires independent Metal images and backend
+comparison evidence before v0.16.2 can close. `RendererSettings` still rejects
+nonzero exposure and selectable tone mapping.
 
 Hydra ingests `distantLight` color, intensity, exposure, diffuse, angle,
 normalize and transform.
@@ -157,6 +166,38 @@ lighting/output parity is also still unverified.
 
 ## Regression evidence
 
+### Comparing default backend output
+
+After independent native and host runs, compare the saved reports without
+requiring either machine to run the other backend:
+
+```console
+python tests/compare_forward_backends.py VULKAN_NATIVE_DIR METAL_NATIVE_DIR comparison.json --vulkan-host VULKAN_HOST_JSON --metal-host METAL_HOST_JSON
+```
+
+Native directories contain `color/comparison.json` and `white/comparison.json`;
+host inputs are the `usdview-first-frame-forward-lighting.json` files from the
+same presentation mode (run Tier 0 and Hgi comparisons separately).
+The gate requires 20 native center pairs covering the seven light/camera phases
+and three normal-only environment phases, within one RGBA8 step. The 24 host
+center pairs cover linear/sRGB, color/white, ON/OFF and static/moving/restored
+poses within two steps. It rejects stale output profiles, duplicate/missing
+phases, saturation, uploads and pipeline creation. Full-image Tier 0/Hgi,
+exact replay/AOV checks and validation remain independent existing gates;
+center parity does not establish full-image backend rasterization parity.
+Dark normal-only environment channels may quantize to zero; they still require
+the declared image tolerance and reject saturated channels. The focused
+Camera Light ON/OFF centers retain their positive, unsaturated bounds.
+
+The comparator's GPU-free boundary tests do not count as Metal execution or
+backend image evidence. Updated Metal compilation, Debug/Release native images,
+Tier 0/HgiMetal host images and actual backend report comparison are still
+pending; v0.16.2 remains open until these pass.
+
+Windows validation of the shared environment and refreshed Vulkan native,
+generated-material and host fixtures is recorded in the
+[output-alignment delivery record](../reports/delivery-history.md#forward-default-output-alignment--2026-10-11).
+
 The CPU contract test exercises actual RenderWorld/extractor table compaction,
 retained snapshots, camera changes, light translation, zero intensity,
 extreme/degenerate axes, invalid energy and selected-light removal. The Vulkan
@@ -164,12 +205,13 @@ material regression renders differently colored directional inputs, removes an
 unselected Point record that moves the last table slot, and requires exact
 color/depth/primId/instanceId parity with zero geometry upload and no pipeline
 creation. Installed Core consumers compile and link the same helper. Metal
-uses the common implementation; the independent native Metal fixture now
-validates that implementation on an Apple GPU.
+uses the common implementation; the independent native Metal fixture exercises
+it separately. Fresh Apple GPU execution remains required for the changed output
+profile.
 
 The native `merlin-metal-forward-lighting` gate covers the same color/white
 patches and converted Hdx camera-light amplitude through Core-authored inputs,
-without a Hydra host or OpenUSD SDK. Nineteen phases per patch include ON/OFF,
+without a Hydra host or OpenUSD SDK. Twenty-two phases per patch include ON/OFF,
 camera-only motion with a world-space source, rotated and restored camera/light
 poses, explicit zero energy, colored stable-handle selection through table
 compaction, retained snapshots, light translation, extreme/degenerate axes,
@@ -178,15 +220,16 @@ per patch must reject and recover to an exact valid image. Stable-handle values
 include the generation, so creation order alone does not determine selection.
 
 An independent analytic center oracle checks Metal's current
-`albedo * (0.15 + light_color * 0.85 * max(N dot L, 0) * intensity)` profile
+`linear = albedo * (0.15 * SH(N) + light_color * 0.85 * max(N dot L, 0) * intensity)`
+and `linear / (1 + linear)` profile
 within one RGBA8 step. Three repeats per phase and returned views require exact
 color/depth/primId/instanceId equality. The fixture warms all frame contexts
 before requiring zero uploads, allocations and pipeline creation for edits and
-static frames. White OFF is `[255, 255, 255]` under Metal's uncompressed
-diagnostic fallback, while the converted Hdx ON center is `[108, 108, 108]`,
-rotated ON is `[98, 98, 98]`, and zero energy is `[38, 38, 38]`. Recording this
-existing saturation does not establish Vulkan/Metal output parity or the broader
-Forward quality exit.
+static frames. All focused centers, including white OFF, now require headroom.
+Native Vulkan and Metal fixtures also isolate SH fill with +Y, -Y and +X shading
+normals, without a direct contribution. The prior Metal profile's OFF/ON/rotated/
+zero white centers of 255/108/98/38 are historical evidence for the pre-alignment
+shader and do not validate the updated output.
 
 Run this native gate in a Metal build:
 
@@ -199,7 +242,7 @@ API and shader validation; unavailable devices return an explicit capability
 skip. PPM images, expected/actual center RGB, resource counters and rejection
 counts live under `tests/forward-images-metal/{color,white}`. The scheduled
 Debug/Release Metal capability workflow selects the gate and archives its images
-and reports. Local Apple M3/macOS 15.7.9/AppleClang 17/Slang 2026.8 validation on
+and reports. Before output alignment, local Apple M3/macOS 15.7.9/AppleClang 17/Slang 2026.8 validation on
 2026-10-11 passes the full Release Metal selection 31/31 and the focused Debug
 selection 3/3 without skips. All 38 center comparisons have zero observed error,
 all 38 PPM images and both reports match exactly between Debug and Release, and
@@ -233,11 +276,10 @@ a separate CTest fixture dependency, checks all 12 linear center pairs within
 one RGBA8 step, and rejects mismatched backend reports. Tier 0/HgiMetal keeps
 the existing full-image tolerances and requires all lighting phases in order.
 Linear/sRGB centers retain the independent two-step transfer-function check.
-Under the current Metal profile, white OFF must be exactly `[255, 255, 255]`
-in both output modes; every other focused center still requires headroom.
-Motion/navigation apply the same explicit saturation policy while retaining
-exact first-frame/reference and restored-image equality. This validates the
-existing diagnostic output, not the broader no-clipping quality exit.
+White OFF now requires headroom in both output modes, as on Vulkan.
+Motion/navigation use the same condition while retaining exact first-frame/
+reference and restored-image equality. Fresh Metal native and host runs remain
+required to validate the changed profile.
 
 Run the independent gates in a Metal/Hydra build:
 
@@ -254,7 +296,7 @@ does not establish Metal Kitchen coverage. Generated Metal materials,
 cross-backend output alignment, unrestricted navigation and timing remain
 separate gates.
 
-Local Apple M3/OpenUSD 26.08 Release validation on 2026-10-11 passes the final
+Before output alignment, local Apple M3/OpenUSD 26.08 Release validation on 2026-10-11 passes the final
 16/16 selection, including installed-package and native AOV dependencies.
 All 12 native/host center pairs and 851 Tier 0/HgiMetal images match exactly;
 each presentation path passes 256 immediate sweep and 192 immediate Qt

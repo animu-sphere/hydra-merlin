@@ -132,7 +132,7 @@ float4 ShadeForwardSurface(
                 (0.5462742153f * (x * x - y * y));
         // Treat the packaged environment as ambient fill rather than adding
         // its full HDR irradiance on top of usdview's camera light. Keeping
-        // the 0.15/0.85 split used by the Metal path prevents camera-facing
+        // the shared 0.15/0.85 split prevents camera-facing
         // albedo from clipping to white in an UNorm color target.
         light_scale =
             0.15f * max(light_scale, float3(0.0f, 0.0f, 0.0f));

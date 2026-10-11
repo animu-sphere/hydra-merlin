@@ -13,6 +13,20 @@ merlin_target_defaults(merlin-forward-lighting-tests)
 target_link_libraries(merlin-forward-lighting-tests PRIVATE Merlin::RenderBackend)
 add_test(NAME merlin-forward-lighting COMMAND merlin-forward-lighting-tests)
 set_tests_properties(merlin-forward-lighting PROPERTIES LABELS "core;lighting")
+add_executable(merlin-environment-lighting-tests
+  environment_lighting_test.cpp
+)
+merlin_target_defaults(merlin-environment-lighting-tests)
+target_link_libraries(merlin-environment-lighting-tests
+  PRIVATE Merlin::RenderBackend)
+add_test(
+  NAME merlin-environment-lighting
+  COMMAND merlin-environment-lighting-tests
+          "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/assets/environment.hdr"
+)
+set_tests_properties(merlin-environment-lighting PROPERTIES
+  LABELS "core;materials;ibl")
+
 add_test(NAME merlin-openusd-python-includes
   COMMAND "${CMAKE_COMMAND}"
     -S "${CMAKE_CURRENT_SOURCE_DIR}/openusd-python-includes"
@@ -20,6 +34,9 @@ add_test(NAME merlin-openusd-python-includes
     "-DMERLIN_SOURCE_DIR=${PROJECT_SOURCE_DIR}")
 set_tests_properties(merlin-openusd-python-includes PROPERTIES LABELS "ci;core;hydra")
 if(Python3_Interpreter_FOUND)
+  add_test(NAME merlin-forward-backend-comparison
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/forward_backend_comparison_test.py")
+  set_tests_properties(merlin-forward-backend-comparison PROPERTIES LABELS "core;lighting;comparison")
   add_test(NAME merlin-hosted-hydra-evidence
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/hosted_hydra_evidence_test.py")
   set_tests_properties(merlin-hosted-hydra-evidence PROPERTIES LABELS "ci;core")
@@ -643,23 +660,6 @@ if(TARGET Merlin::Vulkan)
   )
   set_tests_properties(merlin-shader-artifact-key PROPERTIES
     LABELS "shader;cache")
-
-  add_executable(merlin-environment-lighting-tests
-    environment_lighting_test.cpp
-  )
-  merlin_target_defaults(merlin-environment-lighting-tests)
-  target_include_directories(merlin-environment-lighting-tests PRIVATE
-    "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/src"
-  )
-  target_link_libraries(merlin-environment-lighting-tests
-    PRIVATE Merlin::Vulkan)
-  add_test(
-    NAME merlin-environment-lighting
-    COMMAND merlin-environment-lighting-tests
-            "${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/assets/environment.hdr"
-  )
-  set_tests_properties(merlin-environment-lighting PROPERTIES
-    LABELS "materials;ibl")
 
   add_executable(merlin-bindless-resource-table-tests
     bindless_resource_table_test.cpp
