@@ -1,6 +1,6 @@
 # Support matrix
 
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-10-11
 
 This matrix separates a required contract from a configuration actually
 exercised by project CI or local capability validation. An unlisted platform may
@@ -100,6 +100,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Vulkan swapchain presentation | GPU-only offscreen-to-swapchain blit with per-image completion, out-of-date/resize recovery, zero CPU readback by default, and exact offscreen product parity evidence |
 | Basic Vulkan material shading | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available. Vulkan/Metal share stable-handle single-directional selection and normalization. Hydra distant radiance is converted using angle, normalize, exposure and diffuse. Focused local RTX A5000/OpenUSD 26.08 color/white fixtures cover Camera Light ON/OFF, rotated/returned cameras, native/Tier 0 center values, Tier 0/HgiVulkan images and host linear/sRGB output; native Vulkan handwritten/generated prototype images agree. A bounded 30-degree camera sweep also checks 256 immediate frames per host against settled poses and compares 393 Tier 0/HgiVulkan images. Opt-in Kitchen_set Qt navigation covers 1,788 meshes, three relative starting viewpoints and 288 immediate frames per path, with 649 Tier 0/HgiVulkan images within existing tolerances; stored-PNG saturation is recorded separately from displayed-color clipping. Broader Kitchen quality/general interactive navigation, broader SDK evidence and cross-backend lighting-output parity remain incomplete (see the [Forward lighting boundary](../design/forward-lighting.md)) |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Available for Mesh and the CPU-sorted Gaussian MVP; Gaussian `primId` is the resource handle and `instanceId` is the zero-based particle index of the nearest contributing splat in front of opaque depth |
+| Metal Forward lighting evidence | Focused Apple M3/OpenUSD 26.08 fixtures compare native/Tier 0 linear centers and Tier 0/HgiMetal lighting, first-frame camera sweeps and Qt navigation images. API validation covers host runs; native Metal gates separately enable shader validation because host shader instrumentation fails OpenUSD display pipeline creation. White Camera Light OFF explicitly saturates under the existing uncompressed diagnostic profile. Generated Metal materials, Metal Kitchen quality, cross-backend output alignment, broader hardware/SDKs and unrestricted navigation remain unverified; see the [Forward lighting boundary](../design/forward-lighting.md). |
 | Explicit submit/completion/timeout-aware resolve | Available |
 | Per-request AOV request and CPU readback selection | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Exact comparison is available for color, depth, primId, and instanceId |

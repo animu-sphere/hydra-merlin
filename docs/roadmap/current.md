@@ -33,6 +33,10 @@ contracts and current image limitations are in the
   tolerances. Native Metal directional selection and the current diagnostic
   response are validated on Apple M3 in Debug/Release; evidence and remaining
   output differences are in the [Forward lighting design](../design/forward-lighting.md).
+  Focused Metal native/Tier 0 center and Tier 0/HgiMetal lighting, sweep and Qt
+  navigation gates now cover the existing diagnostic output. White OFF still
+  saturates under Metal's uncompressed profile; backend output alignment and
+  broader scene quality remain incomplete.
 
 The broader Forward quality exit and dependencies remain in the
 [backlog](backlog.md#next-cycle-onward--forward-lighting-and-shading-quality).

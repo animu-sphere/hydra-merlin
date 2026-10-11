@@ -259,3 +259,10 @@ success criterion by itself.
 bridge preserves CPU RenderBuffers. OpenUSD/Hgi remains outside Core and
 backend-only targets, public backend APIs contain no Hgi type, and install-tree
 Hydra consumers continue to validate the selected and fallback paths.
+
+For Metal, `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1` forces the disabled
+bridge policy when each delegate is created, preserving the host Metal driver
+and its projection correction while selecting CPU RenderBuffers. Other values
+retain the build policy. Forward host tests use this switch to exercise Tier 0
+and HgiMetal with the same installed plugin; GPU-copy cases fail if copy is
+unavailable. Transfer traces and AOV readback counters accompany image comparison.

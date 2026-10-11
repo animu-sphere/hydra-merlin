@@ -485,6 +485,18 @@ HgiMetal target is available, and retains CPU readback for unsupported package
 compositions or operational failures. HDR is rejected; SDR sRGB and Display P3
 remain explicit target contracts.
 
+Set `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1` before creating a Hydra
+delegate to force Tier 0 CPU RenderBuffers without rebuilding the plugin.
+Other values retain the build's bridge policy. Forward CTest fixtures set this
+per process, so `tier0` exercises CPU readback and `hgi-metal` requires GPU
+copy. In a Metal/Hydra build, run
+`ctest --test-dir build/metal-hydra -R '^merlin-hydra2-forward-lighting' --output-on-failure`
+to include the native center and host image comparisons. Metal host fixtures
+enable API validation; native Metal gates separately enable shader validation.
+Host runs require an available GPU and window
+service. See the [Forward lighting boundary](../design/forward-lighting.md)
+for current output differences and saturation policy.
+
 ## Optional MaterialX compiler
 
 `MERLIN_ENABLE_MATERIALX=ON` builds the independent `Merlin::MaterialX`

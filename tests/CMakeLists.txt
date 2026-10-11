@@ -306,6 +306,7 @@ if(TARGET Merlin::Metal)
       "${CMAKE_CURRENT_BINARY_DIR}/forward-images-metal")
   set_tests_properties(merlin-metal-forward-lighting PROPERTIES
     LABELS "metal;gpu;runtime;lighting"
+    FIXTURES_SETUP merlin-forward-lighting-metal-native
     SKIP_RETURN_CODE 77 TIMEOUT 60)
   # Enable Apple's validation before device creation, so ABI and argument-buffer
   # mistakes fail the runtime suite instead of depending on a local shell setup.

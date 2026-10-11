@@ -593,6 +593,9 @@ if(MERLIN_BUILD_TESTS)
     set(_merlin_forward_modes tier0)
     if(TARGET Merlin::Vulkan AND TARGET hgiVulkan)
       list(APPEND _merlin_forward_modes hgi-vulkan)
+    elseif(_merlin_hydra2_test_backend STREQUAL "metal" AND
+           TARGET hgiMetal AND MERLIN_ENABLE_HGI_METAL_BRIDGE)
+      list(APPEND _merlin_forward_modes hgi-metal)
     endif()
     set(_merlin_forward_fixtures lighting motion navigation)
     if(MERLIN_FORWARD_SCENE)
@@ -603,8 +606,14 @@ if(MERLIN_BUILD_TESTS)
     endif()
     foreach(_merlin_forward_mode IN LISTS _merlin_forward_modes)
       set(_merlin_forward_force_vulkan OFF)
+      set(_merlin_forward_disable_metal OFF)
+      set(_merlin_forward_require_metal OFF)
       if(_merlin_forward_mode STREQUAL "hgi-vulkan")
         set(_merlin_forward_force_vulkan ON)
+      elseif(_merlin_forward_mode STREQUAL "hgi-metal")
+        set(_merlin_forward_require_metal ON)
+      elseif(_merlin_hydra2_test_backend STREQUAL "metal")
+        set(_merlin_forward_disable_metal ON)
       endif()
       foreach(_merlin_forward_fixture IN LISTS _merlin_forward_fixtures)
         set(_merlin_forward_motion OFF)
@@ -639,6 +648,8 @@ if(MERLIN_BUILD_TESTS)
             "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
             "-DMERLIN_HYDRA2_TEST_BACKEND=${_merlin_hydra2_test_backend}"
             "-DMERLIN_FORCE_HGI_VULKAN=${_merlin_forward_force_vulkan}"
+            "-DMERLIN_DISABLE_HGI_METAL_BRIDGE=${_merlin_forward_disable_metal}"
+            "-DMERLIN_REQUIRE_HGI_METAL_COPY=${_merlin_forward_require_metal}"
             "-DMERLIN_FORWARD_LIGHTING_ONLY=ON"
             "-DMERLIN_FORWARD_MOTION_ONLY=${_merlin_forward_motion}"
             "-DMERLIN_FORWARD_NAVIGATION_ONLY=${_merlin_forward_navigation}"
@@ -664,6 +675,36 @@ if(MERLIN_BUILD_TESTS)
         LABELS "host-smoke;gpu;lighting;presentation;comparison"
         TIMEOUT 15 RUN_SERIAL TRUE
         FIXTURES_REQUIRED "merlin-forward-lighting-native;merlin-forward-lighting-tier0")
+    endif()
+    if(_merlin_hydra2_test_backend STREQUAL "metal")
+      add_test(
+        NAME merlin-hydra2-forward-lighting-native-comparison
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_forward_lighting_native.py"
+          "${CMAKE_BINARY_DIR}/tests/forward-images-metal"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-tier0-install/usdview-first-frame-forward-lighting.json"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-lighting-native-comparison.json"
+          --backend metal)
+      set_tests_properties(merlin-hydra2-forward-lighting-native-comparison PROPERTIES
+        LABELS "host-smoke;gpu;metal;lighting;presentation;comparison"
+        TIMEOUT 15 RUN_SERIAL TRUE
+        FIXTURES_REQUIRED "merlin-forward-lighting-metal-native;merlin-forward-lighting-tier0")
+      if(TARGET hgiMetal AND MERLIN_ENABLE_HGI_METAL_BRIDGE)
+        foreach(_merlin_forward_fixture IN LISTS _merlin_forward_fixtures)
+          add_test(
+            NAME merlin-hydra2-forward-${_merlin_forward_fixture}-comparison
+            COMMAND "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_usdview_smoke.py"
+              "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-tier0-install"
+              "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-hgi-metal-install"
+              "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-comparison.json"
+              --forward-${_merlin_forward_fixture}-only)
+          set_tests_properties(merlin-hydra2-forward-${_merlin_forward_fixture}-comparison PROPERTIES
+            LABELS "host-smoke;gpu;metal;lighting;presentation;comparison"
+            TIMEOUT 120 RUN_SERIAL TRUE
+            FIXTURES_REQUIRED "merlin-forward-${_merlin_forward_fixture}-tier0;merlin-forward-${_merlin_forward_fixture}-hgi-metal")
+        endforeach()
+      endif()
     endif()
     if(TARGET Merlin::Vulkan AND TARGET hgiVulkan)
       if(MERLIN_FORWARD_SCENE)

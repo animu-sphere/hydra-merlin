@@ -16,6 +16,17 @@ _render_phase = _helpers["_render_phase"]
 _read_events = _helpers["_read_events"]
 
 
+def check_center_headroom(center, albedo, enabled, phase):
+    # Metal's declared uncompressed diagnostic profile saturates white OFF.
+    # Check that exact response; retain the strict headroom gate everywhere else.
+    if (os.environ.get("MERLIN_HYDRA2_TEST_BACKEND") == "metal" and
+            albedo == "white" and not enabled):
+        assert center == [255, 255, 255], f"{phase}: unexpected Metal white OFF: {center}"
+    else:
+        assert all(0 < channel < 255 for channel in center), (
+            f"{phase}: center lost color headroom: {center}")
+
+
 def _check_forward_lighting(app_controller):
     """Isolate the real Hdx camera light and the host output transform."""
     stage = app_controller._dataModel.stage
@@ -69,7 +80,8 @@ def _check_forward_lighting(app_controller):
             os.path.dirname(os.environ["MERLIN_USDVIEW_SMOKE_HELPERS"]),
             "forward_navigation_usdview_test.py"))
         navigation["check_forward_navigation"](
-            app_controller, shader, root, ext, _render_phase, _read_events)
+            app_controller, shader, root, ext, _render_phase, _read_events,
+            check_center=check_center_headroom)
         return
 
     if os.environ.get("MERLIN_FORWARD_MOTION_ONLY") == "1":
@@ -113,8 +125,7 @@ def _check_forward_lighting(app_controller):
                             assert event[field] == 0, f"{phase}: unexpected {field}"
                     assert event["draw_count"] == 1
                     assert event["generated_material_fallback_count"] == 0
-                    assert all(0 < value < 255 for value in center), (
-                        f"{phase}: center lost color headroom: {center}")
+                    check_center_headroom(center, albedo, enabled, phase)
                     images[pose] = image
                     centers[(output, enabled, pose)] = center
                     evidence.append({"phase": phase, "center_rgb": center,
@@ -145,6 +156,10 @@ def _check_forward_lighting(app_controller):
             assert off == centers[(output, False, "moving")], "world-space fallback moved"
     with open(root + "-forward-lighting.json", "w", encoding="utf-8") as stream:
         json.dump({"schema": "merlin-usdview-forward-lighting/v1",
+                   "backend": os.environ["MERLIN_HYDRA2_TEST_BACKEND"],
+                   "white_off_policy": ("saturated-uncompressed-diagnostic"
+                       if os.environ["MERLIN_HYDRA2_TEST_BACKEND"] == "metal"
+                       else "headroom-required"),
                    "off_policy": "unit-white-plus-z-diagnostic-fallback",
                    "srgb_center_tolerance": 2, "phases": evidence}, stream, indent=2)
         stream.write("\n")
@@ -232,8 +247,7 @@ def _check_forward_motion(app_controller, shader, camera_attr, root, ext):
                                       "primvar_fetch_count", "upload_bytes",
                                       "pipeline_creation_count"):
                             assert event[field] == 0, f"{phase}: unexpected {field}"
-                        assert all(0 < channel < 255 for channel in center), (
-                            f"{phase}: lost color headroom: {center}")
+                        check_center_headroom(center, albedo, enabled, phase)
                         evidence.append({
                             "phase": phase, "reference_phase":
                                 f"{prefix}-reference-{index:02d}",
