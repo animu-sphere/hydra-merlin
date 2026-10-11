@@ -55,7 +55,22 @@ def _check_forward_lighting(app_controller):
     settings.colorCorrectionMode = ColorCorrectionModes.DISABLED
     settings.ambientLightOnly = False
     camera_attr.Set(static)
+    if os.environ.get("MERLIN_FORWARD_NAVIGATION_ONLY") == "1":
+        # FreeCamera uses focus distance as the orbit/pan scale. USD's default
+        # zero distance cannot exercise truck or dolly; widen the lens so every
+        # gesture also changes the patch silhouette inside the framebuffer.
+        camera = UsdGeom.Camera(stage.GetPrimAtPath("/Camera"))
+        camera.CreateFocusDistanceAttr(5)
+        camera.CreateFocalLengthAttr(25)
     _render_phase(app_controller, "baseline")
+
+    if os.environ.get("MERLIN_FORWARD_NAVIGATION_ONLY") == "1":
+        navigation = runpy.run_path(os.path.join(
+            os.path.dirname(os.environ["MERLIN_USDVIEW_SMOKE_HELPERS"]),
+            "forward_navigation_usdview_test.py"))
+        navigation["check_forward_navigation"](
+            app_controller, shader, root, ext, _render_phase, _read_events)
+        return
 
     if os.environ.get("MERLIN_FORWARD_MOTION_ONLY") == "1":
         _check_forward_motion(app_controller, shader, camera_attr, root, ext)

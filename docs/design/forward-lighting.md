@@ -1,6 +1,6 @@
 # Forward lighting boundary
 
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-10-11
 
 Forward remains the image reference for optional shading paths. This document
 defines the current directional input contract and the remaining quality work;
@@ -107,9 +107,25 @@ and 256 moving frames using the existing full-image tolerances. Images,
 per-frame counters and host traces are retained independently of the converged
 lighting gate.
 
-This bounded sweep edits an authored camera between captures. General interactive
-navigation, Qt mouse-driven motion and Kitchen scenes, explicit exposure/tone-mapping
-selection, and native Metal evidence remain incomplete. Framebuffer capture adds
+An independent navigation gate sends Qt Alt+mouse press/move/release events to
+usdview's StageView for tumble, truck and zoom. A focused patch camera has a
+five-unit focus distance and a wider lens so all three gestures change visible
+geometry. Each eight-step excursion/return route is first captured with settled
+frames, then replayed from a cloned free-camera state without processing the
+event loop or waiting for convergence. All 192 immediate frames per presentation
+path require one renderer event carrying the camera edit, the same replayed
+camera transform and exact settled-image equality. Camera Light ON/OFF,
+color/white, linear/sRGB, center headroom, zero geometry fetch/upload, zero
+pipeline creation and clean validation remain gates. Restoring the initial
+camera must restore its exact image after each gesture; zoom's multiplicative
+out/back steps are not assumed to undo each other. Tier 0/HgiVulkan compares
+433 images, including baseline, references, moving frames and restored views,
+with the existing full-image tolerances.
+
+These bounded sweeps edit an authored camera or synchronously dispatch Qt mouse
+events between captures. Unrestricted interactive navigation and Kitchen scenes,
+explicit exposure/tone-mapping selection, and native Metal evidence remain
+incomplete. Framebuffer capture adds
 readback and disk I/O, so the sweep is not a timing gate or evidence for the
 absence of flicker at an unrestricted navigation rate. Cross-backend
 lighting/output parity is also still unverified.
@@ -155,11 +171,26 @@ Run the independent first-frame motion cases with
 selects and archives these cases alongside the existing lighting fixtures;
 GPU-free hosted Hydra validation still excludes them through `host-smoke`/`gpu`.
 
+Run the separate Qt navigation cases with
+`-R '^merlin-hydra2-forward-navigation'`. Images, per-frame JSON and host traces
+live under `adapters/merlin-hydra2/forward-navigation-*-install`, with a separate
+`forward-navigation-comparison.json`. The Windows GPU capability workflow runs
+and archives these gates for both OpenUSD versions; CI selection alone does not
+establish successful 26.05 execution.
+
 Local 2026-10-10 Release validation on RTX A5000/OpenUSD 26.08 passes 8/8
 lighting/motion cases including the native fixture dependency. Both presentation
 paths pass all 256 one-render captures; all 393 motion-comparison images have
 zero observed channel error. Environment and limits are recorded in the
 [delivery history](../reports/delivery-history.md#forward-first-frame-camera-sweep--2026-10-10).
+
+Local 2026-10-11 Release validation on the same RTX A5000/assembled OpenUSD 26.08
+host passes 11/11 lighting/motion/navigation cases, including the native fixture
+dependency. Both navigation paths pass all 192 one-render captures; all 433
+navigation comparison images have zero observed channel error. The installed
+consumer/runtime and Core/Hydra lighting selection passes 4/4 after a successful
+incremental build. Scope and commands are recorded in the
+[navigation delivery record](../reports/delivery-history.md#forward-qt-mouse-navigation--2026-10-11).
 
 Local 2026-10-10 Release validation on RTX A5000/OpenUSD 26.08 passes all five
 native/Tier 0/HgiVulkan cases. The 25 presented images (baseline plus 24 fixture

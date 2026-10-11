@@ -11,6 +11,47 @@ Legend: ✅ done
 
 ---
 
+## Forward Qt mouse navigation — 2026-10-11
+
+Added independent `merlin-hydra2-forward-navigation-{tier0,hgi-vulkan,comparison}`
+CTest gates. Qt Alt+left/middle/right mouse events exercise usdview's tumble,
+truck and zoom handlers, including button release. Each eight-step route is
+captured with settled frames, then replayed from a cloned free-camera state
+without event-loop iteration or convergence waits. Both routes must produce
+the same camera transforms; every immediate capture must record exactly one
+renderer event carrying the camera change and equal its settled image exactly.
+Camera restoration must also restore the starting image. The scene declares
+a nonzero camera focus distance and a wider lens so pan/dolly are observable.
+The Windows GPU workflow selects the gates and archives images, per-frame JSON,
+structural counters and host traces. No renderer lighting/output policy changed.
+
+Local evidence uses Windows, RTX A5000, Release/Ninja, Vulkan SDK 1.4.350.0,
+Slang 2026.8.x and the same assembled OpenUSD 26.08 SDK/Usdviewq host documented
+in the [2026-10-10 first-frame sweep](#forward-first-frame-camera-sweep--2026-10-10).
+Both presentation paths complete all 192
+immediate captures for color/white, linear/sRGB and Camera Light ON/OFF. Every
+capture has exact settled-image equality and color headroom, with zero geometry
+fetch/upload, new pipeline creation or Vulkan validation messages.
+
+- `ctest --test-dir build/forward-hgi-ninja -C Release -R
+  '^merlin-hydra2-forward-(lighting|motion|navigation)' --output-on-failure`:
+  11/11 pass, including the existing lighting/motion gates and native material
+  fixture dependency. All 433 navigation comparison images have changed-pixel
+  fraction, mean-channel error and maximum-channel error zero.
+- HgiVulkan retains GPU copy without color Map or host upload in every captured
+  phase. Baseline readback is 482804 bytes versus Tier 0's 1931216 bytes;
+  recorded timing samples are observations, not acceptance gates.
+- The Release incremental build passes after initializing the MSVC development
+  environment and selecting Vulkan SDK 1.4.350.0. The Core lighting, Hydra light
+  energy, installed-consumer and installed-runtime selection passes 4/4 after
+  that build. Python syntax, workflow actionlint (with the existing custom
+  `vulkan-1.4` runner-label warning excluded) and `git diff --check` pass.
+
+These are bounded synchronous Qt event/capture routes, not a frame-rate or
+unrestricted user-navigation guarantee. Kitchen, OpenUSD 26.05 host execution,
+Metal, generated-material Hydra ingestion and native swapchain output remain
+unverified; the broader Forward lighting exit stays open.
+
 ## Forward first-frame camera sweep — 2026-10-10
 
 Added independent `merlin-hydra2-forward-motion-{tier0,hgi-vulkan,comparison}`
