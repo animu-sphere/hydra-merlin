@@ -2,12 +2,19 @@ name: Vulkan and Hydra capability CI
 
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Capability suite to execute
+        type: choice
+        options: [all, hydra]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   vulkan-headless:
+    if: inputs.suite != 'hydra'
     name: Vulkan 1.4 headless / ${{ matrix.build_type }}
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 30
@@ -147,13 +154,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The viewer-capable Vulkan lookdev artifact exists for 26.08.
+        # 26.05/26.08 SDK-only compilation remains in hydra.yml.
         include:
-          - openusd: "26.05"
-            artifact_digest: sha256:e6944385f7b53e5c029c258503b053a9ab1cab2ad7e0f676b403f3d79b17b4fd
-            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:44471d4b66caebc61af2ad69225102a01fc611056136fbffe6bc8e1a38dc1eda
           - openusd: "26.08"
-            artifact_digest: sha256:baa53948498586283d4ad0ee94d9b00357f885fe022b972d627de8ec6367592e
-            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:29118734a8048313cf7bd8774e23e3cc8477226eae7cdd85002f73af286f109a
+            artifact_digest: sha256:03c5a8edcf9f362bebf9d84afd53f4e8e84b24edfa333ad375b0871a1feae463
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-lookdev@sha256:21cb5fe4c725c9918f6b18fe79b957cfec9d6032e3a40e2e8290ed2dcb70331f
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -185,7 +191,7 @@ jobs:
 
       - name: Pull and materialize the HgiVulkan runtime
         shell: pwsh
-        run: .github/scripts/setup-openusd.ps1 -Version ${{ matrix.openusd }} -ValidateRuntime
+        run: .github/scripts/setup-openusd.ps1 -Version ${{ matrix.openusd }} -Profile lookdev -ValidateRuntime
 
       - name: Provision pinned OpenUSD test launcher
         shell: pwsh

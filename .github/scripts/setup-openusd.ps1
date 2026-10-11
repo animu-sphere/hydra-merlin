@@ -2,6 +2,8 @@ param(
   [Parameter(Mandatory)]
   [ValidateSet('26.05', '26.08')]
   [string]$Version,
+  [ValidateSet('usd', 'lookdev')]
+  [string]$Profile = 'usd',
   [switch]$ValidateRuntime
 )
 
@@ -28,17 +30,17 @@ if ($LASTEXITCODE -eq 0) {
     Tee-Object -FilePath (Join-Path $evidence 'runtime-pull.json')
   if ($LASTEXITCODE -ne 0) { throw 'OpenUSD runtime pull failed' }
 }
-ost runtime pull cy2026 --profile usd --from-artifact $env:OST_RUNTIME_ARTIFACT --force
+ost runtime pull cy2026 --profile $Profile --from-artifact $env:OST_RUNTIME_ARTIFACT --force
 if ($LASTEXITCODE -ne 0) { throw 'OpenUSD runtime materialization failed' }
 # runtime validate probes host devices and renders usdrecord. Keep that evidence
 # opt-in for capability jobs; artifact verification and Merlin's compile/package
 # tests provide the hosted gate without any host/device execution.
 if ($ValidateRuntime) {
-  ost runtime validate cy2026 --profile usd --json |
+  ost runtime validate cy2026 --profile $Profile --json |
     Tee-Object -FilePath (Join-Path $evidence 'runtime-validate.json')
   if ($LASTEXITCODE -ne 0) { throw 'OpenUSD runtime validation failed' }
 }
-$runtimeJson = ost runtime show cy2026 --profile usd --json
+$runtimeJson = ost runtime show cy2026 --profile $Profile --json
 if ($LASTEXITCODE -ne 0) { throw 'OpenUSD runtime inspection failed' }
 $runtime = ($runtimeJson | ConvertFrom-Json).data
 $root = Join-Path $env:OST_HOME "runtimes/$($runtime.id)"
@@ -51,6 +53,10 @@ if (-not (Test-Path -LiteralPath $header) -or
 # Check cached and newly pulled SDKs alike; require the native Hgi bridge SDK.
 if (-not (Test-Path -LiteralPath (Join-Path $root 'include/pxr/imaging/hgiVulkan/hgi.h'))) {
   throw "materialized SDK is missing HgiVulkan headers: $root"
+}
+if ($Profile -eq 'lookdev' -and
+    -not (Test-Path -LiteralPath (Join-Path $root 'lib/python/pxr/Usdviewq/__init__.py'))) {
+  throw "materialized lookdev runtime is missing Usdviewq: $root"
 }
 $env:OPENUSD_ROOT = $root
 if ($env:GITHUB_ENV) {
