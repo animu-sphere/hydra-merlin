@@ -11,6 +11,66 @@ Legend: ✅ done
 
 ---
 
+## Metal Forward host lighting and navigation — 2026-10-11
+
+Extended the existing Forward fixtures to Metal native/Tier 0 center comparison
+and independent Tier 0/HgiMetal lighting, first-frame camera sweep and Qt
+tumble/truck/zoom image comparison. Base is `8dac646` plus working-tree changes.
+Local Release validation uses Apple M3, macOS 15.7.9, AppleClang 17,
+Slang 2026.8 and the existing OpenUSD 26.08 package.
+
+The installed plugin now supports
+`MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1` at delegate creation. Tier 0
+fixtures set this explicitly; HgiMetal cases require GPU copy and fail on
+fallback. This corrects the previously misleading Metal `tier0` test name
+when the bridge was built. Baseline counters prove four CPU AOV readbacks for
+Tier 0 and one coverage-depth readback for HgiMetal. Every focused center
+requires headroom except white OFF, which must exactly match the current
+uncompressed `[255, 255, 255]` diagnostic response in linear and sRGB output.
+
+Validation commands:
+
+```sh
+cmake -S . -B build/metal-hydra \
+  -DMERLIN_SLANGC_EXECUTABLE=/tmp/merlin-forward-slang/bin/slangc
+cmake --build build/metal-hydra --parallel 4
+ctest --test-dir build/metal-hydra --output-on-failure --no-tests=error \
+  --output-junit forward-host-tests.xml \
+  -R '^merlin-(hydra2-(forward-(lighting|motion|navigation).*|install-discovery|hgi-metal-aov)|metal-forward-lighting|backend-boundaries|install-consumer|metal-install-runtime)$'
+cmake -S . -B build/metal-hydra-tier0 \
+  -DMERLIN_ENABLE_HGI_METAL_BRIDGE=OFF \
+  -DMERLIN_SLANGC_EXECUTABLE=/tmp/merlin-forward-slang/bin/slangc
+cmake --build build/metal-hydra-tier0 --parallel 4
+ctest --test-dir build/metal-hydra-tier0 --output-on-failure --no-tests=error \
+  --output-junit forward-host-tests.xml \
+  -R '^merlin-(hydra2-forward-lighting.*|metal-forward-lighting)$'
+```
+
+The bridge-enabled final selection passes 16/16, including native/AOV,
+installed discovery/consumer/runtime and backend boundaries. All 12 native/host
+center pairs and all 851 host image pairs (25 lighting, 393 sweep and 433 Qt
+navigation) have zero observed channel error. Each presentation path passes
+256 immediate sweep and 192 immediate Qt captures with exact settled-reference
+and restored-image checks, zero geometry fetch/upload and pipeline creation,
+and zero validation messages. The CPU lighting/Hydra/consumer selection passes
+6/6. The bridge-disabled build passes its native/Tier 0 lighting selection 3/3;
+no final tests are skipped. Negative comparator checks accept a one-step difference and reject
+two-step differences, wrong backends and missing phases.
+
+Host runs enable Metal API validation. Enabling shader instrumentation for the
+entire usdview process failed OpenUSD display pipeline creation and timed out;
+that attempted selection was interrupted. The final host runner explicitly
+disables shader instrumentation; native Metal and AOV gates separately retain
+shader validation. GPU/window execution requires access outside the restricted
+sandbox. Existing aggregate-initializer, Metal deprecation, Hydra switch/unused
+and duplicate-library warnings remain; this is not warning-free build evidence.
+
+JUnit remains in each build directory. Host PNG/JSON/log/Chrome-trace artifacts
+live under `adapters/merlin-hydra2/forward-*-install`, with comparison reports
+alongside them; native PPM/JSON artifacts remain under `tests/forward-images-metal`.
+Metal Kitchen, generated Metal material ingestion, unrestricted navigation,
+other GPUs/SDKs, cross-backend output alignment and timing remain unverified.
+
 ## Native Metal Forward lighting — 2026-10-11
 
 Added the independent `merlin-metal-forward-lighting` GPU gate and archived

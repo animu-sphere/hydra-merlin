@@ -10,6 +10,12 @@ after its public API and release process are established.
 
 ### Added
 
+- Metal Forward host fixtures now compare native/Tier 0 center RGB and
+  Tier 0/HgiMetal images for Camera Light ON/OFF and linear/sRGB output.
+  Independent camera-sweep and Qt navigation comparisons retain first-frame
+  replay checks, resource counters and host traces. The existing uncompressed
+  white OFF saturation is checked explicitly; cross-backend output alignment
+  remains open.
 - Native Metal Forward image fixtures cover color/white patches, camera-light
   ON/OFF inputs, world-space light independence from camera motion, rotated and
   returned cameras, zero energy, stable-handle selection through table compaction,
@@ -50,6 +56,11 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Metal Forward Tier 0 fixtures now disable the HgiMetal bridge at delegate
+  creation through `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1`, ensuring the
+  reference actually uses CPU readback. Separate HgiMetal cases require GPU
+  copy and fail on fallback. Metal host runs enable API validation; native
+  Metal gates retain shader validation separately.
 - Forward directional lighting now selects the smallest stable light handle
   rather than the first dense table slot, preventing unrelated light removal
   from changing the rendered illumination. Vulkan and Metal share normalization,

@@ -148,8 +148,8 @@ locally; it is neither bundled nor automatically downloaded.
 These bounded sweeps edit an authored camera or synchronously dispatch Qt mouse
 events between captures. The three relative views do not establish interior scene
 coverage. Unrestricted interactive navigation and broader Kitchen quality,
-explicit exposure/tone-mapping selection, and Metal host camera-light evidence
-remain incomplete. Native Metal diagnostic image evidence is recorded below.
+explicit exposure/tone-mapping selection and cross-backend output alignment
+remain incomplete. Focused Metal native and host diagnostic evidence is recorded below.
 Framebuffer capture adds readback and disk I/O, so the sweep is not a timing gate
 or evidence for the
 absence of flicker at an unrestricted navigation rate. Cross-backend
@@ -211,8 +211,58 @@ light cap at four angles and checks normalized size invariance, exposure and
 diffuse scaling, zero/delta lights, overflow, underflow and malformed inputs.
 An injected backend captures the actual Sprim-to-snapshot path, including
 rotation, parameter-only edits, unchanged revisions, atomic rejection,
-initial rejection/retry and removal. These tests verify input energy; they do
-not establish the remaining usdview Kitchen image or native Metal claims.
+initial rejection/retry and removal. These tests verify input energy; broader
+scene and output quality require independent image evidence.
+
+### Metal host presentation gates
+
+Metal/Hydra builds now register the same focused lighting, first-frame sweep
+and Qt navigation fixtures for `tier0` and, when the native bridge is built,
+`hgi-metal`. Tier 0 sets `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1` before
+delegate creation; HgiMetal enables the bridge and requires GPU-copy telemetry
+instead of accepting fallback. Both use the same installed plugin and enable
+Metal API validation. Native Metal gates separately enable shader validation;
+host shader instrumentation fails OpenUSD display pipeline creation on the
+validated runtime and is explicitly disabled in the host runner.
+Each host report retains images, resource
+counters and Chrome traces; comparison checks baseline transfer evidence as
+well as image tolerances.
+
+The native/host lighting comparison selects the Metal analytic fixture through
+a separate CTest fixture dependency, checks all 12 linear center pairs within
+one RGBA8 step, and rejects mismatched backend reports. Tier 0/HgiMetal keeps
+the existing full-image tolerances and requires all lighting phases in order.
+Linear/sRGB centers retain the independent two-step transfer-function check.
+Under the current Metal profile, white OFF must be exactly `[255, 255, 255]`
+in both output modes; every other focused center still requires headroom.
+Motion/navigation apply the same explicit saturation policy while retaining
+exact first-frame/reference and restored-image equality. This validates the
+existing diagnostic output, not the broader no-clipping quality exit.
+
+Run the independent gates in a Metal/Hydra build:
+
+```sh
+ctest --test-dir build/metal-hydra --output-on-failure \
+  -R '^merlin-hydra2-forward-(lighting|motion|navigation)'
+```
+
+Host artifacts live under
+`adapters/merlin-hydra2/forward-{lighting,motion,navigation}-{tier0,hgi-metal}-install`;
+comparison JSON files live alongside those directories. Optional external
+scene fixtures also register both presentation modes when configured; this
+does not establish Metal Kitchen coverage. Generated Metal materials,
+cross-backend output alignment, unrestricted navigation and timing remain
+separate gates.
+
+Local Apple M3/OpenUSD 26.08 Release validation on 2026-10-11 passes the final
+16/16 selection, including installed-package and native AOV dependencies.
+All 12 native/host center pairs and 851 Tier 0/HgiMetal images match exactly;
+each presentation path passes 256 immediate sweep and 192 immediate Qt
+navigation captures. Geometry fetch/upload, pipeline creation and validation
+messages remain zero. Commands, the host shader-validation limitation and
+environment are in the [Metal host delivery record](../reports/delivery-history.md#metal-forward-host-lighting-and-navigation--2026-10-11).
+
+### Vulkan host presentation gates
 
 Run the focused fixtures in a Vulkan/Hydra build with testusdview available:
 

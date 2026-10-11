@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 def check_forward_navigation(app_controller, shader, root, ext,
                              render_phase, read_events, scene_metadata=None,
-                             viewpoints=None):
+                             viewpoints=None, check_center=None):
     view = app_controller._stageView
     settings = app_controller._dataModel.viewSettings
     # Resolve the authored starting camera before switching. Avoid the optional
@@ -137,7 +137,10 @@ def check_forward_navigation(app_controller, shader, root, ext,
                                               "pipeline_creation_count"):
                                     assert event[field] == 0, f"{phase}: unexpected {field}"
                                 if scene_metadata is None:
-                                    assert all(0 < channel < 255 for channel in center), f"{phase}: lost headroom: {center}"
+                                    if check_center is None:
+                                        assert all(0 < channel < 255 for channel in center), f"{phase}: lost headroom: {center}"
+                                    else:
+                                        check_center(center, albedo, enabled, phase)
                                 # Scene centers may be background or dark geometry.
                                 # Count saturated stored-PNG RGB, including
                                 # unassociated translucent samples. This alone

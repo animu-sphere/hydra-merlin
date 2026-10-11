@@ -239,6 +239,14 @@ def main() -> None:
             forward_reports.append(report)
         if args.forward_scene_only and forward_reports[0]["scene"] != forward_reports[1]["scene"]:
             raise ValueError("external scene inputs differ between presentation paths")
+        if args.forward_lighting_only:
+            expected = list(LIGHTING_PHASES)
+            for report in forward_reports:
+                if [phase["phase"] for phase in report["phases"]] != expected:
+                    raise ValueError("missing or reordered lighting captures")
+            for key in ("backend", "off_policy", "white_off_policy"):
+                if forward_reports[0].get(key) != forward_reports[1].get(key):
+                    raise ValueError(f"lighting {key} differs between presentation paths")
     images = [
         compare_image(
             args.tier0 / f"usdview-first-frame-{phase}.png",

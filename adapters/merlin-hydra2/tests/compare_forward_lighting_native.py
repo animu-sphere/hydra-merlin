@@ -10,15 +10,20 @@ def main():
     parser.add_argument("native", type=Path)
     parser.add_argument("host", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--backend", choices=("vulkan", "metal"), default="vulkan")
     args = parser.parse_args()
     host = json.loads(args.host.read_text(encoding="utf-8"))
     if host["schema"] != "merlin-usdview-forward-lighting/v1":
         raise ValueError("unsupported host lighting report")
+    if host.get("backend", "vulkan") != args.backend:
+        raise ValueError("native/host backends differ")
     host_phases = {phase["phase"]: phase for phase in host["phases"]}
     comparisons = []
     for albedo in ("color", "white"):
         native = json.loads((args.native / albedo / "comparison.json").read_text(encoding="utf-8"))
-        if native["schema"] != "merlin-forward-image-fixture/v1":
+        native_schema = ("merlin-metal-forward-lighting/v1" if args.backend == "metal"
+                         else "merlin-forward-image-fixture/v1")
+        if native["schema"] != native_schema:
             raise ValueError("unsupported native lighting report")
         native_phases = {phase["name"]: phase for phase in native["phases"]}
         if native["off_policy"] != host["off_policy"]:
@@ -38,6 +43,7 @@ def main():
                                     "maximum_channel_error": error})
     args.output.write_text(json.dumps({
         "schema": "merlin-forward-native-host-comparison/v1",
+        "backend": args.backend,
         "center_channel_tolerance": 1, "comparisons": comparisons,
     }, indent=2) + "\n", encoding="utf-8")
 

@@ -4331,9 +4331,10 @@ constexpr bool kHgiVulkanBridgeEnabled = true;
 constexpr bool kHgiVulkanBridgeEnabled = false;
 #endif
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
-constexpr bool kHgiMetalBridgeEnabled = true;
-#else
-constexpr bool kHgiMetalBridgeEnabled = false;
+bool HgiMetalBridgeEnabled() {
+  const auto* disabled = std::getenv("MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE");
+  return disabled == nullptr || std::string_view(disabled) != "1";
+}
 #endif
 
 } // namespace
@@ -4346,7 +4347,7 @@ public:
                 kHgiVulkanBridgeEnabled)),
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
         hgi_metal_bridge(std::make_shared<HdMerlinHgiMetalBridge>(
-            kHgiMetalBridgeEnabled)),
+            HgiMetalBridgeEnabled())),
 #endif
         bridge(std::make_shared<SceneBridge>(nullptr, hgi_vulkan_bridge,
             hgi_metal_bridge)) {
@@ -4357,7 +4358,7 @@ public:
                 kHgiVulkanBridgeEnabled)),
 #ifdef MERLIN_HYDRA2_ENABLE_HGI_METAL_BRIDGE
         hgi_metal_bridge(std::make_shared<HdMerlinHgiMetalBridge>(
-            kHgiMetalBridgeEnabled)) {
+            HgiMetalBridgeEnabled())) {
 #else
         hgi_metal_bridge{} {
 #endif
