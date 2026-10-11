@@ -15,6 +15,11 @@ set(plugin_path
   "${MERLIN_STAGE_DIR}/${MERLIN_INSTALL_LIBDIR}/usd/hdMerlin/resources")
 set(scene
   "${MERLIN_STAGE_DIR}/${MERLIN_INSTALL_DATADIR}/merlin/tests/usdview-smoke.usda")
+set(camera_arguments --camera /Camera)
+if(MERLIN_FORWARD_SCENE)
+  set(scene "${MERLIN_FORWARD_SCENE}")
+  set(camera_arguments)
+endif()
 set(image "${MERLIN_STAGE_DIR}/usdview-first-frame.png")
 set(marker "${MERLIN_STAGE_DIR}/merlin-regression.log")
 set(host_trace "${MERLIN_STAGE_DIR}/merlin-usdview-trace.json")
@@ -41,6 +46,9 @@ if(MERLIN_FORWARD_NAVIGATION_ONLY)
   set(usdview_timeout 160)
   list(APPEND forward_motion_environment "MERLIN_FORWARD_NAVIGATION_ONLY=1")
 endif()
+if(MERLIN_FORWARD_SCENE)
+  set(usdview_timeout 270)
+endif()
 execute_process(
   COMMAND "${MERLIN_CMAKE_COMMAND}" -E env
     ${hgi_environment}
@@ -54,7 +62,7 @@ execute_process(
     "MERLIN_HYDRA2_SMOKE_IMAGE=${image}"
     "MERLIN_USDVIEW_SMOKE_HELPERS=${CMAKE_CURRENT_LIST_DIR}/usdview_smoke_test.py"
     "${MERLIN_PYTHON}" "${MERLIN_TESTUSDVIEW}" "${scene}"
-    --renderer Merlin --camera /Camera
+    --renderer Merlin ${camera_arguments}
     --traceToFile "${host_trace}" --traceFormat chrome
     --testScript "${MERLIN_USDVIEW_TEST_SCRIPT}"
   RESULT_VARIABLE usdview_result
@@ -89,7 +97,24 @@ foreach(albedo IN ITEMS color white)
     endforeach()
   endforeach()
 endforeach()
-if(MERLIN_FORWARD_NAVIGATION_ONLY)
+if(MERLIN_FORWARD_SCENE)
+  if(NOT EXISTS "${MERLIN_STAGE_DIR}/usdview-first-frame-forward-scene.json")
+    message(FATAL_ERROR "usdview did not produce external Forward scene evidence")
+  endif()
+  set(required_phases baseline)
+  foreach(output IN ITEMS linear srgb)
+    foreach(light IN ITEMS off on)
+      foreach(gesture IN ITEMS tumble truck zoom)
+        set(prefix "scene-authored-${output}-${light}-${gesture}")
+        list(APPEND required_phases "${prefix}-start" "${prefix}-restored")
+        foreach(index RANGE 0 7)
+          list(APPEND required_phases "${prefix}-reference-0${index}"
+               "${prefix}-immediate-0${index}")
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+elseif(MERLIN_FORWARD_NAVIGATION_ONLY)
   if(NOT EXISTS "${MERLIN_STAGE_DIR}/usdview-first-frame-forward-navigation.json")
     message(FATAL_ERROR "usdview did not produce Forward navigation evidence")
   endif()
