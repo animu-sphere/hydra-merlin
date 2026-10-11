@@ -164,6 +164,13 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
+      - name: Select the SDK's Python ABI
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.14'
+          architecture: x64
+
       - name: Restore the LunarG Vulkan SDK cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -204,6 +211,9 @@ jobs:
           -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON
           "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
           "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT"
+          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}"
+          "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib"
+          "-DPython3_INCLUDE_DIR=$env:pythonLocation/include"
 
       - name: Build
         run: >-
