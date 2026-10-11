@@ -3051,9 +3051,14 @@ private:
       const bool value_dirty =
           !primvar_cache_initialized_ || descriptor_changed ||
           (dirty_locators
-                  ? dirty_locators->Intersects(
+                  ? (dirty_locators->Intersects(
                         HdPrimvarsSchema::GetDefaultLocator().Append(
-                            selected->name))
+                            selected->name)) ||
+                        // OpenUSD also emits primvars/name:indices for USD
+                        // index edits, rather than primvars/name/indices.
+                        dirty_locators->Intersects(
+                            HdPrimvarsSchema::GetDefaultLocator().Append(
+                                TfToken(selected->name.GetString() + ":indices"))))
                   : change_tracker.IsPrimvarDirty(GetId(), selected->name));
       if (!value_dirty) {
         continue;
