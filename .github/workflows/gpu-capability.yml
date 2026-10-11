@@ -187,9 +187,17 @@ jobs:
         shell: pwsh
         run: .github/scripts/setup-openusd.ps1 -Version ${{ matrix.openusd }} -ValidateRuntime
 
+      - name: Provision pinned OpenUSD test launcher
+        shell: pwsh
+        run: .github/scripts/setup-testusdview.ps1 -Version ${{ matrix.openusd }}
+
       - name: Configure Hydra
         shell: pwsh
-        run: cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+        run: >-
+          cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON
+          -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON
+          "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+          "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT"
 
       - name: Build
         run: >-
@@ -200,7 +208,13 @@ jobs:
         run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer|hgi-vulkan-bridge)|viewport-(vulkan|hydra))$" --output-on-failure
 
       - name: Run Tier 0 and HgiVulkan usdview regressions
-        run: ctest --test-dir build -C Release -R "^merlin-hydra2-(usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation)-(tier0|hgi-vulkan|comparison))$" --output-on-failure --verbose
+        run: >-
+          ctest --test-dir build -C Release
+          -R "^merlin-(install-consumer|vulkan-install-runtime|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation)-(tier0|hgi-vulkan|comparison)))$"
+          --output-on-failure --verbose --no-tests=error --output-junit forward-runtime-tests.xml
+
+      - name: Require executed native and host Forward coverage
+        run: python scripts/check-forward-runtime-evidence.py --junit build/forward-runtime-tests.xml
 
       - name: Upload usdview evidence
         if: always()
@@ -210,6 +224,7 @@ jobs:
           if-no-files-found: warn
           path: |
             .ost-ci/*.json
+            build/forward-runtime-tests.xml
             build/adapters/merlin-hydra2/usdview-install/*.log
             build/adapters/merlin-hydra2/usdview-install/*.json
             build/adapters/merlin-hydra2/usdview-install/*.png
