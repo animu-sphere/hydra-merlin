@@ -46,3 +46,4 @@ jobs:
           path: |
             build-runtime/runtime-tests.xml
             build-runtime/Testing/Temporary/LastTest.log
+            build-runtime/tests/forward-images-metal/**

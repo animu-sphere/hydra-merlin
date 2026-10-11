@@ -20,8 +20,7 @@ contracts and current image limitations are in the
   starting views with 288 immediate captures per path. Local Kitchen_set evidence
   is recorded in the [Forward lighting design](../design/forward-lighting.md);
   broader quality remains open.
-- [ ] Extend the local OpenUSD 26.08 HgiVulkan fixture evidence to 26.05 and
-  extend navigation evidence beyond bounded mouse routes and three relative
+- [ ] Extend navigation evidence beyond bounded mouse routes and three relative
   Kitchen views before changing ambient/direct balance, exposure or tone mapping.
   The color/white sweep now covers 256 immediate frames per presentation
   path; a separate Qt Alt+mouse tumble/truck/zoom fixture now covers 192 immediate
@@ -30,8 +29,10 @@ contracts and current image limitations are in the
   quality. The [Forward lighting design](../design/forward-lighting.md) records
   the gates and evidence. Generated material host ingestion remains outside the
   current Hydra subset.
-- [ ] Validate the shared directional selection on native Metal, then align
-  Vulkan/Metal lighting and output transforms with declared image tolerances.
+- [ ] Align Vulkan/Metal lighting and output transforms with declared image
+  tolerances. Native Metal directional selection and the current diagnostic
+  response are validated on Apple M3 in Debug/Release; evidence and remaining
+  output differences are in the [Forward lighting design](../design/forward-lighting.md).
 
 The broader Forward quality exit and dependencies remain in the
 [backlog](backlog.md#next-cycle-onward--forward-lighting-and-shading-quality).

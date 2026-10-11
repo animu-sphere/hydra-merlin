@@ -297,9 +297,19 @@ if(TARGET Merlin::Metal)
   set_tests_properties(merlin-metal-backend PROPERTIES
     LABELS "metal;runtime;aov;residency;gpu-scene;uploads;presentation"
     SKIP_RETURN_CODE 77)
+
+  add_executable(merlin-metal-forward-lighting-tests metal_forward_lighting_test.cpp)
+  merlin_target_defaults(merlin-metal-forward-lighting-tests)
+  target_link_libraries(merlin-metal-forward-lighting-tests PRIVATE Merlin::Metal)
+  add_test(NAME merlin-metal-forward-lighting
+    COMMAND merlin-metal-forward-lighting-tests
+      "${CMAKE_CURRENT_BINARY_DIR}/forward-images-metal")
+  set_tests_properties(merlin-metal-forward-lighting PROPERTIES
+    LABELS "metal;gpu;runtime;lighting"
+    SKIP_RETURN_CODE 77 TIMEOUT 60)
   # Enable Apple's validation before device creation, so ABI and argument-buffer
   # mistakes fail the runtime suite instead of depending on a local shell setup.
-  set_tests_properties(merlin-metal-gaussian merlin-metal-gaussian-compute merlin-metal-gaussian-residency merlin-metal-backend
+  set_tests_properties(merlin-metal-gaussian merlin-metal-gaussian-compute merlin-metal-gaussian-residency merlin-metal-backend merlin-metal-forward-lighting
     PROPERTIES ENVIRONMENT "MTL_DEBUG_LAYER=1;MTL_SHADER_VALIDATION=1")
 endif()
 
