@@ -15,18 +15,10 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Backend and shader architecture verification (v0.16.3):** validate the
-  [backend module boundaries](../design/renderer-architecture.md#backend-implementation-units)
-  and shared [Forward policy](../design/forward-lighting.md#shared-implementation-boundary)
-  against the v0.16.2 semantic baseline.
-  - Refresh independent Vulkan Debug/Release device execution, including
-    conventional/bindless/GPU Scene/generated Forward, Gaussian and lifetime
-    gates, after the implementation split.
-  - Refresh Vulkan native and Hydra Tier 0/Hgi host evidence and offline backend
-    comparisons; compile/SDK checks alone do not establish image parity.
-  - Exit: backend entry points orchestrate execution; no large ad-hoc shader
-    string literals; one canonical shared Forward policy; supported images stay
-    within established tolerances; no support claim is broadened by the refactor.
+- **Generated Forward verification (v0.16.3):** execute the dedicated Vulkan
+  generated MaterialX Forward Debug/Release gate without skips. Native and
+  Hydra execution plus refreshed Vulkan/Metal comparisons have passed; the
+  final generated-path run is waiting for the self-hosted Vulkan runner.
 
 ### Next
 
@@ -35,6 +27,7 @@ rendering semantics; backends own execution.
   encoding pipeline, starting with `None` and `Reinhard`. Exposure has
   documented units; Vulkan, Metal and Hydra interpret one contract; the support
   matrix states what is and is not color-managed.
+
 - **Representative Forward quality (v0.16.5):** interior Kitchen views,
   bright/dark lighting, textured, rough and metallic materials, Camera Light
   ON/OFF, linear/display output, sustained camera navigation, Vulkan/Metal and

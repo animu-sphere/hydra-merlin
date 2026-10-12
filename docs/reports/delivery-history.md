@@ -11,6 +11,57 @@ Legend: ✅ done
 
 ---
 
+## v0.16.3 independent validation and closure — 2026-10-13
+
+Release preparation starts from merge commit `3815552`, containing the backend/
+shader refactor from `9499ed5`. The user also reports successful Vulkan operation.
+No additional hardware or material support is inferred from that manual check.
+
+[Capability run 38222886388](https://github.com/animu-sphere/hydra-merlin/actions/runs/38222886388)
+on `9499ed5` completes successfully. RTX A5000 native Debug and Release each
+pass 24/24 selected cases without skips, including conventional/bindless/GPU
+Scene Forward, Gaussian, lifetime, validation and installed execution.
+OpenUSD 26.08 Vulkan Lookdev discovery/bridge/RenderBuffer/viewport passes 5/5,
+and the native/host/install selection passes 17/17. Its JUnit evidence checker
+requires all 14 Forward/AOV/install cases to execute without skips. The
+Release OpenStrata lifecycle also passes 46/46. Cache-save warnings are
+infrastructure observations; execution and artifact upload succeed.
+
+Downloaded evidence is under `build/v0163-vulkan-evidence`. Its Vulkan
+Tier 0/Hgi comparisons contain 25 lighting, 393 motion and 433 navigation
+image pairs with zero changed pixels, plus 21 exact Mesh/click pairs and
+12 exact native/Tier 0 centers. The offline comparator uses these refreshed
+Vulkan reports and the independently captured post-refactor Apple M3 reports:
+
+| Comparison | Result | Saved report |
+| --- | --- | --- |
+| Native Debug | 20/20, maximum channel error 1/255 | `backend-native-debug-comparison.json` |
+| Native Release | 20/20, maximum channel error 1/255 | `backend-native-release-comparison.json` |
+| Tier 0 host | 24/24, zero error | `backend-host-tier0-comparison.json` |
+| Hgi host | 24/24, zero error | `backend-host-hgi-comparison.json` |
+
+All 17 hosted checks succeed on `3815552`, including Core/Metal/MaterialX,
+Linux Vulkan/lavapipe Debug/Release and OpenUSD 26.05/26.08 compilation.
+Hosted Metal runtime skips supply no additional GPU evidence; the local
+Apple M3 Debug/Release and Hydra evidence below remains the device baseline.
+
+The standard capability workflow does not enable MaterialX or select generated
+Forward execution. A dedicated validation branch retains the same renderer
+source and enables MaterialX generation plus handwritten/generated Vulkan
+Forward in both configurations. Its
+[run 38270938252](https://github.com/animu-sphere/hydra-merlin/actions/runs/38270938252)
+is queued while the self-hosted runner `DESKTOP-HJD3P8F` is offline. Publication
+is pending this final architecture gate.
+
+Release identity is prepared as `0.16.3`, dated 2026-10-13 JST. A fresh Core
+Release build in `build/release-v0163-core` passes 23/23 without skips, including
+installed consumption, backend-boundary, release-metadata and tooling checks.
+The support matrix replaces the obsolete runtime-MSL description with the
+build-time Slang/metallib contract; support scope remains unchanged. The
+[release record](../releases/v0.16.3.md) summarizes this phase, and subsequent
+exposure/tone-mapping, representative quality and material-parity work stays
+in the roadmap.
+
 ## v0.16.3 local backend/shader architecture validation — 2026-10-12
 
 Evidence was captured in the working tree based on `2ea1d30`, on Apple M3,
