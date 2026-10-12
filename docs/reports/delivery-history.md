@@ -50,8 +50,15 @@ Forward execution. A dedicated validation branch retains the same renderer
 source and enables MaterialX generation plus handwritten/generated Vulkan
 Forward in both configurations. Its
 [run 38270938252](https://github.com/animu-sphere/hydra-merlin/actions/runs/38270938252)
-is queued while the self-hosted runner `DESKTOP-HJD3P8F` is offline. Publication
-is pending this final architecture gate.
+passes 5/5 cases in each Debug/Release configuration without skips after the
+user starts the self-hosted runner `DESKTOP-HJD3P8F`. Both configurations execute
+MaterialX generation, prototype/Standard Surface Forward SPIR-V compilation,
+generated Vulkan material rendering and handwritten material resources. A
+separate JUnit gate rejects skipped or absent generated execution. Downloaded
+evidence is under `build/v0163-generated-{debug,release}`. This completes the
+remaining generated-path architecture gate; no v0.16.3 task remains active.
+Independent report checks find exact generated/handwritten agreement in all
+20 centers per configuration and generated Vulkan/Metal agreement within 1/255.
 
 Release identity is prepared as `0.16.3`, dated 2026-10-13 JST. A fresh Core
 Release build in `build/release-v0163-core` passes 23/23 without skips, including

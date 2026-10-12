@@ -15,18 +15,13 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Generated Forward verification (v0.16.3):** execute the dedicated Vulkan
-  generated MaterialX Forward Debug/Release gate without skips. Native and
-  Hydra execution plus refreshed Vulkan/Metal comparisons have passed; the
-  final generated-path run is waiting for the self-hosted Vulkan runner.
-
-### Next
-
 - **Exposure and tone-mapping contract (v0.16.4):** define a renderer-neutral
   scene-linear → exposure → tone mapping → display-referred linear → host
   encoding pipeline, starting with `None` and `Reinhard`. Exposure has
   documented units; Vulkan, Metal and Hydra interpret one contract; the support
   matrix states what is and is not color-managed.
+
+### Next
 
 - **Representative Forward quality (v0.16.5):** interior Kitchen views,
   bright/dark lighting, textured, rough and metallic materials, Camera Light
