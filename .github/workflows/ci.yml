@@ -13,6 +13,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  docs:
+    name: Documentation checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Check Markdown links and current roadmap
+        run: python3 scripts/check-docs.py
+
   core:
     name: ${{ matrix.preset }} / ${{ matrix.os }} / ${{ matrix.build_type }}
     runs-on: ${{ matrix.os }}

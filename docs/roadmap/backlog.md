@@ -1,48 +1,13 @@
 # Backlog
 
-Planned but inactive work follows the [current milestone](current.md).
-Shipped changes belong in the [changelog](../../CHANGELOG.md), and pipeline
-contracts belong in [design](../design/). Version labels may move when
+Deferred work and later milestones, organized by milestone. Active v0.16.x
+work and its exit conditions are in [current](current.md); shipped changes are
+in the [changelog](../../CHANGELOG.md), and pipeline contracts in
+[design](../design/). When an item becomes active, its actionable detail moves
+to `current.md`; when it ships, it is removed here. Version labels may move when
 capability, integration, or benchmark evidence changes the dependency order.
 
 ## Phase D — GPU scalability and shading quality
-
-### Deferred from v0.16.x — Metal quality and broader platform evidence
-
-The Windows/Linux validation follow-up closes within its recorded scope.
-These items remain incomplete and move to the next release cycle; their
-deferral does not expand current support claims. See the
-[Gaussian pipeline design](../design/gaussian-rendering.md) and
-[Metal execution plan](../design/metal-gaussian-execution.md).
-
-- [ ] Broaden Metal Gaussian execution evidence beyond Apple M3 and tune tile
-  work on representative scenes. Record total GPU cost as well as raster savings;
-  current 65K/1M binning and sorting can outweigh the raster improvement.
-- [ ] Extend same-device/host measurements to other supported GPUs with
-  controlled clocks/power before establishing hardware timing gates.
-- [ ] Add Linux Vulkan real-GPU, native Wayland viewport and Hydra-host
-  execution evidence separately from Mesa lavapipe and the Xvfb/X11 smoke.
-
-### Next cycle onward — Forward lighting and shading quality
-
-**Goal:** Stabilize native and Hydra-hosted Forward images under camera motion,
-including camera-light energy, direct/environment lighting, linear/sRGB
-boundaries, exposure, tone mapping, and handwritten/generated material parity.
-
-Directional selection, Hydra energy conversion and default output alignment are
-validated and shipped in [v0.16.2](../releases/v0.16.2.md), including independent
-Vulkan/Metal native and host center comparisons. Broader quality work remains
-in [current](current.md#next--broader-forward-lighting-and-shading-quality) and
-the [Forward lighting boundary](../design/forward-lighting.md).
-
-**Depends on:** The [v0.16.0 GPU-driven foundation](../releases/v0.16.0.md) and a
-declared host camera-light contract. Forward remains the reference for optional
-shading paths.
-
-**Exit:** Differential Kitchen and focused material fixtures cover Camera Light
-ON/OFF, motion/static frames, Tier 0 and Hgi presentation, and both backends
-where available. No supported mode needs the camera light disabled to avoid
-white clipping or flicker; costs and unsupported lighting are diagnosed.
 
 ### v0.17.0 — Contribution-aware Gaussian culling and adaptive bounds
 
@@ -50,9 +15,16 @@ white clipping or flicker; costs and unsupported lighting are diagnosed.
 quality thresholds; retain `Exact` as the validation path.
 
 **Depends on:** Image-producing GPU Gaussian tiling from
-[v0.16.0](../releases/v0.16.0.md), with the deferred Metal quality checks above
-completed before expanding Metal claims. See the
-[Gaussian rendering design](../design/gaussian-rendering.md).
+[v0.16.0](../releases/v0.16.0.md), the v0.16.x Forward stabilization exit, and
+the Metal evidence below before expanding Metal claims. See the
+[Gaussian rendering design](../design/gaussian-rendering.md) and
+[Metal execution plan](../design/metal-gaussian-execution.md).
+
+- Broaden Metal Gaussian execution evidence beyond Apple M3 and tune tile work
+  on representative scenes. Record total GPU cost as well as raster savings;
+  65K/1M binning and sorting can outweigh the raster improvement.
+- Extend same-device/host measurements to other GPUs with controlled
+  clocks/power before establishing hardware timing gates.
 
 **Exit:** Rejection, pair, saturation, and early-termination counters accompany
 image and temporal-tolerance evidence without unexplained view-dependent
@@ -74,12 +46,14 @@ cost evidence.
 
 **Goal:** Select bounded two-level Gaussian tiling only when measured 4K/8K
 p95/p99 benefit justifies it. Independently broaden Standard Surface,
-UV/normal/opacity/emissive coverage, environment and authored lighting, shadows,
-asynchronous compilation, residency, and Forward/Visibility material parity.
+UV/normal/opacity/emissive coverage, multi-light, environment and authored
+lighting, shadows, asynchronous compilation, residency, and Forward/Visibility
+material parity.
 
 **Depends on:** Flat Gaussian tile evidence, the
-[MaterialX function boundary](../design/materialxgenslang-boundary.md), and
-Forward quality fixtures. Material evaluation does not own lighting or passes.
+[MaterialX function boundary](../design/materialxgenslang-boundary.md), and the
+v0.16.x Forward output-transform and representative-quality baseline. Material
+evaluation does not own lighting or passes.
 
 **Exit:** Overflow falls back safely; representative material/lighting fixtures
 and backend comparisons meet declared tolerances. Unsupported inputs have
@@ -177,6 +151,9 @@ material, lighting, fallback, compatibility, and performance evidence in the
 - **GPU capability matrix:** Expand validated NVIDIA/AMD and optional Intel
   hardware profiles and add Metal GPU evidence; separate missing-runner evidence
   from product failure. Extend feature/limit reporting before new paths use it.
+- **Linux execution evidence:** Add Linux Vulkan real-GPU, native Wayland
+  viewport and Hydra-host execution evidence separately from Mesa lavapipe and
+  the Xvfb/X11 smoke.
 - **OpenUSD compatibility:** Extend validated shared-SDK configurations with
   runtime plugin ABI diagnostics for supported hosts.
 - **Build and exported products:** Justify independent options and resolve
@@ -184,6 +161,8 @@ material, lighting, fallback, compatibility, and performance evidence in the
   Core/Vulkan transitive dependency.
 - **OST template extraction:** Extract only boundaries proven by Merlin and a
   second consumer; retain renderer-specific policies until separately proven.
+  Remaining OpenStrata integration asks are recorded in the
+  [OST recheck](../reports/ost/13-2026-09-26-v0.23.8-recheck-v0.24.0-asks.md).
 - **Post-v1 research:** Hierarchical meshlets and virtualized geometry require
   separately approved simplification, crack handling, streaming, paging,
   residency, and recovery evidence; static meshlets do not imply them.

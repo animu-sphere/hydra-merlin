@@ -1,6 +1,6 @@
 # Metal Gaussian execution plan
 
-**Status:** Phase 3 tile raster connected with Apple M3 offscreen, 8,192-particle/1M HgiMetal and native viewport evidence; broader hardware and controlled timing gates remain open.
+**Document type:** Implementation plan and dependency map. Current support is in the [support matrix](../reference/support-matrix.md).
 **Last reviewed:** 2026-10-05
 
 Move Gaussian projection, culling, sorting and rasterization onto the Metal GPU

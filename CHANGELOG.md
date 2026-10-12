@@ -8,6 +8,17 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation now follows explicit ownership rules: the README is a short
+  entry point, the support matrix owns current support with a
+  Supported/Validated/Experimental/Unsupported status per capability and a
+  known-limitations section, `docs/roadmap/current.md` tracks the v0.16.x
+  Forward stabilization series, and the Forward lighting design defines the
+  contract while run procedures move to new viewport and Forward validation
+  guides. Core CI checks repository-relative Markdown links and rejects
+  completed tasks in the current roadmap.
+
 ## [0.16.2] - 2026-10-12
 
 ### Added

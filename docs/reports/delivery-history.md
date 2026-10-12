@@ -398,7 +398,7 @@ images and host traces accompany the independent presentation comparison.
 
 Local validation uses Windows, RTX A5000 (NVIDIA 597.16, device Vulkan 1.4.329),
 Release/Ninja, Vulkan SDK 1.4.350.0, Slang 2026.8.x and the assembled OpenUSD 26.08
-host documented in the [focused lighting report](2026-10-10-forward-lighting-fixtures.md).
+host used for the focused lighting fixtures.
 The locally supplied Pixar `Kitchen_set.usd` has 1,788 meshes, Z up and root-layer
 SHA-256 `8f5cd40029d7bbb57b745a181b92e08515829236f9da4c9b2181851c7af5859b`.
 That hash does not pin the referenced layers/textures; the asset is not bundled
@@ -511,6 +511,22 @@ it does not synthesize Qt mouse navigation or prescribe a frame rate. Kitchen,
 unrestricted interactive navigation, OpenUSD 26.05 host execution, Metal,
 generated-material Hydra ingestion and native swapchain output remain unverified.
 The broader Forward lighting exit therefore stays open.
+
+## Forward Camera Light fixtures — 2026-10-10
+
+Moved from the Forward lighting design during the v0.16.x documentation
+cleanup; the facts are unchanged.
+
+Local Release validation on RTX A5000/OpenUSD 26.08 passes all five
+native/Tier 0/HgiVulkan cases. The 25 presented images (baseline plus 24 fixture
+phases) match exactly across Tier 0 and HgiVulkan; all 12 native/host center
+comparisons and both color/white generated-material comparisons have zero
+observed channel error. The native material run plus its three compilation
+fixtures passes 5/5, and the Core lighting/Hydra energy/install-consumer/runtime
+selection passes 4/4. These are local fixture results, not Kitchen, OpenUSD 26.05,
+Metal, continuous-navigation, or timing guarantees. The separate lookdev SDK's
+existing comprehensive smoke fails its authored-normal handedness image check
+before reaching any lighting fixture; the independent gate remains usable.
 
 ## Forward directional identity and Hydra light energy — 2026-10-10
 
@@ -1195,7 +1211,7 @@ with the fixtures and commands in the [benchmark guide](../guides/benchmarking.m
 
 The capability workflow and its evidence contract are complete. Enrolling a
 repository-scoped GPU runner for continuous execution remains in the
-[backlog](../roadmap/backlog.md#cross-cutting-open-items).
+[backlog](../roadmap/backlog.md#cross-cutting-planned-work).
 
 ## Public project baseline ✅
 
