@@ -43,13 +43,20 @@ cmake --build build --config Release
 | `RenderBackend` | `Merlin::RenderBackend` | Always | `Merlin::RenderExtraction` |
 | `Vulkan` | `Merlin::Vulkan` | Vulkan enabled | Vulkan 1.4, `Merlin::RenderBackend`, and `Merlin::RenderExtraction` |
 | `Metal` | `Merlin::Metal` | Metal enabled on Apple | Apple Metal/Foundation frameworks, `Merlin::RenderBackend`, and `Merlin::RenderExtraction` |
+| `MaterialX` | `Merlin::MaterialX` | MaterialX enabled | A MaterialX package providing `MaterialXGenSlang` |
+
+`Core` is a convenience component that loads `RenderWorld`,
+`RenderExtraction` and `RenderBackend` without discovering optional backend
+dependencies. A component-free `find_package(Merlin)` retains optional backend
+discovery; request `COMPONENTS Core` to avoid it.
 
 Requesting `Vulkan` makes the installed package discover Vulkan 1.4. A consumer
 requesting only Core components does not need Vulkan or Metal, even when the
 producer was built with either backend enabled.
 
 Unknown or unavailable required components make `find_package(Merlin ...)`
-fail. The package exposes `Merlin_VERSION`, `Merlin_WITH_VULKAN`,
+fail. The `merlin-install-consumer` tests install to an isolated prefix and
+verify downstream configure, build, link and execution against these targets. The package exposes `Merlin_VERSION`, `Merlin_WITH_VULKAN`,
 `Merlin_VULKAN_MIN_VERSION`, and `Merlin_WITH_METAL` for inspection after
 discovery.
 

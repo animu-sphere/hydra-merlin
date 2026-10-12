@@ -170,10 +170,8 @@ leases. Mesh-only disabled requests retain RGBA8; Gaussian-enabled empty frames
 still select the float pipeline so indirect draws and removal remain compatible.
 Metal reports float selection and includes final conversion in raster timestamps.
 Independent Apple M3 tests cover a closed-form low-opacity composite, exact
-offscreen depth/IDs, and separate host/native viewport image policies. Delivery and
-support status live in the
-[current milestone](../roadmap/current.md) and
-[support matrix](../reference/support-matrix.md).
+offscreen depth/IDs, and separate host/native viewport image policies. Support
+status lives in the [support matrix](../reference/support-matrix.md).
 
 ### Contribution-aware culling and adaptive bounds
 

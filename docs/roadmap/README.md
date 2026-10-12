@@ -1,11 +1,11 @@
 # Roadmap
 
 The roadmap contains only **incomplete** work. Shipped work belongs in the
-[changelog](../../CHANGELOG.md) and, when more detail is useful, optional
-[release records](../releases/). Completed pre-release roadmap detail belongs in
-the [delivery history](../reports/delivery-history.md), and implementation
-evidence and design rationale belong in [reports](../reports/) and
-[design](../design/).
+[changelog](../../CHANGELOG.md) and [release records](../releases/); current
+support belongs in the [support matrix](../reference/support-matrix.md);
+implementation evidence belongs in [reports](../reports/) and durable rationale
+in [design](../design/). See the
+[documentation ownership rules](../README.md#ownership-rules).
 
 > hdMerlin is a lightweight, host-neutral, multi-backend Hydra raster renderer
 > whose behavior is explicit, measurable, and recoverable through well-defined
@@ -19,15 +19,14 @@ order.
 
 | Document | Contents |
 | --- | --- |
-| [current.md](current.md) | Active and immediately next incomplete work. |
-| [backlog.md](backlog.md) | Planned but inactive incomplete work. |
+| [current.md](current.md) | Active work, immediately next work and the current milestone's exit conditions. |
+| [backlog.md](backlog.md) | Deferred work and later milestones, organized by milestone. |
 
-Work moves from backlog to current when implementation begins. On completion,
-remove it from both roadmap files; user-visible shipped changes belong in the
-[changelog](../../CHANGELOG.md), detailed releases in
-[release records](../releases/), and dated validation in
-[reports](../reports/). The roadmap is not a second changelog or a design
-document.
+Work moves from backlog to current when implementation begins; its actionable
+detail moves with it, leaving at most a short link. On completion, remove it
+from both roadmap files, record the user-visible result in the changelog, and
+update the support matrix if capability changed. The roadmap is not a second
+changelog, support matrix or design document.
 
 ## Product direction
 
@@ -159,11 +158,13 @@ Every milestone defines its release gates in six categories:
 - **Keep Visibility scoped.** The Visibility Buffer initially handles supported
   opaque indexed Mesh only. Forward remains the image reference and fallback;
   transparent Mesh, Gaussian primitives, and overlays keep specialized passes.
-- **Harden the reference image before alternate shading expands.** Beginning in
-  the cycle following v0.16.x, Forward lighting, color management, tone mapping, and
-  camera-motion stability receive fixture-backed quality work before broader
-  MaterialX and Visibility shading claims. Host camera lights remain explicit
-  inputs rather than a hidden or renderer-specific exposure override.
+- **Stabilize before expanding.** The v0.16.x series makes Forward semantics,
+  backend/shader architecture, the output transform, representative scene
+  quality and material parity explicit before v0.17.0 resumes Gaussian
+  optimization. Refactors preserve the established rendering contract; broader
+  MaterialX and Visibility shading claims follow fixture-backed Forward
+  quality. Host camera lights remain explicit inputs rather than a hidden or
+  renderer-specific exposure override.
 - **Keep the reference path.** Tier 0 CPU readback remains available for
   headless execution, image comparison, debugging, and unsupported-host
   fallback even when a lower-copy path exists.

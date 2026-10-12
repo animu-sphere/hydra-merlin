@@ -1,12 +1,14 @@
 # Release records
 
-`CHANGELOG.md` is the canonical compact record for every release. This directory
-contains optional immutable deep-dive records when a milestone needs additional
-objectives, compatibility notes, limitations, or verification evidence. New
-work goes into a new record rather than rewriting an older one.
+`CHANGELOG.md` records what shipped in every release. A release record here
+explains why a release was considered complete: its theme, completed scope,
+important behavioral changes, an evidence summary, known limits, and links to
+the canonical design and reference documents. Records are immutable; new work
+goes into a new record rather than rewriting an older one.
 
-Not every patch or milestone needs a separate file here. Active incomplete work
-lives in the [roadmap](../roadmap/).
+A release record is not a second support matrix: current capability lives in
+the [support matrix](../reference/support-matrix.md), and active incomplete
+work in the [roadmap](../roadmap/). Not every patch needs a separate file here.
 
 | Version | Record | Theme |
 | --- | --- | --- |

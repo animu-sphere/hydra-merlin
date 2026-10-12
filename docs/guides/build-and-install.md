@@ -3,6 +3,10 @@
 hdMerlin can be built as portable Core libraries, with native Metal offscreen
 execution, with the Vulkan headless and native viewport products, or with the
 opt-in Hydra 2 adapter. Build only the layers whose dependencies are available.
+For currently validated platforms and SDK versions, see the
+[support matrix](../reference/support-matrix.md); exact dependency pins live in
+[`cmake/MerlinVersions.cmake`](../../cmake/MerlinVersions.cmake). To run the
+built products, see [running the viewport and Hydra hosts](viewport.md).
 
 ## Prerequisites
 
@@ -23,7 +27,7 @@ Runtime dependencies are needed by the resulting application or host.
 | Windows / Vulkan | Visual Studio 2022 C++ tools, Vulkan 1.4 headers/loader, Slang 2026.8.x; validated SDK: 1.4.350.0 | Vulkan 1.4-capable GPU/driver and loader; packaged shader artifacts |
 | Linux / Vulkan | C++20 compiler, Ninja, Vulkan development loader, SDK 1.4.350.1 tools/headers, Slang 2026.8 | Vulkan 1.4 loader and driver; Mesa 25+ lavapipe provides CPU execution; packaged shader artifacts |
 | macOS / Metal | Xcode with macOS SDK and offline `metal`/`metallib` tools, Slang 2026.8.x; Ninja for the commands below | macOS Metal framework and a supported GPU; local runtime validation is on Apple Silicon |
-| Hydra 2 on either backend | OpenUSD 26.05 or 26.08 shared-library SDK matching the compiler and architecture | Matching OpenUSD libraries and plugin resources |
+| Hydra 2 on either backend | A validated OpenUSD shared-library SDK (see the support matrix) matching the compiler and architecture | Matching OpenUSD libraries and plugin resources |
 | usdview host | The Hydra build above | The OpenUSD package's compatible Python, Qt bindings and Python dependencies, including PyOpenGL/NumPy |
 | Optional MaterialX | MaterialX 1.39.6+ with `MaterialXGenSlang`, or the pinned source; CMake 3.26+ for a source build | The selected MaterialX package's shared libraries, if applicable |
 
@@ -146,82 +150,29 @@ Extended 1.3.0 for the platform USD chooser. Windows uses the system file
 dialog, macOS uses AppKit, and Linux uses XDG Desktop Portal; Linux viewport
 builds therefore need the D-Bus development package (for example,
 `libdbus-1-dev` on Debian/Ubuntu).
-For large Hydra2 stages opened through usdview, set
-`MERLIN_METAL_HEAP_MIB=N` to raise the Metal scene heap from its 64 MiB default;
-the native Merlin viewport exposes the equivalent `--metal-heap-mib N` option.
 
-Metal Gaussian GPU execution is opt-in. The native viewport accepts
-`--backend metal --gaussian-gpu require --gaussian-raster sorted-stream`;
-select `--gaussian-raster tiled` for the Metal tile path. Use `prefer` to permit
-the GPU sorted stream when tiled allocation is unavailable, or CPU fallback
-when GPU execution is unavailable. Tile pair overflow also selects the GPU
-sorted stream for that frame. Hydra exposes the same policy through
-`merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster`.
-The tiled path has offscreen image and overflow tests plus local usdview/HgiMetal
-image and performance checks on Apple M3. Other devices remain unverified.
-Metal `BackendOptions` has independent
-`gaussian_residency_budget_bytes` and `gaussian_scratch_budget_bytes` limits
-(1 GiB each by default), separate from the mesh/texture heap setting above.
-Hydra hosts can override these with `MERLIN_METAL_GAUSSIAN_RESIDENCY_MIB` and
-`MERLIN_METAL_GAUSSIAN_SCRATCH_MIB` (positive integer MiB). Residency includes
-upload staging and versions retained by unfinished commands; a full first
-upload therefore needs more than just the final attribute size.
-The native viewport accepts `--metal-gaussian-residency-mib N` and
-`--metal-gaussian-scratch-mib N` for the same limits.
-For local Release measurements, run `merlin-metal-gaussian-tests --benchmark`:
-it emits per-frame CSV for deterministic 64K/1M scenes, including static,
-camera and localized-edit frames. Static GPU frames still recompute, so CPU
-cached rendering can be faster; these measurements are not CI timing gates.
+Viewport options, Metal memory limits and Gaussian execution policy are
+described in [running the viewport](viewport.md).
 
-Windows builds are validated with Visual Studio 2022. Hosted Linux CI validates
-Core-only Debug and Release builds with Ninja. Hosted Apple Silicon macOS CI
-compiles and packages Core plus Metal in Debug and Release; local runtime
-evidence exercises an Apple GPU. Metal Gaussian compute/image tests use the
-backend availability probe, including scene-heap support, before GPU execution;
-a non-null Metal device alone is insufficient. Hosted Metal jobs retain CTest
-logs and JUnit results. Required hosted and SDK-release checks exclude the exact
-`gpu`, `runtime`, and `host-smoke` labels. Shader/ABI checks and installed package
-linking run without GPU execution. The scheduled/manual Metal capability
-workflow runs Debug/Release runtime tests and retains skip reasons; a skipped
-runtime test does not establish GPU coverage. Installed execution lives in
-`merlin-metal-install-runtime` and `merlin-vulkan-install-runtime`, whose CTest
-fixture first stages and builds the package consumers. An unfiltered local
-CTest run continues to exercise both package linking and runtime. See the
-[support matrix](../reference/support-matrix.md) for the exact coverage.
+## OpenStrata managed build
 
-The separate `Hydra compilation CI` workflow builds the pinned Windows shared
-OpenUSD 26.05/26.08 Release SDKs on hosted Windows 2022 runners. It checks CPU
-adapter contracts, shader ABI, installed Core/Vulkan consumer linking and installed
-Hydra plugin discovery with the same exact runtime-label exclusion above.
-Its configure step disables post-link renderer execution with
-`-DMERLIN_GENERATE_RENDERER_REPORT=OFF`. The evidence checker requires this
-setting and rejects missing/skipped selected cases or accidental host/device
-test selection. OpenUSD SDK provisioning uses verified OCI artifacts
-and Python 3.13.14 (required exactly by the 26.05 SDK), and omits
-`ost runtime validate`, which probes
-devices and renders through a host. The capability workflow opts into that
-validation separately. The copy-only Windows Vulkan SDK is supplemented with
-the SHA-256-pinned upstream VMA 3.3.0 header; no prepared GPU runner is needed
-for compilation. Hosted CPU/package executables also need the Vulkan loader
-DLL even without device execution. The workflow opts into a SHA-256-verified
-LunarG 1.4.350.0 x64 runtime ZIP and adds its loader directory to `PATH` without
-installing a driver; capability jobs retain the system loader.
-Both SDK jobs must pass to establish hosted Hydra compilation evidence.
-After OpenUSD's Python version validation, Merlin rebinds the Python header
-directories exported by the SDK's `python` target to the consumer's
-`Python3::Python` include directories. Other dependency directories and the
-verified SDK files remain unchanged. A configure regression uses an unavailable
-producer path to cover consumption from a different machine.
+The repository is an OpenStrata renderer project targeting `cy2026`; the
+validated CLI version is in the [support matrix](../reference/support-matrix.md).
+The host-neutral lifecycle uses the existing CMake graph in a tool-owned build
+tree:
 
-The self-hosted Windows capability workflow uses the digest-pinned OpenUSD
-26.08 Vulkan Lookdev runtime, including Usdviewq and its UI dependencies.
-SDK-only artifacts do not supply usdview. The workflow fetches the official
-testusdview launcher with a fixed SHA-256, pins the Python interpreter/library/
-headers to 3.13.14, and rejects missing, skipped or failed
-required native/host/AOV/install tests. Dispatch `suite=hydra` to refresh only
-the host gates after separately validated native Debug/Release runs; the
-default `suite=all` runs both. OpenUSD 26.05 device-host coverage requires a
-separate viewer-capable artifact and is not established by SDK-only CI.
+```powershell
+ost runtime pull cy2026 --profile core
+ost build --check
+ost build --jobs auto
+ost validate --json
+```
+
+For Hydra, materialize or adopt a compatible `usd`/`lookdev` OpenUSD runtime,
+then run `ost renderer view --profile usd`. Runtime sources, external build
+directories and CI policy are described in the
+[OpenStrata project layout](../design/openstrata-project.md). The CMake presets
+below work without OpenStrata.
 
 ## Shared CMake presets
 
@@ -387,6 +338,8 @@ The current output policy is SDR sRGB by default, with Display P3 represented
 in the Metal presentation contract and HDR kept as an explicit unsupported
 future extension rather than inferred from a pixel format.
 
+Metal builds do not produce `merlin-headless` or `merlin-benchmark`.
+
 ## Windows — Vulkan, headless rendering, and native viewport
 
 When `MERLIN_ENABLE_VULKAN=ON` (the default), CMake locates Vulkan 1.4 and
@@ -409,17 +362,8 @@ Visual Studio build, use `cmake --build --preset vulkan --config Debug` and
 For Metal/Ninja, use a separate directory with `-DCMAKE_BUILD_TYPE=Debug`
 and build/test that directory, as in the Core example.
 
-USD stages use usdview-compatible initial framing: the render/proxy bounds,
-authored Y/Z `upAxis`, 60-degree vertical FOV, maximum bounds dimension, and a
-1.1 frame-fit margin. `F` restores that framing. Alt+left drag tumbles,
-Alt+middle (or Alt+Ctrl+left) tracks, Alt+right and the wheel dolly, arrow keys
-pan, an unmodified left click triggers `primId` and `instanceId` readback, `S`
-writes a PPM screenshot, and Escape closes the window. Normal frames present
-through the Vulkan swapchain without CPU readback. The diagnostics panel can
-apply a new clear color or opt into continuous color CPU readback; each request
-shows its applied revision or rejection reason, and the readback toggle is
-deliberately called out as a timing-affecting inspection mode. Use
-`-DMERLIN_BUILD_VIEWPORT=OFF` for a Vulkan/headless-only build.
+Use `-DMERLIN_BUILD_VIEWPORT=OFF` for a Vulkan/headless-only build. Viewport
+controls are listed in [running the viewport](viewport.md#navigation-and-inspection).
 
 The Vulkan tests distinguish an unavailable optional device or validation
 capability from a renderer failure. Review CTest output rather than treating a
@@ -454,30 +398,18 @@ DYLD_LIBRARY_PATH=/path/to/openusd/lib \
   --backend metal --usd /path/to/scene.usdc
 ```
 
-For usdview, use the Python environment supplied or specified by the OpenUSD
-package, including its Qt bindings, PyOpenGL and NumPy. `PYTHONPATH` must expose
-`<openusd>/lib/python`; `PXR_PLUGINPATH_NAME` must expose the installed Merlin
-`<prefix>/lib/usd/hdMerlin/resources` directory. On Windows, add the OpenUSD
-`bin` and `lib` directories to the process `PATH`; on macOS, expose the SDK's
-`lib` through `DYLD_LIBRARY_PATH` when the package needs it. Launch the SDK's
-`usdview` with `--renderer Merlin /path/to/scene.usdc`. These host dependencies
-are separate from `slangc` and the backend's SDK.
+To launch the viewport with a USD stage or configure usdview to discover the
+plugin, see [running the viewport and Hydra hosts](viewport.md#usdview-and-other-hydra-hosts).
 
-On Windows, `run-merlin-viewport.cmd` is generated beside the developer-build
-executable and prepends the configured OpenUSD `bin` and `lib` directories for
-that process only. This avoids a machine-wide `PATH` edit. The executable can
-still be invoked directly when the same runtime directories are already
-discoverable. On macOS and Linux, configure the platform loader path for the
-selected OpenUSD SDK before launching the executable directly.
-
-The Hydra configuration accepts the validated OpenUSD 26.05 and 26.08 shared
-SDKs and records the selected header version in release metadata. It rejects
-other versions/layouts. On MSVC, a Debug hdMerlin build is also rejected when
-the SDK exports only Release libraries; use `--config Release` or provide a
-matching Debug OpenUSD SDK. Compiler/toolset ABI compatibility still has to
-match the consumer, and the discovery/usdview tests must run against the same
-runtime root used at configure time. Metal viewports can raise the default
-64 MiB scene heap for large stages with `--metal-heap-mib N`.
+The Hydra configuration accepts the OpenUSD versions listed in
+`MERLIN_OPENUSD_VALIDATED_VERSIONS` in
+[`cmake/MerlinVersions.cmake`](../../cmake/MerlinVersions.cmake) and records the
+selected header version in release metadata. It rejects other versions and
+layouts. On MSVC, a Debug hdMerlin build is also rejected when the SDK exports
+only Release libraries; use `--config Release` or provide a matching Debug
+OpenUSD SDK. Compiler/toolset ABI compatibility still has to match the consumer,
+and the discovery/usdview tests must run against the same runtime root used at
+configure time.
 
 `MERLIN_ENABLE_HGI_VULKAN_BRIDGE` is offered only when both `MERLIN_ENABLE_HYDRA2`
 and `MERLIN_ENABLE_VULKAN` are on, and defaults to `ON` there; a Metal-only
@@ -497,16 +429,8 @@ remain explicit target contracts.
 
 Set `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1` before creating a Hydra
 delegate to force Tier 0 CPU RenderBuffers without rebuilding the plugin.
-Other values retain the build's bridge policy. Forward CTest fixtures set this
-per process, so `tier0` exercises CPU readback and `hgi-metal` requires GPU
-copy. In a Metal/Hydra build, run
-`ctest --test-dir build/metal-hydra -R '^merlin-hydra2-forward-lighting' --output-on-failure`
-to include the native center and host image comparisons. Metal host fixtures
-enable API validation; native Metal gates separately enable shader validation.
-Host runs require an available GPU and window
-service. See the [Forward lighting boundary](../design/forward-lighting.md)
-for the common output profile, independent backend comparison command and
-remaining Metal validation requirements.
+Other values retain the build's bridge policy. To run the Forward host gates in
+either presentation mode, see [Forward validation](forward-validation.md).
 
 ## Optional MaterialX compiler
 
@@ -532,6 +456,18 @@ compile gates when the required `slangc` is available. Consult the
 [support matrix](../reference/support-matrix.md) for current execution coverage
 and the [MaterialX boundary](../design/materialxgenslang-boundary.md) for
 ownership and ABI rules.
+
+The pinned MaterialXGenSlang revision and MaterialX package version are in
+[`cmake/MerlinVersions.cmake`](../../cmake/MerlinVersions.cmake). A raw-CMake
+equivalent of the preset, without a GPU backend, is:
+
+```powershell
+cmake -S . -B build-materialx -G "Visual Studio 17 2022" -A x64 `
+  -DMERLIN_ENABLE_VULKAN=OFF -DMERLIN_ENABLE_MATERIALX=ON `
+  -DMERLIN_FETCH_MATERIALX=ON
+cmake --build build-materialx --config Debug
+ctest --test-dir build-materialx -C Debug -R merlin-materialx --output-on-failure
+```
 
 ## Install
 
@@ -595,3 +531,26 @@ contract.
 Use a new build directory when changing dependency roots or major capability
 options. Existing CMake caches can otherwise retain an older Vulkan or OpenUSD
 installation.
+
+## Continuous integration
+
+Hosted checks on every pull request build Core on Windows, Linux and macOS,
+compile and package Core plus Metal on Apple Silicon, run GPU-free MaterialX
+generation, and build Hydra against the pinned Windows OpenUSD SDKs. They
+exclude the exact `gpu`, `runtime` and `host-smoke` CTest labels, so shader/ABI
+checks and installed package linking run without GPU execution. The separate
+Linux Vulkan workflow executes on Mesa lavapipe, as described
+[above](#linux-lavapipe-validation). Installed execution lives
+in `merlin-metal-install-runtime` and `merlin-vulkan-install-runtime`, whose
+CTest fixture first stages and builds the package consumers; an unfiltered
+local CTest run exercises both package linking and runtime.
+
+GPU execution runs in separate capability workflows on prepared runners: the
+Windows `vulkan-1.4` runner for Vulkan and Hydra hosts, and a scheduled/manual
+Metal workflow. A skipped runtime test reports a missing capability and does not
+establish GPU coverage. On the Windows capability workflow, dispatch
+`suite=hydra` to refresh only the host gates after separately validated native
+Debug/Release runs; the default `suite=all` runs both. Workflow definitions in
+[`.github/workflows`](../../.github/workflows/) are the source of truth for the
+exact matrix; the [support matrix](../reference/support-matrix.md) records what
+that evidence establishes.

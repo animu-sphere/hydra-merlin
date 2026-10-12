@@ -52,7 +52,9 @@ ctest --preset core
 - Require measurements that identify the limiting stage before adopting
   bindless, indirect-draw, meshlet, mesh-shader, or host-interop complexity.
 - Update documentation when a command, dependency, public target, compatibility
-  promise, or limitation changes.
+  promise, or limitation changes. Each fact has one canonical document; follow
+  the [documentation lifecycle](docs/README.md#documentation-lifecycle) and run
+  `python scripts/check-docs.py` before requesting review.
 
 The build enables `/W4` on MSVC and `-Wall -Wextra -Wpedantic` elsewhere. New
 code must build without warnings in every configuration it affects.

@@ -2,7 +2,7 @@
 
 ## Purpose and boundary
 
-Hydra presentation currently uses the universal Tier 0 path:
+Hydra presentation always provides the universal Tier 0 path:
 
 ```text
 Merlin backend AOV -> GPU readback -> HdRenderBuffer -> CPU upload -> host Hgi texture -> Hydra composite

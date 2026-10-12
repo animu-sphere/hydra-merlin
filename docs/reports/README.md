@@ -16,3 +16,12 @@ evidence and upstream feedback, not a published product contract:
 - Incomplete work belongs in the [roadmap](../roadmap/).
 - Completed pre-release roadmap detail belongs in the
   [delivery history](delivery-history.md).
+- Current support belongs in the
+  [support matrix](../reference/support-matrix.md).
+
+Each report or delivery-history entry makes its point-in-time nature obvious by
+stating its date and, where relevant, the commit, platform, hardware and
+configuration. Reports are not the canonical description of current support:
+current documents cite them as "evidence captured for this claim is available
+in ...", never as "current support is defined by ...". See the
+[documentation ownership rules](../README.md#ownership-rules).

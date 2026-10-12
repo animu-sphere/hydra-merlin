@@ -304,7 +304,7 @@ sharing is a separately verified capability.
 ## Non-goals for the foundation releases
 
 - A CPU renderer fallback, OpenGL backend, or simultaneous support for every GPU
-  API. Metal follows the contract, shader, and validation gates in the roadmap.
+  API. Metal follows the same contract, shader, and validation gates as Vulkan.
 - Full USD Imaging parity.
 - Arbitrary OSL/custom MaterialX code nodes.
 - Complete volume, hair, subdivision, motion-blur, or advanced-transparency

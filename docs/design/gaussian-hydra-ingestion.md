@@ -4,9 +4,9 @@
 
 ## Decision
 
-hdMerlin will consume the standard OpenUSD
+hdMerlin consumes the standard OpenUSD
 `UsdVolParticleField3DGaussianSplat` representation through Hydra's
-`particleField` Rprim. It will not define a Merlin USD schema, a Merlin USD prim
+`particleField` Rprim. It does not define a Merlin USD schema, a Merlin USD prim
 type, renderer-specific USD attributes, or a PLY/SPLAT parser.
 
 OpenUSD 26.05 already supplies both sides of the stage-to-Hydra boundary:
