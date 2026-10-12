@@ -1,6 +1,6 @@
 # Forward lighting boundary
 
-**Last reviewed:** 2026-10-11
+**Last reviewed:** 2026-10-12
 
 Forward remains the image reference for optional shading paths. This document
 defines the current directional input contract and the remaining quality work;
@@ -47,7 +47,8 @@ the 9 vectors gives Metal SDK consumers the same default without a runtime
 asset-path dependency. Vulkan retains its configurable HDR path and native
 error boundary; custom Vulkan environments have no Metal parity claim.
 Refreshed Apple M3 native and host captures validate this Metal profile.
-Independent backend comparison evidence is still required before v0.16.2 can close. `RendererSettings` still rejects
+Independent RTX A5000 Vulkan/Apple M3 Metal native and host center comparisons
+validate the shared default output within their bounded fixtures. `RendererSettings` still rejects
 nonzero exposure and selectable tone mapping.
 
 Hydra ingests `distantLight` color, intensity, exposure, diffuse, angle,
@@ -157,12 +158,12 @@ locally; it is neither bundled nor automatically downloaded.
 These bounded sweeps edit an authored camera or synchronously dispatch Qt mouse
 events between captures. The three relative views do not establish interior scene
 coverage. Unrestricted interactive navigation and broader Kitchen quality,
-explicit exposure/tone-mapping selection and cross-backend output alignment
-remain incomplete. Focused Metal native and host diagnostic evidence is recorded below.
+explicit exposure/tone-mapping selection and full-image backend rasterization
+parity remain incomplete. Focused Metal native and host diagnostic evidence is recorded below.
 Framebuffer capture adds readback and disk I/O, so the sweep is not a timing gate
 or evidence for the
-absence of flicker at an unrestricted navigation rate. Cross-backend
-lighting/output parity is also still unverified.
+absence of flicker at an unrestricted navigation rate. Default-output center
+parity does not establish broader scene, material or custom-environment parity.
 
 ## Regression evidence
 
@@ -193,8 +194,10 @@ The comparator's GPU-free boundary tests do not count as Metal execution or
 backend image evidence. Refreshed Apple M3 Debug/Release native tests pass
 33/33 each, and Tier 0/HgiMetal host validation passes 16/16 without skips.
 All 44 analytic centers, 12 native/host centers and 851 host image pairs have
-zero observed error. Actual backend report comparison remains pending;
-v0.16.2 remains open until it and release checks pass. See the
+zero observed error. Independent RTX A5000 Vulkan/Apple M3 Metal comparisons
+pass 20 native pairs in each Debug/Release configuration with at most 1/255
+channel error, and 24 host pairs in each Tier 0/Hgi mode with zero error.
+See the [v0.16.2 closure record](../reports/delivery-history.md#v0162-independent-backend-validation-and-closure--2026-10-12) and the
 [refreshed Metal record](../reports/delivery-history.md#refreshed-metal-default-output-validation--2026-10-11).
 
 Windows validation of the shared environment and refreshed Vulkan native,
@@ -296,8 +299,8 @@ Host artifacts live under
 comparison JSON files live alongside those directories. Optional external
 scene fixtures also register both presentation modes when configured; this
 does not establish Metal Kitchen coverage. Generated Metal materials,
-cross-backend output alignment, unrestricted navigation and timing remain
-separate gates.
+full-image backend rasterization parity, unrestricted navigation and timing
+remain separate gates.
 
 Before output alignment, local Apple M3/OpenUSD 26.08 Release validation on 2026-10-11 passes the final
 16/16 selection, including installed-package and native AOV dependencies.
@@ -334,8 +337,9 @@ Run the separate Qt navigation cases with
 `-R '^merlin-hydra2-forward-navigation'`. Images, per-frame JSON and host traces
 live under `adapters/merlin-hydra2/forward-navigation-*-install`, with a separate
 `forward-navigation-comparison.json`. The Windows GPU capability workflow runs
-and archives these gates for both OpenUSD versions; CI selection alone does not
-establish successful 26.05 execution.
+and archives these gates with the pinned OpenUSD 26.08 Vulkan Lookdev runtime
+and its matching Python 3.13.14 interpreter. SDK-only 26.05/26.08 compilation
+remains separate and does not establish 26.05 device-host execution.
 
 Configure an existing Hydra/host build with an external stage and run its
 independent scene gate:

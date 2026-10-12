@@ -259,6 +259,7 @@ jobs:
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.log
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.json
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.png
+            build/adapters/merlin-hydra2/forward-lighting-comparison.json
             build/adapters/merlin-hydra2/forward-lighting-*-comparison.json
             build/adapters/merlin-hydra2/forward-motion-*-install/*.log
             build/adapters/merlin-hydra2/forward-motion-*-install/*.json

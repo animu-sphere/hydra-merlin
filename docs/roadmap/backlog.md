@@ -20,9 +20,6 @@ deferral does not expand current support claims. See the
   current 65K/1M binning and sorting can outweigh the raster improvement.
 - [ ] Extend same-device/host measurements to other supported GPUs with
   controlled clocks/power before establishing hardware timing gates.
-- [ ] Run the new Qt mouse-click/axis-overlay regressions on HgiVulkan with
-  OpenUSD 26.08. Apple M3/OpenUSD 26.08 Tier 0 and HgiMetal evidence
-  is archived in the [delivery history](../reports/delivery-history.md#v016x-click-picking-overlay-parity-and-ci-separation).
 - [ ] Add Linux Vulkan real-GPU, native Wayland viewport and Hydra-host
   execution evidence separately from Mesa lavapipe and the Xvfb/X11 smoke.
 
@@ -33,8 +30,9 @@ including camera-light energy, direct/environment lighting, linear/sRGB
 boundaries, exposure, tone mapping, and handwritten/generated material parity.
 
 Directional selection, Hydra energy conversion and default output alignment are
-implemented; remaining v0.16.2 backend evidence is tracked in
-[current](current.md#active--v0162-forward-output-alignment) and
+validated and shipped in [v0.16.2](../releases/v0.16.2.md), including independent
+Vulkan/Metal native and host center comparisons. Broader quality work remains
+in [current](current.md#next--broader-forward-lighting-and-shading-quality) and
 the [Forward lighting boundary](../design/forward-lighting.md).
 
 **Depends on:** The [v0.16.0 GPU-driven foundation](../releases/v0.16.0.md) and a

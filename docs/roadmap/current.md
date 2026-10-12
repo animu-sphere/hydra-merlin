@@ -1,35 +1,27 @@
 # Current
 
 Active and immediately next work lives here. Shipped changes are recorded in
-the [changelog](../../CHANGELOG.md) and [v0.16.1 release record](../releases/v0.16.1.md);
+the [changelog](../../CHANGELOG.md) and [v0.16.2 release record](../releases/v0.16.2.md);
 current support claims live in the [support matrix](../reference/support-matrix.md).
 
-## Active — v0.16.2 Forward output alignment
+## Next — broader Forward lighting and shading quality
 
-The shared directional-input boundary, Hydra radiance conversion and common
-default SH/Reinhard output profile are implemented. Their contracts and remaining
-validation requirements are in the
-[Forward lighting design](../design/forward-lighting.md).
+v0.16.2 closes stable directional selection, Hydra camera-light energy and the
+shared default SH/Reinhard output with independent Vulkan/Metal native and
+host center comparisons. The next Forward work extends that bounded evidence:
 
-- [x] Validate the updated Metal output in Debug/Release with native analytic
-  centers, three normal-only environment samples, repeated/restored AOVs,
-  resource counters and API/shader validation. Earlier Apple M3 captures used
-  constant ambient and uncompressed output; refreshed Apple M3 captures pass
-  all 44 analytic centers and exact Debug/Release image comparisons.
-- [x] Run the updated Metal native/Tier 0 and Tier 0/HgiMetal lighting, camera
-  sweep and Qt navigation gates. White OFF must retain headroom in linear/sRGB;
-  saturation is no longer an accepted diagnostic result. All 12 native/host
-  centers and 851 Tier 0/HgiMetal images match exactly.
-- [ ] Compare independently captured Vulkan/Metal default-output reports using
-  `tests/compare_forward_backends.py`: 20 native center pairs within 1/255 and
-  24 host center pairs within 2/255 for each presentation mode. Preserve the
-  independent full-image host, exact replay/AOV and installed-runtime gates.
-- [ ] Finish release preparation and hosted checks, then publish v0.16.2 only
-  after the changed Metal profile and actual backend comparisons pass.
+- [ ] Cover interior Kitchen views and broader scene/material lighting quality
+  with native, Tier 0 and Hgi comparisons for Camera Light ON/OFF and linear/sRGB.
+- [ ] Validate unrestricted interactive navigation separately from bounded,
+  synchronous first-frame sweeps and Qt capture replay.
+- [ ] Define exposure/tone-mapping selection and extend lighting beyond the
+  current single unshadowed directional source plus packaged SH environment.
+- [ ] Extend generated Metal material ingestion and representative hardware/SDK
+  evidence before broadening support or establishing controlled timing gates.
 
-Unrestricted navigation, interior Kitchen views, generated host material
-ingestion and the broader Forward quality exit remain in the
-[backlog](backlog.md#next-cycle-onward--forward-lighting-and-shading-quality).
+The [Forward lighting design](../design/forward-lighting.md) defines current
+contracts and limits; the [backlog](backlog.md#next-cycle-onward--forward-lighting-and-shading-quality)
+retains the broader quality exit and subsequent milestones.
 
 Historical producer-session evidence and remaining OpenStrata integration asks
 are in the [OST recheck](../reports/ost/13-2026-09-26-v0.23.8-recheck-v0.24.0-asks.md).

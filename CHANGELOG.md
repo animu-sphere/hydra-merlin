@@ -8,7 +8,7 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
-## [0.16.2] - 2026-10-11
+## [0.16.2] - 2026-10-12
 
 ### Added
 
@@ -17,15 +17,16 @@ after its public API and release process are established.
   installed Core consumption. Native Forward fixtures isolate three environment
   directions; an offline Vulkan/Metal comparator checks independent native and
   linear/sRGB host center evidence and rejects stale or incomplete reports.
-  Refreshed Apple M3 Metal execution passes; actual cross-backend comparisons
-  remain required.
+  Independent RTX A5000 Vulkan/Apple M3 Metal comparisons pass all 20 native
+  pairs per Debug/Release configuration within 1/255 and all 24 host pairs
+  per Tier 0/Hgi mode with zero observed error.
 
 - Metal Forward host fixtures now compare native/Tier 0 center RGB and
   Tier 0/HgiMetal images for Camera Light ON/OFF and linear/sRGB output.
   Independent camera-sweep and Qt navigation comparisons retain first-frame
   replay checks, resource counters and host traces. Refreshed SH/Reinhard
   captures retain white OFF headroom in both output modes; all 851 host image
-  pairs match exactly. Cross-backend output alignment remains open.
+  pairs match exactly. Independent Vulkan/Metal host centers also match exactly.
 - Native Metal Forward image fixtures cover color/white patches, camera-light
   ON/OFF inputs, world-space light independence from camera motion, rotated and
   returned cameras, zero energy, stable-handle selection through table compaction,
@@ -33,7 +34,7 @@ after its public API and release process are established.
   and analytic center comparisons accompany exact repeated/restored AOV checks
   and zero steady-state uploads, allocations and pipeline creation. Local Apple
   M3 Debug/Release validation passes all 44 analytic centers under the updated
-  SH/Reinhard profile; cross-backend output parity remains open.
+  SH/Reinhard profile; independent Vulkan/Metal native centers agree within 1/255.
 - Opt-in external multi-mesh USD Forward navigation fixtures, configured with
   `MERLIN_FORWARD_SCENE`, preserve authored geometry/materials and exercise
   Camera Light ON/OFF and linear/sRGB output through Qt tumble/truck/zoom.
@@ -49,7 +50,7 @@ after its public API and release process are established.
   without geometry fetch/upload or pipeline creation. Optional Tier 0/HgiVulkan
   comparison retains all references and moving images, counters and traces in
   the GPU capability workflow. General interactive navigation, Kitchen, other
-  SDKs and Metal remain separate quality gates.
+  SDKs and unrestricted interactive timing remain separate quality gates.
 - Focused Forward image fixtures for Camera Light ON/OFF, rotated/returned
   cameras, color/white patches, explicit zero energy, and handwritten/generated
   Vulkan material parity. Independent usdview CTest gates check linear/sRGB
@@ -67,14 +68,23 @@ after its public API and release process are established.
 
 ### Fixed
 
+- Hydra indexed primvar caches now handle OpenUSD's `primvars/name:indices`
+  dirty locators. Authored face-varying normals, colors and UVs follow handedness
+  edits; an indices-only normal edit and exact image restoration avoid points/
+  topology refetch and triangulation.
+- Vulkan host capability CI now uses the digest-pinned OpenUSD 26.08 Vulkan
+  Lookdev artifact, a checksum-pinned official testusdview launcher and the
+  runner's matching Python 3.13.14 x64 interpreter/library/headers. Missing or
+  skipped required Forward/AOV/install tests fail the gate instead of allowing
+  a no-test success; SDK-only 26.05/26.08 compilation stays separate.
 - Metal Forward now evaluates the packaged SH ambient fill and applies the same
   Reinhard compression as Vulkan before the linear RGBA8 color AOV. Its
   conventional, argument-buffer and GPU Scene paths share this shading function.
   White Camera Light OFF now requires color headroom in native and host fixtures;
   the former uncompressed saturation exception is removed. Vulkan's configurable
   HDR environment remains available. Refreshed Apple M3 Debug/Release
-  compilation/runtime and Tier 0/HgiMetal host gates pass; actual backend
-  comparisons remain required for a parity support claim.
+  compilation/runtime and Tier 0/HgiMetal host gates pass. Independent backend
+  comparisons establish bounded default-output center parity.
 
 - Metal Mesh/Gaussian composition regression now independently captures the
   opaque Forward response and Gaussian alpha, then checks their composite
@@ -91,8 +101,8 @@ after its public API and release process are established.
   including a +Z recovery for degenerate axes and finite extreme-scale handling;
   invalid selected color/intensity is rejected. Zero intensity and the existing
   no-directional-light diagnostic fallback remain explicit. CPU/install and
-  Vulkan/Metal image regressions cover the shared contract; cross-backend
-  camera-light image/output parity remains pending.
+  Vulkan/Metal image regressions and independent native/host center comparisons
+  cover the shared default-output contract.
 - Hydra distant lights now convert UsdLux radiance, angle, normalize, exposure
   and diffuse to a face-on Lambert response. Hdx's 15000/0.53-degree camera
   light becomes approximately 0.321 rather than a 15000 shading multiplier,
