@@ -1,6 +1,6 @@
 [project]
 name = "hdMerlin"
-version = "0.16.1"
+version = "0.16.2"
 
 [requires]
 platform = "cy2026"

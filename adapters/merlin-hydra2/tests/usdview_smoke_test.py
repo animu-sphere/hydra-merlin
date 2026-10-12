@@ -212,6 +212,23 @@ def _check_mesh_orientation(app_controller):
         _render_phase(app_controller, left, edit=lambda _: set_handedness(True))
         assert pixels(right) == pixels(left), (
             f"{prefix}: equivalent left/right meshes changed the lit image")
+        if authored:
+            # Change only USD's indices attribute, keeping topology and the
+            # authored normal array intact. Its name:indices locator must
+            # invalidate the cached primvar without refetching geometry.
+            for phase, order in (
+                    ("normals-indices-only", [0, 1, 2, 3]),
+                    ("normals-indices-restored", [0, 3, 2, 1])):
+                _render_phase(app_controller, phase, edit=lambda _, order=order:
+                              normals.SetIndices(Vt.IntArray(order)))
+                events = [e for e in _read_events() if e["phase"] == phase]
+                assert max(e["primvar_fetch_count"] for e in events) == 1
+                assert all(e["points_fetch_count"] == 0 and
+                           e["topology_fetch_count"] == 0 and
+                           e["triangulation_rebuild_count"] == 0
+                           for e in events)
+            assert pixels("normals-indices-only") != pixels(left)
+            assert pixels("normals-indices-restored") == pixels(left)
 
     # An orientation-only edit must invalidate topology, even without changing
     # points or indices. Generated normals must change and then recover.

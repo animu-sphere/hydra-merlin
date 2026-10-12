@@ -206,12 +206,22 @@ for compilation. Hosted CPU/package executables also need the Vulkan loader
 DLL even without device execution. The workflow opts into a SHA-256-verified
 LunarG 1.4.350.0 x64 runtime ZIP and adds its loader directory to `PATH` without
 installing a driver; capability jobs retain the system loader.
-Hosted Hydra results remain pending until both SDK jobs pass.
+Both SDK jobs must pass to establish hosted Hydra compilation evidence.
 After OpenUSD's Python version validation, Merlin rebinds the Python header
 directories exported by the SDK's `python` target to the consumer's
 `Python3::Python` include directories. Other dependency directories and the
 verified SDK files remain unchanged. A configure regression uses an unavailable
 producer path to cover consumption from a different machine.
+
+The self-hosted Windows capability workflow uses the digest-pinned OpenUSD
+26.08 Vulkan Lookdev runtime, including Usdviewq and its UI dependencies.
+SDK-only artifacts do not supply usdview. The workflow fetches the official
+testusdview launcher with a fixed SHA-256, pins the Python interpreter/library/
+headers to 3.13.14, and rejects missing, skipped or failed
+required native/host/AOV/install tests. Dispatch `suite=hydra` to refresh only
+the host gates after separately validated native Debug/Release runs; the
+default `suite=all` runs both. OpenUSD 26.05 device-host coverage requires a
+separate viewer-capable artifact and is not established by SDK-only CI.
 
 ## Shared CMake presets
 

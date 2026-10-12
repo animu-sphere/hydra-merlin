@@ -11,6 +11,138 @@ Legend: ✅ done
 
 ---
 
+## v0.16.2 independent backend validation and closure — 2026-10-12
+
+Release preparation starts from `fe8de56`. Refreshed Apple M3 captures above
+validate the changed Metal profile; independent RTX A5000 captures use the
+repository's Windows `vulkan-1.4` runner, MSVC 19.51 and driver 597.16.
+
+The Debug and Release native jobs in
+[capability run 38148962635](https://github.com/animu-sphere/hydra-merlin/actions/runs/38148962635)
+each pass 24/24 cases without skips. That run's host jobs failed because the
+SDK-only artifacts do not contain Usdviewq; the overall workflow is not a
+successful host gate. Downloaded native evidence is retained separately in
+`build/v0162-vulkan-evidence/native-{debug,release}`. Comparing each configuration
+with independently captured Metal reports passes all 20 native centers with
+at most one channel unit error.
+
+Device host provisioning now uses the Vulkan Lookdev artifact for OpenUSD 26.08:
+
+- OCI reference: `oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-lookdev@sha256:21cb5fe4c725c9918f6b18fe79b957cfec9d6032e3a40e2e8290ed2dcb70331f`.
+- Artifact SHA-256: `03c5a8edcf9f362bebf9d84afd53f4e8e84b24edfa333ad375b0871a1feae463`.
+- Official v26.08 testusdview launcher SHA-256: `41c7d691bd2e8c11a70559d27c0d287ddca44e9d7d5fc00a53c806ccfa4ec032`.
+- Runner Python: 3.13.14 x64; CMake interpreter, library and includes are pinned
+  together. SDK-only 26.05/26.08 hosted compilation remains separate.
+
+The first Lookdev attempt, run `38150143929`, selected Python 3.14 for host
+execution against Python 3.13 modules and failed imports. Run `38150687969`
+failed setup-python because the runner's Windows PowerShell policy blocked
+its installation script. The workflow now validates and selects the existing
+Python 3.13.14 installation already used successfully by runtime validation.
+
+[Run 38150958489](https://github.com/animu-sphere/hydra-merlin/actions/runs/38150958489)
+passes all 14 required Forward/AOV/install cases with no skips. Its 12 native/
+Tier 0 centers and 851 lighting/sweep/navigation image pairs match exactly.
+Its generic Mesh smokes fail authored-normal handedness comparison, and their
+comparison dependency does not run; the overall workflow is failed. These
+failed attempts remain distinct from successful evidence.
+
+That Mesh failure also reproduces locally on Metal. Temporary diagnostics show
+`primvars/normals:indices`, while the cache only checked `primvars/normals` and
+its child locators. Two corners therefore retained stale normal indices. The
+adapter now also handles OpenUSD's name-suffixed index locator for normals,
+colors and UVs. The existing exact handedness gate remains unchanged, and an
+indices-only edit/restoration additionally requires image change/recovery,
+exactly one primvar fetch, zero points/topology fetch and no triangulation.
+Local Metal smoke plus distant-light selection passes 2/2 without skips.
+
+[Final host run 38151987793](https://github.com/animu-sphere/hydra-merlin/actions/runs/38151987793)
+on `d433da5` passes 17/17 selected cases without skips, including generic Mesh/
+click smokes and their comparison. Discovery/bridge/RenderBuffer/viewport and
+Lookdev runtime validation also pass. Its 12 native/Tier 0 centers, 851 Forward
+images and 21 Mesh/click images match exactly. The JUnit evidence checker
+confirms all 14 required Forward/AOV/install cases executed successfully.
+Downloaded evidence is in `build/v0162-vulkan-evidence/openusd-26.08-final`.
+The lighting comparison JSON omitted by the former upload glob is regenerated
+from the retained images with `compare_usdview_smoke.py --forward-lighting-only`;
+the workflow now explicitly archives that report too.
+
+After the cache fix, the Metal host selection passes 16/16 again; an independent
+bridge-disabled build passes native/lighting/Mesh selection 4/4. Its 12 centers,
+851 Forward images and 21 Mesh/click images match the HgiMetal captures exactly.
+Independent backend comparison is repeated with the final Windows artifacts:
+20 native centers within 1/255 and all 24 host centers per mode with zero error.
+
+Release preparation synchronizes VERSION/OpenStrata/changelog to `0.16.2` with
+release date 2026-10-12 JST. A fresh local Core selection passes 23/23 and Metal
+release metadata/tooling plus installed consumer/runtime passes 4/4 without
+skips. All 16 hosted checks pass on source commit `d433da5`: Windows/Linux/macOS
+Core, macOS Metal and Windows/Linux MaterialX Debug/Release, Linux lavapipe
+Debug/Release and OpenUSD 26.05/26.08 GPU-free Hydra compilation. These source
+and runtime results support the [v0.16.2 release record](../releases/v0.16.2.md).
+
+Independent backend comparisons use the following commands, separately for
+Tier 0 and Hgi presentation:
+
+```sh
+python3 -B tests/compare_forward_backends.py build/v0162-vulkan-evidence/native-release/build-native/tests/forward-images-handwritten build/metal-forward-lighting/tests/forward-images-metal build/v0162-vulkan-evidence/backend-tier0-comparison.json --vulkan-host build/v0162-vulkan-evidence/openusd-26.08-final/build/adapters/merlin-hydra2/forward-lighting-tier0-install/usdview-first-frame-forward-lighting.json --metal-host build/metal-hydra/adapters/merlin-hydra2/forward-lighting-tier0-install/usdview-first-frame-forward-lighting.json
+python3 -B tests/compare_forward_backends.py build/v0162-vulkan-evidence/native-release/build-native/tests/forward-images-handwritten build/metal-forward-lighting/tests/forward-images-metal build/v0162-vulkan-evidence/backend-hgi-vulkan-comparison.json --vulkan-host build/v0162-vulkan-evidence/openusd-26.08-final/build/adapters/merlin-hydra2/forward-lighting-hgi-vulkan-install/usdview-first-frame-forward-lighting.json --metal-host build/metal-hydra/adapters/merlin-hydra2/forward-lighting-hgi-metal-install/usdview-first-frame-forward-lighting.json
+```
+
+Both comparisons pass all 20 native centers within 1/255 and all 24 host
+centers with zero error. This closes the bounded shared-default-output gate,
+not full-image cross-backend rasterization or custom HDR parity. Broader
+Kitchen/interior quality, generated Metal materials, unrestricted navigation,
+other hardware/SDKs and controlled timing remain in the backlog.
+
+## Refreshed Metal default-output validation — 2026-10-11
+
+Validated `fe8de56` with the Gaussian composition regression correction below
+on Apple M3, macOS 15.7.9, AppleClang 17, Slang 2026.8 and OpenUSD 26.08.
+These captures use `forward-sh-l2-reinhard/v1`, replacing the pre-alignment
+Metal evidence for the current output profile.
+
+```sh
+cmake --build build/metal-forward-lighting --parallel 4
+cmake --build build/metal-forward-lighting-debug --parallel 4
+ctest --test-dir build/metal-forward-lighting --output-on-failure --no-tests=error --output-junit v0162-metal-tests.xml
+ctest --test-dir build/metal-forward-lighting-debug --output-on-failure --no-tests=error --output-junit v0162-debug-tests.xml
+cmake --build build/metal-hydra --parallel 4
+ctest --test-dir build/metal-hydra --output-on-failure --no-tests=error --output-junit v0162-forward-host-tests.xml -R '^merlin-(hydra2-(forward-(lighting|motion|navigation).*|install-discovery|hgi-metal-aov)|metal-forward-lighting|backend-boundaries|install-consumer|metal-install-runtime)$'
+cmake --build build/metal-hydra-tier0 --parallel 4
+ctest --test-dir build/metal-hydra-tier0 --output-on-failure --no-tests=error --output-junit v0162-tier0-tests.xml -R '^merlin-(hydra2-forward-lighting.*|metal-forward-lighting)$'
+```
+
+Debug and Release each pass all 33 tests without skips. All 44 native analytic
+centers have zero error; the 44 PPM images and two JSON reports match exactly
+between configurations. Repeated/restored four-AOV gates, steady-state resource
+counters and API/shader validation pass. White OFF is `[121, 122, 122]` in the
+linear native AOV, retaining headroom; ON, rotated ON and zero energy are
+`[64, 64, 65]`, `[58, 59, 60]` and `[14, 15, 17]`.
+
+The initial Release run failed the mixed Mesh/Gaussian composition assertion,
+which assumed an uncompressed opaque blue channel above 240. The corrected
+regression independently captures the opaque Mesh and Gaussian-only alpha,
+then checks their expected composite within one channel unit. It preserves
+green occlusion, exact depth/picking and CPU/GPU differential checks rather
+than lowering the old brightness threshold. The successful full reruns include
+this correction; the initial failed log remains in `/tmp`.
+
+The bridge-enabled host selection passes 16/16; the separately bridge-disabled
+native/Tier 0 selection passes 3/3, both without skips. All 12 native/Tier 0
+linear centers and all 851 Tier 0/HgiMetal images (25 lighting, 393 sweep,
+433 Qt navigation) match exactly. White OFF host centers are `[121, 122, 122]`
+linear and `[183, 184, 184]` sRGB. Immediate/settled replay and restored-image
+checks, zero steady geometry uploads/pipeline creation, installed discovery,
+consumer/runtime and native HgiMetal AOV checks pass. Host tests use API
+validation; native/AOV tests additionally use shader validation.
+
+JUnit, native images and host PNG/JSON/trace artifacts remain in the build
+directories above; `/tmp/merlin-v0162-*` retains build/test logs. Independent
+Vulkan/Metal comparison and release checks remain pending. Broader Kitchen,
+generated Metal materials, other GPUs/SDKs, unrestricted navigation and timing
+remain outside this bounded validation.
+
 ## Forward default output alignment — 2026-10-11
 
 Moved the existing Radiance loader and Lambert-convolved l=2 SH projection into

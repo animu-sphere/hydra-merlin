@@ -2,12 +2,19 @@ name: Vulkan and Hydra capability CI
 
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Capability suite to execute
+        type: choice
+        options: [all, hydra]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   vulkan-headless:
+    if: inputs.suite != 'hydra'
     name: Vulkan 1.4 headless / ${{ matrix.build_type }}
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 30
@@ -147,16 +154,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The viewer-capable Vulkan lookdev artifact exists for 26.08.
+        # 26.05/26.08 SDK-only compilation remains in hydra.yml.
         include:
-          - openusd: "26.05"
-            artifact_digest: sha256:e6944385f7b53e5c029c258503b053a9ab1cab2ad7e0f676b403f3d79b17b4fd
-            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:44471d4b66caebc61af2ad69225102a01fc611056136fbffe6bc8e1a38dc1eda
           - openusd: "26.08"
-            artifact_digest: sha256:baa53948498586283d4ad0ee94d9b00357f885fe022b972d627de8ec6367592e
-            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-usd@sha256:29118734a8048313cf7bd8774e23e3cc8477226eae7cdd85002f73af286f109a
+            artifact_digest: sha256:03c5a8edcf9f362bebf9d84afd53f4e8e84b24edfa333ad375b0871a1feae463
+            oci_reference: oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-lookdev@sha256:21cb5fe4c725c9918f6b18fe79b957cfec9d6032e3a40e2e8290ed2dcb70331f
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Select the SDK's Python ABI
+        id: python
+        shell: pwsh
+        run: |
+          $pythonRoot = Join-Path $env:LOCALAPPDATA 'Programs/Python/Python313'
+          $python = Join-Path $pythonRoot 'python.exe'
+          if (-not (Test-Path -LiteralPath $python)) {
+            throw 'The capability runner requires Python 3.13.14 x64'
+          }
+          & $python -c "import struct, sys; assert sys.version_info[:3] == (3, 13, 14) and struct.calcsize('P') == 8, sys.version; print(sys.version)"
+          if ($LASTEXITCODE -ne 0) { throw 'Python does not match the Lookdev SDK ABI' }
+          "python-path=$python" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          "pythonLocation=$pythonRoot" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $pythonRoot | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Restore the LunarG Vulkan SDK cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -185,11 +206,22 @@ jobs:
 
       - name: Pull and materialize the HgiVulkan runtime
         shell: pwsh
-        run: .github/scripts/setup-openusd.ps1 -Version ${{ matrix.openusd }} -ValidateRuntime
+        run: .github/scripts/setup-openusd.ps1 -Version ${{ matrix.openusd }} -Profile lookdev -ValidateRuntime
+
+      - name: Provision pinned OpenUSD test launcher
+        shell: pwsh
+        run: .github/scripts/setup-testusdview.ps1 -Version ${{ matrix.openusd }}
 
       - name: Configure Hydra
         shell: pwsh
-        run: cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+        run: >-
+          cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON
+          -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON
+          "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+          "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT"
+          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}"
+          "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib"
+          "-DPython3_INCLUDE_DIR=$env:pythonLocation/include"
 
       - name: Build
         run: >-
@@ -200,7 +232,13 @@ jobs:
         run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer|hgi-vulkan-bridge)|viewport-(vulkan|hydra))$" --output-on-failure
 
       - name: Run Tier 0 and HgiVulkan usdview regressions
-        run: ctest --test-dir build -C Release -R "^merlin-hydra2-(usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation)-(tier0|hgi-vulkan|comparison))$" --output-on-failure --verbose
+        run: >-
+          ctest --test-dir build -C Release
+          -R "^merlin-(install-consumer|vulkan-install-runtime|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation)-(tier0|hgi-vulkan|comparison)))$"
+          --output-on-failure --verbose --no-tests=error --output-junit forward-runtime-tests.xml
+
+      - name: Require executed native and host Forward coverage
+        run: python scripts/check-forward-runtime-evidence.py --junit build/forward-runtime-tests.xml
 
       - name: Upload usdview evidence
         if: always()
@@ -210,6 +248,7 @@ jobs:
           if-no-files-found: warn
           path: |
             .ost-ci/*.json
+            build/forward-runtime-tests.xml
             build/adapters/merlin-hydra2/usdview-install/*.log
             build/adapters/merlin-hydra2/usdview-install/*.json
             build/adapters/merlin-hydra2/usdview-install/*.png
@@ -220,6 +259,7 @@ jobs:
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.log
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.json
             build/adapters/merlin-hydra2/forward-lighting-*-install/*.png
+            build/adapters/merlin-hydra2/forward-lighting-comparison.json
             build/adapters/merlin-hydra2/forward-lighting-*-comparison.json
             build/adapters/merlin-hydra2/forward-motion-*-install/*.log
             build/adapters/merlin-hydra2/forward-motion-*-install/*.json

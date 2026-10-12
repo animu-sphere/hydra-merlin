@@ -10,6 +10,7 @@ lives in the [roadmap](../roadmap/).
 
 | Version | Record | Theme |
 | --- | --- | --- |
+| v0.16.2 | [v0.16.2](v0.16.2.md) | Forward output alignment |
 | v0.16.1 | [v0.16.1](v0.16.1.md) | Gaussian quality and host validation |
 | v0.16.0 | [v0.16.0](v0.16.0.md) | GPU-driven Mesh and Gaussian rendering |
 | v0.15.0 | [v0.15.0](v0.15.0.md) | Persistent GPU Scene and Gaussian residency |
