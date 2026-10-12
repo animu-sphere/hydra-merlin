@@ -35,6 +35,24 @@ The common conversion runs once per material preparation/render encoding, not
 once per draw on Metal. It does not modify snapshots, geometry, material
 variants or GPU resource identity.
 
+## Shared implementation boundary
+
+`Merlin::RenderBackend` owns draw-matrix composition, inverse-transpose normal
+matrices (including the singular-transform identity fallback), material-value
+packing and environment/light inputs. Backends supply their native upload ABI
+and selected environment to the common packing function.
+
+`core/merlin-render-backend/shaders/forward-policy.slang` owns vertex evaluation,
+SH lighting, the fixed output transform, alpha-mask rejection and color/ID
+outputs. `gpu-scene-forward.slang` owns table-backed material/geometry feature
+selection, transforms and material overrides. Conventional, bindless and
+GPU-driven Vulkan entries and native Metal entries call these modules.
+Bindings, argument-buffer capacity, sampler transport and material placement
+across stages remain backend adapters. Metal retains fragment-stage material
+multiplication; the Vulkan vertex path retains its existing material placement.
+Sharing policy does not change stage interpolation or extend generated-material
+support.
+
 ## Default output profile
 
 Vulkan and Metal implement one default output profile:

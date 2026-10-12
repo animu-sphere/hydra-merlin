@@ -34,3 +34,17 @@ foreach(_hydra_public_header IN LISTS _hydra_public_headers)
     endif()
   endif()
 endforeach()
+
+# Normal distribution backends load embedded build-time shader artifacts.
+# Keeping authored shader code outside orchestration prevents the old inline
+# Metal library from reappearing during backend changes.
+file(GLOB_RECURSE _backend_sources
+  "${MERLIN_SOURCE_DIR}/backend/*/src/*.cpp"
+  "${MERLIN_SOURCE_DIR}/backend/*/src/*.mm"
+  "${MERLIN_SOURCE_DIR}/backend/*/src/*.hpp")
+foreach(_source IN LISTS _backend_sources)
+  file(READ "${_source}" _contents)
+  if(_contents MATCHES "newLibraryWithSource|R\"METAL\\(")
+    message(FATAL_ERROR "inline/runtime shader source in backend implementation: ${_source}")
+  endif()
+endforeach()

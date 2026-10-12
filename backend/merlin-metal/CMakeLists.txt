@@ -9,6 +9,13 @@ find_library(MERLIN_COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
 
 add_library(merlin-metal STATIC
   src/backend.mm
+  src/presentation.mm
+  src/gpu_scene.mm
+  src/pipelines.mm
+  src/resources.mm
+  src/forward.mm
+  src/gaussian.mm
+  src/readback.mm
   src/gaussian_execution.mm
   src/gaussian_residency.mm
   src/resource_table.cpp

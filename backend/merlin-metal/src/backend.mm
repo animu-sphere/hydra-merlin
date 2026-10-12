@@ -1,3264 +1,697 @@
-#import <Foundation/Foundation.h>
-#import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
-
-#include <merlin/metal/backend.hpp>
-#include <merlin/render/forward_lighting.hpp>
-#include <merlin/render/diffuse_environment.hpp>
-#include "gaussian_metallib.hpp"
-#include "gaussian_raster_abi.hpp"
-#include "gaussian_execution.hpp"
-#include <merlin/extraction/gaussian_preparation.hpp>
-
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <chrono>
-#include <cmath>
-#include <cstring>
-#include <exception>
-#include <limits>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
+#include "backend_impl.hpp"
 
 namespace merlin::metal {
-namespace {
 
-using Clock = std::chrono::steady_clock;
+Backend::Impl::Impl(const render::BackendCreateInfo& info, BackendOptions options)
+    : owner_(++g_owner), options_(options),
+      texture_slots_(options.texture_capacity),
+      sampler_slots_(options.sampler_capacity) {
+  @autoreleasepool {
+    if (info.frames_in_flight == 0 || info.frames_in_flight > 8) {
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+          "create Metal backend",
+          "frames_in_flight must be between 1 and 8");
+    }
+    if (options_.texture_capacity > kShaderTextureCapacity ||
+        options_.sampler_capacity > kShaderSamplerCapacity) {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest, "create Metal backend",
+          "resource table capacity exceeds the compiled argument-buffer ABI");
+    }
+    if (options_.heap_capacity_bytes < 1024U * 1024U) {
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+          "create Metal backend",
+          "heap capacity must be at least 1 MiB");
+    }
+    if (options_.presentation &&
+        (options_.presentation->layer == 0 ||
+            options_.presentation->drawable_count < 2 ||
+            options_.presentation->drawable_count > 3)) {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest,
+          "create Metal presentation",
+          "presentation requires a CAMetalLayer and 2 or 3 drawables");
+    }
+    if (options_.presentation &&
+        options_.presentation->dynamic_range !=
+            PresentationDynamicRange::Standard) {
+      throw render::RendererError(
+          render::RendererErrorCode::Unsupported,
+          "create Metal presentation",
+          "extended-range presentation is reserved for the future HDR "
+          "contract");
+    }
 
-constexpr std::uint32_t kShaderTextureCapacity = 128;
-constexpr std::uint32_t kShaderSamplerCapacity = 32;
-constexpr std::uint32_t kMaskedAlphaFlag = 0x10000000U;
+    device_ = MTLCreateSystemDefaultDevice();
+    if (device_ == nil) {
+      throw render::RendererError(
+          render::RendererErrorCode::BackendUnavailable,
+          "create Metal device", "no Metal device is available");
+    }
+    queue_ = [device_ newCommandQueue];
+    if (queue_ == nil) {
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "create Metal command queue",
+          "newCommandQueue returned nil");
+    }
 
-std::atomic<std::uint64_t> g_owner{1000};
+    bindless_ = device_.argumentBuffersSupport == MTLArgumentBuffersTier2;
+    CreateLibraryAndPipeline();
+    CreateDepthState();
+    CreateHeap();
+    CreateGaussianExecution();
+    if (options_.gpu_scene_capacities) {
+      CreateGpuSceneBuffers(*options_.gpu_scene_capacities);
+    }
+    if (options_.presentation) {
+      ConfigurePresentation(*options_.presentation);
+    }
+    completion_event_ = [device_ newSharedEvent];
+    if (completion_event_ == nil) {
+      throw render::RendererError(
+          render::RendererErrorCode::BackendFailure,
+          "create Metal completion event", "newSharedEvent returned nil");
+    }
 
-std::string String(NSString* value) {
-  if (value == nil) {
-    return {};
-  }
-  const char* utf8 = value.UTF8String;
-  return utf8 == nullptr ? std::string{} : std::string(utf8);
-}
-
-template <typename Handle>
-Handle DecodeHandle(std::uintptr_t value) noexcept {
-  return (__bridge Handle)(reinterpret_cast<void*>(value));
-}
-
-std::uint64_t DurationNs(Clock::time_point begin, Clock::time_point end) {
-  return static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin)
-          .count());
-}
-
-std::uint64_t AlignUp(std::uint64_t value, std::uint64_t alignment) {
-  if (alignment == 0) {
-    return value;
-  }
-  return (value + alignment - 1U) / alignment * alignment;
-}
-
-std::uint32_t AlignedRowPitch(std::uint32_t width) {
-  return static_cast<std::uint32_t>(
-      AlignUp(static_cast<std::uint64_t>(width) * 4U, 256U));
-}
-
-Mat4 Multiply(const Mat4& lhs, const Mat4& rhs) {
-  Mat4 result;
-  result.values.fill(0.0F);
-  for (std::size_t column = 0; column < 4; ++column) {
-    for (std::size_t row = 0; row < 4; ++row) {
-      for (std::size_t inner = 0; inner < 4; ++inner) {
-        result.values[column * 4U + row] +=
-            lhs.values[inner * 4U + row] * rhs.values[column * 4U + inner];
+    frames_.resize(info.frames_in_flight);
+    bool gaussian_stage_timestamps =
+        [device_ supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary];
+    id<MTLCounterSet> timestamp_set = nil;
+    if (gaussian_stage_timestamps) {
+      for (id<MTLCounterSet> candidate in device_.counterSets) {
+        if ([candidate.name isEqualToString:MTLCommonCounterSetTimestamp]) {
+          timestamp_set = candidate;
+          break;
+        }
+      }
+      gaussian_stage_timestamps = timestamp_set != nil;
+    }
+    for (auto& frame : frames_) {
+      if (gaussian_stage_timestamps) {
+        auto descriptor = [[MTLCounterSampleBufferDescriptor alloc] init];
+        descriptor.counterSet = timestamp_set;
+        descriptor.storageMode = MTLStorageModeShared;
+        descriptor.sampleCount = kGaussianTimestampCount;
+        NSError* error = nil;
+        frame.gaussian_timestamps =
+            [device_ newCounterSampleBufferWithDescriptor:descriptor
+                                                    error:&error];
+        gaussian_stage_timestamps = frame.gaussian_timestamps != nil;
+      }
+      frame.encoded_textures.resize(options_.texture_capacity);
+      frame.encoded_texture_revisions.resize(options_.texture_capacity);
+      frame.encoded_samplers.resize(options_.sampler_capacity);
+      frame.encoded_sampler_revisions.resize(options_.sampler_capacity);
+      if (bindless_) {
+        frame.argument_buffer =
+            [device_ newBufferWithLength:argument_encoder_.encodedLength
+                                 options:MTLResourceStorageModeShared];
+        if (frame.argument_buffer == nil) {
+          throw render::RendererError(
+              render::RendererErrorCode::ResourceExhausted,
+              "allocate Metal argument buffer", "newBuffer returned nil");
+        }
       }
     }
+    if (!gaussian_stage_timestamps)
+      for (auto& frame : frames_)
+        frame.gaussian_timestamps = nil;
+
+    capabilities_.backend = render::BackendKind::Metal;
+    capabilities_.backend_name = "metal";
+    capabilities_.device_name = String(device_.name);
+    capabilities_.bindless_textures = bindless_;
+    capabilities_.asynchronous_upload = false;
+    capabilities_.timestamp_queries = true;
+    capabilities_.gaussian_gpu_stage_timestamps = gaussian_stage_timestamps;
+    capabilities_.external_presentation = layer_ != nil;
+    capabilities_.cpu_readback = true;
+    capabilities_.validation_enabled = info.enable_validation;
+    capabilities_.generated_materials = false;
+    capabilities_.limits.max_image_dimension_2d = 16384;
+    capabilities_.limits.max_frames_in_flight = info.frames_in_flight;
+    capabilities_.limits.sampled_image_slots = options_.texture_capacity;
+    capabilities_.limits.sampler_slots = options_.sampler_capacity;
+
+    metal_statistics_.frame_context_count = info.frames_in_flight;
+    metal_statistics_.heap_capacity_bytes = options_.heap_capacity_bytes;
   }
+}
+
+Backend::Impl::~Impl() {
+  @autoreleasepool {
+    for (auto& [value, pending] : pending_) {
+      (void)value;
+      [pending.command waitUntilCompleted];
+    }
+    NotifyOverlay(PresentationOverlayPhase::Shutdown);
+  }
+}
+
+const render::RendererCapabilities& Backend::Impl::capabilities() const noexcept {
+  return capabilities_;
+}
+
+render::RendererStatistics Backend::Impl::statistics() const noexcept {
+  auto result = statistics_;
+  const auto metal = metal_statistics();
+  result.uploaded_bytes = uploaded_bytes_;
+  result.readback_bytes = readback_bytes_;
+  result.presentation_copy_bytes = presentation_copy_bytes_;
+  result.aov_image_export_count = aov_image_export_count_;
+  result.active_aov_image_leases = active_aov_image_leases_;
+  result.residency.bindless_tables = bindless_;
+  result.residency.vram_heap_capacity_bytes = metal.heap_capacity_bytes;
+  result.residency.vram_heap_budget_bytes = metal.heap_capacity_bytes;
+  result.residency.vram_heap_usage_bytes = metal.heap_resident_bytes;
+  result.residency.vram_heap_available_bytes =
+      metal.heap_capacity_bytes > metal.heap_resident_bytes
+          ? metal.heap_capacity_bytes - metal.heap_resident_bytes
+          : 0;
+  result.residency.configured_vram_limit_bytes = options_.heap_capacity_bytes;
+  result.residency.effective_vram_limit_bytes = options_.heap_capacity_bytes;
+  result.residency.renderer_allocated_bytes = metal.heap_resident_bytes;
+  result.residency.renderer_peak_allocated_bytes =
+      metal.heap_peak_resident_bytes;
+  result.residency.geometry_resident_bytes = GeometryResidentBytes();
+  result.residency.geometry_peak_resident_bytes =
+      geometry_peak_resident_bytes_;
+  result.residency.geometry_retiring_bytes = RetiringBytes();
+  result.residency.texture_slots_capacity = metal.texture_slots.capacity;
+  result.residency.texture_slots_in_use = metal.texture_slots.in_use;
+  result.residency.texture_slots_retiring = metal.texture_slots.retiring;
+  result.residency.sampler_slots_capacity = metal.sampler_slots.capacity;
+  result.residency.sampler_slots_in_use = metal.sampler_slots.in_use;
+  result.residency.sampler_slots_retiring = metal.sampler_slots.retiring;
+  result.residency.unique_sampler_count = metal.sampler_slots.in_use;
   return result;
 }
 
-std::array<Vec4, 3> NormalMatrix(const Mat4& transform) {
-  const Vec3 column0{transform.values[0], transform.values[1],
-      transform.values[2]};
-  const Vec3 column1{transform.values[4], transform.values[5],
-      transform.values[6]};
-  const Vec3 column2{transform.values[8], transform.values[9],
-      transform.values[10]};
-  const auto cross = [](const Vec3& lhs, const Vec3& rhs) {
-    return Vec3{lhs.y * rhs.z - lhs.z * rhs.y, lhs.z * rhs.x - lhs.x * rhs.z,
-        lhs.x * rhs.y - lhs.y * rhs.x};
-  };
-  const auto cofactor0 = cross(column1, column2);
-  const auto cofactor1 = cross(column2, column0);
-  const auto cofactor2 = cross(column0, column1);
-  const auto determinant = column0.x * cofactor0.x + column0.y * cofactor0.y +
-                           column0.z * cofactor0.z;
-  if (std::abs(determinant) <= 1.0e-20F) {
-    return {Vec4{1.0F, 0.0F, 0.0F, 0.0F}, Vec4{0.0F, 1.0F, 0.0F, 0.0F},
-        Vec4{0.0F, 0.0F, 1.0F, 0.0F}};
+MetalStatistics Backend::Impl::metal_statistics() const noexcept {
+  auto result = metal_statistics_;
+  for (const auto& frame : frames_) {
+    if (frame.gpu_scene_staging != nil) {
+      result.gpu_scene_staging_capacity_bytes +=
+          frame.gpu_scene_staging.length;
+    }
   }
-  const auto scale = 1.0F / determinant;
-  return {
-      Vec4{cofactor0.x * scale, cofactor0.y * scale, cofactor0.z * scale, 0.0F},
-      Vec4{cofactor1.x * scale, cofactor1.y * scale, cofactor1.z * scale, 0.0F},
-      Vec4{cofactor2.x * scale, cofactor2.y * scale, cofactor2.z * scale,
-          0.0F}};
-}
-
-struct alignas(16) DrawConstants {
-  Mat4 model_view_projection;
-  Vec4 normal_matrix_column0;
-  Vec4 normal_matrix_column1;
-  Vec4 normal_matrix_column2;
-  std::uint32_t feature_mask{};
-  std::uint32_t prim_id{};
-  std::uint32_t instance_id{};
-  std::uint32_t texture_index{};
-  std::uint32_t sampler_index{};
-  std::uint32_t padding[3]{};
-};
-
-struct alignas(16) MaterialConstants {
-  Vec4 base_color;
-  Vec4 light_direction_intensity;
-  Vec4 light_color_alpha_cutoff;
-  std::array<Vec4, 9> diffuse_environment;
-};
-
-struct alignas(16) GpuSceneDrawConstants {
-  Mat4 view_projection;
-  std::uint32_t draw_slot{};
-  std::uint32_t padding[3]{};
-};
-
-static_assert(offsetof(extraction::DrawVertex, position) == 0);
-static_assert(offsetof(extraction::DrawVertex, normal) == 12);
-static_assert(offsetof(extraction::DrawVertex, color) == 24);
-static_assert(offsetof(extraction::DrawVertex, texcoord) == 40);
-static_assert(sizeof(extraction::DrawVertex) == 48);
-static_assert(sizeof(DrawConstants) == 144);
-static_assert(sizeof(MaterialConstants) == 192);
-static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
-static_assert(sizeof(GpuSceneDrawConstants) == 80);
-static_assert(alignof(GpuSceneDrawConstants) == 16);
-static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
-static_assert(offsetof(GpuSceneDrawConstants, draw_slot) == 64);
-
-const char* kShaderSource = R"METAL(
-#include <metal_stdlib>
-using namespace metal;
-
-constant uint kDisplayColorFlag = 1u;
-constant uint kBaseColorTextureFlag = 2u;
-constant uint kDirectionalLightFlag = 4u;
-constant uint kMaskedAlphaFlag = 0x10000000u;
-
-struct VertexInput {
-  float3 position [[attribute(0)]];
-  float3 normal [[attribute(1)]];
-  float4 color [[attribute(2)]];
-  float2 texcoord [[attribute(3)]];
-};
-
-struct DrawConstants {
-  float4x4 model_view_projection;
-  float4 normal_matrix_column0;
-  float4 normal_matrix_column1;
-  float4 normal_matrix_column2;
-  uint feature_mask;
-  uint prim_id;
-  uint instance_id;
-  uint texture_index;
-  uint sampler_index;
-  uint padding[3];
-};
-static_assert(sizeof(DrawConstants) == 144, "DrawConstants must match the host ABI");
-
-struct MaterialConstants {
-  float4 base_color;
-  float4 light_direction_intensity;
-  float4 light_color_alpha_cutoff;
-  float4 diffuse_environment[9];
-};
-static_assert(sizeof(MaterialConstants) == 192, "MaterialConstants must match the host ABI");
-
-struct VertexOutput {
-  float4 position [[position]];
-  float4 color;
-  float3 shading_normal;
-  float2 texcoord;
-};
-
-struct FragmentOutput {
-  float4 color [[color(0)]];
-  uint prim_id [[color(1)]];
-  uint instance_id [[color(2)]];
-};
-
-struct ResourceTable {
-  array<texture2d<float>, 128> textures [[id(0)]];
-  array<sampler, 32> samplers [[id(128)]];
-};
-
-vertex VertexOutput merlin_vertex(
-    VertexInput input [[stage_in]],
-    constant DrawConstants& draw [[buffer(1)]]) {
-  VertexOutput output;
-  output.position = draw.model_view_projection * float4(input.position, 1.0);
-  output.color = ((draw.feature_mask & kDisplayColorFlag) != 0u)
-      ? input.color : float4(1.0);
-  output.shading_normal =
-      draw.normal_matrix_column0.xyz * input.normal.x +
-      draw.normal_matrix_column1.xyz * input.normal.y +
-      draw.normal_matrix_column2.xyz * input.normal.z;
-  output.texcoord = input.texcoord;
-  return output;
-}
-
-FragmentOutput shade(
-    VertexOutput input,
-    DrawConstants draw,
-    MaterialConstants material,
-    float4 texture_sample) {
-  float4 color = material.base_color * input.color;
-  if ((draw.feature_mask & kBaseColorTextureFlag) != 0u) {
-    color *= texture_sample;
-  }
-  if ((draw.feature_mask & kDirectionalLightFlag) != 0u) {
-    float3 normal = normalize(input.shading_normal);
-    float x = normal.x, y = normal.y, z = normal.z;
-    float3 environment =
-        material.diffuse_environment[0].rgb * 0.2820947918f +
-        material.diffuse_environment[1].rgb * (0.4886025119f * y) +
-        material.diffuse_environment[2].rgb * (0.4886025119f * z) +
-        material.diffuse_environment[3].rgb * (0.4886025119f * x) +
-        material.diffuse_environment[4].rgb * (1.0925484306f * x * y) +
-        material.diffuse_environment[5].rgb * (1.0925484306f * y * z) +
-        material.diffuse_environment[6].rgb * (0.3153915653f * (3.0f * z * z - 1.0f)) +
-        material.diffuse_environment[7].rgb * (1.0925484306f * x * z) +
-        material.diffuse_environment[8].rgb * (0.5462742153f * (x * x - y * y));
-    float n_dot_l = max(dot(normal,
-                            normalize(material.light_direction_intensity.xyz)),
-                        0.0);
-    color.rgb *= 0.15f * max(environment, float3(0.0f)) + material.light_color_alpha_cutoff.rgb *
-        (0.85 * n_dot_l * material.light_direction_intensity.w);
-    color.rgb = color.rgb / (float3(1.0f) + color.rgb);
-  }
-  if ((draw.feature_mask & kMaskedAlphaFlag) != 0u &&
-      color.a < material.light_color_alpha_cutoff.a) {
-    discard_fragment();
-  }
-  FragmentOutput output;
-  output.color = saturate(color);
-  output.prim_id = draw.prim_id;
-  output.instance_id = draw.instance_id;
-  return output;
-}
-
-fragment FragmentOutput merlin_fragment_argument_buffer(
-    VertexOutput input [[stage_in]],
-    constant DrawConstants& draw [[buffer(1)]],
-    constant MaterialConstants& material [[buffer(2)]],
-    constant ResourceTable& resources [[buffer(3)]]) {
-  float4 sample_value = float4(1.0);
-  if ((draw.feature_mask & kBaseColorTextureFlag) != 0u) {
-    sample_value = resources.textures[draw.texture_index].sample(
-        resources.samplers[draw.sampler_index], input.texcoord);
-  }
-  return shade(input, draw, material, sample_value);
-}
-
-fragment FragmentOutput merlin_fragment_conventional(
-    VertexOutput input [[stage_in]],
-    constant DrawConstants& draw [[buffer(1)]],
-    constant MaterialConstants& material [[buffer(2)]],
-    texture2d<float> base_color_texture [[texture(0)]],
-    sampler base_color_sampler [[sampler(0)]]) {
-  float4 sample_value = float4(1.0);
-  if ((draw.feature_mask & kBaseColorTextureFlag) != 0u) {
-    sample_value = base_color_texture.sample(base_color_sampler, input.texcoord);
-  }
-  return shade(input, draw, material, sample_value);
-}
-
-struct GpuSceneDrawConstants {
-  float4x4 view_projection;
-  uint draw_slot;
-  uint padding[3];
-};
-static_assert(sizeof(GpuSceneDrawConstants) == 80, "GpuSceneDrawConstants must match the host ABI");
-
-struct GpuGeometry {
-  uint vertex_offset;
-  uint vertex_count;
-  uint index_offset;
-  uint index_count;
-  uint index_type;
-  uint attribute_mask;
-  uint meshlet_offset;
-  uint meshlet_count;
-  float4 bounds_min;
-  float4 bounds_max;
-};
-
-struct GpuInstance {
-  float4x4 transform;
-  float4 normal_matrix_columns[3];
-  uint object_id;
-  uint instance_id;
-  uint visibility_mask;
-  uint flags;
-};
-
-struct GpuMaterial {
-  float4 base_color;
-  float4 surface_factors;
-  uint material_class_flags;
-  uint base_color_texture_index;
-  uint base_color_sampler_index;
-  uint base_color_texcoord_set;
-};
-
-struct GpuDraw {
-  uint geometry_index;
-  uint material_index;
-  uint instance_index;
-  uint primitive_base;
-  uint primitive_count;
-  uint flags;
-  uint draw_id_low;
-  uint draw_id_high;
-};
-
-DrawConstants LoadGpuDrawConstants(
-    constant GpuSceneDrawConstants& scene,
-    GpuGeometry geometry, GpuInstance instance, GpuMaterial material) {
-  DrawConstants result;
-  result.model_view_projection =
-      scene.view_projection * instance.transform;
-  result.normal_matrix_column0 = instance.normal_matrix_columns[0];
-  result.normal_matrix_column1 = instance.normal_matrix_columns[1];
-  result.normal_matrix_column2 = instance.normal_matrix_columns[2];
-  result.feature_mask = material.material_class_flags & 0x0000ffffu;
-  if ((geometry.attribute_mask & 2u) == 0u) {
-    result.feature_mask &= ~kDisplayColorFlag;
-  }
-  if ((geometry.attribute_mask & 4u) == 0u ||
-      material.base_color_texture_index == 0xffffffffu ||
-      material.base_color_sampler_index == 0xffffffffu) {
-    result.feature_mask &= ~kBaseColorTextureFlag;
-  }
-  if ((material.material_class_flags & (1u << 16u)) != 0u) {
-    result.feature_mask |= kMaskedAlphaFlag;
-  }
-  result.prim_id = instance.object_id;
-  result.instance_id = instance.instance_id;
-  result.texture_index = material.base_color_texture_index;
-  result.sampler_index = material.base_color_sampler_index;
+  result.texture_slots = texture_slots_.telemetry();
+  result.sampler_slots = sampler_slots_.telemetry();
+  result.gaussian_resident_live_bytes = gaussian_residency_ ? gaussian_residency_->live_bytes() : 0;
+  result.gaussian_scratch_live_bytes = gaussian_execution_ ? gaussian_execution_->live_bytes() : 0;
   return result;
 }
 
-MaterialConstants LoadGpuMaterialConstants(
-    GpuMaterial material, constant MaterialConstants& base_material) {
-  MaterialConstants result = base_material;
-  result.base_color = material.base_color;
-  result.light_color_alpha_cutoff.a = material.surface_factors.z;
-  return result;
+std::optional<render::PresentationTarget>
+Backend::Impl::default_presentation_target() const noexcept {
+  return presentation_;
 }
 
-vertex VertexOutput merlin_vertex_gpu_scene(
-    VertexInput input [[stage_in]],
-    constant GpuSceneDrawConstants& gpu_scene_constants [[buffer(1)]],
-    device const GpuGeometry* gpu_geometries [[buffer(4)]],
-    device const GpuInstance* gpu_instances [[buffer(5)]],
-    device const GpuMaterial* gpu_materials [[buffer(6)]],
-    device const GpuDraw* gpu_draws [[buffer(7)]]) {
-  GpuDraw draw = gpu_draws[gpu_scene_constants.draw_slot];
-  GpuGeometry geometry = gpu_geometries[draw.geometry_index];
-  GpuInstance instance = gpu_instances[draw.instance_index];
-  GpuMaterial material = gpu_materials[draw.material_index];
-  DrawConstants constants =
-      LoadGpuDrawConstants(gpu_scene_constants, geometry, instance, material);
-  VertexOutput output;
-  output.position = constants.model_view_projection * float4(input.position, 1.0);
-  output.color = ((constants.feature_mask & kDisplayColorFlag) != 0u)
-      ? input.color : float4(1.0);
-  output.shading_normal =
-      constants.normal_matrix_column0.xyz * input.normal.x +
-      constants.normal_matrix_column1.xyz * input.normal.y +
-      constants.normal_matrix_column2.xyz * input.normal.z;
-  output.texcoord = input.texcoord;
-  return output;
-}
-
-fragment FragmentOutput merlin_fragment_gpu_scene(
-    VertexOutput input [[stage_in]],
-    constant GpuSceneDrawConstants& gpu_scene_constants [[buffer(1)]],
-    constant MaterialConstants& base_material [[buffer(2)]],
-    constant ResourceTable& resources [[buffer(3)]],
-    device const GpuGeometry* gpu_geometries [[buffer(4)]],
-    device const GpuInstance* gpu_instances [[buffer(5)]],
-    device const GpuMaterial* gpu_materials [[buffer(6)]],
-    device const GpuDraw* gpu_draws [[buffer(7)]]) {
-  GpuDraw draw = gpu_draws[gpu_scene_constants.draw_slot];
-  GpuGeometry geometry = gpu_geometries[draw.geometry_index];
-  GpuInstance instance = gpu_instances[draw.instance_index];
-  GpuMaterial material = gpu_materials[draw.material_index];
-  DrawConstants constants =
-      LoadGpuDrawConstants(gpu_scene_constants, geometry, instance, material);
-  MaterialConstants effective_material =
-      LoadGpuMaterialConstants(material, base_material);
-  float4 texture_sample = float4(1.0);
-  if ((constants.feature_mask & kBaseColorTextureFlag) != 0u) {
-    texture_sample = resources.textures[material.base_color_texture_index].sample(
-        resources.samplers[material.base_color_sampler_index],
-        input.texcoord);
+render::CompletionToken Backend::Impl::Submit(const render::RenderRequest& request) {
+  // @autoreleasepool does not drain on C++ exception unwinding. Catch inside
+  // the pool so abandoned commands release their residency/scratch leases
+  // before reporting a failed submission to the caller.
+  std::exception_ptr failure;
+  render::CompletionToken token;
+  @autoreleasepool {
+    try {
+      token = SubmitFrame(request);
+    } catch (...) {
+      failure = std::current_exception();
+    }
   }
-  return shade(input, constants, effective_material, texture_sample);
+  if (failure)
+    std::rethrow_exception(failure);
+  return token;
 }
 
-kernel void merlin_convert_color(
-    texture2d<float, access::read> source [[texture(0)]],
-    texture2d<float, access::write> destination [[texture(1)]],
-    uint2 pixel [[thread_position_in_grid]]) {
-  if (pixel.x < destination.get_width() && pixel.y < destination.get_height()) {
-    destination.write(source.read(pixel), pixel);
+render::CompletionToken Backend::Impl::SubmitFrame(const render::RenderRequest& request) {
+  const auto submit_begin = Clock::now();
+  if (!request.snapshot) {
+    throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+        "submit Metal frame", "snapshot is null");
   }
-}
-
-struct PresentationVertexOutput {
-  float4 position [[position]];
-  float2 texcoord;
-};
-
-vertex PresentationVertexOutput merlin_presentation_vertex(
-    uint vertex_id [[vertex_id]]) {
-  constexpr float2 positions[] = {
-      float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0)};
-  constexpr float2 texcoords[] = {
-      float2(0.0, 1.0), float2(2.0, 1.0), float2(0.0, -1.0)};
-  PresentationVertexOutput output;
-  output.position = float4(positions[vertex_id], 0.0, 1.0);
-  output.texcoord = texcoords[vertex_id];
-  return output;
-}
-
-fragment float4 merlin_presentation_fragment(
-    PresentationVertexOutput input [[stage_in]],
-    texture2d<float> color [[texture(0)]],
-    constant uint& color_space [[buffer(0)]]) {
-  constexpr sampler linear_sampler(
-      coord::normalized, address::clamp_to_edge, filter::linear);
-  float4 result = color.sample(linear_sampler, input.texcoord);
-  if (color_space == 1u) {
-    result.rgb = float3(
-        dot(float3(0.82259287, 0.17753395, 0.0), result.rgb),
-        dot(float3(0.03319951, 0.96678350, 0.0), result.rgb),
-        dot(float3(0.01708535, 0.07239572, 0.91030148), result.rgb));
-  }
-  return result;
-}
-
-)METAL";
-
-std::uint64_t AovBit(Aov aov) {
-  return 1ULL << static_cast<std::uint32_t>(aov);
-}
-
-bool HasAov(const std::vector<Aov>& values, Aov aov) {
-  return std::find(values.begin(), values.end(), aov) != values.end();
-}
-
-std::vector<Aov>
-ValidateProducts(const std::vector<render::RenderProductRequest>& products,
-    std::vector<Aov>* readbacks) {
-  if (products.empty()) {
+  if (request.width == 0 || request.height == 0 ||
+      request.width > capabilities_.limits.max_image_dimension_2d ||
+      request.height > capabilities_.limits.max_image_dimension_2d) {
     throw render::RendererError(render::RendererErrorCode::InvalidRequest,
         "submit Metal frame",
-        "at least one render product is required");
+        "render extent is invalid");
   }
-  std::vector<Aov> rendered;
-  for (const auto& product : products) {
-    if (product.aov != Aov::Color && product.aov != Aov::Depth &&
-        product.aov != Aov::PrimId && product.aov != Aov::InstanceId) {
+  if (render::GpuDrivenIndexedModeName(
+          request.gpu_driven_indexed.mode) == "unknown") {
+    throw render::RendererError(
+        render::RendererErrorCode::InvalidRequest, "submit Metal frame",
+        "GPU-driven indexed submission mode is invalid");
+  }
+  if (request.gpu_driven_indexed.mode ==
+      render::GpuDrivenIndexedMode::Require) {
+    throw render::RendererError(
+        render::RendererErrorCode::Unsupported, "submit Metal frame",
+        "required GPU-driven indexed Forward execution is unavailable");
+  }
+  if (render::GpuDrivenGaussianModeName(
+          request.gpu_driven_gaussian.mode) == "unknown" ||
+      render::GaussianRasterPathName(
+          request.gpu_driven_gaussian.raster) == "unknown") {
+    throw render::RendererError(
+        render::RendererErrorCode::InvalidRequest, "submit Metal frame",
+        "GPU-driven Gaussian execution settings are invalid");
+  }
+  if (request.gpu_driven_gaussian.mode ==
+          render::GpuDrivenGaussianMode::Require &&
+      !capabilities_.gpu_driven_gaussian) {
+    throw render::RendererError(
+        render::RendererErrorCode::Unsupported, "submit Metal frame",
+        "required Metal Gaussian path is unavailable");
+  }
+  if (request.presentation) {
+    ValidatePresentation(request.presentation, "submit Metal frame");
+    UpdatePresentationExtent(request.width, request.height);
+  }
+
+  std::vector<Aov> readbacks;
+  auto rendered = ValidateProducts(request.products, &readbacks);
+  CollectRetirements();
+  if (RecordResidentSceneFailureThrough(submitted_value_)) {
+    ++statistics_.validation_messages;
+    throw render::RendererError(
+        render::RendererErrorCode::BackendFailure,
+        "submit Metal frame", gpu_scene_failure_detail_,
+        gpu_scene_failure_native_code_);
+  }
+
+  auto context_index = next_context_;
+  std::size_t searched{};
+  while (searched < frames_.size() && frames_[context_index].busy) {
+    context_index = (context_index + 1U) % frames_.size();
+    ++searched;
+  }
+  if (searched == frames_.size()) {
+    throw render::RendererError(render::RendererErrorCode::ResourceBusy,
+        "submit Metal frame",
+        "all frames-in-flight are unresolved");
+  }
+  auto& frame = frames_[context_index];
+  next_context_ = (context_index + 1U) % frames_.size();
+
+  FrameBuild build;
+  Reconcile(*request.snapshot, build);
+  EnsureTargets(frame, request.width, request.height,
+      !request.snapshot->gaussians.empty() ||
+          request.gpu_driven_gaussian.mode != render::GpuDrivenGaussianMode::Disabled,
+      build);
+  if (bindless_) {
+    EncodeArgumentBuffer(frame, build);
+  }
+  frame.gaussian_execution.reset();
+  frame.gaussian_instances = nil;
+  frame.gaussian_count = 0;
+  struct UnsubmittedGaussianFrame {
+    FrameContext& frame;
+    bool submitted{};
+    ~UnsubmittedGaussianFrame() {
+      if (!submitted)
+        frame.gaussian_execution.reset();
+    }
+  } gaussian_frame_guard{frame};
+  PrepareGpuSceneUpdate(*request.snapshot,
+      request.gpu_scene_update.get(), frame, build);
+
+  id<MTLCommandBuffer> command = [queue_ commandBuffer];
+  if (command == nil) {
+    throw render::RendererError(render::RendererErrorCode::BackendFailure,
+        "create Metal command buffer",
+        "commandBuffer returned nil");
+  }
+  command.label = @"hdMerlin offscreen frame";
+
+  const auto record_begin = Clock::now();
+  PrepareGaussianExecution(request, command, frame, build);
+  EncodeGpuSceneUpdate(command, build);
+  EncodeRender(command, frame, request, build);
+  id<CAMetalDrawable> drawable;
+  if (request.presentation) {
+    const auto presentation_begin = Clock::now();
+    drawable = [layer_ nextDrawable];
+    if (drawable == nil) {
       throw render::RendererError(
-          render::RendererErrorCode::Unsupported, "submit Metal frame",
-          "unsupported AOV: " + std::string(AovName(product.aov)));
+          render::RendererErrorCode::ResourceBusy,
+          "acquire Metal drawable",
+          "CAMetalLayer returned no drawable before its timeout");
     }
-    if (HasAov(rendered, product.aov)) {
-      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-          "submit Metal frame",
-          "duplicate render product");
+    EncodePresentation(command, frame, drawable, build);
+    [command presentDrawable:drawable];
+    build.presentation_ns =
+        DurationNs(presentation_begin, Clock::now());
+  }
+  EncodeReadback(command, frame, readbacks);
+  const auto record_end = Clock::now();
+
+  const auto value = ++submitted_value_;
+  dispatch_semaphore_t completion = dispatch_semaphore_create(0);
+  auto* completed = &completed_value_;
+  [command addCompletedHandler:^(id<MTLCommandBuffer>) {
+    completed->store(value, std::memory_order_release);
+    dispatch_semaphore_signal(completion);
+  }];
+  if (completion_event_ != nil) {
+    [command encodeSignalEvent:completion_event_ value:value];
+  }
+
+  const auto queue_begin = Clock::now();
+  [command commit];
+  gaussian_frame_guard.submitted = true;
+  const auto queue_end = Clock::now();
+  CommitGpuSceneUpdate(build);
+  if (build.gaussian_attributes) {
+    gaussian_residency_->Commit(build.gaussian_attributes);
+    metal_statistics_.gaussian_compute_dispatch_count += frame.gaussian_execution->dispatch_count;
+    metal_statistics_.gaussian_attribute_device_copy_bytes += build.gaussian_attributes->device_copy_bytes;
+  }
+
+  frame.busy = true;
+  frame.completion_value = value;
+
+  Pending pending;
+  pending.command = command;
+  pending.completion = completion;
+  pending.context_index = context_index;
+  pending.snapshot = request.snapshot;
+  pending.width = request.width;
+  pending.height = request.height;
+  pending.rendered_aovs = std::move(rendered);
+  pending.readback_aovs = std::move(readbacks);
+  pending.drawable = drawable;
+  pending.has_gpu_scene_copies = !build.gpu_scene_copies.empty();
+  pending.has_gaussian_uploads = build.gaussian_attributes &&
+                                 build.gaussian_attributes->upload_bytes != 0;
+  pending.result.scene_revision = request.snapshot->revision;
+  pending.result.completion_value = value;
+  pending.result.telemetry = build.telemetry;
+  if (request.gpu_driven_indexed.mode ==
+      render::GpuDrivenIndexedMode::Prefer) {
+    ++pending.result.telemetry.gpu_driven_fallback_count;
+  }
+  pending.result.timings.upload_ns = build.upload_ns;
+  pending.result.timings.gaussian_preparation_ns = build.gaussian_preparation_ns;
+  pending.result.timings.gaussian_prepared_upload_ns = build.gaussian_upload_ns;
+  pending.result.timings.gaussian_attribute_upload_ns = build.gaussian_attribute_upload_ns;
+  pending.result.timings.gaussian_raster_ns = build.gaussian_raster_ns;
+  pending.result.timings.command_recording_ns =
+      DurationNs(record_begin, record_end) - build.gaussian_preparation_ns -
+      build.gaussian_upload_ns - build.gaussian_attribute_upload_ns;
+  pending.result.timings.presentation_ns = build.presentation_ns;
+  pending.result.timings.queue_submission_ns =
+      DurationNs(queue_begin, queue_end);
+  pending.result.timings.backend_total_ns =
+      DurationNs(submit_begin, queue_end);
+  pending.result.material_diagnostics =
+      std::move(build.material_diagnostics);
+  pending_.emplace(value, std::move(pending));
+
+  ++statistics_.frames_submitted;
+  uploaded_bytes_ += build.telemetry.upload_bytes;
+  return render::CompletionToken(owner_, value);
+}
+
+bool Backend::Impl::IsComplete(render::CompletionToken token) const {
+  const auto& pending = ValidateToken(token, "query Metal completion");
+  return pending.command.status == MTLCommandBufferStatusCompleted ||
+         pending.command.status == MTLCommandBufferStatusError;
+}
+
+AovImageExport Backend::Impl::AcquireAovImage(render::CompletionToken token, Aov aov) {
+  @autoreleasepool {
+    auto& pending = ValidateToken(token, "acquire Metal AOV image");
+    const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(aov);
+    auto& frame = frames_[pending.context_index];
+    if (frame.exported_aov_mask & mask) {
+      throw render::RendererError(
+          render::RendererErrorCode::ResourceBusy,
+          "acquire Metal AOV image", "AOV image already has an active export lease");
     }
-    rendered.push_back(product.aov);
-    if (product.cpu_readback) {
-      readbacks->push_back(product.aov);
+    if (!HasAov(pending.rendered_aovs, aov)) {
+      throw render::RendererError(
+          render::RendererErrorCode::InvalidRequest,
+          "acquire Metal AOV image", "AOV was not selected for this submission");
+    }
+    id<MTLTexture> texture = nil;
+    MTLPixelFormat format = MTLPixelFormatInvalid;
+    MTLTextureUsage usage = MTLTextureUsageUnknown;
+    switch (aov) {
+    case Aov::Color:
+      texture = frame.color;
+      format = MTLPixelFormatRGBA8Unorm;
+      usage = MTLTextureUsageRenderTarget;
+      break;
+    case Aov::Depth:
+      texture = frame.depth;
+      format = MTLPixelFormatDepth32Float;
+      usage = MTLTextureUsageRenderTarget;
+      break;
+    case Aov::PrimId:
+      texture = frame.prim_id;
+      format = MTLPixelFormatR32Uint;
+      usage = MTLTextureUsageRenderTarget;
+      break;
+    case Aov::InstanceId:
+      texture = frame.instance_id;
+      format = MTLPixelFormatR32Uint;
+      usage = MTLTextureUsageRenderTarget;
+      break;
+    default:
+      throw render::RendererError(
+          render::RendererErrorCode::Unsupported,
+          "acquire Metal AOV image", "AOV has no Metal export image");
+    }
+    if (texture == nil) {
+      throw render::RendererError(
+          render::RendererErrorCode::BackendFailure,
+          "acquire Metal AOV image", "selected AOV image is unavailable");
+    }
+    usage = texture.usage;
+    frame.exported_aov_mask |= mask;
+    ++aov_image_export_count_;
+    ++active_aov_image_leases_;
+    ++pending.result.telemetry.aov_image_export_count;
+    return AovImageExport{
+        AovImageLease(owner_, pending.result.completion_value, aov),
+        MakeRenderProduct(pending.width, pending.height, aov),
+        reinterpret_cast<std::uintptr_t>((__bridge void*)device_),
+        reinterpret_cast<std::uintptr_t>((__bridge void*)queue_),
+        reinterpret_cast<std::uintptr_t>((__bridge void*)texture),
+        reinterpret_cast<std::uintptr_t>((__bridge void*)completion_event_),
+        static_cast<std::uint32_t>(format),
+        static_cast<std::uint32_t>(usage),
+        static_cast<std::uint32_t>(texture.storageMode),
+        pending.result.completion_value};
+  }
+}
+
+void Backend::Impl::ReleaseAovImage(AovImageLease&& lease) {
+  @autoreleasepool {
+    if (!lease) {
+      return;
+    }
+    for (auto& frame : frames_) {
+      if (frame.completion_value != lease.completion_value()) {
+        continue;
+      }
+      const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(lease.aov());
+      if ((frame.exported_aov_mask & mask) == 0) {
+        return;
+      }
+      frame.exported_aov_mask &= ~mask;
+      if (active_aov_image_leases_ != 0) {
+        --active_aov_image_leases_;
+      }
+      if (frame.exported_aov_mask == 0 &&
+          pending_.find(frame.completion_value) == pending_.end()) {
+        frame.busy = false;
+        frame.completion_value = 0;
+      }
+      lease.Reset();
+      return;
     }
   }
-  return rendered;
 }
 
-MTLSamplerMinMagFilter Filter(FilterMode value) {
-  return value == FilterMode::Nearest ? MTLSamplerMinMagFilterNearest
-                                      : MTLSamplerMinMagFilterLinear;
-}
+render::RenderResult Backend::Impl::Resolve(render::CompletionToken token,
+    std::chrono::nanoseconds timeout) {
+  @autoreleasepool {
+    auto& pending = ValidateToken(token, "resolve Metal frame");
+    const auto wait_begin = Clock::now();
+    if (pending.command.status != MTLCommandBufferStatusCompleted &&
+        pending.command.status != MTLCommandBufferStatusError) {
+      if (timeout == std::chrono::nanoseconds::max()) {
+        [pending.command waitUntilCompleted];
+      } else {
+        const auto count = std::max<std::int64_t>(timeout.count(), 0);
+        const auto deadline = dispatch_time(DISPATCH_TIME_NOW, count);
+        if (dispatch_semaphore_wait(pending.completion, deadline) != 0) {
+          throw render::RendererError(render::RendererErrorCode::Timeout,
+              "resolve Metal frame",
+              "completion wait timed out");
+        }
+      }
+    }
+    pending.result.timings.completion_wait_ns =
+        DurationNs(wait_begin, Clock::now());
 
-MTLSamplerAddressMode Address(AddressMode value) {
-  switch (value) {
-  case AddressMode::Repeat:
-    return MTLSamplerAddressModeRepeat;
-  case AddressMode::MirroredRepeat:
-    return MTLSamplerAddressModeMirrorRepeat;
-  case AddressMode::ClampToEdge:
-    return MTLSamplerAddressModeClampToEdge;
+    RecordResidentSceneFailureThrough(token.value());
+
+    const bool command_failed =
+        pending.command.status == MTLCommandBufferStatusError;
+    const bool gpu_scene_dependency_failed =
+        token.value() <= gpu_scene_invalid_through_value_;
+    if (command_failed || gpu_scene_dependency_failed) {
+      ++statistics_.validation_messages;
+      const auto detail = command_failed
+                              ? (pending.command.error == nil
+                                        ? std::string(
+                                              "Metal command buffer failed")
+                                        : String(pending.command.error
+                                                  .localizedDescription))
+                              : gpu_scene_failure_detail_;
+      auto& failed_frame = frames_[pending.context_index];
+      failed_frame.gaussian_execution.reset();
+      // A bridge blit may still be waiting on this frame's completion event.
+      // Keep the frame identified until that lease callback releases it.
+      failed_frame.busy = failed_frame.exported_aov_mask != 0;
+      if (!failed_frame.busy) {
+        failed_frame.completion_value = 0;
+      }
+      const auto native_code = command_failed
+                                   ? static_cast<std::int32_t>(
+                                         pending.command.error.code)
+                                   : gpu_scene_failure_native_code_;
+      pending_.erase(token.value());
+      CollectRetirements();
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "execute Metal frame", detail, native_code);
+    }
+
+    const auto readback_begin = Clock::now();
+    auto& frame = frames_[pending.context_index];
+    pending.result.rendered_aovs = pending.rendered_aovs;
+    pending.result.cpu_readback_aovs = pending.readback_aovs;
+    CopyReadbacks(frame, pending);
+    try {
+      ResolveGaussianTelemetry(frame, pending.result);
+      ResolveGaussianTimestamps(frame, pending.result);
+    } catch (...) {
+      frame.gaussian_execution.reset();
+      frame.busy = frame.exported_aov_mask != 0;
+      if (!frame.busy)
+        frame.completion_value = 0;
+      pending_.erase(token.value());
+      CollectRetirements();
+      throw;
+    }
+    frame.gaussian_execution.reset();
+    pending.result.timings.readback_ns =
+        DurationNs(readback_begin, Clock::now());
+    if (pending.command.GPUEndTime >= pending.command.GPUStartTime) {
+      pending.result.timings.gpu_execution_ns = static_cast<std::uint64_t>(
+          (pending.command.GPUEndTime - pending.command.GPUStartTime) *
+          1.0e9);
+    }
+    pending.result.timings.backend_total_ns +=
+        pending.result.timings.completion_wait_ns +
+        pending.result.timings.readback_ns;
+
+    auto result = std::move(pending.result);
+    // An exported texture is retained until the bridge command buffer
+    // completes. Resolve may return before that callback, so the frame
+    // context remains unavailable for reuse while any lease is active.
+    frame.busy = frame.exported_aov_mask != 0;
+    if (!frame.busy) {
+      frame.completion_value = 0;
+    }
+    readback_bytes_ += result.telemetry.readback_bytes;
+    if (pending.drawable != nil) {
+      ++statistics_.frames_presented;
+      presentation_copy_bytes_ +=
+          result.telemetry.presentation_copy_bytes;
+    }
+    pending_.erase(token.value());
+    CollectRetirements();
+    return result;
   }
-  return MTLSamplerAddressModeClampToEdge;
 }
 
-MTLHeapDescriptor* SceneHeapDescriptor(std::uint64_t capacity_bytes) {
-  MTLHeapDescriptor* descriptor = [MTLHeapDescriptor new];
-  descriptor.size = capacity_bytes;
-  descriptor.storageMode = MTLStorageModeShared;
-  descriptor.cpuCacheMode = MTLCPUCacheModeWriteCombined;
-  descriptor.hazardTrackingMode = MTLHazardTrackingModeTracked;
-  return descriptor;
+bool Backend::Impl::RecordResidentSceneFailureThrough(std::uint64_t completion_value) {
+  // One Metal command queue preserves submission order. A failed table or
+  // Gaussian attribute upload invalidates later submissions that may depend
+  // on partially resident contents or immutable version copies.
+  std::uint64_t failed_value{};
+  Pending* failed_pending{};
+  for (auto& [value, candidate] : pending_) {
+    if (value <= completion_value && (candidate.has_gpu_scene_copies || candidate.has_gaussian_uploads) &&
+        candidate.command.status == MTLCommandBufferStatusError &&
+        value > failed_value) {
+      failed_value = value;
+      failed_pending = &candidate;
+    }
+  }
+  if (failed_pending == nullptr ||
+      failed_value <= gpu_scene_last_failure_value_) {
+    return false;
+  }
+  gpu_scene_last_failure_value_ = failed_value;
+  gpu_scene_invalid_through_value_ =
+      std::max(gpu_scene_invalid_through_value_, submitted_value_);
+  gpu_scene_failure_detail_ =
+      failed_pending->command.error == nil
+          ? std::string("Metal resident scene upload failed")
+          : String(failed_pending->command.error.localizedDescription);
+  gpu_scene_failure_native_code_ =
+      static_cast<std::int32_t>(failed_pending->command.error.code);
+  InvalidateGpuSceneUpdate();
+  if (gaussian_residency_)
+    gaussian_residency_->Reset();
+  if (gaussian_execution_)
+    gaussian_execution_->Reset();
+  return true;
 }
 
-template <typename Record>
-std::uint64_t GpuSceneTableReservation(id<MTLDevice> device,
-    std::uint32_t capacity) {
-  const auto length = static_cast<std::uint64_t>(capacity) * sizeof(Record);
-  const auto size_and_align = [device
-      heapBufferSizeAndAlignWithLength:static_cast<NSUInteger>(length)
-                               options:MTLResourceStorageModePrivate];
-  return AlignUp(size_and_align.size, size_and_align.align);
+Backend::Impl::Pending& Backend::Impl::ValidateToken(render::CompletionToken token, const char* operation) {
+  if (token.owner() != owner_ || token.value() == 0) {
+    throw render::RendererError(render::RendererErrorCode::InvalidToken,
+        operation,
+        "token belongs to another backend");
+  }
+  const auto found = pending_.find(token.value());
+  if (found == pending_.end()) {
+    throw render::RendererError(render::RendererErrorCode::InvalidToken,
+        operation,
+        "token is unknown or already resolved");
+  }
+  return found->second;
 }
 
-std::uint64_t GpuSceneReservation(
-    id<MTLDevice> device,
-    const render::GpuScenePackingCapacities& capacities) {
-  return GpuSceneTableReservation<render::GpuGeometry>(device,
-             capacities.geometries) +
-         GpuSceneTableReservation<render::GpuInstance>(device,
-             capacities.instances) +
-         GpuSceneTableReservation<render::GpuMaterial>(device,
-             capacities.materials) +
-         GpuSceneTableReservation<render::GpuDraw>(device, capacities.draws);
+const Backend::Impl::Pending& Backend::Impl::ValidateToken(render::CompletionToken token,
+    const char* operation) const {
+  if (token.owner() != owner_ || token.value() == 0) {
+    throw render::RendererError(render::RendererErrorCode::InvalidToken,
+        operation,
+        "token belongs to another backend");
+  }
+  const auto found = pending_.find(token.value());
+  if (found == pending_.end()) {
+    throw render::RendererError(render::RendererErrorCode::InvalidToken,
+        operation,
+        "token is unknown or already resolved");
+  }
+  return found->second;
 }
-
-} // namespace
 
 AovImageLease::AovImageLease(AovImageLease&& other) noexcept
     : owner_(other.owner_), completion_(other.completion_), aov_(other.aov_) {
   other.owner_ = 0;
   other.completion_ = 0;
 }
-
-class Backend::Impl {
-public:
-  // Hgi completion handlers release export leases while the execution thread
-  // submits/resolves frames. Serialize their shared frame/pending state.
-  mutable std::mutex state_mutex;
-
-  Impl(const render::BackendCreateInfo& info, BackendOptions options)
-      : owner_(++g_owner), options_(options),
-        texture_slots_(options.texture_capacity),
-        sampler_slots_(options.sampler_capacity) {
-    @autoreleasepool {
-      if (info.frames_in_flight == 0 || info.frames_in_flight > 8) {
-        throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-            "create Metal backend",
-            "frames_in_flight must be between 1 and 8");
-      }
-      if (options_.texture_capacity > kShaderTextureCapacity ||
-          options_.sampler_capacity > kShaderSamplerCapacity) {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest, "create Metal backend",
-            "resource table capacity exceeds the compiled argument-buffer ABI");
-      }
-      if (options_.heap_capacity_bytes < 1024U * 1024U) {
-        throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-            "create Metal backend",
-            "heap capacity must be at least 1 MiB");
-      }
-      if (options_.presentation &&
-          (options_.presentation->layer == 0 ||
-              options_.presentation->drawable_count < 2 ||
-              options_.presentation->drawable_count > 3)) {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest,
-            "create Metal presentation",
-            "presentation requires a CAMetalLayer and 2 or 3 drawables");
-      }
-      if (options_.presentation &&
-          options_.presentation->dynamic_range !=
-              PresentationDynamicRange::Standard) {
-        throw render::RendererError(
-            render::RendererErrorCode::Unsupported,
-            "create Metal presentation",
-            "extended-range presentation is reserved for the future HDR "
-            "contract");
-      }
-
-      device_ = MTLCreateSystemDefaultDevice();
-      if (device_ == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::BackendUnavailable,
-            "create Metal device", "no Metal device is available");
-      }
-      queue_ = [device_ newCommandQueue];
-      if (queue_ == nil) {
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "create Metal command queue",
-            "newCommandQueue returned nil");
-      }
-
-      bindless_ = device_.argumentBuffersSupport == MTLArgumentBuffersTier2;
-      CreateLibraryAndPipeline();
-      CreateDepthState();
-      CreateHeap();
-      if (options_.gpu_scene_capacities) {
-        CreateGpuSceneBuffers(*options_.gpu_scene_capacities);
-      }
-      if (options_.presentation) {
-        ConfigurePresentation(*options_.presentation);
-      }
-      completion_event_ = [device_ newSharedEvent];
-      if (completion_event_ == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::BackendFailure,
-            "create Metal completion event", "newSharedEvent returned nil");
-      }
-
-      frames_.resize(info.frames_in_flight);
-      bool gaussian_stage_timestamps =
-          [device_ supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary];
-      id<MTLCounterSet> timestamp_set = nil;
-      if (gaussian_stage_timestamps) {
-        for (id<MTLCounterSet> candidate in device_.counterSets) {
-          if ([candidate.name isEqualToString:MTLCommonCounterSetTimestamp]) {
-            timestamp_set = candidate;
-            break;
-          }
-        }
-        gaussian_stage_timestamps = timestamp_set != nil;
-      }
-      for (auto& frame : frames_) {
-        if (gaussian_stage_timestamps) {
-          auto descriptor = [[MTLCounterSampleBufferDescriptor alloc] init];
-          descriptor.counterSet = timestamp_set;
-          descriptor.storageMode = MTLStorageModeShared;
-          descriptor.sampleCount = kGaussianTimestampCount;
-          NSError* error = nil;
-          frame.gaussian_timestamps =
-              [device_ newCounterSampleBufferWithDescriptor:descriptor error:&error];
-          gaussian_stage_timestamps = frame.gaussian_timestamps != nil;
-        }
-        frame.encoded_textures.resize(options_.texture_capacity);
-        frame.encoded_texture_revisions.resize(options_.texture_capacity);
-        frame.encoded_samplers.resize(options_.sampler_capacity);
-        frame.encoded_sampler_revisions.resize(options_.sampler_capacity);
-        if (bindless_) {
-          frame.argument_buffer =
-              [device_ newBufferWithLength:argument_encoder_.encodedLength
-                                   options:MTLResourceStorageModeShared];
-          if (frame.argument_buffer == nil) {
-            throw render::RendererError(
-                render::RendererErrorCode::ResourceExhausted,
-                "allocate Metal argument buffer", "newBuffer returned nil");
-          }
-        }
-      }
-      if (!gaussian_stage_timestamps)
-        for (auto& frame : frames_) frame.gaussian_timestamps = nil;
-
-      capabilities_.backend = render::BackendKind::Metal;
-      capabilities_.backend_name = "metal";
-      capabilities_.device_name = String(device_.name);
-      capabilities_.bindless_textures = bindless_;
-      capabilities_.asynchronous_upload = false;
-      capabilities_.timestamp_queries = true;
-      capabilities_.gaussian_gpu_stage_timestamps = gaussian_stage_timestamps;
-      capabilities_.external_presentation = layer_ != nil;
-      capabilities_.cpu_readback = true;
-      capabilities_.validation_enabled = info.enable_validation;
-      capabilities_.generated_materials = false;
-      capabilities_.limits.max_image_dimension_2d = 16384;
-      capabilities_.limits.max_frames_in_flight = info.frames_in_flight;
-      capabilities_.limits.sampled_image_slots = options_.texture_capacity;
-      capabilities_.limits.sampler_slots = options_.sampler_capacity;
-
-      metal_statistics_.frame_context_count = info.frames_in_flight;
-      metal_statistics_.heap_capacity_bytes = options_.heap_capacity_bytes;
-    }
-  }
-
-  ~Impl() {
-    @autoreleasepool {
-      for (auto& [value, pending] : pending_) {
-        (void)value;
-        [pending.command waitUntilCompleted];
-      }
-      NotifyOverlay(PresentationOverlayPhase::Shutdown);
-    }
-  }
-
-  const render::RendererCapabilities& capabilities() const noexcept {
-    return capabilities_;
-  }
-
-  render::RendererStatistics statistics() const noexcept {
-    auto result = statistics_;
-    const auto metal = metal_statistics();
-    result.uploaded_bytes = uploaded_bytes_;
-    result.readback_bytes = readback_bytes_;
-    result.presentation_copy_bytes = presentation_copy_bytes_;
-    result.aov_image_export_count = aov_image_export_count_;
-    result.active_aov_image_leases = active_aov_image_leases_;
-    result.residency.bindless_tables = bindless_;
-    result.residency.vram_heap_capacity_bytes = metal.heap_capacity_bytes;
-    result.residency.vram_heap_budget_bytes = metal.heap_capacity_bytes;
-    result.residency.vram_heap_usage_bytes = metal.heap_resident_bytes;
-    result.residency.vram_heap_available_bytes =
-        metal.heap_capacity_bytes > metal.heap_resident_bytes
-            ? metal.heap_capacity_bytes - metal.heap_resident_bytes
-            : 0;
-    result.residency.configured_vram_limit_bytes = options_.heap_capacity_bytes;
-    result.residency.effective_vram_limit_bytes = options_.heap_capacity_bytes;
-    result.residency.renderer_allocated_bytes = metal.heap_resident_bytes;
-    result.residency.renderer_peak_allocated_bytes =
-        metal.heap_peak_resident_bytes;
-    result.residency.geometry_resident_bytes = GeometryResidentBytes();
-    result.residency.geometry_peak_resident_bytes =
-        geometry_peak_resident_bytes_;
-    result.residency.geometry_retiring_bytes = RetiringBytes();
-    result.residency.texture_slots_capacity = metal.texture_slots.capacity;
-    result.residency.texture_slots_in_use = metal.texture_slots.in_use;
-    result.residency.texture_slots_retiring = metal.texture_slots.retiring;
-    result.residency.sampler_slots_capacity = metal.sampler_slots.capacity;
-    result.residency.sampler_slots_in_use = metal.sampler_slots.in_use;
-    result.residency.sampler_slots_retiring = metal.sampler_slots.retiring;
-    result.residency.unique_sampler_count = metal.sampler_slots.in_use;
-    return result;
-  }
-
-  MetalStatistics metal_statistics() const noexcept {
-    auto result = metal_statistics_;
-    for (const auto& frame : frames_) {
-      if (frame.gpu_scene_staging != nil) {
-        result.gpu_scene_staging_capacity_bytes +=
-            frame.gpu_scene_staging.length;
-      }
-    }
-    result.texture_slots = texture_slots_.telemetry();
-    result.sampler_slots = sampler_slots_.telemetry();
-    result.gaussian_resident_live_bytes = gaussian_residency_ ? gaussian_residency_->live_bytes() : 0;
-    result.gaussian_scratch_live_bytes = gaussian_execution_ ? gaussian_execution_->live_bytes() : 0;
-    return result;
-  }
-
-  std::optional<render::PresentationTarget>
-  default_presentation_target() const noexcept {
-    return presentation_;
-  }
-
-  void ResizePresentationTarget(render::PresentationTarget target,
-      std::uint32_t width, std::uint32_t height) {
-    ValidatePresentation(target, "resize Metal presentation");
-    ValidatePresentationExtent(width, height, "resize Metal presentation");
-    UpdatePresentationExtent(width, height);
-  }
-
-  render::CompletionToken Submit(const render::RenderRequest& request) {
-    // @autoreleasepool does not drain on C++ exception unwinding. Catch inside
-    // the pool so abandoned commands release their residency/scratch leases
-    // before reporting a failed submission to the caller.
-    std::exception_ptr failure;
-    render::CompletionToken token;
-    @autoreleasepool {
-      try {
-        token = SubmitFrame(request);
-      } catch (...) {
-        failure = std::current_exception();
-      }
-    }
-    if (failure) std::rethrow_exception(failure);
-    return token;
-  }
-
-  render::CompletionToken SubmitFrame(const render::RenderRequest& request) {
-    const auto submit_begin = Clock::now();
-    if (!request.snapshot) {
-      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-          "submit Metal frame", "snapshot is null");
-    }
-    if (request.width == 0 || request.height == 0 ||
-        request.width > capabilities_.limits.max_image_dimension_2d ||
-        request.height > capabilities_.limits.max_image_dimension_2d) {
-      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-          "submit Metal frame",
-          "render extent is invalid");
-    }
-    if (render::GpuDrivenIndexedModeName(
-            request.gpu_driven_indexed.mode) == "unknown") {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "submit Metal frame",
-          "GPU-driven indexed submission mode is invalid");
-    }
-    if (request.gpu_driven_indexed.mode ==
-        render::GpuDrivenIndexedMode::Require) {
-      throw render::RendererError(
-          render::RendererErrorCode::Unsupported, "submit Metal frame",
-          "required GPU-driven indexed Forward execution is unavailable");
-    }
-    if (render::GpuDrivenGaussianModeName(
-            request.gpu_driven_gaussian.mode) == "unknown" ||
-        render::GaussianRasterPathName(
-            request.gpu_driven_gaussian.raster) == "unknown") {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "submit Metal frame",
-          "GPU-driven Gaussian execution settings are invalid");
-    }
-    if (request.gpu_driven_gaussian.mode ==
-            render::GpuDrivenGaussianMode::Require &&
-        !capabilities_.gpu_driven_gaussian) {
-      throw render::RendererError(
-          render::RendererErrorCode::Unsupported, "submit Metal frame",
-          "required Metal Gaussian path is unavailable");
-    }
-    if (request.presentation) {
-      ValidatePresentation(request.presentation, "submit Metal frame");
-      UpdatePresentationExtent(request.width, request.height);
-    }
-
-    std::vector<Aov> readbacks;
-    auto rendered = ValidateProducts(request.products, &readbacks);
-    CollectRetirements();
-    if (RecordResidentSceneFailureThrough(submitted_value_)) {
-      ++statistics_.validation_messages;
-      throw render::RendererError(
-          render::RendererErrorCode::BackendFailure,
-          "submit Metal frame", gpu_scene_failure_detail_,
-          gpu_scene_failure_native_code_);
-    }
-
-    auto context_index = next_context_;
-    std::size_t searched{};
-    while (searched < frames_.size() && frames_[context_index].busy) {
-      context_index = (context_index + 1U) % frames_.size();
-      ++searched;
-    }
-    if (searched == frames_.size()) {
-      throw render::RendererError(render::RendererErrorCode::ResourceBusy,
-          "submit Metal frame",
-          "all frames-in-flight are unresolved");
-    }
-    auto& frame = frames_[context_index];
-    next_context_ = (context_index + 1U) % frames_.size();
-
-    FrameBuild build;
-    Reconcile(*request.snapshot, build);
-    EnsureTargets(frame, request.width, request.height,
-        !request.snapshot->gaussians.empty() ||
-            request.gpu_driven_gaussian.mode != render::GpuDrivenGaussianMode::Disabled,
-        build);
-    if (bindless_) {
-      EncodeArgumentBuffer(frame, build);
-    }
-    frame.gaussian_execution.reset();
-    frame.gaussian_instances = nil;
-    frame.gaussian_count = 0;
-    struct UnsubmittedGaussianFrame {
-      FrameContext& frame;
-      bool submitted{};
-      ~UnsubmittedGaussianFrame() {
-        if (!submitted) frame.gaussian_execution.reset();
-      }
-    } gaussian_frame_guard{frame};
-    PrepareGpuSceneUpdate(*request.snapshot,
-        request.gpu_scene_update.get(), frame, build);
-
-    id<MTLCommandBuffer> command = [queue_ commandBuffer];
-    if (command == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "create Metal command buffer",
-          "commandBuffer returned nil");
-    }
-    command.label = @"hdMerlin offscreen frame";
-
-    const auto record_begin = Clock::now();
-    PrepareGaussianExecution(request, command, frame, build);
-    EncodeGpuSceneUpdate(command, build);
-    EncodeRender(command, frame, request, build);
-    id<CAMetalDrawable> drawable;
-    if (request.presentation) {
-      const auto presentation_begin = Clock::now();
-      drawable = [layer_ nextDrawable];
-      if (drawable == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::ResourceBusy,
-            "acquire Metal drawable",
-            "CAMetalLayer returned no drawable before its timeout");
-      }
-      EncodePresentation(command, frame, drawable, build);
-      [command presentDrawable:drawable];
-      build.presentation_ns =
-          DurationNs(presentation_begin, Clock::now());
-    }
-    EncodeReadback(command, frame, readbacks);
-    const auto record_end = Clock::now();
-
-    const auto value = ++submitted_value_;
-    dispatch_semaphore_t completion = dispatch_semaphore_create(0);
-    auto* completed = &completed_value_;
-    [command addCompletedHandler:^(id<MTLCommandBuffer>) {
-      completed->store(value, std::memory_order_release);
-      dispatch_semaphore_signal(completion);
-    }];
-    if (completion_event_ != nil) {
-      [command encodeSignalEvent:completion_event_ value:value];
-    }
-
-    const auto queue_begin = Clock::now();
-    [command commit];
-    gaussian_frame_guard.submitted = true;
-    const auto queue_end = Clock::now();
-    CommitGpuSceneUpdate(build);
-    if (build.gaussian_attributes) {
-      gaussian_residency_->Commit(build.gaussian_attributes);
-      metal_statistics_.gaussian_compute_dispatch_count += frame.gaussian_execution->dispatch_count;
-      metal_statistics_.gaussian_attribute_device_copy_bytes += build.gaussian_attributes->device_copy_bytes;
-    }
-
-    frame.busy = true;
-    frame.completion_value = value;
-
-    Pending pending;
-    pending.command = command;
-    pending.completion = completion;
-    pending.context_index = context_index;
-    pending.snapshot = request.snapshot;
-    pending.width = request.width;
-    pending.height = request.height;
-    pending.rendered_aovs = std::move(rendered);
-    pending.readback_aovs = std::move(readbacks);
-    pending.drawable = drawable;
-    pending.has_gpu_scene_copies = !build.gpu_scene_copies.empty();
-    pending.has_gaussian_uploads = build.gaussian_attributes &&
-        build.gaussian_attributes->upload_bytes != 0;
-    pending.result.scene_revision = request.snapshot->revision;
-    pending.result.completion_value = value;
-    pending.result.telemetry = build.telemetry;
-    if (request.gpu_driven_indexed.mode ==
-        render::GpuDrivenIndexedMode::Prefer) {
-      ++pending.result.telemetry.gpu_driven_fallback_count;
-    }
-    pending.result.timings.upload_ns = build.upload_ns;
-    pending.result.timings.gaussian_preparation_ns = build.gaussian_preparation_ns;
-    pending.result.timings.gaussian_prepared_upload_ns = build.gaussian_upload_ns;
-    pending.result.timings.gaussian_attribute_upload_ns = build.gaussian_attribute_upload_ns;
-    pending.result.timings.gaussian_raster_ns = build.gaussian_raster_ns;
-    pending.result.timings.command_recording_ns =
-        DurationNs(record_begin, record_end) - build.gaussian_preparation_ns -
-        build.gaussian_upload_ns - build.gaussian_attribute_upload_ns;
-    pending.result.timings.presentation_ns = build.presentation_ns;
-    pending.result.timings.queue_submission_ns =
-        DurationNs(queue_begin, queue_end);
-    pending.result.timings.backend_total_ns =
-        DurationNs(submit_begin, queue_end);
-    pending.result.material_diagnostics =
-        std::move(build.material_diagnostics);
-    pending_.emplace(value, std::move(pending));
-
-    ++statistics_.frames_submitted;
-    uploaded_bytes_ += build.telemetry.upload_bytes;
-    return render::CompletionToken(owner_, value);
-  }
-
-  bool IsComplete(render::CompletionToken token) const {
-    const auto& pending = ValidateToken(token, "query Metal completion");
-    return pending.command.status == MTLCommandBufferStatusCompleted ||
-           pending.command.status == MTLCommandBufferStatusError;
-  }
-
-  AovImageExport AcquireAovImage(render::CompletionToken token, Aov aov) {
-    @autoreleasepool {
-      auto& pending = ValidateToken(token, "acquire Metal AOV image");
-      const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(aov);
-      auto& frame = frames_[pending.context_index];
-      if (frame.exported_aov_mask & mask) {
-        throw render::RendererError(
-            render::RendererErrorCode::ResourceBusy,
-            "acquire Metal AOV image", "AOV image already has an active export lease");
-      }
-      if (!HasAov(pending.rendered_aovs, aov)) {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest,
-            "acquire Metal AOV image", "AOV was not selected for this submission");
-      }
-      id<MTLTexture> texture = nil;
-      MTLPixelFormat format = MTLPixelFormatInvalid;
-      MTLTextureUsage usage = MTLTextureUsageUnknown;
-      switch (aov) {
-      case Aov::Color:
-        texture = frame.color;
-        format = MTLPixelFormatRGBA8Unorm;
-        usage = MTLTextureUsageRenderTarget;
-        break;
-      case Aov::Depth:
-        texture = frame.depth;
-        format = MTLPixelFormatDepth32Float;
-        usage = MTLTextureUsageRenderTarget;
-        break;
-      case Aov::PrimId:
-        texture = frame.prim_id;
-        format = MTLPixelFormatR32Uint;
-        usage = MTLTextureUsageRenderTarget;
-        break;
-      case Aov::InstanceId:
-        texture = frame.instance_id;
-        format = MTLPixelFormatR32Uint;
-        usage = MTLTextureUsageRenderTarget;
-        break;
-      default:
-        throw render::RendererError(
-            render::RendererErrorCode::Unsupported,
-            "acquire Metal AOV image", "AOV has no Metal export image");
-      }
-      if (texture == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::BackendFailure,
-            "acquire Metal AOV image", "selected AOV image is unavailable");
-      }
-      usage = texture.usage;
-      frame.exported_aov_mask |= mask;
-      ++aov_image_export_count_;
-      ++active_aov_image_leases_;
-      ++pending.result.telemetry.aov_image_export_count;
-      return AovImageExport{
-          AovImageLease(owner_, pending.result.completion_value, aov),
-          MakeRenderProduct(pending.width, pending.height, aov),
-          reinterpret_cast<std::uintptr_t>((__bridge void*)device_),
-          reinterpret_cast<std::uintptr_t>((__bridge void*)queue_),
-          reinterpret_cast<std::uintptr_t>((__bridge void*)texture),
-          reinterpret_cast<std::uintptr_t>((__bridge void*)completion_event_),
-          static_cast<std::uint32_t>(format),
-          static_cast<std::uint32_t>(usage),
-          static_cast<std::uint32_t>(texture.storageMode),
-          pending.result.completion_value};
-    }
-  }
-
-  void ReleaseAovImage(AovImageLease&& lease) {
-    @autoreleasepool {
-      if (!lease) {
-        return;
-      }
-      for (auto& frame : frames_) {
-        if (frame.completion_value != lease.completion_value()) {
-          continue;
-        }
-        const auto mask = std::uint64_t{1} << static_cast<std::uint32_t>(lease.aov());
-        if ((frame.exported_aov_mask & mask) == 0) {
-          return;
-        }
-        frame.exported_aov_mask &= ~mask;
-        if (active_aov_image_leases_ != 0) {
-          --active_aov_image_leases_;
-        }
-        if (frame.exported_aov_mask == 0 &&
-            pending_.find(frame.completion_value) == pending_.end()) {
-          frame.busy = false;
-          frame.completion_value = 0;
-        }
-        lease.Reset();
-        return;
-      }
-    }
-  }
-
-  render::RenderResult Resolve(render::CompletionToken token,
-      std::chrono::nanoseconds timeout) {
-    @autoreleasepool {
-      auto& pending = ValidateToken(token, "resolve Metal frame");
-      const auto wait_begin = Clock::now();
-      if (pending.command.status != MTLCommandBufferStatusCompleted &&
-          pending.command.status != MTLCommandBufferStatusError) {
-        if (timeout == std::chrono::nanoseconds::max()) {
-          [pending.command waitUntilCompleted];
-        } else {
-          const auto count = std::max<std::int64_t>(timeout.count(), 0);
-          const auto deadline = dispatch_time(DISPATCH_TIME_NOW, count);
-          if (dispatch_semaphore_wait(pending.completion, deadline) != 0) {
-            throw render::RendererError(render::RendererErrorCode::Timeout,
-                "resolve Metal frame",
-                "completion wait timed out");
-          }
-        }
-      }
-      pending.result.timings.completion_wait_ns =
-          DurationNs(wait_begin, Clock::now());
-
-      RecordResidentSceneFailureThrough(token.value());
-
-      const bool command_failed =
-          pending.command.status == MTLCommandBufferStatusError;
-      const bool gpu_scene_dependency_failed =
-          token.value() <= gpu_scene_invalid_through_value_;
-      if (command_failed || gpu_scene_dependency_failed) {
-        ++statistics_.validation_messages;
-        const auto detail = command_failed
-                                ? (pending.command.error == nil
-                                          ? std::string(
-                                                "Metal command buffer failed")
-                                          : String(pending.command.error
-                                                    .localizedDescription))
-                                : gpu_scene_failure_detail_;
-        auto& failed_frame = frames_[pending.context_index];
-        failed_frame.gaussian_execution.reset();
-        // A bridge blit may still be waiting on this frame's completion event.
-        // Keep the frame identified until that lease callback releases it.
-        failed_frame.busy = failed_frame.exported_aov_mask != 0;
-        if (!failed_frame.busy) {
-          failed_frame.completion_value = 0;
-        }
-        const auto native_code = command_failed
-                                     ? static_cast<std::int32_t>(
-                                           pending.command.error.code)
-                                     : gpu_scene_failure_native_code_;
-        pending_.erase(token.value());
-        CollectRetirements();
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "execute Metal frame", detail, native_code);
-      }
-
-      const auto readback_begin = Clock::now();
-      auto& frame = frames_[pending.context_index];
-      pending.result.rendered_aovs = pending.rendered_aovs;
-      pending.result.cpu_readback_aovs = pending.readback_aovs;
-      CopyReadbacks(frame, pending);
-      try {
-        ResolveGaussianTelemetry(frame, pending.result);
-        ResolveGaussianTimestamps(frame, pending.result);
-      } catch (...) {
-        frame.gaussian_execution.reset();
-        frame.busy = frame.exported_aov_mask != 0;
-        if (!frame.busy) frame.completion_value = 0;
-        pending_.erase(token.value());
-        CollectRetirements();
-        throw;
-      }
-      frame.gaussian_execution.reset();
-      pending.result.timings.readback_ns =
-          DurationNs(readback_begin, Clock::now());
-      if (pending.command.GPUEndTime >= pending.command.GPUStartTime) {
-        pending.result.timings.gpu_execution_ns = static_cast<std::uint64_t>(
-            (pending.command.GPUEndTime - pending.command.GPUStartTime) *
-            1.0e9);
-      }
-      pending.result.timings.backend_total_ns +=
-          pending.result.timings.completion_wait_ns +
-          pending.result.timings.readback_ns;
-
-      auto result = std::move(pending.result);
-      // An exported texture is retained until the bridge command buffer
-      // completes. Resolve may return before that callback, so the frame
-      // context remains unavailable for reuse while any lease is active.
-      frame.busy = frame.exported_aov_mask != 0;
-      if (!frame.busy) {
-        frame.completion_value = 0;
-      }
-      readback_bytes_ += result.telemetry.readback_bytes;
-      if (pending.drawable != nil) {
-        ++statistics_.frames_presented;
-        presentation_copy_bytes_ +=
-            result.telemetry.presentation_copy_bytes;
-      }
-      pending_.erase(token.value());
-      CollectRetirements();
-      return result;
-    }
-  }
-
-private:
-  struct Geometry {
-    std::uint64_t vertex_revision{};
-    std::uint64_t index_revision{};
-    id<MTLBuffer> vertices;
-    id<MTLBuffer> indices;
-    std::uint32_t index_count{};
-    std::uint64_t bytes{};
-  };
-
-  struct Texture {
-    std::uint64_t revision{};
-    id<MTLTexture> texture;
-    std::uint64_t bytes{};
-  };
-
-  struct Sampler {
-    std::uint64_t revision{};
-    id<MTLSamplerState> sampler;
-  };
-
-  struct Retirement {
-    std::uint64_t completion_value{};
-    std::uint64_t bytes{};
-    id<MTLResource> first;
-    id<MTLResource> second;
-  };
-
-  struct GpuSceneBuffers {
-    render::GpuScenePackingCapacities capacities;
-    id<MTLBuffer> geometries = nil;
-    id<MTLBuffer> instances = nil;
-    id<MTLBuffer> materials = nil;
-    id<MTLBuffer> draws = nil;
-    std::uint64_t source_id{};
-    std::uint64_t revision{};
-    std::shared_ptr<const std::vector<std::uint32_t>> draw_slot_indices;
-    bool has_resident_update{};
-
-    [[nodiscard]] bool enabled() const noexcept {
-      return geometries != nil && instances != nil && materials != nil &&
-             draws != nil;
-    }
-  };
-
-  struct GpuSceneCopy {
-    id<MTLBuffer> source = nil;
-    NSUInteger source_offset{};
-    id<MTLBuffer> destination = nil;
-    NSUInteger destination_offset{};
-    NSUInteger size{};
-  };
-
-  struct FrameContext {
-    bool busy{};
-    std::uint64_t completion_value{};
-    std::uint64_t exported_aov_mask{};
-    std::uint32_t width{};
-    std::uint32_t height{};
-    id<MTLTexture> color;
-    id<MTLTexture> gaussian_color = nil;
-    id<MTLTexture> depth;
-    id<MTLTexture> prim_id;
-    id<MTLTexture> instance_id;
-    id<MTLBuffer> color_readback;
-    id<MTLBuffer> depth_readback;
-    id<MTLBuffer> prim_readback;
-    id<MTLBuffer> instance_readback;
-    id<MTLBuffer> argument_buffer;
-    id<MTLBuffer> gpu_scene_staging = nil;
-    // Retain immutable prepared data until this frame completes. A camera or
-    // scene edit allocates a new stream without overwriting in-flight frames.
-    id<MTLBuffer> gaussian_instances = nil;
-    NSUInteger gaussian_count{};
-    std::shared_ptr<const GaussianExecution::Frame> gaussian_execution;
-    id<MTLBuffer> gaussian_telemetry = nil;
-    id<MTLCounterSampleBuffer> gaussian_timestamps = nil;
-    std::vector<std::uint64_t> encoded_textures;
-    std::vector<std::uint64_t> encoded_texture_revisions;
-    std::vector<std::uint64_t> encoded_samplers;
-    std::vector<std::uint64_t> encoded_sampler_revisions;
-  };
-
-  struct Pending {
-    id<MTLCommandBuffer> command;
-    id<CAMetalDrawable> drawable;
-    dispatch_semaphore_t completion;
-    std::size_t context_index{};
-    std::shared_ptr<const extraction::FrameSnapshot> snapshot;
-    std::uint32_t width{};
-    std::uint32_t height{};
-    std::vector<Aov> rendered_aovs;
-    std::vector<Aov> readback_aovs;
-    bool has_gpu_scene_copies{};
-    bool has_gaussian_uploads{};
-    render::RenderResult result;
-  };
-
-  struct FrameBuild {
-    render::FrameTelemetry telemetry;
-    std::uint64_t upload_ns{};
-    std::uint64_t presentation_ns{};
-    std::uint64_t gaussian_preparation_ns{};
-    std::uint64_t gaussian_upload_ns{};
-    std::uint64_t gaussian_raster_ns{};
-    std::uint64_t gaussian_attribute_upload_ns{};
-    std::shared_ptr<GaussianResidency::Update> gaussian_attributes;
-    bool has_gpu_scene_update{};
-    std::uint64_t gpu_scene_source_id{};
-    std::uint64_t gpu_scene_revision{};
-    std::shared_ptr<const std::vector<std::uint32_t>>
-        gpu_scene_draw_slot_indices;
-    std::vector<GpuSceneCopy> gpu_scene_copies;
-    std::vector<MaterialDiagnostic> material_diagnostics;
-  };
-
-  bool RecordResidentSceneFailureThrough(std::uint64_t completion_value) {
-    // One Metal command queue preserves submission order. A failed table or
-    // Gaussian attribute upload invalidates later submissions that may depend
-    // on partially resident contents or immutable version copies.
-    std::uint64_t failed_value{};
-    Pending* failed_pending{};
-    for (auto& [value, candidate] : pending_) {
-      if (value <= completion_value && (candidate.has_gpu_scene_copies || candidate.has_gaussian_uploads) &&
-          candidate.command.status == MTLCommandBufferStatusError &&
-          value > failed_value) {
-        failed_value = value;
-        failed_pending = &candidate;
-      }
-    }
-    if (failed_pending == nullptr ||
-        failed_value <= gpu_scene_last_failure_value_) {
-      return false;
-    }
-    gpu_scene_last_failure_value_ = failed_value;
-    gpu_scene_invalid_through_value_ =
-        std::max(gpu_scene_invalid_through_value_, submitted_value_);
-    gpu_scene_failure_detail_ =
-        failed_pending->command.error == nil
-            ? std::string("Metal resident scene upload failed")
-            : String(failed_pending->command.error.localizedDescription);
-    gpu_scene_failure_native_code_ =
-        static_cast<std::int32_t>(failed_pending->command.error.code);
-    InvalidateGpuSceneUpdate();
-    if (gaussian_residency_) gaussian_residency_->Reset();
-    if (gaussian_execution_) gaussian_execution_->Reset();
-    return true;
-  }
-
-  template <typename Record>
-  id<MTLBuffer> CreateGpuSceneTable(std::uint32_t capacity,
-      std::string_view table_name) {
-    if (capacity == 0) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest,
-          "create Metal GPU Scene buffers",
-          "every GPU Scene table capacity must be non-zero");
-    }
-    const auto bytes = static_cast<std::uint64_t>(capacity) * sizeof(Record);
-    if (bytes > std::numeric_limits<NSUInteger>::max()) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest,
-          "create Metal GPU Scene buffers",
-          std::string(table_name) + " table capacity is not representable");
-    }
-    const auto charged = GpuSceneTableReservation<Record>(device_, capacity);
-    id<MTLBuffer> buffer =
-        [device_ newBufferWithLength:static_cast<NSUInteger>(bytes)
-                             options:MTLResourceStorageModePrivate];
-    if (buffer == nil) {
-      throw render::RendererError(
-          render::RendererErrorCode::ResourceExhausted,
-          "create Metal GPU Scene buffers",
-          "newBuffer returned nil for the " + std::string(table_name) +
-              " table");
-    }
-    buffer.label = [NSString
-        stringWithFormat:@"hdMerlin GPU Scene %s", table_name.data()];
-    metal_statistics_.heap_resident_bytes += charged;
-    metal_statistics_.heap_peak_resident_bytes =
-        std::max(metal_statistics_.heap_peak_resident_bytes,
-            metal_statistics_.heap_resident_bytes);
-    ++metal_statistics_.heap_allocation_count;
-    return buffer;
-  }
-
-  void CreateGpuSceneBuffers(render::GpuScenePackingCapacities capacities) {
-    gpu_scene_buffers_.capacities = capacities;
-    gpu_scene_buffers_.geometries =
-        CreateGpuSceneTable<render::GpuGeometry>(capacities.geometries,
-            "geometry");
-    gpu_scene_buffers_.instances =
-        CreateGpuSceneTable<render::GpuInstance>(capacities.instances,
-            "instance");
-    gpu_scene_buffers_.materials =
-        CreateGpuSceneTable<render::GpuMaterial>(capacities.materials,
-            "material");
-    gpu_scene_buffers_.draws =
-        CreateGpuSceneTable<render::GpuDraw>(capacities.draws, "draw");
-    metal_statistics_.gpu_scene_buffers = true;
-    metal_statistics_.gpu_scene_capacity_bytes =
-        gpu_scene_buffers_.geometries.length +
-        gpu_scene_buffers_.instances.length +
-        gpu_scene_buffers_.materials.length + gpu_scene_buffers_.draws.length;
-  }
-
-  template <typename Record>
-  void ValidateGpuSceneTableUpdate(
-      const render::GpuScenePackedUpdate<Record>& packed,
-      const std::vector<render::GpuSceneDirtyRange>& dirty_ranges,
-      std::uint32_t capacity, std::string_view table_name) const {
-    if (packed.ranges.size() != dirty_ranges.size()) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          std::string(table_name) +
-              " packed ranges do not match the update plan");
-    }
-    std::uint64_t record_count{};
-    std::uint64_t copy_bytes{};
-    std::uint64_t previous_end{};
-    for (std::size_t i = 0; i < packed.ranges.size(); ++i) {
-      const auto& range = packed.ranges[i];
-      const auto& dirty = dirty_ranges[i];
-      if (range.records.empty() || range.first_slot != dirty.first_slot ||
-          range.records.size() != dirty.slot_count) {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest,
-            "upload Metal GPU Scene",
-            std::string(table_name) +
-                " packed range does not match its dirty range");
-      }
-      const auto end = static_cast<std::uint64_t>(range.first_slot) +
-                       range.records.size();
-      if (range.first_slot < previous_end || end > capacity) {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest,
-            "upload Metal GPU Scene",
-            std::string(table_name) +
-                " packed range is unordered or exceeds capacity");
-      }
-      previous_end = end;
-      record_count += range.records.size();
-      copy_bytes += range.records.size() * sizeof(Record);
-    }
-    if (packed.record_count != record_count || packed.copy_bytes != copy_bytes) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          std::string(table_name) +
-              " packed telemetry does not match its payload");
-    }
-  }
-
-  void PrepareGpuSceneUpdate(
-      const extraction::FrameSnapshot& snapshot,
-      const render::GpuScenePackedFrameUpdate* update, FrameContext& frame,
-      FrameBuild& build) {
-    if (update == nullptr) {
-      return;
-    }
-    const auto begin = Clock::now();
-    if (!gpu_scene_buffers_.enabled()) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "backend has no GPU Scene table capacities");
-    }
-    const auto validate_plan = [&](const auto& plan,
-                                   std::string_view table_name) {
-      if (plan.source_id != snapshot.source_id ||
-          plan.revision != snapshot.revision) {
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest,
-            "upload Metal GPU Scene",
-            std::string(table_name) +
-                " update was not packed from the request snapshot");
-      }
-    };
-    validate_plan(update->geometry_plan, "geometry");
-    validate_plan(update->instance_plan, "instance");
-    validate_plan(update->material_plan, "material");
-    validate_plan(update->draw_plan, "draw");
-    const auto& reference_plan = update->geometry_plan;
-    const auto same_plan_boundary = [&](const auto& plan) {
-      return plan.source_id == reference_plan.source_id &&
-             plan.base_revision == reference_plan.base_revision &&
-             plan.revision == reference_plan.revision;
-    };
-    if (!same_plan_boundary(update->instance_plan) ||
-        !same_plan_boundary(update->material_plan) ||
-        !same_plan_boundary(update->draw_plan)) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "table plans do not share one revision boundary");
-    }
-    if (update->geometry_plan.table !=
-            render::GpuSceneResourceTable::Geometry ||
-        update->instance_plan.table !=
-            render::GpuSceneResourceTable::Instance ||
-        update->material_plan.table !=
-            render::GpuSceneResourceTable::Material) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "resource update plans name the wrong tables");
-    }
-
-    const auto capacities = gpu_scene_buffers_.capacities;
-    ValidateGpuSceneTableUpdate(update->geometries,
-        update->geometry_plan.dirty_ranges,
-        capacities.geometries, "geometry");
-    ValidateGpuSceneTableUpdate(update->instances,
-        update->instance_plan.dirty_ranges,
-        capacities.instances, "instance");
-    ValidateGpuSceneTableUpdate(update->materials,
-        update->material_plan.dirty_ranges,
-        capacities.materials, "material");
-    ValidateGpuSceneTableUpdate(update->draws,
-        update->draw_plan.dirty_ranges,
-        capacities.draws, "draw");
-    if (!update->draw_slot_indices ||
-        update->draw_slot_indices->size() != snapshot.draws.size()) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "draw slot map does not match the request snapshot");
-    }
-    if (gpu_scene_buffers_.draw_slot_indices != update->draw_slot_indices) {
-      std::vector<bool> mapped_draw_slots(capacities.draws);
-      for (const auto slot : *update->draw_slot_indices) {
-        if (slot >= capacities.draws || mapped_draw_slots[slot]) {
-          throw render::RendererError(
-              render::RendererErrorCode::InvalidRequest,
-              "upload Metal GPU Scene",
-              "draw slot map contains an invalid or duplicate slot");
-        }
-        mapped_draw_slots[slot] = true;
-      }
-    }
-    const auto copy_bytes = update->geometries.copy_bytes +
-                            update->instances.copy_bytes +
-                            update->materials.copy_bytes +
-                            update->draws.copy_bytes;
-    if (update->copy_bytes != copy_bytes) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "frame copy bytes do not match the table payloads");
-    }
-    const bool complete_reconciliation =
-        update->geometry_plan.full_reconciliation &&
-        update->instance_plan.full_reconciliation &&
-        update->material_plan.full_reconciliation &&
-        update->draw_plan.full_reconciliation &&
-        update->geometries.record_count == snapshot.geometries.size() &&
-        update->instances.record_count == snapshot.instances.size() &&
-        update->materials.record_count == snapshot.materials.size() &&
-        update->draws.record_count == snapshot.draws.size();
-    const bool same_source = gpu_scene_buffers_.has_resident_update &&
-                             gpu_scene_buffers_.source_id ==
-                                 reference_plan.source_id;
-    const bool unchanged =
-        same_source && gpu_scene_buffers_.revision == reference_plan.revision;
-    const bool continuous = same_source &&
-                            gpu_scene_buffers_.revision ==
-                                reference_plan.base_revision;
-    if (!unchanged && !continuous && !complete_reconciliation) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "update neither continues nor completely rebuilds the resident "
-          "table revision");
-    }
-    if (unchanged && copy_bytes != 0 && !complete_reconciliation) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "unchanged resident revision contains copy payload");
-    }
-
-    build.has_gpu_scene_update = true;
-    build.gpu_scene_source_id = reference_plan.source_id;
-    build.gpu_scene_revision = reference_plan.revision;
-    build.gpu_scene_draw_slot_indices = update->draw_slot_indices;
-    if (copy_bytes == 0) {
-      build.upload_ns += DurationNs(begin, Clock::now());
-      return;
-    }
-    if (copy_bytes > std::numeric_limits<NSUInteger>::max()) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, "upload Metal GPU Scene",
-          "staging payload is not representable by Metal");
-    }
-    const auto required = static_cast<NSUInteger>(copy_bytes);
-    if (frame.gpu_scene_staging == nil ||
-        frame.gpu_scene_staging.length < required) {
-      id<MTLBuffer> staging =
-          [device_ newBufferWithLength:required
-                               options:MTLResourceStorageModeShared |
-                                       MTLResourceCPUCacheModeWriteCombined];
-      if (staging == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::ResourceExhausted,
-            "upload Metal GPU Scene",
-            "newBuffer returned nil for the per-frame staging buffer");
-      }
-      staging.label = @"hdMerlin GPU Scene staging";
-      frame.gpu_scene_staging = staging;
-      ++build.telemetry.allocation_count;
-      build.telemetry.buffer_allocation_bytes += required;
-      ++build.telemetry.gpu_scene_staging_growth_count;
-      build.telemetry.gpu_scene_staging_growth_bytes += required;
-      ++metal_statistics_.gpu_scene_staging_growth_count;
-      std::uint64_t staging_capacity{};
-      for (const auto& candidate : frames_) {
-        if (candidate.gpu_scene_staging != nil) {
-          staging_capacity += candidate.gpu_scene_staging.length;
-        }
-      }
-      metal_statistics_.gpu_scene_staging_peak_capacity_bytes =
-          std::max(metal_statistics_.gpu_scene_staging_peak_capacity_bytes,
-              staging_capacity);
-    }
-
-    NSUInteger cursor{};
-    const auto stage_table = [&]<typename Record>(
-                                 const render::GpuScenePackedUpdate<Record>& packed,
-                                 id<MTLBuffer> destination) {
-      for (const auto& range : packed.ranges) {
-        const auto bytes = static_cast<NSUInteger>(range.records.size() *
-                                                   sizeof(Record));
-        std::memcpy(static_cast<std::byte*>(frame.gpu_scene_staging.contents) +
-                        cursor,
-            range.records.data(), bytes);
-        build.gpu_scene_copies.push_back(
-            {frame.gpu_scene_staging, cursor, destination,
-                static_cast<NSUInteger>(range.first_slot) * sizeof(Record),
-                bytes});
-        cursor += bytes;
-      }
-    };
-    stage_table(update->geometries, gpu_scene_buffers_.geometries);
-    stage_table(update->instances, gpu_scene_buffers_.instances);
-    stage_table(update->materials, gpu_scene_buffers_.materials);
-    stage_table(update->draws, gpu_scene_buffers_.draws);
-    build.telemetry.gpu_scene_upload_bytes += copy_bytes;
-    build.telemetry.gpu_scene_copy_range_count +=
-        build.gpu_scene_copies.size();
-    build.telemetry.gpu_scene_staging_reserved_bytes += copy_bytes;
-    build.telemetry.upload_bytes += copy_bytes;
-    build.upload_ns += DurationNs(begin, Clock::now());
-  }
-
-  void EncodeGpuSceneUpdate(id<MTLCommandBuffer> command,
-      const FrameBuild& build) {
-    if (build.gpu_scene_copies.empty()) {
-      return;
-    }
-    id<MTLBlitCommandEncoder> encoder = [command blitCommandEncoder];
-    if (encoder == nil) {
-      throw render::RendererError(
-          render::RendererErrorCode::BackendFailure,
-          "upload Metal GPU Scene", "blitCommandEncoder returned nil");
-    }
-    encoder.label = @"hdMerlin GPU Scene dirty ranges";
-    for (const auto& copy : build.gpu_scene_copies) {
-      [encoder copyFromBuffer:copy.source
-                 sourceOffset:copy.source_offset
-                     toBuffer:copy.destination
-            destinationOffset:copy.destination_offset
-                         size:copy.size];
-    }
-    [encoder endEncoding];
-  }
-
-  void CommitGpuSceneUpdate(const FrameBuild& build) noexcept {
-    if (!build.has_gpu_scene_update) {
-      return;
-    }
-    gpu_scene_buffers_.source_id = build.gpu_scene_source_id;
-    gpu_scene_buffers_.revision = build.gpu_scene_revision;
-    gpu_scene_buffers_.draw_slot_indices =
-        build.gpu_scene_draw_slot_indices;
-    gpu_scene_buffers_.has_resident_update = true;
-  }
-
-  void InvalidateGpuSceneUpdate() noexcept {
-    // A failed command buffer may have applied only part of its blit copies.
-    // Reject incremental and zero-copy updates until a complete reconciliation
-    // restores every GPU Scene table.
-    gpu_scene_buffers_.source_id = 0;
-    gpu_scene_buffers_.revision = 0;
-    gpu_scene_buffers_.draw_slot_indices.reset();
-    gpu_scene_buffers_.has_resident_update = false;
-  }
-
-  void CreateLibraryAndPipeline() {
-    MTLCompileOptions* options = [MTLCompileOptions new];
-    options.fastMathEnabled = YES;
-    NSError* error = nil;
-    library_ = [device_
-        newLibraryWithSource:[NSString stringWithUTF8String:kShaderSource]
-                     options:options
-                       error:&error];
-    if (library_ == nil) {
-      throw render::RendererError(
-          render::RendererErrorCode::BackendFailure, "compile Metal shader",
-          error == nil ? "newLibraryWithSource returned nil"
-                       : String(error.localizedDescription),
-          static_cast<std::int32_t>(error.code));
-    }
-    id<MTLFunction> vertex = [library_ newFunctionWithName:@"merlin_vertex"];
-    NSString* fragment_name = bindless_ ? @"merlin_fragment_argument_buffer"
-                                        : @"merlin_fragment_conventional";
-    id<MTLFunction> fragment = [library_ newFunctionWithName:fragment_name];
-    if (vertex == nil || fragment == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "load Metal shader entry point",
-          "compiled entry point is missing");
-    }
-
-    MTLVertexDescriptor* vertices = [MTLVertexDescriptor vertexDescriptor];
-    vertices.attributes[0].format = MTLVertexFormatFloat3;
-    vertices.attributes[0].offset = offsetof(extraction::DrawVertex, position);
-    vertices.attributes[0].bufferIndex = 0;
-    vertices.attributes[1].format = MTLVertexFormatFloat3;
-    vertices.attributes[1].offset = offsetof(extraction::DrawVertex, normal);
-    vertices.attributes[1].bufferIndex = 0;
-    vertices.attributes[2].format = MTLVertexFormatFloat4;
-    vertices.attributes[2].offset = offsetof(extraction::DrawVertex, color);
-    vertices.attributes[2].bufferIndex = 0;
-    vertices.attributes[3].format = MTLVertexFormatFloat2;
-    vertices.attributes[3].offset = offsetof(extraction::DrawVertex, texcoord);
-    vertices.attributes[3].bufferIndex = 0;
-    vertices.layouts[0].stride = sizeof(extraction::DrawVertex);
-    vertices.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-
-    MTLRenderPipelineDescriptor* descriptor = [MTLRenderPipelineDescriptor new];
-    descriptor.label = @"hdMerlin Forward";
-    descriptor.vertexFunction = vertex;
-    descriptor.fragmentFunction = fragment;
-    descriptor.vertexDescriptor = vertices;
-    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
-    descriptor.colorAttachments[1].pixelFormat = MTLPixelFormatR32Uint;
-    descriptor.colorAttachments[2].pixelFormat = MTLPixelFormatR32Uint;
-    descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-    pipeline_ = [device_ newRenderPipelineStateWithDescriptor:descriptor
-                                                        error:&error];
-    if (pipeline_ == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "create Metal render pipeline",
-          error == nil
-              ? "newRenderPipelineState returned nil"
-              : String(error.localizedDescription),
-          static_cast<std::int32_t>(error.code));
-    }
-    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
-    float_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (!float_pipeline_)
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "create Metal float Forward pipeline", String(error.localizedDescription));
-    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
-    if (bindless_) {
-      id<MTLFunction> gpu_scene_vertex =
-          [library_ newFunctionWithName:@"merlin_vertex_gpu_scene"];
-      id<MTLFunction> gpu_scene_fragment =
-          [library_ newFunctionWithName:@"merlin_fragment_gpu_scene"];
-      if (gpu_scene_vertex == nil || gpu_scene_fragment == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::BackendFailure,
-            "load Metal GPU Scene entry point",
-            "compiled GPU Scene entry point is missing");
-      }
-      descriptor.label = @"hdMerlin GPU Scene Forward";
-      descriptor.vertexFunction = gpu_scene_vertex;
-      descriptor.fragmentFunction = gpu_scene_fragment;
-      gpu_scene_pipeline_ =
-          [device_ newRenderPipelineStateWithDescriptor:descriptor
-                                                  error:&error];
-      if (gpu_scene_pipeline_ == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::BackendFailure,
-            "create Metal GPU Scene pipeline",
-            error == nil ? "newRenderPipelineState returned nil"
-                         : String(error.localizedDescription),
-            static_cast<std::int32_t>(error.code));
-      }
-    }
-    if (bindless_) {
-      descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
-      float_gpu_scene_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:descriptor error:&error];
-      if (!float_gpu_scene_pipeline_)
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "create Metal float GPU Scene pipeline", String(error.localizedDescription));
-      argument_encoder_ = [fragment newArgumentEncoderWithBufferIndex:3];
-      if (argument_encoder_ == nil) {
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "create Metal argument encoder",
-            "fragment argument encoder is unavailable");
-      }
-    }
-    // The Gaussian library is compiled at build time and embedded so installed
-    // static-library consumers do not depend on the build tree or working directory.
-    dispatch_data_t gaussian_data = dispatch_data_create(kGaussianMetalLibrary,
-        sizeof(kGaussianMetalLibrary), nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
-    id<MTLLibrary> gaussian_library = [device_ newLibraryWithData:gaussian_data error:&error];
-    if (gaussian_library == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "load Metal Gaussian library",
-          error == nil ? "newLibraryWithData returned nil" : String(error.localizedDescription),
-          static_cast<std::int32_t>(error.code));
-    }
-    MTLRenderPipelineDescriptor* gaussian = [MTLRenderPipelineDescriptor new];
-    gaussian.label = @"hdMerlin Gaussian";
-    gaussian.vertexFunction = [gaussian_library newFunctionWithName:@"gaussian_metal_vertex"];
-    gaussian.fragmentFunction = [gaussian_library newFunctionWithName:@"gaussian_metal_fragment"];
-    gaussian.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
-    gaussian.colorAttachments[0].blendingEnabled = YES;
-    gaussian.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    gaussian.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    gaussian.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
-    gaussian.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    gaussian.colorAttachments[1].pixelFormat = MTLPixelFormatR32Uint;
-    gaussian.colorAttachments[2].pixelFormat = MTLPixelFormatR32Uint;
-    gaussian.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-    gaussian_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:gaussian error:&error];
-    if (gaussian_pipeline_ == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "create Metal Gaussian pipeline",
-          error == nil ? "newRenderPipelineState returned nil" : String(error.localizedDescription),
-          static_cast<std::int32_t>(error.code));
-    }
-    color_convert_pipeline_ = [device_ newComputePipelineStateWithFunction:
-            [library_ newFunctionWithName:@"merlin_convert_color"]
-                                                                     error:&error];
-    if (!color_convert_pipeline_)
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "create Metal color conversion pipeline", String(error.localizedDescription));
-    try {
-      gaussian_execution_ = std::make_unique<GaussianExecution>(device_, gaussian_library,
-          options_.gaussian_scratch_budget_bytes);
-      gaussian_residency_ = std::make_unique<GaussianResidency>(device_,
-          options_.gaussian_residency_budget_bytes);
-      capabilities_.gpu_driven_gaussian = true;
-    } catch (const render::RendererError& error) {
-      if (error.code() != render::RendererErrorCode::Unsupported) throw;
-      // Keep the CPU reference available on devices below the kernel limits.
-      gaussian_execution_.reset();
-    }
-    if (options_.presentation) {
-      id<MTLFunction> presentation_vertex =
-          [library_ newFunctionWithName:@"merlin_presentation_vertex"];
-      id<MTLFunction> presentation_fragment =
-          [library_ newFunctionWithName:@"merlin_presentation_fragment"];
-      MTLRenderPipelineDescriptor* presentation =
-          [MTLRenderPipelineDescriptor new];
-      presentation.label = @"hdMerlin native presentation";
-      presentation.vertexFunction = presentation_vertex;
-      presentation.fragmentFunction = presentation_fragment;
-      presentation.colorAttachments[0].pixelFormat =
-          MTLPixelFormatBGRA8Unorm_sRGB;
-      presentation_pipeline_ =
-          [device_ newRenderPipelineStateWithDescriptor:presentation
-                                                  error:&error];
-      if (presentation_pipeline_ == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::BackendFailure,
-            "create Metal presentation pipeline",
-            error == nil ? "newRenderPipelineState returned nil"
-                         : String(error.localizedDescription),
-            static_cast<std::int32_t>(error.code));
-      }
-    }
-  }
-
-  void ConfigurePresentation(const PresentationOptions& options) {
-    layer_ = DecodeHandle<CAMetalLayer*>(options.layer);
-    layer_.device = device_;
-    layer_.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
-    layer_.framebufferOnly = YES;
-    layer_.displaySyncEnabled = options.vsync ? YES : NO;
-    layer_.maximumDrawableCount = options.drawable_count;
-    layer_.allowsNextDrawableTimeout = YES;
-    layer_.presentsWithTransaction = NO;
-    presentation_color_space_ = options.color_space;
-    CGColorSpaceRef color_space = CGColorSpaceCreateWithName(
-        options.color_space == PresentationColorSpace::DisplayP3
-            ? kCGColorSpaceDisplayP3
-            : kCGColorSpaceSRGB);
-    layer_.colorspace = color_space;
-    CGColorSpaceRelease(color_space);
-    presentation_ = render::PresentationTarget(owner_, 1);
-    NotifyOverlay(PresentationOverlayPhase::Initialize);
-  }
-
-  void NotifyOverlay(PresentationOverlayPhase phase,
-      id<MTLCommandBuffer> command = nil,
-      id<MTLRenderCommandEncoder> encoder = nil,
-      MTLRenderPassDescriptor* pass = nil) {
-    if (!options_.presentation ||
-        options_.presentation->render_overlay == nullptr) {
-      return;
-    }
-    PresentationOverlayContext context;
-    context.phase = phase;
-    context.device =
-        reinterpret_cast<std::uintptr_t>((__bridge void*)device_);
-    context.command_buffer =
-        reinterpret_cast<std::uintptr_t>((__bridge void*)command);
-    context.render_encoder =
-        reinterpret_cast<std::uintptr_t>((__bridge void*)encoder);
-    context.render_pass_descriptor =
-        reinterpret_cast<std::uintptr_t>((__bridge void*)pass);
-    options_.presentation->render_overlay(
-        options_.presentation->overlay_user_data, context);
-  }
-
-  void ValidatePresentation(render::PresentationTarget target,
-      const char* operation) const {
-    if (!presentation_ || target != *presentation_) {
-      throw render::RendererError(
-          render::RendererErrorCode::InvalidRequest, operation,
-          "presentation target belongs to another backend");
-    }
-  }
-
-  void ValidatePresentationExtent(std::uint32_t width, std::uint32_t height,
-      const char* operation) const {
-    if (width == 0 || height == 0 ||
-        width > capabilities_.limits.max_image_dimension_2d ||
-        height > capabilities_.limits.max_image_dimension_2d) {
-      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-          operation,
-          "presentation extent is invalid");
-    }
-  }
-
-  void UpdatePresentationExtent(std::uint32_t width, std::uint32_t height) {
-    ValidatePresentationExtent(width, height, "resize Metal presentation");
-    if (presentation_width_ == width && presentation_height_ == height) {
-      return;
-    }
-    if (presentation_width_ != 0 && presentation_height_ != 0) {
-      ++statistics_.presentation_recreates;
-    }
-    presentation_width_ = width;
-    presentation_height_ = height;
-    layer_.drawableSize = CGSizeMake(width, height);
-  }
-
-  void CreateDepthState() {
-    MTLDepthStencilDescriptor* descriptor = [MTLDepthStencilDescriptor new];
-    descriptor.depthCompareFunction = MTLCompareFunctionLessEqual;
-    descriptor.depthWriteEnabled = YES;
-    depth_state_ = [device_ newDepthStencilStateWithDescriptor:descriptor];
-    if (depth_state_ == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "create Metal depth state",
-          "newDepthStencilState returned nil");
-    }
-    descriptor.depthWriteEnabled = NO;
-    gaussian_depth_state_ = [device_ newDepthStencilStateWithDescriptor:descriptor];
-    if (gaussian_depth_state_ == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "create Metal Gaussian depth state", "newDepthStencilState returned nil");
-    }
-  }
-
-  void CreateHeap() {
-    // GPU Scene tables remain private buffers, but their aligned footprint is
-    // reserved from the configured residency budget before sizing the shared
-    // scene heap. The two allocation pools therefore cannot exceed the limit.
-    std::uint64_t gpu_scene_reservation{};
-    if (options_.gpu_scene_capacities) {
-      gpu_scene_reservation =
-          GpuSceneReservation(device_, *options_.gpu_scene_capacities);
-    }
-    if (gpu_scene_reservation >= options_.heap_capacity_bytes) {
-      throw render::RendererError(
-          render::RendererErrorCode::ResourceExhausted,
-          "create Metal resource heap",
-          "GPU Scene tables require " +
-              std::to_string(gpu_scene_reservation) +
-              " bytes of the configured " +
-              std::to_string(options_.heap_capacity_bytes) +
-              "-byte residency budget");
-    }
-    MTLHeapDescriptor* descriptor =
-        SceneHeapDescriptor(options_.heap_capacity_bytes -
-                            gpu_scene_reservation);
-    heap_ = [device_ newHeapWithDescriptor:descriptor];
-    if (heap_ == nil) {
-      throw render::RendererError(
-          render::RendererErrorCode::ResourceExhausted,
-          "create Metal resource heap",
-          "newHeap returned nil for " +
-              std::to_string(options_.heap_capacity_bytes) + " bytes");
-    }
-    heap_.label = @"hdMerlin scene residency";
-  }
-
-  id<MTLBuffer> HeapBuffer(std::uint64_t length, std::uint64_t* charged,
-      FrameBuild& build) {
-    if (length == 0) {
-      *charged = 0;
-      return nil;
-    }
-    const auto size_and_align = [device_
-        heapBufferSizeAndAlignWithLength:length
-                                 options:MTLResourceStorageModeShared |
-                                         MTLResourceCPUCacheModeWriteCombined];
-    *charged = AlignUp(size_and_align.size, size_and_align.align);
-    id<MTLBuffer> buffer =
-        [heap_ newBufferWithLength:length
-                           options:MTLResourceStorageModeShared |
-                                   MTLResourceCPUCacheModeWriteCombined];
-    if (buffer == nil) {
-      ++metal_statistics_.heap_exhaustion_count;
-      throw render::RendererError(
-          render::RendererErrorCode::ResourceExhausted,
-          "allocate Metal heap buffer",
-          "scene heap exhausted while allocating " + std::to_string(length) +
-              " bytes; capacity=" +
-              std::to_string(options_.heap_capacity_bytes) + ", resident=" +
-              std::to_string(metal_statistics_.heap_resident_bytes));
-    }
-    ChargeAllocation(*charged, build);
-    return buffer;
-  }
-
-  id<MTLTexture> HeapTexture(MTLTextureDescriptor* descriptor,
-      std::uint64_t* charged, FrameBuild& build) {
-    const auto size_and_align =
-        [device_ heapTextureSizeAndAlignWithDescriptor:descriptor];
-    *charged = AlignUp(size_and_align.size, size_and_align.align);
-    id<MTLTexture> texture = [heap_ newTextureWithDescriptor:descriptor];
-    if (texture == nil) {
-      ++metal_statistics_.heap_exhaustion_count;
-      throw render::RendererError(
-          render::RendererErrorCode::ResourceExhausted,
-          "allocate Metal heap texture",
-          "scene heap exhausted while allocating texture; capacity=" +
-              std::to_string(options_.heap_capacity_bytes) + ", resident=" +
-              std::to_string(metal_statistics_.heap_resident_bytes));
-    }
-    ChargeAllocation(*charged, build);
-    return texture;
-  }
-
-  void ChargeAllocation(std::uint64_t bytes, FrameBuild& build) {
-    metal_statistics_.heap_resident_bytes += bytes;
-    metal_statistics_.heap_peak_resident_bytes =
-        std::max(metal_statistics_.heap_peak_resident_bytes,
-            metal_statistics_.heap_resident_bytes);
-    ++metal_statistics_.heap_allocation_count;
-    ++build.telemetry.allocation_count;
-    build.telemetry.buffer_allocation_bytes += bytes;
-  }
-
-  void Retire(id<MTLResource> first, id<MTLResource> second,
-      std::uint64_t bytes) {
-    if (first == nil && second == nil) {
-      return;
-    }
-    retirements_.push_back({submitted_value_, bytes, first, second});
-    ++metal_statistics_.scene_resource_retirements;
-  }
-
-  void CollectRetirements() {
-    const auto completed = completed_value_.load(std::memory_order_acquire);
-    texture_slots_.Collect(completed);
-    sampler_slots_.Collect(completed);
-    auto output = retirements_.begin();
-    for (auto current = retirements_.begin(); current != retirements_.end();
-        ++current) {
-      if (current->completion_value <= completed) {
-        metal_statistics_.heap_resident_bytes -= current->bytes;
-        metal_statistics_.heap_release_count +=
-            static_cast<std::uint64_t>(current->first != nil) +
-            static_cast<std::uint64_t>(current->second != nil);
-      } else {
-        if (output != current) {
-          *output = std::move(*current);
-        }
-        ++output;
-      }
-    }
-    retirements_.erase(output, retirements_.end());
-  }
-
-  void Reconcile(const extraction::FrameSnapshot& snapshot, FrameBuild& build) {
-    const auto begin = Clock::now();
-    std::unordered_set<std::uint64_t> active;
-    for (const auto& record : snapshot.geometries) {
-      active.insert(record.mesh);
-    }
-    for (auto it = geometries_.begin(); it != geometries_.end();) {
-      if (!active.contains(it->first)) {
-        Retire(it->second.vertices, it->second.indices, it->second.bytes);
-        it = geometries_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    CollectRetirements();
-    for (const auto& record : snapshot.geometries) {
-      const auto found = geometries_.find(record.mesh);
-      if (found != geometries_.end() &&
-          found->second.vertex_revision == record.vertex_revision &&
-          found->second.index_revision == record.index_revision) {
-        continue;
-      }
-      if (!record.vertices || !record.indices) {
-        throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-            "upload Metal geometry",
-            "geometry payload is null");
-      }
-      Geometry replacement;
-      replacement.vertex_revision = record.vertex_revision;
-      replacement.index_revision = record.index_revision;
-      replacement.index_count =
-          static_cast<std::uint32_t>(record.indices->size());
-      const auto vertex_bytes =
-          record.vertices->size() * sizeof(extraction::DrawVertex);
-      const auto index_bytes = record.indices->size() * sizeof(std::uint32_t);
-      std::uint64_t vertex_charged{};
-      std::uint64_t index_charged{};
-      try {
-        replacement.vertices = HeapBuffer(vertex_bytes, &vertex_charged, build);
-        replacement.indices = HeapBuffer(index_bytes, &index_charged, build);
-      } catch (...) {
-        if (replacement.vertices != nil) {
-          metal_statistics_.heap_resident_bytes -= vertex_charged;
-          ++metal_statistics_.heap_release_count;
-        }
-        throw;
-      }
-      if (vertex_bytes != 0) {
-        std::memcpy(replacement.vertices.contents, record.vertices->data(),
-            vertex_bytes);
-      }
-      if (index_bytes != 0) {
-        std::memcpy(replacement.indices.contents, record.indices->data(),
-            index_bytes);
-      }
-      replacement.bytes = vertex_charged + index_charged;
-      build.telemetry.upload_bytes += vertex_bytes + index_bytes;
-      build.telemetry.geometry_cache_misses++;
-      build.telemetry.geometry_reconcile_count++;
-      if (found != geometries_.end()) {
-        Retire(found->second.vertices, found->second.indices,
-            found->second.bytes);
-        found->second = std::move(replacement);
-      } else {
-        geometries_.emplace(record.mesh, std::move(replacement));
-      }
-    }
-    geometry_peak_resident_bytes_ =
-        std::max(geometry_peak_resident_bytes_, GeometryResidentBytes());
-
-    active.clear();
-    for (const auto& record : snapshot.textures) {
-      active.insert(record.texture);
-    }
-    for (auto it = textures_.begin(); it != textures_.end();) {
-      if (!active.contains(it->first)) {
-        texture_slots_.Release(it->first, submitted_value_);
-        Retire(it->second.texture, nil, it->second.bytes);
-        it = textures_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    CollectRetirements();
-    for (const auto& record : snapshot.textures) {
-      const auto found = textures_.find(record.texture);
-      if (found != textures_.end() &&
-          found->second.revision == record.revision) {
-        ++build.telemetry.texture_cache_hits;
-        continue;
-      }
-      if (!record.pixels || record.width == 0 || record.height == 0 ||
-          record.pixels->size() !=
-              static_cast<std::size_t>(record.width) * record.height * 4U) {
-        throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-            "upload Metal texture",
-            "texture payload is invalid");
-      }
-      MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-          texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                       width:record.width
-                                      height:record.height
-                                   mipmapped:NO];
-      descriptor.storageMode = MTLStorageModeShared;
-      descriptor.cpuCacheMode = MTLCPUCacheModeWriteCombined;
-      descriptor.usage = MTLTextureUsageShaderRead;
-      Texture replacement;
-      replacement.revision = record.revision;
-      const bool new_resource = found == textures_.end();
-      if (new_resource) {
-        (void)AcquireSlot(texture_slots_, record.texture,
-            "allocate Metal texture slot");
-      }
-      try {
-        replacement.texture =
-            HeapTexture(descriptor, &replacement.bytes, build);
-      } catch (...) {
-        if (new_resource) {
-          texture_slots_.Release(record.texture, CompletedValue());
-          texture_slots_.Collect(CompletedValue());
-        }
-        throw;
-      }
-      const MTLRegion region =
-          MTLRegionMake2D(0, 0, record.width, record.height);
-      [replacement.texture replaceRegion:region
-                             mipmapLevel:0
-                               withBytes:record.pixels->data()
-                             bytesPerRow:record.width * 4U];
-      build.telemetry.upload_bytes += record.pixels->size();
-      ++build.telemetry.texture_cache_misses;
-      ++build.telemetry.texture_reconcile_count;
-      if (found != textures_.end()) {
-        Retire(found->second.texture, nil, found->second.bytes);
-        found->second = std::move(replacement);
-      } else {
-        textures_.emplace(record.texture, std::move(replacement));
-      }
-    }
-
-    active.clear();
-    for (const auto& record : snapshot.samplers) {
-      active.insert(record.sampler);
-    }
-    for (auto it = samplers_.begin(); it != samplers_.end();) {
-      if (!active.contains(it->first)) {
-        sampler_slots_.Release(it->first, submitted_value_);
-        it = samplers_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    sampler_slots_.Collect(CompletedValue());
-    for (const auto& record : snapshot.samplers) {
-      const auto found = samplers_.find(record.sampler);
-      if (found != samplers_.end() &&
-          found->second.revision == record.revision) {
-        continue;
-      }
-      MTLSamplerDescriptor* descriptor = [MTLSamplerDescriptor new];
-      descriptor.minFilter = Filter(record.min_filter);
-      descriptor.magFilter = Filter(record.mag_filter);
-      descriptor.sAddressMode = Address(record.address_u);
-      descriptor.tAddressMode = Address(record.address_v);
-      descriptor.normalizedCoordinates = YES;
-      descriptor.supportArgumentBuffers = bindless_;
-      const bool new_resource = found == samplers_.end();
-      if (new_resource) {
-        (void)AcquireSlot(sampler_slots_, record.sampler,
-            "allocate Metal sampler slot");
-      }
-      Sampler replacement{record.revision,
-          [device_ newSamplerStateWithDescriptor:descriptor]};
-      if (replacement.sampler == nil) {
-        if (new_resource) {
-          sampler_slots_.Release(record.sampler, CompletedValue());
-          sampler_slots_.Collect(CompletedValue());
-        }
-        throw render::RendererError(
-            render::RendererErrorCode::ResourceExhausted,
-            "create Metal sampler", "newSamplerState returned nil");
-      }
-      ++build.telemetry.sampler_reconcile_count;
-      if (found != samplers_.end()) {
-        found->second = replacement;
-      } else {
-        samplers_.emplace(record.sampler, replacement);
-      }
-    }
-    build.upload_ns = DurationNs(begin, Clock::now());
-  }
-
-  ResourceSlot AcquireSlot(StableResourceTable& table, std::uint64_t resource,
-      const char* operation) {
-    try {
-      return table.Acquire(resource, CompletedValue());
-    } catch (const std::length_error&) {
-      const auto telemetry = table.telemetry();
-      throw render::RendererError(
-          render::RendererErrorCode::ResourceExhausted, operation,
-          "stable resource table exhausted; capacity=" +
-              std::to_string(telemetry.capacity) +
-              ", in_use=" + std::to_string(telemetry.in_use) +
-              ", retiring=" + std::to_string(telemetry.retiring));
-    }
-  }
-
-  std::uint64_t CompletedValue() const noexcept {
-    return completed_value_.load(std::memory_order_acquire);
-  }
-
-  void EnsureTargets(FrameContext& frame, std::uint32_t width,
-      std::uint32_t height, bool gaussian_color, FrameBuild& build) {
-    const bool reuse = frame.width == width && frame.height == height && frame.color != nil;
-    auto texture = [&](MTLPixelFormat format, MTLTextureUsage usage) {
-      MTLTextureDescriptor* descriptor =
-          [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
-                                                             width:width
-                                                            height:height
-                                                         mipmapped:NO];
-      descriptor.storageMode = MTLStorageModePrivate;
-      descriptor.usage = usage;
-      id<MTLTexture> value = [device_ newTextureWithDescriptor:descriptor];
-      if (value == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::ResourceExhausted,
-            "allocate Metal render target", "newTexture returned nil");
-      }
-      ++build.telemetry.allocation_count;
-      build.telemetry.image_allocation_bytes +=
-          static_cast<std::uint64_t>(width) * height * (format == MTLPixelFormatRGBA32Float ? 16U : 4U);
-      return value;
-    };
-    const auto gaussian_usage = MTLTextureUsageRenderTarget |
-        MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
-    if (reuse) {
-      if (gaussian_color && !frame.gaussian_color)
-        frame.gaussian_color = texture(MTLPixelFormatRGBA32Float, gaussian_usage);
-      return;
-    }
-    id<MTLTexture> float_color = gaussian_color
-                                     ? texture(MTLPixelFormatRGBA32Float, gaussian_usage)
-                                     : nil;
-    id<MTLTexture> color =
-        texture(MTLPixelFormatRGBA8Unorm, gaussian_usage);
-    id<MTLTexture> depth =
-        texture(MTLPixelFormatDepth32Float, MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
-    id<MTLTexture> prim_id =
-        texture(MTLPixelFormatR32Uint, gaussian_usage);
-    id<MTLTexture> instance_id =
-        texture(MTLPixelFormatR32Uint, gaussian_usage);
-    const auto bytes = static_cast<NSUInteger>(AlignedRowPitch(width)) * height;
-    auto buffer = [&] {
-      id<MTLBuffer> value =
-          [device_ newBufferWithLength:bytes
-                               options:MTLResourceStorageModeShared |
-                                       MTLResourceCPUCacheModeDefaultCache];
-      if (value == nil) {
-        throw render::RendererError(
-            render::RendererErrorCode::ResourceExhausted,
-            "allocate Metal readback", "newBuffer returned nil");
-      }
-      ++build.telemetry.allocation_count;
-      build.telemetry.buffer_allocation_bytes += bytes;
-      return value;
-    };
-    id<MTLBuffer> color_readback = buffer();
-    id<MTLBuffer> depth_readback = buffer();
-    id<MTLBuffer> prim_readback = buffer();
-    id<MTLBuffer> instance_readback = buffer();
-    frame.width = width;
-    frame.height = height;
-    frame.color = color;
-    frame.gaussian_color = float_color;
-    frame.depth = depth;
-    frame.prim_id = prim_id;
-    frame.instance_id = instance_id;
-    frame.color_readback = color_readback;
-    frame.depth_readback = depth_readback;
-    frame.prim_readback = prim_readback;
-    frame.instance_readback = instance_readback;
-  }
-
-  void EncodeArgumentBuffer(FrameContext& frame, FrameBuild& build) {
-    [argument_encoder_ setArgumentBuffer:frame.argument_buffer offset:0];
-    std::vector<const Texture*> by_texture(options_.texture_capacity);
-    std::vector<std::uint64_t> texture_handles(options_.texture_capacity);
-    for (const auto& [handle, texture] : textures_) {
-      const auto slot = texture_slots_.Find(handle);
-      if (slot) {
-        by_texture[slot->index] = &texture;
-        texture_handles[slot->index] = handle;
-      }
-    }
-    std::vector<const Sampler*> by_sampler(options_.sampler_capacity);
-    std::vector<std::uint64_t> sampler_handles(options_.sampler_capacity);
-    for (const auto& [handle, sampler] : samplers_) {
-      const auto slot = sampler_slots_.Find(handle);
-      if (slot) {
-        by_sampler[slot->index] = &sampler;
-        sampler_handles[slot->index] = handle;
-      }
-    }
-
-    std::uint64_t updates{};
-    for (std::uint32_t index = 0; index < options_.texture_capacity; ++index) {
-      const auto revision =
-          by_texture[index] == nullptr ? 0 : by_texture[index]->revision;
-      if (frame.encoded_textures[index] != texture_handles[index] ||
-          frame.encoded_texture_revisions[index] != revision) {
-        [argument_encoder_
-            setTexture:by_texture[index] == nullptr ? nil
-                                                    : by_texture[index]->texture
-               atIndex:index];
-        frame.encoded_textures[index] = texture_handles[index];
-        frame.encoded_texture_revisions[index] = revision;
-        ++updates;
-        ++build.telemetry.bindless_sampled_image_descriptor_update_count;
-      }
-    }
-    for (std::uint32_t index = 0; index < options_.sampler_capacity; ++index) {
-      const auto revision =
-          by_sampler[index] == nullptr ? 0 : by_sampler[index]->revision;
-      if (frame.encoded_samplers[index] != sampler_handles[index] ||
-          frame.encoded_sampler_revisions[index] != revision) {
-        [argument_encoder_ setSamplerState:by_sampler[index] == nullptr
-                                               ? nil
-                                               : by_sampler[index]->sampler
-                                   atIndex:kShaderTextureCapacity + index];
-        frame.encoded_samplers[index] = sampler_handles[index];
-        frame.encoded_sampler_revisions[index] = revision;
-        ++updates;
-        ++build.telemetry.bindless_sampler_descriptor_update_count;
-      }
-    }
-    if (updates != 0) {
-      ++metal_statistics_.argument_buffer_encode_count;
-      metal_statistics_.argument_buffer_update_count += updates;
-      build.telemetry.descriptor_update_count += updates;
-    }
-  }
-
-  static MaterialConstants
-  MakeMaterial(const extraction::MaterialRecord& material,
-      const render::ForwardDirectionalLighting& lighting) {
-    MaterialConstants result{};
-    result.base_color = material.parameters.base_color;
-    result.light_direction_intensity = lighting.direction_intensity;
-    result.light_color_alpha_cutoff = {lighting.color.x, lighting.color.y,
-        lighting.color.z, material.parameters.alpha_cutoff};
-    result.diffuse_environment = render::PackagedDiffuseEnvironment().coefficients;
-    return result;
-  }
-
-  void PrepareGaussianExecution(const render::RenderRequest& request,
-      id<MTLCommandBuffer> __strong& command, FrameContext& frame, FrameBuild& build) {
-    const auto mode = request.gpu_driven_gaussian.mode;
-    if (mode == render::GpuDrivenGaussianMode::Disabled) {
-      PrepareGaussians(request, frame, build);
-      return;
-    }
-    if (!capabilities_.gpu_driven_gaussian) {
-      ++build.telemetry.gaussian_gpu_fallback_count;
-      PrepareGaussians(request, frame, build);
-      return;
-    }
-    const auto begin = Clock::now();
-    try {
-      auto attributes = gaussian_residency_->Prepare(*request.snapshot);
-      gaussian_residency_->Encode(attributes, command);
-      const auto uploaded = Clock::now();
-      const bool wants_tiles = request.gpu_driven_gaussian.raster == render::GaussianRasterPath::Tiled;
-      std::shared_ptr<const GaussianExecution::Frame> execution;
-      try {
-        execution = gaussian_execution_->Encode(attributes,
-            request.snapshot->view, request.snapshot->projection,
-            request.width, request.height, command, false, capabilities_.validation_enabled,
-            frame.gaussian_timestamps, wants_tiles,
-            request.gpu_driven_gaussian.tile_pair_capacity);
-      } catch (const render::RendererError& error) {
-        if (!wants_tiles || mode != render::GpuDrivenGaussianMode::Prefer ||
-            (error.code() != render::RendererErrorCode::Unsupported &&
-                error.code() != render::RendererErrorCode::ResourceExhausted)) throw;
-        // The tiled command is unsubmitted. Rebuild its attribute update in a
-        // fresh command, then keep GPU sorted-stream execution.
-        command = nil;
-        command = [queue_ commandBuffer];
-        if (!command)
-          throw render::RendererError(render::RendererErrorCode::BackendFailure,
-              "create Metal sorted fallback command", "commandBuffer returned nil");
-        attributes = gaussian_residency_->Prepare(*request.snapshot);
-        gaussian_residency_->Encode(attributes, command);
-        execution = gaussian_execution_->Encode(attributes,
-            request.snapshot->view, request.snapshot->projection,
-            request.width, request.height, command, false, capabilities_.validation_enabled,
-            frame.gaussian_timestamps);
-        ++build.telemetry.gaussian_gpu_fallback_count;
-      }
-      // Read only bounded per-resource counters and draw arguments after all
-      // compute stages. They never schedule GPU work from a CPU visible count.
-      const auto tile_bytes = execution->tiled ? 44ULL : 0ULL;
-      const auto bytes = 32ULL + tile_bytes + execution->resource_count * sizeof(gaussian_compute::PrepareCounters);
-      if (!frame.gaussian_telemetry || frame.gaussian_telemetry.length < bytes) {
-        auto buffer = [device_ newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-        if (!buffer)
-          throw render::RendererError(render::RendererErrorCode::ResourceExhausted,
-              "allocate Metal Gaussian telemetry", "newBuffer returned nil");
-        frame.gaussian_telemetry = buffer;
-        ++build.telemetry.allocation_count;
-      }
-      auto blit = [command blitCommandEncoder];
-      if (!blit)
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "copy Metal Gaussian telemetry", "blitCommandEncoder returned nil");
-      [blit copyFromBuffer:execution->scratch->draw sourceOffset:0
-          toBuffer:frame.gaussian_telemetry destinationOffset:0 size:16];
-      [blit copyFromBuffer:execution->scratch->control sourceOffset:0
-          toBuffer:frame.gaussian_telemetry destinationOffset:16 size:16];
-      if (execution->tiled)
-        [blit copyFromBuffer:execution->scratch->tile_control sourceOffset:0
-            toBuffer:frame.gaussian_telemetry destinationOffset:32 size:tile_bytes];
-      if (execution->resource_count)
-        [blit copyFromBuffer:execution->scratch->counters sourceOffset:0
-            toBuffer:frame.gaussian_telemetry destinationOffset:32 + tile_bytes size:bytes - 32 - tile_bytes];
-      [blit endEncoding];
-      build.telemetry.readback_bytes += bytes;
-      build.telemetry.allocation_count += attributes->allocation_count + execution->allocation_count;
-      build.telemetry.gaussian_attribute_upload_bytes = attributes->upload_bytes;
-      build.telemetry.gaussian_attribute_copy_range_count = attributes->upload_range_count;
-      build.telemetry.gaussian_attribute_generation_count = attributes->generation_count;
-      build.telemetry.upload_bytes += attributes->upload_bytes;
-      build.telemetry.gaussian_candidate_count = execution->particle_count;
-      build.telemetry.gaussian_sorting_policy_fallback_count = execution->sorting_policy.fallback_resource_count;
-      for (const auto& resource : attributes->resources)
-        if (!resource.record.visible)
-          build.telemetry.gaussian_hidden_count += resource.record.positions->size();
-      frame.gaussian_execution = std::move(execution);
-      build.gaussian_attributes = std::move(attributes);
-      build.gaussian_attribute_upload_ns = DurationNs(begin, uploaded);
-      build.upload_ns += build.gaussian_attribute_upload_ns;
-    } catch (const render::RendererError& error) {
-      if (mode != render::GpuDrivenGaussianMode::Prefer ||
-          (error.code() != render::RendererErrorCode::Unsupported &&
-              error.code() != render::RendererErrorCode::ResourceExhausted)) throw;
-      // Discard all partially encoded uploads/compute, retaining the previous
-      // committed scene. No other frame work has been encoded yet.
-      command = nil;
-      frame.gaussian_execution.reset();
-      command = [queue_ commandBuffer];
-      if (!command)
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "create Metal fallback command", "commandBuffer returned nil");
-      command.label = @"hdMerlin CPU Gaussian fallback frame";
-      ++build.telemetry.gaussian_gpu_fallback_count;
-      PrepareGaussians(request, frame, build);
-    }
-  }
-
-  void ResolveGaussianTelemetry(const FrameContext& frame, render::RenderResult& result) {
-    if (!frame.gaussian_execution) return;
-    const auto* words = static_cast<const std::uint32_t*>(frame.gaussian_telemetry.contents);
-    const auto& execution = *frame.gaussian_execution;
-    auto& telemetry = result.telemetry;
-    const auto* tile = execution.tiled ? words + 8 : nullptr;
-    const auto* counters = reinterpret_cast<const gaussian_compute::PrepareCounters*>(
-        words + 8 + (execution.tiled ? 11 : 0));
-    for (std::uint32_t i = 0; i < execution.resource_count; ++i) {
-      telemetry.gaussian_visible_count += counters[i].visible_count;
-      telemetry.gaussian_opacity_culled_count += counters[i].opacity_culled_count;
-      telemetry.gaussian_frustum_culled_count += counters[i].frustum_culled_count;
-      telemetry.gaussian_invalid_culled_count += counters[i].invalid_culled_count;
-    }
-    const bool selected = tile && tile[10] != 0;
-    if (words[0] != 6 || words[1] != (selected ? 0 : telemetry.gaussian_visible_count) ||
-        words[1] > execution.particle_count || words[2] || words[3] ||
-        (tile && (tile[0] != telemetry.gaussian_visible_count || tile[10] > 1 ||
-            (selected && (tile[1] > execution.tile_raster.pair_capacity || tile[2])) ||
-            (capabilities_.validation_enabled && (tile[3] != std::min(tile[1], execution.tile_raster.pair_capacity) ||
-                tile[4] || tile[5] || tile[6])))) ||
-        (capabilities_.validation_enabled &&
-            (words[4] != telemetry.gaussian_visible_count || words[5] || words[6]))) {
-      ++statistics_.validation_messages;
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "resolve Metal Gaussian telemetry", "GPU sort/count or indirect arguments are inconsistent: draw=" +
-              std::to_string(words[1]) + " visible=" + std::to_string(telemetry.gaussian_visible_count) +
-              " tile=" + std::to_string(tile ? tile[10] : 0) +
-              " records=" + std::to_string(tile ? tile[0] : 0) +
-              " requested=" + std::to_string(tile ? tile[1] : 0));
-    }
-    telemetry.gaussian_sorted_count = telemetry.gaussian_visible_count;
-    telemetry.gaussian_gpu_sorted_count = telemetry.gaussian_visible_count;
-    telemetry.gaussian_gpu_raster_instance_count = words[1];
-    if (tile) {
-      telemetry.gaussian_gpu_tile_pair_capacity = execution.tile_raster.pair_capacity;
-      telemetry.gaussian_gpu_tile_requested_pair_count = tile[1];
-      telemetry.gaussian_gpu_tile_clamped_record_count = tile[2];
-      telemetry.gaussian_gpu_tile_raster_frame_count = selected ? 1 : 0;
-      telemetry.gaussian_gpu_tile_raster_overflow_fallback_count =
-          !selected && (tile[1] > execution.tile_raster.pair_capacity || tile[2]) ? 1 : 0;
-    }
-  }
-
-  void ResolveGaussianTimestamps(const FrameContext& frame,
-      render::RenderResult& result) const {
-    if (!frame.gaussian_timestamps) return;
-    result.timings.gaussian_raster_ns = 0;
-    if (!frame.gaussian_execution && frame.gaussian_count == 0) return;
-    NSData* data = [frame.gaussian_timestamps resolveCounterRange:
-        NSMakeRange(0, kGaussianTimestampCount)];
-    if (!data || data.length < kGaussianTimestampCount * sizeof(MTLCounterResultTimestamp))
-      return;
-    const auto* stamps = static_cast<const MTLCounterResultTimestamp*>(data.bytes);
-    const auto duration = [&](NSUInteger begin, NSUInteger end) -> std::uint64_t {
-      const auto first = stamps[begin].timestamp;
-      const auto last = stamps[end].timestamp;
-      if (first == MTLCounterErrorValue || last == MTLCounterErrorValue || last < first)
-        return 0;
-      return last - first;
-    };
-    if (frame.gaussian_execution) {
-      result.timings.gaussian_gpu_preparation_ns =
-          duration(kGaussianPrepareBegin, kGaussianPrepareEnd);
-      result.timings.gaussian_gpu_sort_ns =
-          duration(kGaussianSortBegin, kGaussianSortEnd);
-    }
-    result.timings.gaussian_raster_ns =
-        duration(kGaussianRasterBegin, kGaussianRasterEnd);
-    if (frame.gaussian_execution && frame.gaussian_execution->tiled) {
-      result.timings.gaussian_gpu_tile_ns = duration(kGaussianTileBegin, kGaussianTileEnd);
-      if (result.telemetry.gaussian_gpu_tile_raster_frame_count)
-        result.timings.gaussian_raster_ns = duration(kGaussianTileRasterBegin, kGaussianTileRasterEnd);
-    }
-    if (result.telemetry.gaussian_float_color_frame_count)
-      result.timings.gaussian_raster_ns += duration(kGaussianColorConvertBegin, kGaussianColorConvertEnd);
-  }
-
-  void PrepareGaussians(const render::RenderRequest& request,
-      FrameContext& frame, FrameBuild& build) {
-    const auto& snapshot = *request.snapshot;
-    const bool cache_hit = gaussian_cache_valid_ &&
-                           gaussian_source_.table_identity() == snapshot.gaussians.table_identity() &&
-                           gaussian_view_.values == snapshot.view.values &&
-                           gaussian_projection_.values == snapshot.projection.values &&
-                           gaussian_width_ == request.width && gaussian_height_ == request.height;
-    if (cache_hit) {
-      ++build.telemetry.gaussian_preparation_cache_hits;
-    } else {
-      const auto begin = Clock::now();
-      const auto prepared = extraction::PrepareGaussianFrame(
-          snapshot, {request.width, request.height});
-      build.gaussian_preparation_ns = DurationNs(begin, Clock::now());
-      const auto count = prepared.gaussians.size();
-      // ByteAddressBuffer loads use 32-bit byte offsets in the shader.
-      if (count > std::numeric_limits<std::uint32_t>::max() / sizeof(GaussianInstance) ||
-          count > device_.maxBufferLength / sizeof(GaussianInstance)) {
-        throw render::RendererError(render::RendererErrorCode::Unsupported,
-            "prepare Metal Gaussians", "prepared stream exceeds the Metal buffer or shader address limit");
-      }
-      const auto upload_begin = Clock::now();
-      id<MTLBuffer> buffer = nil;
-      const auto bytes = count * sizeof(GaussianInstance);
-      if (bytes != 0) {
-        buffer = [device_ newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-        if (buffer == nil) {
-          throw render::RendererError(render::RendererErrorCode::BackendFailure,
-              "upload Metal Gaussians", "could not allocate the prepared stream");
-        }
-        buffer.label = @"hdMerlin immutable Gaussian stream";
-        auto* target = static_cast<GaussianInstance*>(buffer.contents);
-        for (std::size_t i = 0; i < count; ++i) {
-          const auto& g = prepared.gaussians[i];
-          target[i] = {g.center_pixels, g.inverse_conic, g.radiance,
-              g.opacity, g.radius_pixels, g.depth,
-              static_cast<std::uint32_t>(g.resource), g.particle};
-        }
-        ++build.telemetry.allocation_count;
-      }
-      // Publish the cache only after preparation and upload both succeed.
-      gaussian_buffer_ = buffer;
-      gaussian_counters_ = prepared.counters;
-      gaussian_source_ = snapshot.gaussians;
-      gaussian_view_ = snapshot.view;
-      gaussian_projection_ = snapshot.projection;
-      gaussian_width_ = request.width;
-      gaussian_height_ = request.height;
-      gaussian_cache_valid_ = true;
-      ++build.telemetry.gaussian_preparation_cache_misses;
-      build.telemetry.gaussian_upload_bytes += bytes;
-      build.telemetry.upload_bytes += bytes;
-      build.gaussian_upload_ns = DurationNs(upload_begin, Clock::now());
-      build.upload_ns += build.gaussian_upload_ns;
-    }
-    frame.gaussian_instances = gaussian_buffer_;
-    frame.gaussian_count = gaussian_counters_.visible_count;
-    build.telemetry.gaussian_candidate_count = gaussian_counters_.candidate_count;
-    build.telemetry.gaussian_visible_count = gaussian_counters_.visible_count;
-    build.telemetry.gaussian_hidden_count = gaussian_counters_.hidden_count;
-    build.telemetry.gaussian_opacity_culled_count = gaussian_counters_.opacity_culled_count;
-    build.telemetry.gaussian_frustum_culled_count = gaussian_counters_.frustum_culled_count;
-    build.telemetry.gaussian_invalid_culled_count = gaussian_counters_.invalid_culled_count;
-    build.telemetry.gaussian_sorted_count = gaussian_counters_.sorted_count;
-    build.telemetry.gaussian_sorting_policy_fallback_count = gaussian_counters_.sorting_policy_fallback_count;
-  }
-
-  void EncodeRender(id<MTLCommandBuffer> command, FrameContext& frame,
-      const render::RenderRequest& request, FrameBuild& build) {
-    MTLRenderPassDescriptor* pass =
-        [MTLRenderPassDescriptor renderPassDescriptor];
-    const bool float_color = !request.snapshot->gaussians.empty() ||
-                             request.gpu_driven_gaussian.mode != render::GpuDrivenGaussianMode::Disabled;
-    pass.colorAttachments[0].texture = float_color ? frame.gaussian_color : frame.color;
-    build.telemetry.gaussian_float_color_frame_count = float_color ? 1 : 0;
-    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    pass.colorAttachments[0].clearColor =
-        MTLClearColorMake(request.clear_color.x, request.clear_color.y,
-            request.clear_color.z, request.clear_color.w);
-    pass.colorAttachments[1].texture = frame.prim_id;
-    pass.colorAttachments[1].loadAction = MTLLoadActionClear;
-    pass.colorAttachments[1].storeAction = MTLStoreActionStore;
-    pass.colorAttachments[1].clearColor =
-        MTLClearColorMake(std::numeric_limits<std::uint32_t>::max(), 0, 0, 0);
-    pass.colorAttachments[2].texture = frame.instance_id;
-    pass.colorAttachments[2].loadAction = MTLLoadActionClear;
-    pass.colorAttachments[2].storeAction = MTLStoreActionStore;
-    pass.colorAttachments[2].clearColor =
-        MTLClearColorMake(std::numeric_limits<std::uint32_t>::max(), 0, 0, 0);
-    pass.depthAttachment.texture = frame.depth;
-    pass.depthAttachment.loadAction = MTLLoadActionClear;
-    pass.depthAttachment.storeAction = MTLStoreActionStore;
-    pass.depthAttachment.clearDepth = 1.0;
-
-    const auto lighting =
-        render::ExtractForwardDirectionalLighting(*request.snapshot);
-    id<MTLRenderCommandEncoder> encoder =
-        [command renderCommandEncoderWithDescriptor:pass];
-    if (encoder == nil) {
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "encode Metal render pass",
-          "renderCommandEncoder returned nil");
-    }
-    [encoder setRenderPipelineState:float_color ? float_pipeline_ : pipeline_];
-    [encoder setDepthStencilState:depth_state_];
-    const MTLViewport viewport{0.0,
-        0.0,
-        static_cast<double>(request.width),
-        static_cast<double>(request.height),
-        0.0,
-        1.0};
-    const MTLScissorRect scissor{0, 0, request.width, request.height};
-    [encoder setViewport:viewport];
-    [encoder setScissorRect:scissor];
-    [encoder setFrontFacingWinding:request.snapshot->front_face ==
-                                           FrontFaceWinding::Clockwise
-                                       ? MTLWindingCounterClockwise
-                                       : MTLWindingClockwise];
-    if (bindless_) {
-      [encoder setFragmentBuffer:frame.argument_buffer offset:0 atIndex:3];
-      for (const auto& [handle, texture] : textures_) {
-        (void)handle;
-        [encoder useResource:texture.texture
-                       usage:MTLResourceUsageRead
-                      stages:MTLRenderStageFragment];
-      }
-    }
-
-    const auto view_projection =
-        Multiply(request.snapshot->projection, request.snapshot->view);
-    const auto gpu_scene_draw_slots =
-        build.has_gpu_scene_update
-            ? build.gpu_scene_draw_slot_indices
-            : (gpu_scene_buffers_.has_resident_update &&
-                          gpu_scene_buffers_.source_id ==
-                              request.snapshot->source_id &&
-                          gpu_scene_buffers_.revision == request.snapshot->revision
-                      ? gpu_scene_buffers_.draw_slot_indices
-                      : nullptr);
-    const bool gpu_scene_ready =
-        bindless_ && gpu_scene_pipeline_ != nil && gpu_scene_draw_slots &&
-        gpu_scene_draw_slots->size() == request.snapshot->draws.size();
-    if (gpu_scene_ready) {
-      [encoder useResource:gpu_scene_buffers_.geometries
-                     usage:MTLResourceUsageRead
-                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
-      [encoder useResource:gpu_scene_buffers_.instances
-                     usage:MTLResourceUsageRead
-                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
-      [encoder useResource:gpu_scene_buffers_.materials
-                     usage:MTLResourceUsageRead
-                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
-      [encoder useResource:gpu_scene_buffers_.draws
-                     usage:MTLResourceUsageRead
-                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
-    }
-    for (std::size_t draw_index = 0;
-        draw_index < request.snapshot->draws.size(); ++draw_index) {
-      const auto& draw = request.snapshot->draws[draw_index];
-      if (draw.geometry_index >= request.snapshot->geometries.size() ||
-          draw.material_index >= request.snapshot->materials.size() ||
-          draw.instance_index >= request.snapshot->instances.size()) {
-        [encoder endEncoding];
-        throw render::RendererError(render::RendererErrorCode::InvalidRequest,
-            "encode Metal draw",
-            "draw record index is invalid");
-      }
-      const auto& geometry_record =
-          request.snapshot->geometries[draw.geometry_index];
-      const auto geometry = geometries_.find(geometry_record.mesh);
-      if (geometry == geometries_.end()) {
-        continue;
-      }
-      const auto& instance = request.snapshot->instances[draw.instance_index];
-      if (!instance.visible) {
-        continue;
-      }
-      const auto& material = request.snapshot->materials[draw.material_index];
-      [encoder setCullMode:material.double_sided ? MTLCullModeNone
-                                                 : MTLCullModeBack];
-
-      DrawConstants constants;
-      constants.model_view_projection =
-          Multiply(view_projection, instance.transform);
-      const auto normal = NormalMatrix(instance.transform);
-      constants.normal_matrix_column0 = normal[0];
-      constants.normal_matrix_column1 = normal[1];
-      constants.normal_matrix_column2 = normal[2];
-      constants.feature_mask = static_cast<std::uint32_t>(material.features);
-      if (material.alpha_mode == AlphaMode::Masked) {
-        constants.feature_mask |= kMaskedAlphaFlag;
-      } else if (material.alpha_mode == AlphaMode::Blended) {
-        constants.feature_mask &=
-            ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture);
-        build.telemetry.material_fallbacks.Record(
-            MaterialFallback::BasicMaterial);
-      }
-      constants.prim_id = static_cast<std::uint32_t>(geometry_record.mesh);
-      constants.instance_id = static_cast<std::uint32_t>(instance.instance);
-
-      id<MTLTexture> texture = nil;
-      id<MTLSamplerState> sampler = nil;
-      if (material.base_color_texture) {
-        if (material.base_color_texture->texture_index >=
-                request.snapshot->textures.size() ||
-            material.base_color_texture->sampler_index >=
-                request.snapshot->samplers.size()) {
-          [encoder endEncoding];
-          throw render::RendererError(
-              render::RendererErrorCode::InvalidRequest,
-              "encode Metal material",
-              "material texture binding index is invalid");
-        }
-        const auto texture_handle =
-            request.snapshot
-                ->textures[material.base_color_texture->texture_index]
-                .texture;
-        const auto sampler_handle =
-            request.snapshot
-                ->samplers[material.base_color_texture->sampler_index]
-                .sampler;
-        const auto texture_found = textures_.find(texture_handle);
-        const auto sampler_found = samplers_.find(sampler_handle);
-        if (texture_found != textures_.end() &&
-            sampler_found != samplers_.end()) {
-          texture = texture_found->second.texture;
-          sampler = sampler_found->second.sampler;
-          const auto texture_slot = texture_slots_.Find(texture_handle);
-          const auto sampler_slot = sampler_slots_.Find(sampler_handle);
-          if (texture_slot && sampler_slot) {
-            constants.texture_index = texture_slot->index;
-            constants.sampler_index = sampler_slot->index;
-          }
-        } else {
-          constants.feature_mask &=
-              ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture);
-          build.telemetry.material_fallbacks.Record(
-              MaterialFallback::BasicMaterial);
-        }
-      }
-
-      if (material.module) {
-        ++build.telemetry.generated_material_fallback_count;
-        build.telemetry.material_fallbacks.Record(
-            MaterialFallback::BasicMaterial);
-        MaterialDiagnostic diagnostic;
-        diagnostic.category = MaterialDiagnosticCategory::CacheIncompatible;
-        diagnostic.severity = DiagnosticSeverity::Warning;
-        diagnostic.fallback = MaterialFallback::BasicMaterial;
-        diagnostic.message =
-            "Metal generated-material execution is not registered; using "
-            "the basic material contract";
-        diagnostic.context.material_identity = material.module->key;
-        diagnostic.context.backend_target = "metal";
-        build.material_diagnostics.push_back(std::move(diagnostic));
-      }
-
-      const bool use_gpu_scene = gpu_scene_ready && !material.module;
-      const auto material_constants = MakeMaterial(material, lighting);
-      [encoder setRenderPipelineState:use_gpu_scene
-                                          ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
-                                          : (float_color ? float_pipeline_ : pipeline_)];
-      [encoder setVertexBuffer:geometry->second.vertices offset:0 atIndex:0];
-      [encoder setFragmentBytes:&material_constants
-                         length:sizeof(material_constants)
-                        atIndex:2];
-      if (use_gpu_scene) {
-        GpuSceneDrawConstants gpu_scene_constants;
-        gpu_scene_constants.view_projection = view_projection;
-        gpu_scene_constants.draw_slot = (*gpu_scene_draw_slots)[draw_index];
-        [encoder setVertexBytes:&gpu_scene_constants
-                         length:sizeof(gpu_scene_constants)
-                        atIndex:1];
-        [encoder setFragmentBytes:&gpu_scene_constants
-                           length:sizeof(gpu_scene_constants)
-                          atIndex:1];
-        [encoder setVertexBuffer:gpu_scene_buffers_.geometries
-                          offset:0
-                         atIndex:4];
-        [encoder setVertexBuffer:gpu_scene_buffers_.instances
-                          offset:0
-                         atIndex:5];
-        [encoder setVertexBuffer:gpu_scene_buffers_.materials
-                          offset:0
-                         atIndex:6];
-        [encoder setVertexBuffer:gpu_scene_buffers_.draws offset:0 atIndex:7];
-        [encoder setFragmentBuffer:gpu_scene_buffers_.geometries
-                            offset:0
-                           atIndex:4];
-        [encoder setFragmentBuffer:gpu_scene_buffers_.instances
-                            offset:0
-                           atIndex:5];
-        [encoder setFragmentBuffer:gpu_scene_buffers_.materials
-                            offset:0
-                           atIndex:6];
-        [encoder setFragmentBuffer:gpu_scene_buffers_.draws
-                            offset:0
-                           atIndex:7];
-        ++build.telemetry.gpu_scene_draw_count;
-      } else {
-        [encoder setVertexBytes:&constants length:sizeof(constants) atIndex:1];
-        [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:1];
-      }
-      if (!bindless_) {
-        [encoder setFragmentTexture:texture atIndex:0];
-        [encoder setFragmentSamplerState:sampler atIndex:0];
-      }
-      [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                          indexCount:geometry->second.index_count
-                           indexType:MTLIndexTypeUInt32
-                         indexBuffer:geometry->second.indices
-                   indexBufferOffset:0];
-      ++build.telemetry.draw_count;
-      build.telemetry.triangle_count += geometry->second.index_count / 3U;
-      ++build.telemetry.visible_primitive_count;
-    }
-    const bool has_gaussians = frame.gaussian_execution || frame.gaussian_count != 0;
-    const bool sample_raster = has_gaussians && frame.gaussian_timestamps != nil;
-    if (sample_raster) {
-      // Stage-boundary sampling requires a separate render pass on Apple GPUs.
-      // Store the opaque Mesh attachments, then load them for Gaussian blend
-      // and depth/ID tests. The extra pass is included in this timing.
-      [encoder endEncoding];
-      for (NSUInteger i = 0; i < 3; ++i)
-        pass.colorAttachments[i].loadAction = MTLLoadActionLoad;
-      pass.depthAttachment.loadAction = MTLLoadActionLoad;
-      pass.sampleBufferAttachments[0].sampleBuffer = frame.gaussian_timestamps;
-      pass.sampleBufferAttachments[0].startOfVertexSampleIndex = kGaussianRasterBegin;
-      pass.sampleBufferAttachments[0].endOfFragmentSampleIndex = kGaussianRasterEnd;
-      encoder = [command renderCommandEncoderWithDescriptor:pass];
-      if (!encoder)
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "encode Metal Gaussian render pass", "renderCommandEncoder returned nil");
-      [encoder setViewport:viewport];
-      [encoder setScissorRect:scissor];
-    }
-    if (has_gaussians) {
-      const auto begin = Clock::now();
-      [encoder setRenderPipelineState:gaussian_pipeline_];
-      [encoder setDepthStencilState:gaussian_depth_state_];
-      [encoder setCullMode:MTLCullModeNone];
-      auto instances = frame.gaussian_execution
-                           ? frame.gaussian_execution->scratch->instances
-                           : frame.gaussian_instances;
-      [encoder setVertexBuffer:instances offset:0 atIndex:MERLIN_GAUSSIAN_INSTANCES_BINDING];
-      const Vec2 inverse_extent{1.0F / request.width, 1.0F / request.height};
-      [encoder setVertexBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
-      [encoder setFragmentBytes:&inverse_extent length:sizeof(inverse_extent) atIndex:MERLIN_GAUSSIAN_CONSTANTS_BINDING];
-      // Color blends back-to-front; integer IDs retain the nearest contributing
-      // particle. Test against opaque mesh depth without replacing that depth.
-      if (frame.gaussian_execution) {
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                indirectBuffer:frame.gaussian_execution->scratch->draw indirectBufferOffset:0];
-      } else {
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                  vertexStart:0
-                  vertexCount:6
-                instanceCount:frame.gaussian_count];
-      }
-      ++build.telemetry.gaussian_draw_count;
-      ++build.telemetry.draw_count;
-      build.gaussian_raster_ns = DurationNs(begin, Clock::now());
-    }
-    [encoder endEncoding];
-    if (frame.gaussian_execution && frame.gaussian_execution->tiled)
-      gaussian_execution_->EncodeTileRaster(*frame.gaussian_execution, command,
-          frame.gaussian_color, frame.depth, frame.prim_id, frame.instance_id,
-          frame.gaussian_timestamps);
-    if (float_color) {
-      auto descriptor = [MTLComputePassDescriptor computePassDescriptor];
-      if (sample_raster) {
-        descriptor.sampleBufferAttachments[0].sampleBuffer = frame.gaussian_timestamps;
-        descriptor.sampleBufferAttachments[0].startOfEncoderSampleIndex = kGaussianColorConvertBegin;
-        descriptor.sampleBufferAttachments[0].endOfEncoderSampleIndex = kGaussianColorConvertEnd;
-      }
-      id<MTLComputeCommandEncoder> convert = [command computeCommandEncoderWithDescriptor:descriptor];
-      if (!convert)
-        throw render::RendererError(render::RendererErrorCode::BackendFailure,
-            "encode Metal color conversion", "compute encoder returned nil");
-      [convert setComputePipelineState:color_convert_pipeline_];
-      [convert setTexture:frame.gaussian_color atIndex:0];
-      [convert setTexture:frame.color atIndex:1];
-      [convert dispatchThreads:MTLSizeMake(request.width, request.height, 1)
-          threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
-      [convert endEncoding];
-    }
-  }
-
-  void EncodePresentation(id<MTLCommandBuffer> command, FrameContext& frame,
-      id<CAMetalDrawable> drawable, FrameBuild& build) {
-    MTLRenderPassDescriptor* pass =
-        [MTLRenderPassDescriptor renderPassDescriptor];
-    pass.colorAttachments[0].texture = drawable.texture;
-    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
-    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> encoder =
-        [command renderCommandEncoderWithDescriptor:pass];
-    if (encoder == nil) {
-      throw render::RendererError(
-          render::RendererErrorCode::BackendFailure,
-          "encode Metal presentation pass",
-          "renderCommandEncoder returned nil");
-    }
-    [encoder setRenderPipelineState:presentation_pipeline_];
-    const auto color_space =
-        presentation_color_space_ == PresentationColorSpace::DisplayP3 ? 1U
-                                                                       : 0U;
-    [encoder setFragmentBytes:&color_space
-                       length:sizeof(color_space)
-                      atIndex:0];
-    [encoder setFragmentTexture:frame.color atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                vertexStart:0
-                vertexCount:3];
-    try {
-      NotifyOverlay(PresentationOverlayPhase::Render, command, encoder, pass);
-    } catch (...) {
-      [encoder endEncoding];
-      throw;
-    }
-    [encoder endEncoding];
-    build.telemetry.present_count = 1;
-    build.telemetry.presentation_copy_bytes =
-        static_cast<std::uint64_t>(frame.width) * frame.height * 4U;
-  }
-
-  void EncodeReadback(id<MTLCommandBuffer> command, FrameContext& frame,
-      const std::vector<Aov>& readbacks) {
-    if (readbacks.empty()) {
-      return;
-    }
-    id<MTLBlitCommandEncoder> encoder = [command blitCommandEncoder];
-    const auto pitch = AlignedRowPitch(frame.width);
-    const auto size = static_cast<NSUInteger>(pitch) * frame.height;
-    const MTLOrigin origin{0, 0, 0};
-    const MTLSize extent{frame.width, frame.height, 1};
-    const auto copy = [&](Aov aov, id<MTLTexture> texture,
-                          id<MTLBuffer> buffer) {
-      if (!HasAov(readbacks, aov)) {
-        return;
-      }
-      [encoder copyFromTexture:texture
-                       sourceSlice:0
-                       sourceLevel:0
-                      sourceOrigin:origin
-                        sourceSize:extent
-                          toBuffer:buffer
-                 destinationOffset:0
-            destinationBytesPerRow:pitch
-          destinationBytesPerImage:size];
-    };
-    copy(Aov::Color, frame.color, frame.color_readback);
-    copy(Aov::Depth, frame.depth, frame.depth_readback);
-    copy(Aov::PrimId, frame.prim_id, frame.prim_readback);
-    copy(Aov::InstanceId, frame.instance_id, frame.instance_readback);
-    [encoder endEncoding];
-  }
-
-  template <typename T>
-  static std::vector<T> TightCopy(id<MTLBuffer> buffer, std::uint32_t width,
-      std::uint32_t height) {
-    std::vector<T> result(static_cast<std::size_t>(width) * height);
-    const auto source_pitch = AlignedRowPitch(width);
-    const auto row_bytes = static_cast<std::size_t>(width) * sizeof(T);
-    const auto* source = static_cast<const std::byte*>(buffer.contents);
-    auto* destination = reinterpret_cast<std::byte*>(result.data());
-    for (std::uint32_t row = 0; row < height; ++row) {
-      std::memcpy(destination + row * row_bytes,
-          source + static_cast<std::size_t>(row) * source_pitch,
-          row_bytes);
-    }
-    return result;
-  }
-
-  static std::vector<std::uint8_t> TightColorCopy(id<MTLBuffer> buffer,
-      std::uint32_t width,
-      std::uint32_t height) {
-    std::vector<std::uint8_t> result(static_cast<std::size_t>(width) * height *
-                                     4U);
-    const auto source_pitch = AlignedRowPitch(width);
-    const auto row_bytes = static_cast<std::size_t>(width) * 4U;
-    const auto* source = static_cast<const std::byte*>(buffer.contents);
-    auto* destination = reinterpret_cast<std::byte*>(result.data());
-    for (std::uint32_t row = 0; row < height; ++row) {
-      std::memcpy(destination + row * row_bytes,
-          source + static_cast<std::size_t>(row) * source_pitch,
-          row_bytes);
-    }
-    return result;
-  }
-
-  void CopyReadbacks(FrameContext& frame, Pending& pending) {
-    const auto width = pending.width;
-    const auto height = pending.height;
-    const auto tight_pitch = width * 4U;
-    const auto bytes = static_cast<std::uint64_t>(tight_pitch) * height;
-    if (HasAov(pending.readback_aovs, Aov::Color)) {
-      pending.result.color.product =
-          MakeRenderProduct(width, height, Aov::Color);
-      pending.result.color.row_pitch_bytes = tight_pitch;
-      pending.result.color.pixels =
-          TightColorCopy(frame.color_readback, width, height);
-      pending.result.telemetry.readback_bytes += bytes;
-    }
-    if (HasAov(pending.readback_aovs, Aov::Depth)) {
-      pending.result.depth.product =
-          MakeRenderProduct(width, height, Aov::Depth);
-      pending.result.depth.row_pitch_bytes = tight_pitch;
-      pending.result.depth.pixels =
-          TightCopy<float>(frame.depth_readback, width, height);
-      pending.result.telemetry.readback_bytes += bytes;
-    }
-    if (HasAov(pending.readback_aovs, Aov::PrimId)) {
-      pending.result.prim_id.product =
-          MakeRenderProduct(width, height, Aov::PrimId);
-      pending.result.prim_id.row_pitch_bytes = tight_pitch;
-      pending.result.prim_id.pixels =
-          TightCopy<std::uint32_t>(frame.prim_readback, width, height);
-      pending.result.telemetry.readback_bytes += bytes;
-    }
-    if (HasAov(pending.readback_aovs, Aov::InstanceId)) {
-      pending.result.instance_id.product =
-          MakeRenderProduct(width, height, Aov::InstanceId);
-      pending.result.instance_id.row_pitch_bytes = tight_pitch;
-      pending.result.instance_id.pixels =
-          TightCopy<std::uint32_t>(frame.instance_readback, width, height);
-      pending.result.telemetry.readback_bytes += bytes;
-    }
-    for (const auto aov : pending.rendered_aovs) {
-      pending.result.telemetry.requested_aov_mask |= AovBit(aov);
-      pending.result.telemetry.rendered_aov_mask |= AovBit(aov);
-    }
-    for (const auto aov : pending.readback_aovs) {
-      pending.result.telemetry.cpu_readback_aov_mask |= AovBit(aov);
-    }
-    pending.result.telemetry.requested_aov_count = pending.rendered_aovs.size();
-    pending.result.telemetry.rendered_aov_count = pending.rendered_aovs.size();
-    pending.result.telemetry.cpu_readback_aov_count =
-        pending.readback_aovs.size();
-    pending.result.telemetry.resolve_count = 1;
-    pending.result.telemetry.map_count = pending.readback_aovs.empty() ? 0 : 1;
-    pending.result.telemetry.wait_count = 1;
-  }
-
-  Pending& ValidateToken(render::CompletionToken token, const char* operation) {
-    if (token.owner() != owner_ || token.value() == 0) {
-      throw render::RendererError(render::RendererErrorCode::InvalidToken,
-          operation,
-          "token belongs to another backend");
-    }
-    const auto found = pending_.find(token.value());
-    if (found == pending_.end()) {
-      throw render::RendererError(render::RendererErrorCode::InvalidToken,
-          operation,
-          "token is unknown or already resolved");
-    }
-    return found->second;
-  }
-
-  const Pending& ValidateToken(render::CompletionToken token,
-      const char* operation) const {
-    if (token.owner() != owner_ || token.value() == 0) {
-      throw render::RendererError(render::RendererErrorCode::InvalidToken,
-          operation,
-          "token belongs to another backend");
-    }
-    const auto found = pending_.find(token.value());
-    if (found == pending_.end()) {
-      throw render::RendererError(render::RendererErrorCode::InvalidToken,
-          operation,
-          "token is unknown or already resolved");
-    }
-    return found->second;
-  }
-
-  std::uint64_t GeometryResidentBytes() const noexcept {
-    std::uint64_t result{};
-    for (const auto& [handle, geometry] : geometries_) {
-      (void)handle;
-      result += geometry.bytes;
-    }
-    return result;
-  }
-
-  std::uint64_t RetiringBytes() const noexcept {
-    std::uint64_t result{};
-    for (const auto& retirement : retirements_) {
-      result += retirement.bytes;
-    }
-    return result;
-  }
-
-  std::uint64_t owner_{};
-  BackendOptions options_;
-  id<MTLDevice> device_;
-  id<MTLCommandQueue> queue_;
-  id<MTLSharedEvent> completion_event_;
-  id<MTLLibrary> library_;
-  id<MTLRenderPipelineState> pipeline_;
-  id<MTLRenderPipelineState> gpu_scene_pipeline_;
-  id<MTLRenderPipelineState> presentation_pipeline_;
-  id<MTLDepthStencilState> depth_state_;
-  id<MTLRenderPipelineState> gaussian_pipeline_;
-  id<MTLRenderPipelineState> float_pipeline_;
-  id<MTLRenderPipelineState> float_gpu_scene_pipeline_;
-  id<MTLComputePipelineState> color_convert_pipeline_;
-  id<MTLDepthStencilState> gaussian_depth_state_;
-  id<MTLBuffer> gaussian_buffer_ = nil;
-  std::unique_ptr<GaussianResidency> gaussian_residency_;
-  std::unique_ptr<GaussianExecution> gaussian_execution_;
-  extraction::PersistentTable<extraction::GaussianRecord> gaussian_source_;
-  extraction::GaussianPreparationCounters gaussian_counters_;
-  Mat4 gaussian_view_;
-  Mat4 gaussian_projection_;
-  std::uint32_t gaussian_width_{};
-  std::uint32_t gaussian_height_{};
-  bool gaussian_cache_valid_{};
-  id<MTLArgumentEncoder> argument_encoder_;
-  id<MTLHeap> heap_;
-  CAMetalLayer* layer_;
-  bool bindless_{};
-  std::optional<render::PresentationTarget> presentation_;
-  PresentationColorSpace presentation_color_space_{
-      PresentationColorSpace::Srgb};
-  std::uint32_t presentation_width_{};
-  std::uint32_t presentation_height_{};
-
-  render::RendererCapabilities capabilities_;
-  render::RendererStatistics statistics_;
-  MetalStatistics metal_statistics_;
-  GpuSceneBuffers gpu_scene_buffers_;
-  StableResourceTable texture_slots_;
-  StableResourceTable sampler_slots_;
-  std::unordered_map<std::uint64_t, Geometry> geometries_;
-  std::unordered_map<std::uint64_t, Texture> textures_;
-  std::unordered_map<std::uint64_t, Sampler> samplers_;
-  std::vector<Retirement> retirements_;
-  std::vector<FrameContext> frames_;
-  std::unordered_map<std::uint64_t, Pending> pending_;
-  std::size_t next_context_{};
-  std::uint64_t submitted_value_{};
-  std::atomic<std::uint64_t> completed_value_{};
-  std::uint64_t gpu_scene_last_failure_value_{};
-  std::uint64_t gpu_scene_invalid_through_value_{};
-  std::string gpu_scene_failure_detail_;
-  std::int32_t gpu_scene_failure_native_code_{};
-  std::uint64_t uploaded_bytes_{};
-  std::uint64_t readback_bytes_{};
-  std::uint64_t presentation_copy_bytes_{};
-  std::uint64_t aov_image_export_count_{};
-  std::uint64_t active_aov_image_leases_{};
-  std::uint64_t geometry_peak_resident_bytes_{};
-};
 
 Backend::Backend(const render::BackendCreateInfo& info, BackendOptions options)
     : impl_(std::make_unique<Impl>(info, options)) {

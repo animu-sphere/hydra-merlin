@@ -95,6 +95,7 @@ public:
   [[nodiscard]] std::uint64_t live_bytes() const noexcept;
 
 private:
+  void CreatePipelines(id<MTLLibrary> library);
   std::shared_ptr<Scratch> Acquire(std::uint32_t particles, std::uint32_t resources,
       std::uint32_t pairs, std::uint32_t tile_words, std::uint64_t& allocations);
   id<MTLDevice> device_;

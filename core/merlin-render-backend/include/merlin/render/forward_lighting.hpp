@@ -19,4 +19,25 @@ struct ForwardDirectionalLighting {
 [[nodiscard]] ForwardDirectionalLighting ExtractForwardDirectionalLighting(
     const extraction::FrameSnapshot& snapshot);
 
+// Column-major draw transforms and inverse-transpose normals. Singular
+// transforms retain the diagnostic identity normal basis.
+[[nodiscard]] Mat4 MultiplyForwardMatrices(const Mat4& lhs, const Mat4& rhs);
+[[nodiscard]] std::array<Vec4, 3> ForwardNormalMatrix(const Mat4& transform);
+
+// Backends supply their ABI type and selected environment; policy packing is
+// shared without coupling Core to either native binding layout.
+template <typename Constants>
+[[nodiscard]] Constants MakeForwardMaterialConstants(
+    const extraction::MaterialRecord& material,
+    const ForwardDirectionalLighting& lighting,
+    const std::array<Vec4, 9>& diffuse_environment) {
+  Constants result{};
+  result.base_color = material.parameters.base_color;
+  result.light_direction_intensity = lighting.direction_intensity;
+  result.light_color_alpha_cutoff = {lighting.color.x, lighting.color.y,
+      lighting.color.z, material.parameters.alpha_cutoff};
+  result.diffuse_environment = diffuse_environment;
+  return result;
+}
+
 } // namespace merlin::render

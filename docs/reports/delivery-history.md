@@ -11,6 +11,43 @@ Legend: ✅ done
 
 ---
 
+## v0.16.3 local backend/shader architecture validation — 2026-10-12
+
+Evidence was captured in the working tree based on `2ea1d30`, on Apple M3,
+macOS 15.7.9, Apple Clang 17.0.0, Slang 2026.8 and Xcode 16.4's Metal compiler.
+OpenUSD host checks use the local 26.08 shared runtime and Python 3.13.
+This is pre-release evidence; `VERSION` remains 0.16.2.
+
+| Configuration | Result | Scope |
+| --- | --- | --- |
+| Core Release | 23/23, no skips | CPU contracts and isolated installed consumption |
+| Native Metal Debug | 35/35, no skips | Shader/ABI/cache, Forward, Gaussian compute/residency, GPU Scene, lifetime and installed runtime |
+| Native Metal Release | 35/35, no skips | Same native gates |
+| Metal/Hydra Release | 55/55 across the 44 remaining and 11 focused Forward cases, no skips | CPU/native/Hgi AOV/discovery/install gates plus usdview lighting, motion and Qt navigation |
+| Vulkan Release, macOS compilation | All targets build/link; 31/31 selected GPU-free cases, no skips | Khronos Headers/Loader 1.4.321, shader/reflection/cache and installed Core/Vulkan consumers; GPU/runtime/benchmark cases explicitly excluded |
+
+The native Metal color/white fixtures preserve all 44 pre-refactor PPM images
+exactly in both Debug and Release. Comparing the saved host baseline with new
+Tier 0/HgiMetal captures also finds exact pixels in all 1,768 images: 25 lighting,
+401 motion and 458 navigation captures per presentation path. The independent
+Tier 0/HgiMetal gates compare 25 lighting, 393 motion and 433 navigation image
+pairs with zero changed pixels or mean-channel error. Existing replay, restored
+AOV and warmed resource-counter gates retain their original thresholds.
+
+New ABI checks validate native Slang Forward uploads, vertex attributes,
+color/ID outputs, argument-buffer arrays, GPU Scene table strides and
+presentation/color-copy bindings. Metal SDK installation verifies both embedded
+metallibs, emitted sources/reflection and checksums. Source-boundary checks reject
+the previous inline/runtime Metal shader library.
+
+The Vulkan loader-only compilation environment has no Vulkan device. It cannot
+establish new Vulkan image, validation-layer or host execution coverage, and
+this evidence does not close v0.16.3. Independent Vulkan Debug/Release device and
+Hydra runs, followed by refreshed cross-backend comparisons, remain in the
+[current roadmap](../roadmap/current.md#active). Existing support claims and
+rendering semantics are unchanged; generated Metal materials and broader
+Forward quality remain separate work.
+
 ## v0.16.2 independent backend validation and closure — 2026-10-12
 
 Release preparation starts from `fe8de56`. Refreshed Apple M3 captures above

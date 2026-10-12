@@ -95,6 +95,22 @@ an explicit capability diagnostic or fallback. All common shader modules pass
 both Vulkan and Metal compile gates before the Metal renderer is considered
 complete.
 
+Native Metal Forward, table-backed Forward, presentation and color conversion
+use Slang sources and the same build-time emission/reflection, Apple compilation,
+checksum and embedding steps as Gaussian shaders. The SDK embeds both Forward
+and Gaussian metallibs, so backend creation loads binaries without shader-source
+compilation or an artifact-directory dependency. Generated `.metal` is build
+output; there is no separately authored MSL Forward implementation.
+
+The pinned Slang compiler emits the read-only native GPU Scene
+`StructuredBuffer` records as mutable device pointers. A narrow Apple-stage
+compatibility step restores `const` on those four record types and their
+intermediate pointers before native compilation. It changes neither bindings
+nor layouts, and reflection/source checks plus the GPU Scene execution test
+validate that boundary. Shading policy remains entirely in Slang. Native Forward
+ABI checks cover stage attributes, color/ID outputs, upload offsets/sizes,
+argument-buffer arrays, table strides, presentation and color-copy bindings.
+
 ## MaterialX boundary
 
 MaterialX uses the official Slang Shader Generator. A MaterialX document or

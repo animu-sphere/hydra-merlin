@@ -7,6 +7,19 @@ add_library(merlin-vulkan STATIC
   src/environment_lighting.cpp
   src/render_artifacts.cpp
   src/renderer.cpp
+  src/resources.cpp
+  src/device.cpp
+  src/gpu_scene.cpp
+  src/gaussian.cpp
+  src/gaussian_prepare.cpp
+  src/gaussian_sort.cpp
+  src/gaussian_raster.cpp
+  src/gaussian_tiles.cpp
+  src/pipelines.cpp
+  src/forward.cpp
+  src/targets.cpp
+  src/presentation.cpp
+  src/readback.cpp
 )
 merlin_target_defaults(merlin-vulkan)
 
