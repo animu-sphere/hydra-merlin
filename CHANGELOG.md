@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-10-13
+
 ### Changed
 
 - Vulkan and Metal backend implementations are split into execution,
@@ -1287,7 +1289,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.2...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.3...main
+[0.16.3]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.15.0...v0.16.0
