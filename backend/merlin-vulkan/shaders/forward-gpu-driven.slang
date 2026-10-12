@@ -1,6 +1,6 @@
 #define MERLIN_EXPLICIT_DRAW_CONSTANTS 1
 #include "forward-common.slang"
-#include "../../../core/merlin-render-backend/shaders/gpu-scene-abi.slang"
+#include "../../../core/merlin-render-backend/shaders/gpu-scene-forward.slang"
 
 // GPU-driven Forward obtains the persistent draw slot from firstInstance and
 // carries it flat to the fragment stage so both stages resolve one identity.
@@ -45,34 +45,14 @@ DrawConstants LoadGpuDrivenDrawConstants(uint draw_slot)
     GpuGeometry geometry = gpu_geometries[draw.geometry_index];
     GpuInstance instance = gpu_instances[draw.instance_index];
     GpuMaterial material = gpu_materials[draw.material_index];
-    DrawConstants result;
-    result.model_view_projection = mul(
-        gpu_driven_forward_constants.view_projection, instance.transform);
-    result.normal_matrix_column0 = instance.normal_matrix_columns[0];
-    result.normal_matrix_column1 = instance.normal_matrix_columns[1];
-    result.normal_matrix_column2 = instance.normal_matrix_columns[2];
-    result.feature_mask = material.material_class_flags & 0x0000ffffu;
-    if ((geometry.attribute_mask & 2u) == 0u)
-        result.feature_mask &= ~kDisplayColorFlag;
-    if ((geometry.attribute_mask & 4u) == 0u ||
-        material.base_color_texture_index == kInvalidGpuSceneTableIndex ||
-        material.base_color_sampler_index == kInvalidGpuSceneTableIndex)
-        result.feature_mask &= ~kBaseColorTextureFlag;
-    if ((material.material_class_flags & (1u << 16u)) != 0u)
-        result.feature_mask |= kMaskedAlphaFlag;
-    result.prim_id = instance.object_id;
-    result.instance_id = instance.instance_id;
-    result.texture_index = material.base_color_texture_index;
-    return result;
+    return LoadForwardGpuDrawConstants(gpu_driven_forward_constants.view_projection,
+        geometry, instance, material);
 }
 
 MaterialConstants LoadGpuDrivenMaterial(uint draw_slot)
 {
     GpuMaterial material = gpu_materials[gpu_draws[draw_slot].material_index];
-    MaterialConstants result = material_constants;
-    result.base_color = material.base_color;
-    result.light_color_alpha_cutoff.a = material.surface_factors.z;
-    return result;
+    return LoadForwardGpuMaterialConstants(material, material_constants);
 }
 
 [shader("vertex")]

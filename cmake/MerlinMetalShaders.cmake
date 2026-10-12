@@ -12,6 +12,7 @@ macro(merlin_add_metal_shaders)
   set(_metal_output "${CMAKE_CURRENT_BINARY_DIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}")
   set(_metal_artifacts "")
   set(_metal_air "")
+  set(_metal_forward_air "")
   set(_metal_records "")
   set(_metal_entries
     "gaussian-metal.slang|gaussian_metal_vertex|vertex|gaussian.vertex|gaussian-reference|prepared_stream+ellipse+color+ids"
@@ -29,6 +30,15 @@ macro(merlin_add_metal_shaders)
   list(APPEND _metal_entries
     "gaussian-tile-raster-metal.slang|gaussian_tile_raster_select|compute|gaussian.tile-raster-select|gaussian-tile-raster-select|tile_compute_raster"
     "gaussian-tile-raster-metal.slang|gaussian_tile_raster|compute|gaussian.tile-raster|gaussian-tile-raster|tile_compute_raster")
+  list(APPEND _metal_entries
+    "forward-metal.slang|merlin_vertex|vertex|forward.vertex|forward|native_metal_binding"
+    "forward-metal.slang|merlin_fragment_conventional|fragment|forward.conventional|forward-conventional|native_metal_binding"
+    "forward-metal.slang|merlin_fragment_argument_buffer|fragment|forward.argument-buffer|forward-argument-buffer|native_metal_binding"
+    "forward-gpu-scene-metal.slang|merlin_vertex_gpu_scene|vertex|forward.gpu-scene-vertex|forward-gpu-scene|gpu_scene"
+    "forward-gpu-scene-metal.slang|merlin_fragment_gpu_scene|fragment|forward.gpu-scene-fragment|forward-gpu-scene|gpu_scene"
+    "color-convert-metal.slang|merlin_convert_color|compute|forward.color-convert|color-convert|color_copy"
+    "presentation-metal.slang|merlin_presentation_vertex|vertex|presentation.vertex|presentation|native_presentation"
+    "presentation-metal.slang|merlin_presentation_fragment|fragment|presentation.fragment|presentation|native_presentation")
   foreach(_record IN LISTS _metal_entries)
     string(REPLACE "|" ";" _fields "${_record}")
     list(GET _fields 0 _source)
@@ -41,6 +51,15 @@ macro(merlin_add_metal_shaders)
     set(_reflection "${_msl}.reflection.json")
     set(_depfile "${_msl}.d")
     set(_metal_compile_options "")
+    if(NOT _source MATCHES "^gaussian")
+      set(_metal_compile_options -Werror)
+    endif()
+    set(_metal_normalize_command "")
+    if(_source STREQUAL "forward-gpu-scene-metal.slang")
+      set(_metal_normalize_command COMMAND ${CMAKE_COMMAND}
+        "-DMERLIN_METAL_SOURCE=${_msl}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/normalize-metal-readonly.cmake")
+    endif()
     if(_stage STREQUAL "compute")
       # Preparation classifies non-finite inputs. Preserve those checks.
       # Slang emits unused temporaries for the return value of atomics.
@@ -53,9 +72,12 @@ macro(merlin_add_metal_shaders)
         -entry "${_entry}" -stage "${_stage}" -target metal -profile metallib_2_4
         -matrix-layout-column-major -O2 -warnings-as-errors all
         -reflection-json "${_reflection}" -depfile "${_depfile}" -o "${_msl}"
+      ${_metal_normalize_command}
       DEPENDS "${_metal_source}/${_source}"
+        "${PROJECT_SOURCE_DIR}/cmake/normalize-metal-readonly.cmake"
         "${_metal_shared}/gaussian-raster-common.slang"
         "${_metal_shared}/gaussian-raster-abi.slang"
+        "${_metal_shared}/forward-policy.slang"
       DEPFILE "${_depfile}"
       WORKING_DIRECTORY "${_metal_source}"
       VERBATIM)
@@ -70,33 +92,53 @@ macro(merlin_add_metal_shaders)
       DEPENDS "${_msl}"
       VERBATIM)
     list(APPEND _metal_artifacts "${_msl}" "${_reflection}")
-    list(APPEND _metal_air "${_msl}.air")
+    if(_source MATCHES "^gaussian")
+      list(APPEND _metal_air "${_msl}.air")
+    else()
+      list(APPEND _metal_forward_air "${_msl}.air")
+    endif()
     string(APPEND _metal_records
       "${_msl}|${_reflection}|${_depfile}|${_source}|${_entry}|${_stage}|metal|metallib_2_4|none|${_permutation}|${_features}\n")
   endforeach()
-  set(_metal_library "${_metal_output}/gaussian.metallib")
-  add_custom_command(
-    OUTPUT "${_metal_library}"
-    COMMAND "${MERLIN_XCRUN_EXECUTABLE}" -sdk macosx metallib
-      ${_metal_air} -o "${_metal_library}"
-    DEPENDS ${_metal_air}
-    VERBATIM)
-  add_custom_command(
-    OUTPUT "${_metal_library}.sha256"
-    COMMAND ${CMAKE_COMMAND} "-DMERLIN_INPUT=${_metal_library}"
-      "-DMERLIN_OUTPUT=${_metal_library}.sha256"
-      -P "${PROJECT_SOURCE_DIR}/cmake/write-sha256.cmake"
-    DEPENDS "${_metal_library}" "${PROJECT_SOURCE_DIR}/cmake/write-sha256.cmake"
-    VERBATIM)
-  set(_metal_header "${CMAKE_CURRENT_BINARY_DIR}/generated/gaussian_metallib.hpp")
-  add_custom_command(
-    OUTPUT "${_metal_header}"
-    COMMAND ${CMAKE_COMMAND}
-      "-DMERLIN_METALLIB=${_metal_library}"
-      "-DMERLIN_METAL_HEADER=${_metal_header}"
-      -P "${PROJECT_SOURCE_DIR}/cmake/embed-metal-library.cmake"
-    DEPENDS "${_metal_library}" "${PROJECT_SOURCE_DIR}/cmake/embed-metal-library.cmake"
-    VERBATIM)
+  set(_metal_libraries "")
+  set(_metal_checksums "")
+  set(_metal_headers "")
+  foreach(_group gaussian forward)
+    if(_group STREQUAL "gaussian")
+      set(_group_air "${_metal_air}")
+      set(_group_symbol kGaussianMetalLibrary)
+    else()
+      set(_group_air "${_metal_forward_air}")
+      set(_group_symbol kForwardMetalLibrary)
+    endif()
+    set(_library "${_metal_output}/${_group}.metallib")
+    set(_header "${CMAKE_CURRENT_BINARY_DIR}/generated/${_group}_metallib.hpp")
+    add_custom_command(
+      OUTPUT "${_library}"
+      COMMAND "${MERLIN_XCRUN_EXECUTABLE}" -sdk macosx metallib
+        ${_group_air} -o "${_library}"
+      DEPENDS ${_group_air}
+      VERBATIM)
+    add_custom_command(
+      OUTPUT "${_library}.sha256"
+      COMMAND ${CMAKE_COMMAND} "-DMERLIN_INPUT=${_library}"
+        "-DMERLIN_OUTPUT=${_library}.sha256"
+        -P "${PROJECT_SOURCE_DIR}/cmake/write-sha256.cmake"
+      DEPENDS "${_library}" "${PROJECT_SOURCE_DIR}/cmake/write-sha256.cmake"
+      VERBATIM)
+    add_custom_command(
+      OUTPUT "${_header}"
+      COMMAND ${CMAKE_COMMAND}
+        "-DMERLIN_METALLIB=${_library}"
+        "-DMERLIN_METAL_HEADER=${_header}"
+        "-DMERLIN_METAL_SYMBOL=${_group_symbol}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/embed-metal-library.cmake"
+      DEPENDS "${_library}" "${PROJECT_SOURCE_DIR}/cmake/embed-metal-library.cmake"
+      VERBATIM)
+    list(APPEND _metal_libraries "${_library}")
+    list(APPEND _metal_checksums "${_library}.sha256")
+    list(APPEND _metal_headers "${_header}")
+  endforeach()
   file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/metal-shader-records.txt"
     CONTENT "${_metal_records}")
   set(_metal_manifest "${_metal_output}/manifest.json")
@@ -122,11 +164,11 @@ macro(merlin_add_metal_shaders)
       "${PROJECT_SOURCE_DIR}/cmake/write-shader-manifest.cmake"
     VERBATIM)
   add_custom_target(merlin-metal-shaders DEPENDS
-    "${_metal_header}" "${_metal_manifest}" "${_metal_library}.sha256")
+    ${_metal_headers} "${_metal_manifest}" ${_metal_checksums})
   add_dependencies(merlin-metal merlin-metal-shaders)
   target_include_directories(merlin-metal PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-  install(FILES ${_metal_artifacts} "${_metal_library}" "${_metal_manifest}"
-    "${_metal_library}.sha256"
+  install(FILES ${_metal_artifacts} ${_metal_libraries} ${_metal_checksums}
+    "${_metal_manifest}"
     DESTINATION "${CMAKE_INSTALL_BINDIR}/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}/metal")
   set(MERLIN_METAL_SHADER_OUTPUT_DIR "${_metal_output}" PARENT_SCOPE)
 endmacro()

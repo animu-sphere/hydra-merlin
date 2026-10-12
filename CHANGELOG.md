@@ -10,6 +10,15 @@ after its public API and release process are established.
 
 ### Changed
 
+- Vulkan and Metal backend implementations are split into execution,
+  Forward, Gaussian, GPU Scene, pipeline, resource, readback and presentation
+  units. Core owns shared Forward draw transforms, material packing and Slang
+  shading/table policy. Native Metal Forward, GPU Scene, color conversion and
+  presentation now use build-time Slang artifacts with reflection, checksums
+  and embedded metallibs, including installed SDK consumers, instead of an
+  inline MSL library compiled at backend creation. Rendering semantics and
+  supported material/backend coverage are preserved.
+
 - Documentation now follows explicit ownership rules: the README is a short
   entry point, the support matrix owns current support with a
   Supported/Validated/Experimental/Unsupported status per capability and a

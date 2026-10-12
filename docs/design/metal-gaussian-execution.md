@@ -25,9 +25,9 @@ CPU-sorted reference path: shared CPU covariance projection, SH evaluation and
 sorting, followed by Metal ellipse rasterization. It blends against opaque
 mesh depth, writes resource/particle IDs, and reuses an immutable prepared
 stream on unchanged frames. Camera or particle changes rebuild that stream.
-The initial implementation used embedded MSL and did not provide GPU preparation,
-sorting or tile rasterization. Preserve this path as the correctness reference
-and capability fallback throughout the work below.
+The CPU-prepared and sorted-stream raster path remains the correctness
+reference and capability fallback. Its shaders, like the GPU kernels, are
+authored in Slang and consumed from embedded build-time metallibs.
 
 Vulkan already has Slang implementations of GPU preparation, deterministic
 radix sorting, sorted-stream indirect raster, tile binning and compute tile

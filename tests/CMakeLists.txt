@@ -228,6 +228,14 @@ endif()
 
 if(TARGET Merlin::Metal)
   if(NOT TARGET Merlin::Vulkan)
+    add_test(NAME merlin-forward-spirv-compile
+      COMMAND ${CMAKE_COMMAND}
+        "-DMERLIN_SLANGC_EXECUTABLE=${MERLIN_SLANGC_EXECUTABLE}"
+        "-DMERLIN_FORWARD_SOURCE_DIR=${PROJECT_SOURCE_DIR}/backend/merlin-vulkan/shaders"
+        "-DMERLIN_TEST_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/compile-forward-spirv.cmake")
+    set_tests_properties(merlin-forward-spirv-compile PROPERTIES
+      LABELS "forward;shader;spirv" TIMEOUT 60)
     add_test(NAME merlin-metal-gaussian-spirv-compile
       COMMAND ${CMAKE_COMMAND}
         "-DMERLIN_SLANGC_EXECUTABLE=${MERLIN_SLANGC_EXECUTABLE}"
@@ -242,13 +250,19 @@ if(TARGET Merlin::Metal)
       "-DMERLIN_METAL_SHADER_DIR=${MERLIN_METAL_SHADER_OUTPUT_DIR}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/verify-metal-gaussian-abi.cmake")
   set_tests_properties(merlin-metal-gaussian-abi PROPERTIES LABELS "metal;shader;abi")
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME merlin-metal-forward-abi
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/metal_forward_abi_test.py"
+        "${MERLIN_METAL_SHADER_OUTPUT_DIR}")
+    set_tests_properties(merlin-metal-forward-abi PROPERTIES LABELS "metal;forward;shader;abi")
+  endif()
   add_executable(merlin-metal-shader-artifact-key-tests shader_artifact_key_test.cpp)
   merlin_target_defaults(merlin-metal-shader-artifact-key-tests)
   target_link_libraries(merlin-metal-shader-artifact-key-tests PRIVATE Merlin::RenderWorld)
   add_dependencies(merlin-metal-shader-artifact-key-tests merlin-metal-shaders)
   add_test(NAME merlin-metal-shader-artifact-key
     COMMAND merlin-metal-shader-artifact-key-tests
-      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 16 6)
+      "${MERLIN_METAL_SHADER_OUTPUT_DIR}/manifest.json" 24 10)
   set_tests_properties(merlin-metal-shader-artifact-key PROPERTIES LABELS "metal;shader;cache")
 
   add_executable(merlin-metal-gaussian-tests metal_gaussian_test.cpp)

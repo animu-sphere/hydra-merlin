@@ -1,6 +1,6 @@
 # Renderer architecture
 
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-10-12
 
 hdMerlin is a lightweight, host-neutral raster renderer with independent
 Vulkan and Metal backends. It is not a
@@ -55,6 +55,31 @@ Required rules:
   no backend surrenders native resource ownership to the host.
 - Dependencies point from adapters/integrations toward Core and backend, never
   from Core toward a host SDK.
+
+## Backend implementation units
+
+The private backend implementation owns one completion/lifetime state. Its
+entry unit coordinates device setup, submission, completion and public error
+translation; internal modules define out-of-line operations against that state.
+No private implementation header or native type becomes a Core public contract.
+
+Both backends separate Forward encoding/material preparation, Gaussian
+execution, GPU Scene updates, pipeline creation, resource allocation/residency,
+readback and presentation. Vulkan additionally separates device negotiation,
+render targets and Gaussian preparation/sort/raster/tile stages. Pipeline
+modules create shader functions, layouts and pipeline objects; resource modules
+allocate, reconcile and retire scene/frame resources. Gaussian residency and
+scratch leases retain their completion-based owners rather than moving into
+pipeline creation. Splitting a translation unit does not introduce a second
+resource owner, queue or synchronization boundary.
+
+Core owns Forward transforms, inverse-transpose normal matrices, light
+selection, material-value packing and the shared Slang Forward policy. Backend
+shader wrappers adapt native bindings and stage transport to that policy;
+material/geometry feature selection for GPU Scene draws is also shared. The
+[Forward design](forward-lighting.md) defines the rendered meaning, while the
+[multi-backend strategy](multibackend-slang-materialx.md#slang-shader-foundation)
+defines artifact compilation and target compatibility.
 
 ## Four models
 

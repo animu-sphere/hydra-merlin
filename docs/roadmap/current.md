@@ -15,22 +15,18 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Documentation responsibility cleanup:** apply the
-  [documentation ownership rules](../README.md#ownership-rules), reduce the
-  README, and add lightweight drift checks.
-- **Backend and shader architecture cleanup (v0.16.3):** reduce implementation
-  concentration without changing supported rendering semantics.
-  - Split oversized Metal backend implementation units into Forward, Gaussian,
-    resource and presentation modules; keep Vulkan responsibility boundaries
-    comparable.
-  - Move inline shader source out of monolithic backend files and normalize
-    shader embedding/compilation boundaries.
-  - Separate pipeline creation from resource lifetime and residency management.
-  - Remove backend-local copies of shared Forward policy.
-  - Exit: backend entry points are orchestration layers; no large ad-hoc
-    shader string literals; one canonical shared Forward policy; supported
-    images stay within established tolerances; no support claim is broadened
-    by the refactor.
+- **Backend and shader architecture verification (v0.16.3):** validate the
+  [backend module boundaries](../design/renderer-architecture.md#backend-implementation-units)
+  and shared [Forward policy](../design/forward-lighting.md#shared-implementation-boundary)
+  against the v0.16.2 semantic baseline.
+  - Refresh independent Vulkan Debug/Release device execution, including
+    conventional/bindless/GPU Scene/generated Forward, Gaussian and lifetime
+    gates, after the implementation split.
+  - Refresh Vulkan native and Hydra Tier 0/Hgi host evidence and offline backend
+    comparisons; compile/SDK checks alone do not establish image parity.
+  - Exit: backend entry points orchestrate execution; no large ad-hoc shader
+    string literals; one canonical shared Forward policy; supported images stay
+    within established tolerances; no support claim is broadened by the refactor.
 
 ### Next
 

@@ -21,9 +21,63 @@ void Same(const merlin::render::ForwardDirectionalLighting& lhs,
   assert(lhs.color.z == rhs.color.z);
 }
 
+void DrawPolicies() {
+  // Composition is column-major; translation must be transformed by the
+  // parent matrix rather than simply added in the source coordinate system.
+  merlin::Mat4 scale;
+  scale.values[0] = 2.0F;
+  scale.values[5] = 3.0F;
+  scale.values[10] = 4.0F;
+  merlin::Mat4 translation;
+  translation.values[12] = 5.0F;
+  translation.values[13] = 6.0F;
+  translation.values[14] = 7.0F;
+  const auto composed = merlin::render::MultiplyForwardMatrices(scale, translation);
+  assert(composed.values[12] == 10.0F);
+  assert(composed.values[13] == 18.0F);
+  assert(composed.values[14] == 28.0F);
+  assert(composed.values[15] == 1.0F);
+
+  // An inverse-transpose normal stays perpendicular to the transformed
+  // tangent even under shear, a reflected axis and nonuniform scale.
+  scale.values[4] = 1.0F;
+  scale.values[10] = -4.0F;
+  const auto normal = merlin::render::ForwardNormalMatrix(scale);
+  assert(normal[0].x == 0.5F);
+  assert(std::abs(normal[0].x + 3.0F * normal[0].y) < 1e-6F);
+  assert(normal[2].z == -0.25F);
+  scale.values[10] = 0.0F;
+  const auto singular = merlin::render::ForwardNormalMatrix(scale);
+  assert(singular[0].x == 1.0F && singular[0].y == 0.0F);
+  assert(singular[1].y == 1.0F && singular[2].z == 1.0F);
+
+  struct Upload {
+    merlin::Vec4 base_color;
+    merlin::Vec4 light_direction_intensity;
+    merlin::Vec4 light_color_alpha_cutoff;
+    std::array<merlin::Vec4, 9> diffuse_environment;
+  };
+  merlin::extraction::MaterialRecord material;
+  material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
+  material.parameters.alpha_cutoff = 0.25F;
+  merlin::render::ForwardDirectionalLighting lighting;
+  lighting.direction_intensity = {0.0F, 1.0F, 0.0F, 0.0F};
+  lighting.color = {0.5F, 0.6F, 0.7F};
+  std::array<merlin::Vec4, 9> environment{};
+  environment[8] = {1.0F, 2.0F, 3.0F, 4.0F};
+  const auto upload = merlin::render::MakeForwardMaterialConstants<Upload>(material, lighting, environment);
+  assert(upload.base_color.w == 0.4F);
+  assert(upload.light_direction_intensity.y == 1.0F);
+  assert(upload.light_direction_intensity.w == 0.0F);
+  assert(upload.light_color_alpha_cutoff.z == 0.7F);
+  assert(upload.light_color_alpha_cutoff.w == 0.25F);
+  assert(upload.diffuse_environment[8].z == 3.0F);
+}
+
 } // namespace
 
 int main() {
+  DrawPolicies();
   using merlin::render::ExtractForwardDirectionalLighting;
   merlin::RenderWorld world;
   merlin::extraction::SceneExtractor extractor;
