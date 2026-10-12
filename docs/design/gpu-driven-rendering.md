@@ -307,7 +307,7 @@ checks zero steady CPU draw visits, zero uploads, and Forward parity at 1k,
 arena fixtures extend this to 16 geometries, eight materials, four textures/two
 samplers and 2/4/8/16 production vertex blocks, including an independent Forward
 renderer and draw/batch sweeps. See the
-[Mesh report](../reports/2026-09-28-mesh-scaling.md). This supports the accepted
+[Mesh scaling validation record](../reports/delivery-history.md#v0160-vulkan-mesh-scaling-validation). This supports the accepted
 basic-material Vulkan path; generated artifacts still require conventional
 descriptors/submission and are checked through explicit rejection/fallback.
 Their command-recording cost remains linear. It does not establish generated

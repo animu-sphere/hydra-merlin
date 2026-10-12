@@ -2,8 +2,8 @@
 """Check repository Markdown for cheap, mechanical documentation drift.
 
 Checks:
-  * repository-relative links in tracked Markdown resolve to existing files or
-    directories, and `#anchor` fragments resolve to a heading in the target;
+  * repository-relative links in tracked Markdown resolve to Git-tracked files
+    or directories, and `#anchor` fragments resolve to a heading in the target;
   * docs/roadmap/current.md contains no completed `[x]` task items.
 
 The rules these checks enforce are described in docs/README.md.
@@ -31,14 +31,30 @@ COMPLETED_TASK = re.compile(r"^\s*[-*+]\s+\[[xX]\]\s")
 EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
-def tracked_markdown() -> list[Path]:
+def tracked_files() -> list[str]:
     result = subprocess.run(
-        ["git", "ls-files", "-z", "--", "*.md"],
+        ["git", "ls-files", "-z"],
         cwd=ROOT,
         check=True,
         capture_output=True,
     )
-    return [Path(p) for p in result.stdout.decode("utf-8").split("\0") if p]
+    return [p for p in result.stdout.decode("utf-8").split("\0") if p]
+
+
+def tracked_targets(files: list[str]) -> set[str]:
+    """Tracked files plus every directory that contains one.
+
+    Untracked and Git-ignored files (for example local-only reports) exist in a
+    working copy but not in the published repository, so they are not valid
+    link targets.
+    """
+    targets = set(files)
+    for name in files:
+        parent = Path(name).parent
+        while parent != Path("."):
+            targets.add(parent.as_posix())
+            parent = parent.parent
+    return targets
 
 
 def iter_lines(text: str):
@@ -80,17 +96,17 @@ def anchors(path: Path) -> set[str]:
     return _anchor_cache[path]
 
 
-def check_links(files: list[Path]) -> list[str]:
+def check_links(files: list[Path], tracked: set[str]) -> list[str]:
     errors: list[str] = []
     for source in files:
         text = (ROOT / source).read_text(encoding="utf-8")
         for number, line in iter_lines(text):
             stripped = INLINE_CODE.sub("", line)
-            targets = INLINE_LINK.findall(stripped)
+            links = INLINE_LINK.findall(stripped)
             reference = REFERENCE_DEF.match(stripped)
             if reference:
-                targets.append(reference.group(1))
-            for target in targets:
+                links.append(reference.group(1))
+            for target in links:
                 if EXTERNAL.match(target) or target.startswith("//"):
                     continue
                 path_part, _, fragment = target.partition("#")
@@ -101,8 +117,10 @@ def check_links(files: list[Path]) -> list[str]:
                     except ValueError:
                         errors.append(f"{source}:{number}: link leaves the repository: {target}")
                         continue
-                    if not resolved.exists():
-                        errors.append(f"{source}:{number}: missing link target: {target}")
+                    if relative.as_posix() not in tracked and relative != Path("."):
+                        errors.append(
+                            f"{source}:{number}: link target is missing or not tracked by Git: {target}"
+                        )
                         continue
                 else:
                     relative = source
@@ -129,8 +147,9 @@ def check_current_roadmap() -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.parse_args()
-    files = tracked_markdown()
-    errors = check_links(files) + check_current_roadmap()
+    tracked = tracked_files()
+    files = [Path(p) for p in tracked if p.lower().endswith(".md")]
+    errors = check_links(files, tracked_targets(tracked)) + check_current_roadmap()
     for error in errors:
         print(error)
     if errors:
