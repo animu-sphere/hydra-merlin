@@ -8,6 +8,12 @@ foreach(_config "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
 endforeach()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
+add_executable(merlin-output-transform-tests output_transform_test.cpp)
+merlin_target_defaults(merlin-output-transform-tests)
+target_link_libraries(merlin-output-transform-tests PRIVATE Merlin::RenderBackend)
+add_test(NAME merlin-output-transform COMMAND merlin-output-transform-tests)
+set_tests_properties(merlin-output-transform PROPERTIES LABELS "core;lighting;color")
+
 add_executable(merlin-forward-lighting-tests forward_lighting_test.cpp)
 merlin_target_defaults(merlin-forward-lighting-tests)
 target_link_libraries(merlin-forward-lighting-tests PRIVATE Merlin::RenderBackend)
@@ -149,6 +155,17 @@ set_tests_properties(merlin-gpu-driven-indexed PROPERTIES
   LABELS "gpu-scene;gpu-driven;indirect;culling")
 
 if(TARGET Merlin::Vulkan)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME merlin-metal-forward-source-abi
+      COMMAND "${CMAKE_COMMAND}"
+        "-DMERLIN_SLANGC_EXECUTABLE=${MERLIN_SLANGC_EXECUTABLE}"
+        "-DMERLIN_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "-DMERLIN_TEST_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/native-metal-forward"
+        "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/compile-forward-metal.cmake")
+    set_tests_properties(merlin-metal-forward-source-abi PROPERTIES
+      LABELS "metal;forward;shader;abi" TIMEOUT 60)
+  endif()
   set(_merlin_gpu_scene_abi_source
       "${CMAKE_CURRENT_SOURCE_DIR}/data/gpu-scene-abi-wrapper.slang")
   set(_merlin_gpu_scene_abi_include
@@ -793,6 +810,19 @@ if(TARGET merlin-headless)
     SKIP_RETURN_CODE 77
     TIMEOUT 60
   )
+
+  add_executable(merlin-forward-output-vulkan-tests forward_output_vulkan_test.cpp)
+  merlin_target_defaults(merlin-forward-output-vulkan-tests)
+  target_link_libraries(merlin-forward-output-vulkan-tests PRIVATE Merlin::Vulkan)
+  add_dependencies(merlin-forward-output-vulkan-tests merlin-headless)
+  foreach(_mode conventional bindless gpu-scene gpu-driven)
+    add_test(NAME merlin-vulkan-output-${_mode}
+      COMMAND merlin-forward-output-vulkan-tests
+        "$<TARGET_FILE_DIR:merlin-headless>/shaders/v${MERLIN_SHADER_ARTIFACT_SCHEMA_VERSION}"
+        "${_mode}")
+    set_tests_properties(merlin-vulkan-output-${_mode} PROPERTIES
+      LABELS "gpu;forward;color" SKIP_RETURN_CODE 77 TIMEOUT 60)
+  endforeach()
 
   add_executable(merlin-material-resource-tests
     material_resource_test.cpp

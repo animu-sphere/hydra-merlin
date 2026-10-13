@@ -818,6 +818,21 @@ private:
             render::TelemetryModeName(contract.telemetry).data());
       });
 
+      ImGui::SliderFloat("Forward exposure (EV)", &settings_contract_.exposure_ev,
+          -32.0F, 32.0F, "%.2f EV");
+      if (ImGui::BeginCombo("Forward tone mapping",
+              render::ToneMappingName(settings_contract_.tone_mapping).data())) {
+        for (const auto mode : {render::ToneMapping::None, render::ToneMapping::Reinhard}) {
+          const bool selected = settings_contract_.tone_mapping == mode;
+          if (ImGui::Selectable(render::ToneMappingName(mode).data(), selected)) {
+            settings_contract_.tone_mapping = mode;
+          }
+          if (selected)
+            ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+      }
+
       if (ImGui::BeginCombo(
               "Indexed draw submission",
               render::GpuDrivenIndexedModeName(

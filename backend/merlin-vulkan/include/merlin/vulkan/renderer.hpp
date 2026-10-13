@@ -15,6 +15,7 @@
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
 #include <merlin/render/gpu_scene_packing.hpp>
+#include <merlin/render/output_transform.hpp>
 #include <merlin/vulkan/bindless_resource_table.hpp>
 #include <merlin/vulkan/descriptor_indexing.hpp>
 
@@ -620,6 +621,7 @@ struct RenderRequest {
   std::uint32_t width{512};
   std::uint32_t height{512};
   ShaderPaths shaders;
+  render::OutputTransformSettings output_transform;
   Vec4 clear_color{kDefaultClearColor};
   std::vector<RenderProductRequest> products{
       {Aov::Color, true}, {Aov::Depth, true}};

@@ -98,6 +98,7 @@ void RequireCommonAbi(std::string_view json) {
   RequireField(json, "light_direction_intensity", 16, 16);
   RequireField(json, "light_color_alpha_cutoff", 32, 16);
   RequireField(json, "diffuse_environment", 48, 144);
+  RequireField(json, "output_transform", 192, 16);
 }
 
 void RequireBinding(std::string_view json, std::string_view name,
@@ -557,7 +558,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
         "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":10",
+    RequireContains(manifest, "\"shader_abi_version\":11",
         "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
         "Slang toolchain series is not pinned");
@@ -580,7 +581,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 10);
+    static_assert(kVersion == 11);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);

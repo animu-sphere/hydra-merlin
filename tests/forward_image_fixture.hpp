@@ -3,6 +3,7 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
+#include "forward_output_fixture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -68,6 +69,20 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
   world.UpdateMaterial(material_handle, builtin, ChangeAspect::MaterialModule);
   (void)render();
   world.UpdateMaterial(material_handle, material, ChangeAspect::MaterialModule);
+
+  extractor.Apply(world, world.Commit());
+  const auto output_snapshot = extractor.snapshot();
+  VerifyForwardOutputTransforms([&](render::OutputTransformSettings settings) {
+    vulkan::RenderRequest request;
+    request.snapshot = output_snapshot;
+    request.width = request.height = 64;
+    request.shaders = shaders;
+    request.output_transform = settings;
+    request.products = {{Aov::Color, true}, {Aov::Depth, true},
+        {Aov::PrimId, true}, {Aov::InstanceId, true}};
+    return renderer.Resolve(renderer.Submit(request));
+  },
+      material.parameters.base_color);
 
   std::ofstream report(output / "comparison.json");
   report << "{\n  \"schema\": \"merlin-forward-image-fixture/v1\",\n"

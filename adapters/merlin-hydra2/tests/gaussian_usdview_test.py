@@ -24,12 +24,13 @@ def check_gaussian_settings(stage_view):
         str(setting.key): setting
         for setting in stage_view.GetRendererSettingsList()
     }
-    # Only flags keep usdview from adding its More... dialog, which re-sends
-    # stale values.
+    # Gaussian names stay unlisted so the More... dialog cannot replay a stale
+    # alias over an edited flag. Output settings are independent listed fields.
     assert set(settings) == {
-        GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING
+        GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING,
+        "merlin:exposureEv", "merlin:toneMapping"
     }, f"usdview lists unexpected Merlin settings: {sorted(settings)}"
-    for key in settings:
+    for key in (GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING):
         assert (
             settings[key].type == UsdImagingGL.RendererSettingType.FLAG
         ), f"{key} is not a menu flag"
@@ -37,6 +38,8 @@ def check_gaussian_settings(stage_view):
         assert stage_view.GetRendererSetting(key) is False, (
             f"{key} does not start at its default"
         )
+    assert stage_view.GetRendererSetting("merlin:exposureEv") == 0.0
+    assert stage_view.GetRendererSetting("merlin:toneMapping") == "reinhard"
     assert stage_view.GetRendererSetting(GAUSSIAN_MODE_SETTING) == "disabled"
     assert (
         stage_view.GetRendererSetting(GAUSSIAN_RASTER_SETTING)

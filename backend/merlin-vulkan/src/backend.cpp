@@ -187,6 +187,7 @@ public:
     }
     RenderRequest native;
     native.snapshot = request.snapshot;
+    native.output_transform = request.output_transform;
     native.gpu_scene_update = request.gpu_scene_update;
     switch (request.gpu_driven_indexed.mode) {
     case render::GpuDrivenIndexedMode::Disabled:

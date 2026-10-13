@@ -304,7 +304,8 @@ private:
 
   static MaterialConstants
   MakeMaterial(const extraction::MaterialRecord& material,
-      const render::ForwardDirectionalLighting& lighting);
+      const render::ForwardDirectionalLighting& lighting,
+      Vec4 output_transform);
 
   void PrepareGaussianExecution(const render::RenderRequest& request,
       id<MTLCommandBuffer> __strong& command, FrameContext& frame, FrameBuild& build);

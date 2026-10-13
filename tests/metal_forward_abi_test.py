@@ -30,7 +30,7 @@ def constants(typ, size, fields):
 
 
 material_fields = [("base_color", 0, 16), ("light_direction_intensity", 16, 16),
-                   ("light_color_alpha_cutoff", 32, 16), ("diffuse_environment", 48, 144)]
+                   ("light_color_alpha_cutoff", 32, 16), ("diffuse_environment", 48, 144), ("output_transform", 192, 16)]
 draw_fields = [("model_view_projection", 0, 64), ("normal_matrix_column0", 64, 16),
                ("normal_matrix_column1", 80, 16), ("normal_matrix_column2", 96, 16),
                ("feature_mask", 112, 4), ("prim_id", 116, 4), ("instance_id", 120, 4),
@@ -54,7 +54,7 @@ for stem, entry, stage in [
         assert [f["binding"]["index"] for f in fields] == [0, 1, 2, 3]
         assert [f["type"]["elementCount"] for f in fields] == [3, 3, 4, 2]
     else:
-        constants(parameter(data, source, "material_constants", "constantBuffer", 2), 192, material_fields)
+        constants(parameter(data, source, "material_constants", "constantBuffer", 2), 208, material_fields)
         outputs = data["entryPoints"][0]["result"]["type"]["fields"]
         assert [f["binding"]["index"] for f in outputs] == [0, 1, 2]
         assert outputs[0]["type"]["elementType"]["scalarType"] == "float32"

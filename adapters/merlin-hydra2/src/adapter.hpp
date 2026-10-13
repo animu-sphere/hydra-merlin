@@ -24,17 +24,18 @@ class Backend;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-// Hydra render setting keys for the renderer settings v3 Gaussian execution
-// policy. The mode and raster keys take the renderer vocabulary names as
-// strings: disabled, prefer, or require, and sorted-stream or tiled. Hosts
-// list only the two flags, which are views of the same policy: enabled is
-// on unless the mode is disabled and turning it on selects prefer, and
-// tiled selects the raster path.
-#define HD_MERLIN_RENDER_SETTINGS_TOKENS                                    \
-  ((gpuDrivenGaussianMode, "merlin:gpuDrivenGaussian:mode"))                \
-  ((gpuDrivenGaussianRaster, "merlin:gpuDrivenGaussian:raster"))            \
-  ((gpuDrivenGaussianEnabled, "merlin:gpuDrivenGaussian:enabled"))          \
-  ((gpuDrivenGaussianTiled, "merlin:gpuDrivenGaussian:tiled"))
+// Hydra keys for Gaussian execution and lit Forward output. Gaussian names
+// remain unlisted aliases of the two flags. Exposure accepts float/double EV;
+// tone mapping accepts none/reinhard strings or tokens.
+// clang-format off
+#define HD_MERLIN_RENDER_SETTINGS_TOKENS                                \
+  ((gpuDrivenGaussianMode, "merlin:gpuDrivenGaussian:mode"))            \
+  ((gpuDrivenGaussianRaster, "merlin:gpuDrivenGaussian:raster"))        \
+  ((gpuDrivenGaussianEnabled, "merlin:gpuDrivenGaussian:enabled"))      \
+  ((gpuDrivenGaussianTiled, "merlin:gpuDrivenGaussian:tiled"))          \
+  ((exposureEv, "merlin:exposureEv"))                                   \
+  ((toneMapping, "merlin:toneMapping"))
+// clang-format on
 
 TF_DECLARE_PUBLIC_TOKENS(HdMerlinRenderSettingsTokens,
     HD_MERLIN_RENDER_SETTINGS_TOKENS);
@@ -185,6 +186,9 @@ public:
   // convention. The Metal Hgi target is consumed as a top-left image, so
   // its projection needs the corresponding Y reflection.
   void SetHgiProjectionYReflection(bool reflect);
+  void SetOutputTransformSettings(
+      merlin::render::OutputTransformSettings settings);
+
   void SetGpuDrivenIndexedSettings(
       merlin::render::GpuDrivenIndexedSettings settings);
   // Requests the policy that the Gaussian render settings describe, with the

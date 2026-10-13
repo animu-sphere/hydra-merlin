@@ -227,6 +227,7 @@ render::CompletionToken Backend::Impl::Submit(const render::RenderRequest& reque
 
 render::CompletionToken Backend::Impl::SubmitFrame(const render::RenderRequest& request) {
   const auto submit_begin = Clock::now();
+  (void)render::PackForwardOutputTransform(request.output_transform);
   if (!request.snapshot) {
     throw render::RendererError(render::RendererErrorCode::InvalidRequest,
         "submit Metal frame", "snapshot is null");

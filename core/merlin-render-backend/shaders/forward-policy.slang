@@ -30,6 +30,7 @@ struct MaterialConstants
     float4 light_direction_intensity;
     float4 light_color_alpha_cutoff;
     float4 diffuse_environment[9];
+    float4 output_transform;
 };
 
 #ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
@@ -152,10 +153,17 @@ float4 ShadeForwardSurface(
         light_scale += material.light_color_alpha_cutoff.rgb *
             (0.85f * n_dot_l * material.light_direction_intensity.w);
         shaded.rgb *= light_scale;
-        // The color AOV is currently UNorm rather than floating point. Compress
-        // HDR lighting before attachment conversion so camera-facing surfaces
-        // retain detail instead of clipping every channel to white.
-        shaded.rgb = shaded.rgb / (float3(1.0f, 1.0f, 1.0f) + shaded.rgb);
+        // RGB remains linear. Exposure is 2^EV; Reinhard divides by inverse
+        // exposure to avoid overflowing finite HDR inputs at positive EV.
+        // Presentation alone applies display encoding. Alpha is unchanged.
+        if (material.output_transform.y == 1.0f)
+        {
+            shaded.rgb = shaded.rgb / (material.output_transform.z + shaded.rgb);
+        }
+        else
+        {
+            shaded.rgb *= material.output_transform.x;
+        }
     }
     if ((draw.feature_mask & kMaskedAlphaFlag) != 0u &&
         shaded.a < material.light_color_alpha_cutoff.a)

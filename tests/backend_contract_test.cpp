@@ -259,7 +259,9 @@ int main() {
   require_unsupported(settings, "renderer-settings.lighting-unsupported");
   settings = {};
   settings.exposure_ev = 1.0F;
-  require_unsupported(settings, "renderer-settings.exposure-unsupported");
+  assert(!ValidateRendererSettings(settings, &backend->capabilities()));
+  settings.tone_mapping = ToneMapping::None;
+  assert(!ValidateRendererSettings(settings, &backend->capabilities()));
   settings = {};
   settings.tone_mapping = ToneMapping::Aces;
   require_unsupported(settings,

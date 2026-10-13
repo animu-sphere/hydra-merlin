@@ -10,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include <merlin/render/output_transform.hpp>
 #include <merlin/core/material_diagnostic.hpp>
 #include <merlin/core/render_product.hpp>
 #include <merlin/extraction/frame_snapshot.hpp>
@@ -18,7 +19,7 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 3;
+inline constexpr std::uint32_t kBackendContractVersion = 4;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 3;
 
 enum class BackendKind { Vulkan,
@@ -43,9 +44,6 @@ enum class GaussianRasterPath { SortedStream,
 enum class LightingMode { Diagnostic,
   Environment,
   Authored };
-enum class ToneMapping { None,
-  Reinhard,
-  Aces };
 enum class AlphaPolicy { Opaque,
   Mask,
   Blend };
@@ -256,7 +254,7 @@ struct RendererSettings {
   Aov aov{Aov::Color};
   LightingMode lighting_mode{LightingMode::Diagnostic};
   float exposure_ev{};
-  ToneMapping tone_mapping{ToneMapping::None};
+  ToneMapping tone_mapping{ToneMapping::Reinhard};
   AlphaPolicy alpha_policy{AlphaPolicy::Opaque};
   DebugView debug_view{DebugView::None};
   bool validation{};
@@ -551,6 +549,7 @@ struct RenderRequest {
   std::vector<RenderProductRequest> products{
       {Aov::Color, true}, {Aov::Depth, true}};
   PresentationTarget presentation;
+  OutputTransformSettings output_transform;
 };
 
 struct ImageRgba8 {

@@ -14,10 +14,11 @@ int main() {
       *extractor.snapshot());
   const auto environment = merlin::render::PackagedDiffuseEnvironment();
   const auto fill = merlin::render::EvaluateDiffuseEnvironment(environment, {0, 0, 1});
-  return extractor.snapshot()->draws.empty() &&
+  const auto output = merlin::render::ApplyForwardOutputTransform({1, 1, 1}, {1, merlin::render::ToneMapping::Reinhard});
+  return output.x > 0.66F && output.x < 0.67F && extractor.snapshot()->draws.empty() &&
                  backend_info.backend ==
                      merlin::render::BackendRequest::Automatic &&
-                 merlin::render::kBackendContractVersion == 3 &&
+                 merlin::render::kBackendContractVersion == 4 &&
                  renderer_settings.schema_version ==
                      merlin::render::kRendererSettingsSchemaVersion &&
                  !merlin::render::ValidateRendererSettings(renderer_settings) &&

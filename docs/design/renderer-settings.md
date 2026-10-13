@@ -1,6 +1,6 @@
 # Versioned renderer settings
 
-**Last reviewed:** 2026-09-27
+**Last reviewed:** 2026-10-13
 
 `merlin::render::RendererSettings` is the configuration vocabulary shared by
 native viewport, Hydra/DCC adapters, headless tools, and renderer backends. It
@@ -19,8 +19,8 @@ enum, Metal object, or UI widget crosses this boundary.
 | `gpu_driven_gaussian` | Gaussian execution policy: GPU preparation, sorting, and raster instead of the CPU-sorted stream, and a raster path that draws the sorted stream or composites screen tiles in compute | `disabled`, `sorted-stream` |
 | `aov` | Selected renderer output | `color` |
 | `lighting_mode` | Diagnostic, environment, or authored-light policy | `diagnostic` |
-| `exposure_ev` | Exposure compensation in EV, bounded to `[-32, 32]` | `0` |
-| `tone_mapping` | None, Reinhard, or ACES vocabulary | `none` |
+| `exposure_ev` | Lit Forward energy multiplier `2^EV`, bounded to `[-32, 32]` | `0` |
+| `tone_mapping` | None or Reinhard for lit Forward; ACES reserved and rejected | `reinhard` |
 | `alpha_policy` | Opaque, mask, or blend policy | `opaque` |
 | `debug_view` | None, color, depth, primitive ID, instance ID, or normal | `none` |
 | `validation` | Request validation for a backend created with validation support | `false` |
@@ -46,8 +46,8 @@ storage images or when tile binning overflows.
 Every current backend still rejects experimental Visibility until a selectable
 capability is added to `RendererCapabilities`. The same rule applies to values
 whose execution wiring is still future work: with capabilities supplied, the
-current profile accepts Color AOV, Diagnostic lighting, 0 EV, no tone mapping,
-Opaque global alpha, no debug view, and Basic telemetry. Other named values are
+current profile accepts Color AOV, Diagnostic lighting, finite EV in `[-32, 32]`,
+None or Reinhard tone mapping, Opaque global alpha, no debug view, and Basic telemetry. Other named values are
 rejected rather than silently stored.
 
 ## Validation and application
@@ -66,6 +66,25 @@ unchanged. The development viewport uses this common validator before its
 viewport-specific clear-color, continuous-readback, and AOV-inspection checks;
 the same feedback enters the host-neutral diagnostic history.
 
+## Forward output settings
+
+The reserved exposure/tone fields now execute through the shared
+[Forward output contract](forward-lighting.md#output-transform). Default
+`RendererSettings` explicitly names Reinhard, which was previously embedded in
+lit shading even though the stored default said None. The existing v3 field
+layout and vocabulary are retained. Exposure/tone mapping apply only to lit
+Forward RGB; diagnostic colors, Gaussian and clear color keep their established
+policies. `None` still writes a linear UNorm AOV and can clip; display encoding
+follows the AOV in presentation. This is not complete color management.
+
+The per-submission `OutputTransformSettings` is populated from the validated
+renderer settings. It does not dirty snapshots, geometry or material variants.
+Invalid EV and unavailable ACES reject in both host and backend validation;
+rejected Hydra edits leave effective values and settings revisions unchanged.
+`merlin:exposureEv` accepts float/double EV, while `merlin:toneMapping` accepts
+`none`/`reinhard` strings or tokens. Both are listed in host setting descriptors.
+The native viewport applies the same fields through its settings controls.
+
 ## Hydra render settings
 
 The Hydra render delegate translates host render settings into the v3
@@ -78,7 +97,7 @@ Gaussian execution policy. Four keys edit the same policy:
 | `merlin:gpuDrivenGaussian:mode` | `disabled`, `prefer`, `require` | `disabled` | No |
 | `merlin:gpuDrivenGaussian:raster` | `sorted-stream`, `tiled` | `sorted-stream` | No |
 
-The delegate's render setting descriptors list only the two flags, which
+The Gaussian descriptors list only the two flags, which
 usdview shows as Hydra Settings menu checkboxes. usdview's settings dialog,
 which it adds for any non-flag setting, re-sends every listed setting as it
 was when the dialog opened; listing the names as well would let an untouched,
@@ -101,7 +120,8 @@ development viewport's `SetGpuDrivenGaussianSettings` shares it too.
 
 Settings versioning does not silently coerce an unknown schema to v3. Schema v2
 added the GPU-driven indexed submission policy and schema v3 the GPU-driven
-Gaussian execution policy; each bumped the backend capability contract, now
-version 3. Adapters may translate a host's own configuration into v3, but
+Gaussian execution policy; each bumped the backend capability contract.
+Backend contract version 4 adds the per-request Forward output transform;
+the renderer-settings field layout remains v3. Adapters may translate a host's own configuration into v3, but
 must preserve an explicit rejected/fallback result for values that cannot be represented or
 executed.

@@ -2,7 +2,7 @@ import os
 import json
 
 from pxr import Gf, Sdf, Trace, UsdGeom, UsdShade, Vt
-from pxr.Usdviewq.common import PickModes, SelectionHighlightModes
+from pxr.Usdviewq.common import ColorCorrectionModes, PickModes, SelectionHighlightModes
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
@@ -323,6 +323,8 @@ def _check_click_picking(app_controller):
 
 
 def testUsdviewInputFunction(appController):
+    # Fix the encoding policy instead of inheriting the previous host session.
+    appController._dataModel.viewSettings.colorCorrectionMode = ColorCorrectionModes.DISABLED
     appController._dataModel.viewSettings.showBBoxes = False
     appController._dataModel.viewSettings.showHUD = False
 

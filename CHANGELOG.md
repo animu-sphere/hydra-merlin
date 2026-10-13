@@ -8,6 +8,16 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Lit Forward exposure in EV and selectable None/Reinhard tone mapping through
+  per-frame Core requests, Vulkan/Metal, Hydra render settings and the native
+  viewport. Default 0 EV/Reinhard preserves the previous output; invalid EV,
+  unknown modes and unavailable ACES are rejected. Alpha, depth and IDs retain
+  their existing semantics. Gaussian, clear color and unlit diagnostics retain
+  their output policy. Backend contract 4 and shader ABI 11 require rebuilt
+  consumers, artifacts and binaries.
+
 ## [0.16.3] - 2026-10-13
 
 ### Changed

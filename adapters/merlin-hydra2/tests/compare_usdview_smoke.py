@@ -69,6 +69,12 @@ SCENE_PHASES = tuple(
         f"{kind}-{index:02d}" for kind in ("reference", "immediate")
         for index in range(8)) + ("restored",))
 )
+OUTPUT_PHASES = tuple(
+    f"output-{output}-{tone}-ev{ev}"
+    for output in ("linear", "srgb")
+    for tone in ("none", "reinhard")
+    for ev in (-2, 0, 1, 4)
+)
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
 
@@ -247,6 +253,17 @@ def main() -> None:
             for key in ("backend", "off_policy", "white_off_policy"):
                 if forward_reports[0].get(key) != forward_reports[1].get(key):
                     raise ValueError(f"lighting {key} differs between presentation paths")
+    if args.forward_lighting_only:
+        for directory in (args.tier0, args.gpu_copy):
+            report = json.loads((directory / "usdview-first-frame-forward-output.json").read_text(encoding="utf-8"))
+            if report["schema"] != "merlin-usdview-forward-output/v1" or tuple(
+                    phase["phase"] for phase in report["phases"]) != OUTPUT_PHASES:
+                raise ValueError(f"missing or reordered output transform phases in {directory}")
+            for phase in report["phases"]:
+                if phase["upload_bytes"] or phase["pipeline_creation_count"]:
+                    raise ValueError(f"output edit rebuilt resources in {directory}")
+        phases += OUTPUT_PHASES
+
     images = [
         compare_image(
             args.tier0 / f"usdview-first-frame-{phase}.png",
