@@ -157,6 +157,75 @@ def _check_forward_lighting(app_controller):
                    "srgb_center_tolerance": 2, "phases": evidence}, stream, indent=2)
         stream.write("\n")
 
+    _check_forward_output(app_controller, shader, camera_attr, static, root, ext)
+
+
+def _check_forward_output(app_controller, shader, camera_attr, static, root, ext):
+    settings = app_controller._dataModel.viewSettings
+    view = app_controller._stageView
+    camera_attr.Set(static)
+    settings.ambientLightOnly = False  # no authored source -> unit +Z fallback
+    shader.GetInput("diffuseColor").Set(Gf.Vec3f(0.4, 0.1875, 0.1))
+    environment = [
+        0.947761416 * 0.2820947918 + 0.325469345 * 0.4886025119 - 0.0461782999 * 0.6307831306,
+        1.00647175 * 0.2820947918 + 0.341748059 * 0.4886025119 - 0.0449634455 * 0.6307831306,
+        1.12809479 * 0.2820947918 + 0.369059116 * 0.4886025119 - 0.0430846624 * 0.6307831306]
+    scene = [base * (0.15 * fill + 0.85) for base, fill in
+             zip((0.4, 0.1875, 0.1), environment)]
+
+    def image(phase):
+        result = QImage(f"{root}-{phase}{ext}").convertToFormat(QImage.Format.Format_RGBA8888)
+        assert not result.isNull()
+        color = result.pixelColor(result.width() // 2, result.height() // 2)
+        return bytes(result.constBits())[:result.sizeInBytes()], [color.red(), color.green(), color.blue()]
+
+    evidence = []
+    for output, correction in (("linear", ColorCorrectionModes.DISABLED),
+                               ("srgb", ColorCorrectionModes.SRGB)):
+        settings.colorCorrectionMode = correction
+        view.SetRendererSetting("merlin:exposureEv", 0.0)
+        view.SetRendererSetting("merlin:toneMapping", "reinhard")
+        baseline_phase = f"output-{output}-baseline"
+        _render_phase(app_controller, baseline_phase)
+        baseline = image(baseline_phase)[0]
+        for tone in ("none", "reinhard"):
+            view.SetRendererSetting("merlin:toneMapping", tone)
+            assert view.GetRendererSetting("merlin:toneMapping") == tone
+            for ev in (-2, 0, 1, 4):
+                view.SetRendererSetting("merlin:exposureEv", float(ev))
+                assert view.GetRendererSetting("merlin:exposureEv") == float(ev)
+                phase = f"output-{output}-{tone}-ev{ev}"
+                _render_phase(app_controller, phase)
+                captured, center = image(phase)
+                event = _render_phase(app_controller, phase)
+                assert image(phase)[0] == captured, f"{phase}: output flicker"
+                for field in ("points_fetch_count", "topology_fetch_count", "primvar_fetch_count",
+                              "upload_bytes", "pipeline_creation_count"):
+                    assert event[field] == 0, f"{phase}: unexpected {field}"
+                expected = []
+                for value in scene:
+                    value *= 2 ** ev
+                    value = value / (1 + value) if tone == "reinhard" else value
+                    # The public AOV is UNorm; the host encodes that quantized value.
+                    value = round(255 * max(0, min(1, value))) / 255
+                    if output == "srgb":
+                        value = 12.92 * value if value <= 0.0031308 else 1.055 * value ** (1 / 2.4) - 0.055
+                    expected.append(round(255 * value))
+                tolerance = 1 if output == "linear" else 2
+                assert max(abs(a - b) for a, b in zip(center, expected)) <= tolerance, (phase, center, expected)
+                evidence.append({"phase": phase, "exposure_ev": ev, "tone_mapping": tone,
+                                 "output": output, "center_rgb": center, "expected_rgb": expected,
+                                 "upload_bytes": event["upload_bytes"],
+                                 "pipeline_creation_count": event["pipeline_creation_count"]})
+        view.SetRendererSetting("merlin:exposureEv", 0.0)
+        view.SetRendererSetting("merlin:toneMapping", "reinhard")
+        restored = f"output-{output}-restored"
+        _render_phase(app_controller, restored)
+        assert image(restored)[0] == baseline, "restoring output did not restore exact host image"
+    with open(root + "-forward-output.json", "w", encoding="utf-8") as stream:
+        json.dump({"schema": "merlin-usdview-forward-output/v1", "phases": evidence}, stream, indent=2)
+        stream.write("\n")
+
 
 def _check_forward_motion(app_controller, shader, camera_attr, root, ext):
     """Compare the first render of every moving pose to a settled reference.

@@ -1,6 +1,6 @@
 # Forward lighting
 
-**Last reviewed:** 2026-10-12
+**Last reviewed:** 2026-10-13
 
 Forward is the image reference for optional shading paths. This document
 defines the Forward lighting contract: directional-light selection, Hydra light
@@ -43,7 +43,7 @@ packing and environment/light inputs. Backends supply their native upload ABI
 and selected environment to the common packing function.
 
 `core/merlin-render-backend/shaders/forward-policy.slang` owns vertex evaluation,
-SH lighting, the fixed output transform, alpha-mask rejection and color/ID
+SH lighting, the output transform, alpha-mask rejection and color/ID
 outputs. `gpu-scene-forward.slang` owns table-backed material/geometry feature
 selection, transforms and material overrides. Conventional, bindless and
 GPU-driven Vulkan entries and native Metal entries call these modules.
@@ -58,7 +58,7 @@ support.
 Vulkan and Metal implement one default output profile:
 
 ```text
-linear = albedo * (0.15 * SH(N) + light_color * 0.85 * max(N · L, 0) * intensity)
+linear = albedo * (0.15 * SH(N) + light_color * 0.85 * max(N ﾂｷ L, 0) * intensity)
 output = linear / (1 + linear)          (component-wise Reinhard)
 ```
 
@@ -77,20 +77,51 @@ the shared profile and carry no cross-backend parity claim.
 
 ## Output transform
 
-The output transform is fixed:
+Lit Forward surfaces use one renderer-neutral output contract:
 
 ```text
-scene-linear lighting
-  -> component-wise Reinhard
-  -> linear UNorm color AOV
-  -> host/display color encoding (for example sRGB)
+scene-linear lighting RGB
+  -> exposure: multiply by 2^exposure_ev
+  -> tone mapping: None or component-wise Reinhard
+  -> display-referred linear RGB in the UNorm Color AOV
+  -> host/display encoding (for example sRGB)
 ```
 
-`RendererSettings` rejects nonzero exposure and selectable tone mapping, so no
-renderer-side exposure precedes Reinhard. Hydra light `exposure` scales the
-input energy of an individual light (see below) and is not a global exposure
-control. Host sRGB conversion happens after the linear AOV and is owned by the
-host or presentation path.
+Exposure is compensation in stops: +1 EV doubles scene-linear energy; -1 EV
+halves it. Finite values in `[-32, 32]` are accepted. The default is 0 EV and
+Reinhard, preserving the previous lit Forward output. `None` bypasses tone
+mapping; it does not bypass exposure or UNorm attachment clamping. Values above
+one clip when written to RGBA8, so this mode is not an HDR output. Reinhard is
+`exposed / (1 + exposed)`; shaders evaluate the equivalent
+`scene_linear / (2^-exposure_ev + scene_linear)` to avoid overflowing finite HDR
+inputs when applying positive exposure. Alpha, mask rejection, depth and IDs are
+independent of the output transform. Clear color is already an AOV value and
+is not transformed. Unlit diagnostic materials and Gaussian compositing retain
+their existing output policy; this is not a transform over the final mixed image.
+
+`OutputTransformSettings` travels with each `RenderRequest`; it never edits
+scene, light or material revisions. Core validates settings and packs the same
+constants for conventional, bindless, GPU Scene, GPU-driven and generated Vulkan
+Forward, and native Metal Forward. `RendererSettings` uses the same defaults
+and validator. ACES, unknown modes and invalid EV reject before submission;
+Hydra setting rejection retains the previously applied value and revision.
+Output-only edits update frame constants without geometry upload or new shader
+variants/pipelines. The material constant ABI appends a 16-byte output record;
+shader ABI 11 artifacts and their consuming binaries must be rebuilt together.
+Backend contract version 4 identifies the extended Core request; static SDK
+consumers must also rebuild against the updated public headers.
+
+Hydra exposes `merlin:exposureEv` (float/double EV) and `merlin:toneMapping`
+(`none` or `reinhard`, string/token). The native development viewport exposes
+the same EV and tone-mapping controls. Hydra light `exposure` remains a separate
+per-light input-energy control (see below); no host camera-light heuristic
+participates in renderer exposure.
+
+This contract does not perform working-space conversion, white balance,
+chromatic adaptation, gamut mapping, OCIO/ICC transforms or HDR display output.
+Host sRGB encoding follows the linear AOV and is owned by the host or native
+presentation path. Reinhard is a bounded component-wise curve, not a complete
+color-management system; its linear result is not itself sRGB encoded.
 
 ## Hydra distant-light energy
 
@@ -190,6 +221,26 @@ overflow, underflow and malformed inputs. An injected backend captures the
 Sprim-to-snapshot path, including rotation, parameter-only edits, unchanged
 revisions, atomic rejection, initial rejection/retry and removal. These tests
 verify input energy; output quality requires image evidence.
+
+### Output-transform fixtures
+
+A GPU-free oracle checks None/Reinhard, black and HDR values, exposure endpoints,
+invalid EV and reserved/unknown modes. A shared native image fixture uses an
+independent double-precision lighting/exposure oracle at -32, -2, 0, +1, +4 and
++32 EV for each mode. Color agrees within one RGBA8 step; repeated/restored
+images, alpha, depth and IDs are exact. Warmed output edits require zero uploads,
+allocations and pipeline creation. Native Vulkan gates require each of
+conventional, bindless, GPU Scene and GPU-driven paths to execute, with rejected
+settings causing no submission. Handwritten/generated and native Metal lighting
+fixtures run the same transform checks when those configurations are enabled.
+
+Hydra output fixtures exercise the actual render settings, both tone modes and
+-2, 0, +1 and +4 EV in linear and host sRGB output. They compare center colors
+against the independent lighting/transform oracle within one/two steps,
+respectively, and require repeated/restored images and zero geometry fetch,
+upload or pipeline creation. Tier 0/Hgi comparison includes all 16 transform
+images in addition to the default-profile lighting phases. MSL generation and
+reflection are separate from Metal device execution evidence.
 
 ### Host lighting fixtures
 

@@ -15,11 +15,13 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Exposure and tone-mapping contract (v0.16.4):** define a renderer-neutral
-  scene-linear → exposure → tone mapping → display-referred linear → host
-  encoding pipeline, starting with `None` and `Reinhard`. Exposure has
-  documented units; Vulkan, Metal and Hydra interpret one contract; the support
-  matrix states what is and is not color-managed.
+- **Exposure and tone-mapping validation (v0.16.4):** complete independent
+  execution evidence for the [shared output contract](../design/forward-lighting.md#output-transform).
+  - Refresh independent Metal execution and Debug generated Vulkan evidence
+    after the output constant ABI change; require the shared transform oracle,
+    preserved default-profile images and warmed resource invariants.
+  - Refresh offline backend/host comparisons for selectable exposure/tone modes
+    before closing cross-backend output evidence.
 
 ### Next
 

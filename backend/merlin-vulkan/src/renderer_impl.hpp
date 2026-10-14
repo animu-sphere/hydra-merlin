@@ -806,7 +806,8 @@ public:
 
   MaterialUniforms MakeMaterialUniforms(
       const extraction::MaterialRecord& material,
-      const render::ForwardDirectionalLighting& lighting) const;
+      const render::ForwardDirectionalLighting& lighting,
+      Vec4 output_transform) const;
 
   void RejectGeneratedMaterial(std::size_t index,
       MaterialDiagnosticCategory category,
@@ -834,14 +835,16 @@ public:
       const GeneratedMaterialArtifact& artifact) const;
 
   void PrepareBindlessMaterialDescriptors(
-      FrameContext& frame, const extraction::FrameSnapshot& snapshot);
+      FrameContext& frame, const extraction::FrameSnapshot& snapshot,
+      Vec4 output_transform);
 
   void PrepareGaussianInstances(FrameContext& frame);
 
   void ValidateMaterialTextureBindings() const;
 
   void PrepareMaterialDescriptors(
-      FrameContext& frame, const extraction::FrameSnapshot& snapshot);
+      FrameContext& frame, const extraction::FrameSnapshot& snapshot,
+      Vec4 output_transform);
 
   void ReleaseGaussianAttributes(GaussianAttributeSlot& slot);
 

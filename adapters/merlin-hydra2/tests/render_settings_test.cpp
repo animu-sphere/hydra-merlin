@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <iostream>
 #include <memory>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -128,8 +129,17 @@ int main() {
                  !descriptor.defaultValue.UncheckedGet<bool>();
         });
   };
+  const auto exposure_descriptor = std::find_if(descriptors.begin(), descriptors.end(),
+      [](const HdRenderSettingDescriptor& descriptor) {
+        return descriptor.key == HdMerlinRenderSettingsTokens->exposureEv;
+      });
+  if (!Check(exposure_descriptor != descriptors.end() &&
+                 exposure_descriptor->defaultValue.IsHolding<float>() &&
+                 exposure_descriptor->defaultValue.UncheckedGet<float>() == 0.0F,
+          "exposure descriptor must use the host-supported float UI type"))
+    return 1;
   (void)NoDiagnostics(pending);
-  if (!Check(descriptors.size() == 2 && described_flag(enabled) &&
+  if (!Check(descriptors.size() == 4 && described_flag(enabled) &&
                  described_flag(tiled),
           "Gaussian render setting descriptors are not the two flags") ||
       !Check(Policy(pending, "disabled", "sorted-stream") &&
@@ -137,6 +147,64 @@ int main() {
           "default Gaussian render settings are incorrect")) {
     return 1;
   }
+  const auto& exposure = HdMerlinRenderSettingsTokens->exposureEv;
+  const auto& tone = HdMerlinRenderSettingsTokens->toneMapping;
+  if (!Check(pending.GetRenderSetting(exposure) == VtValue(0.0) &&
+                 Setting(pending, tone) == "reinhard",
+          "incorrect Forward output defaults"))
+    return 1;
+  pending.SetRenderSetting(exposure, VtValue(1.0));
+  pending.SetRenderSetting(tone, VtValue(TfToken("none")));
+  const auto output_version = pending.GetRenderSettingsVersion();
+  pending.SetRenderSetting(exposure, VtValue(1.0F));
+  pending.SetRenderSetting(tone, VtValue(std::string("none")));
+  if (!Check(pending.GetRenderSettingsVersion() == output_version,
+          "unchanged output settings advanced revision"))
+    return 1;
+  for (const auto& invalid : {VtValue(33.0), VtValue(-33.0),
+           VtValue(std::numeric_limits<double>::quiet_NaN()), VtValue(true)}) {
+    pending.SetRenderSetting(exposure, invalid);
+    if (!Check(pending.GetRenderSetting(exposure) == VtValue(1.0) &&
+                   pending.GetRenderSettingsVersion() == output_version,
+            "invalid exposure changed state") ||
+        !Check(Rejected(pending, "renderer-settings.invalid-exposure", exposure,
+                   "keep 1.000000 EV/none"),
+            "invalid exposure lost diagnostic"))
+      return 1;
+  }
+  pending.SetRenderSetting(tone, VtValue(std::string("aces")));
+  if (!Check(Setting(pending, tone) == "none" &&
+                 pending.GetRenderSettingsVersion() == output_version,
+          "ACES changed applied output settings") ||
+      !Check(Rejected(pending, "renderer-settings.tone-mapping-unsupported", tone,
+                 "keep 1.000000 EV/none"),
+          "ACES lost rejection diagnostic"))
+    return 1;
+  pending.SetRenderSetting(tone, VtValue(std::string("invalid")));
+  if (!Check(Rejected(pending, "renderer-settings.invalid-tone-mapping", tone,
+                 "keep 1.000000 EV/none"),
+          "unknown tone mapping lost diagnostic"))
+    return 1;
+  pending.SetOutputTransformSettings({});
+  (void)NoDiagnostics(pending);
+
+  HdRenderSettingsMap output_map;
+  output_map[exposure] = VtValue(-2.0);
+  output_map[tone] = VtValue(std::string("none"));
+  HdMerlinRenderDelegate initial_output(output_map);
+  if (!Check(initial_output.GetRenderSetting(exposure) == VtValue(-2.0) &&
+                 Setting(initial_output, tone) == "none",
+          "initial output settings were ignored"))
+    return 1;
+  output_map[exposure] = VtValue(100.0);
+  output_map[tone] = VtValue(std::string("aces"));
+  HdMerlinRenderDelegate invalid_output(output_map);
+  if (!Check(invalid_output.GetRenderSetting(exposure) == VtValue(0.0) &&
+                 Setting(invalid_output, tone) == "reinhard",
+          "invalid initial output did not retain defaults"))
+    return 1;
+  (void)NoDiagnostics(pending);
+
   const auto initial_version = pending.GetRenderSettingsVersion();
   pending.SetRenderSetting(mode, VtValue(std::string("fast")));
   pending.SetRenderSetting(raster, VtValue(4));

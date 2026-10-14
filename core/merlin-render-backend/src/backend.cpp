@@ -64,6 +64,10 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
     return invalid("renderer-settings.invalid-tone-mapping",
         "Renderer tone-mapping mode is invalid.");
   }
+  if (settings.tone_mapping == ToneMapping::Aces) {
+    return invalid("renderer-settings.tone-mapping-unsupported",
+        "ACES is not implemented; use None or Reinhard.");
+  }
   if (AlphaPolicyName(settings.alpha_policy) == "unknown") {
     return invalid("renderer-settings.invalid-alpha-policy",
         "Renderer alpha policy is invalid.");
@@ -128,16 +132,6 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
     return invalid("renderer-settings.lighting-unsupported",
         "Only Diagnostic lighting is currently connected to "
         "renderer settings.");
-  }
-  if (settings.exposure_ev != 0.0F) {
-    return invalid("renderer-settings.exposure-unsupported",
-        "Exposure control is not yet connected to renderer "
-        "execution; use 0 EV.");
-  }
-  if (settings.tone_mapping != ToneMapping::None) {
-    return invalid("renderer-settings.tone-mapping-unsupported",
-        "Tone mapping is not yet connected to renderer settings; "
-        "use None.");
   }
   if (settings.alpha_policy != AlphaPolicy::Opaque) {
     return invalid("renderer-settings.alpha-policy-unsupported",

@@ -2,6 +2,7 @@ add_library(merlin-render-backend STATIC
   src/backend.cpp
   src/diffuse_environment.cpp
   src/forward_lighting.cpp
+  src/output_transform.cpp
   src/gpu_driven.cpp
   src/gpu_scene.cpp
   src/gpu_scene_packing.cpp

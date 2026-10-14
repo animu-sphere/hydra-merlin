@@ -11,6 +11,32 @@ includes usdview (an SDK-only package does not). CTest reports an unavailable
 device or capability as a skip; review the output rather than treating a skip
 as exercised coverage.
 
+## Exposure and tone mapping
+
+Native/API clients set `RenderRequest::output_transform` to
+`{exposure_ev, ToneMapping::None}` or `{exposure_ev, ToneMapping::Reinhard}`.
+Default construction selects 0 EV/Reinhard. The development viewport exposes
+Forward exposure and tone mapping under renderer settings; use Apply to commit
+the draft. Hydra hosts set `merlin:exposureEv` (float/double) and
+`merlin:toneMapping` (`none`/`reinhard` string/token). These affect lit Forward;
+Gaussian, clear color and unlit diagnostic colors keep their existing policy.
+None can clip at the RGBA8 AOV and does not provide HDR output.
+
+Run the CPU and Vulkan output gates:
+
+```powershell
+ctest --test-dir build/vulkan -C Release `
+  -R 'merlin-(output-transform|vulkan-output-|metal-forward-source-abi)' --output-on-failure
+```
+
+The Vulkan modes are separate cases so optional-path skips stay visible.
+`merlin-metal-forward-source-abi` produces native MSL and checks reflection
+without Xcode or device execution. The Metal lighting gate includes the shared
+native output fixture. Hydra lighting gates additionally capture
+`usdview-first-frame-forward-output.json` and `output-*.png`, with linear/sRGB
+oracle comparisons and exact image restoration; Tier 0/Hgi comparison includes
+those 16 output images.
+
 ## Native gates
 
 Vulkan material and lighting fixtures are part of the Vulkan test suite. The

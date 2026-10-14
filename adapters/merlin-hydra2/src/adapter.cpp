@@ -1196,6 +1196,16 @@ public:
     reflect_hgi_projection_y_ = reflect;
   }
 
+  void SetOutputTransformSettings(merlin::render::OutputTransformSettings settings) {
+    std::scoped_lock lock(mutex_);
+    output_transform_ = settings;
+  }
+
+  merlin::render::OutputTransformSettings EffectiveOutputTransformSettings() const {
+    std::scoped_lock lock(mutex_);
+    return output_transform_;
+  }
+
   void SetGpuDrivenIndexedSettings(
       merlin::render::GpuDrivenIndexedSettings settings) {
     std::scoped_lock lock(mutex_);
@@ -1749,6 +1759,7 @@ public:
                         : snapshot->build_counters;
     merlin::render::RenderRequest request;
     request.snapshot = snapshot;
+    request.output_transform = output_transform_;
     request.gpu_driven_indexed = gpu_driven_indexed_;
     request.gpu_driven_gaussian = gpu_driven_gaussian_;
     request.width = width;
@@ -1788,7 +1799,8 @@ public:
 
     const bool regression_coverage = RegressionCoverageRequested();
     std::array<HdMerlinRenderBuffer*,
-        static_cast<std::size_t>(merlin::Aov::MotionVector) + 1> gpu_aov_buffers{};
+        static_cast<std::size_t>(merlin::Aov::MotionVector) + 1>
+        gpu_aov_buffers{};
     gpu_aov_buffers[static_cast<std::size_t>(merlin::Aov::Color)] = gpu_color_buffer;
 #if defined(MERLIN_HYDRA2_ENABLE_VULKAN) || defined(MERLIN_HYDRA2_ENABLE_METAL)
     for (const auto aov : {merlin::Aov::Depth, merlin::Aov::PrimId,
@@ -1797,9 +1809,10 @@ public:
       HdMerlinRenderBuffer* candidate{};
       for (const auto& binding : bindings) {
         const bool matches = aov == merlin::Aov::Depth
-            ? HdAovHasDepthSemantic(binding.aovName)
-            : binding.aovName == (aov == merlin::Aov::PrimId
-                ? HdAovTokens->primId : HdAovTokens->instanceId);
+                                 ? HdAovHasDepthSemantic(binding.aovName)
+                                 : binding.aovName == (aov == merlin::Aov::PrimId
+                                                              ? HdAovTokens->primId
+                                                              : HdAovTokens->instanceId);
         if (!matches) {
           continue;
         }
@@ -1997,11 +2010,13 @@ public:
         std::uint64_t covered_x_sum{};
         std::uint64_t covered_y_sum{};
         for (std::uint32_t y = 0; !result.depth.pixels.empty() &&
-             y < result.depth.product.height; ++y) {
+                                  y < result.depth.product.height;
+            ++y) {
           for (std::uint32_t x = 0; x < result.depth.product.width; ++x) {
             const auto index =
                 static_cast<std::size_t>(y) *
-                    (result.depth.row_pitch_bytes / sizeof(float)) + x;
+                    (result.depth.row_pitch_bytes / sizeof(float)) +
+                x;
             if (result.depth.pixels[index] < 1.0F) {
               ++covered_pixels;
               covered_x_sum += x;
@@ -2453,6 +2468,7 @@ private:
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};
   bool reflect_hgi_projection_y_{};
+  merlin::render::OutputTransformSettings output_transform_;
   merlin::render::GpuDrivenIndexedSettings gpu_driven_indexed_;
   merlin::render::GpuDrivenGaussianSettings gpu_driven_gaussian_;
   std::optional<PendingGaussianSettings> pending_gpu_driven_gaussian_;
@@ -3052,8 +3068,8 @@ private:
           !primvar_cache_initialized_ || descriptor_changed ||
           (dirty_locators
                   ? (dirty_locators->Intersects(
-                        HdPrimvarsSchema::GetDefaultLocator().Append(
-                            selected->name)) ||
+                         HdPrimvarsSchema::GetDefaultLocator().Append(
+                             selected->name)) ||
                         // OpenUSD also emits primvars/name:indices for USD
                         // index edits, rather than primvars/name/indices.
                         dirty_locators->Intersects(
@@ -4182,8 +4198,9 @@ bool HdMerlinRenderBuffer::CanGpuCopyColor() const {
 
 bool HdMerlinRenderBuffer::CanGpuCopyAov(merlin::Aov aov) const {
   std::scoped_lock lock(mutex_);
-  const auto expected_format = aov == merlin::Aov::Color ? HdFormatUNorm8Vec4
-      : aov == merlin::Aov::Depth ? HdFormatFloat32 : HdFormatInt32;
+  const auto expected_format = aov == merlin::Aov::Color   ? HdFormatUNorm8Vec4
+                               : aov == merlin::Aov::Depth ? HdFormatFloat32
+                                                           : HdFormatInt32;
   const bool supported = aov == merlin::Aov::Color || aov == merlin::Aov::Depth ||
                          aov == merlin::Aov::PrimId || aov == merlin::Aov::InstanceId;
   return supported && format_ == expected_format && !multi_sampled_ && map_count_ == 0 &&
@@ -4401,6 +4418,13 @@ HdMerlinRenderDelegate::HdMerlinRenderDelegate(
 }
 
 void HdMerlinRenderDelegate::ApplyInitialRenderSettings() {
+  // Capture both host values before canonicalizing either setting.
+  const auto exposure = HdRenderDelegate::GetRenderSetting(HdMerlinRenderSettingsTokens->exposureEv);
+  const auto tone = HdRenderDelegate::GetRenderSetting(HdMerlinRenderSettingsTokens->toneMapping);
+  if (!exposure.IsEmpty())
+    SetRenderSetting(HdMerlinRenderSettingsTokens->exposureEv, exposure);
+  if (!tone.IsEmpty())
+    SetRenderSetting(HdMerlinRenderSettingsTokens->toneMapping, tone);
   const merlin::render::GpuDrivenGaussianSettings defaults;
   merlin::render::GpuDrivenGaussianSettings settings;
   for (const auto& key : GaussianRenderSettingKeys()) {
@@ -4429,11 +4453,62 @@ HdMerlinRenderDelegate::GetRenderSettingDescriptors() const {
               VtValue(false)},
       {"Gaussian tile raster",
           HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled,
-          VtValue(false)}};
+          VtValue(false)},
+      {"Forward exposure (EV)", HdMerlinRenderSettingsTokens->exposureEv, VtValue(0.0F)},
+      {"Forward tone mapping", HdMerlinRenderSettingsTokens->toneMapping,
+          VtValue(std::string("reinhard"))}};
 }
 
 void HdMerlinRenderDelegate::SetRenderSetting(
     const TfToken& key, const VtValue& value) {
+  if (key == HdMerlinRenderSettingsTokens->exposureEv ||
+      key == HdMerlinRenderSettingsTokens->toneMapping) {
+    const auto previous = impl_->bridge->EffectiveOutputTransformSettings();
+    auto settings = previous;
+    merlin::render::RendererSettingsValidationError error;
+    if (key == HdMerlinRenderSettingsTokens->exposureEv) {
+      if (value.IsHolding<double>()) {
+        const auto ev = value.UncheckedGet<double>();
+        if (!std::isfinite(ev) || ev < -32.0 || ev > 32.0) {
+          error = {"renderer-settings.invalid-exposure",
+              "Exposure must be finite and between -32 and 32 EV."};
+        } else {
+          settings.exposure_ev = static_cast<float>(ev);
+        }
+      } else if (value.IsHolding<float>()) {
+        settings.exposure_ev = value.UncheckedGet<float>();
+      } else {
+        error = {"renderer-settings.invalid-exposure", "Exposure requires a float or double EV value."};
+      }
+    } else {
+      const auto name = ReadRenderSettingString(value);
+      if (name == "none")
+        settings.tone_mapping = merlin::render::ToneMapping::None;
+      else if (name == "reinhard")
+        settings.tone_mapping = merlin::render::ToneMapping::Reinhard;
+      else if (name == "aces")
+        settings.tone_mapping = merlin::render::ToneMapping::Aces;
+      else
+        error = {"renderer-settings.invalid-tone-mapping", "Tone mapping requires None or Reinhard (none/reinhard)."};
+    }
+    merlin::render::RendererSettings contract;
+    contract.exposure_ev = settings.exposure_ev;
+    contract.tone_mapping = settings.tone_mapping;
+    if (error.code.empty()) {
+      if (const auto invalid = merlin::render::ValidateRendererSettings(contract))
+        error = *invalid;
+    }
+    if (!error.code.empty()) {
+      g_diagnostic_sink.Report({merlin::kDiagnosticSchemaVersion, error.code,
+          merlin::DiagnosticSeverity::Warning, merlin::DiagnosticDisposition::Rejected,
+          key.GetString(), error.message, "keep " + std::to_string(previous.exposure_ev) + " EV/" + std::string(merlin::render::ToneMappingName(previous.tone_mapping))});
+      // A constructor may have inherited a rejected value from the host map.
+      // Getter always returns effective state; rejected live edits don't revise it.
+      return;
+    }
+    SetOutputTransformSettings(settings);
+    return;
+  }
   if (!IsGaussianRenderSetting(key)) {
     HdRenderDelegate::SetRenderSetting(key, value);
     return;
@@ -4453,6 +4528,13 @@ void HdMerlinRenderDelegate::SetRenderSetting(
 }
 
 VtValue HdMerlinRenderDelegate::GetRenderSetting(const TfToken& key) const {
+  if (key == HdMerlinRenderSettingsTokens->exposureEv) {
+    return VtValue(static_cast<double>(impl_->bridge->EffectiveOutputTransformSettings().exposure_ev));
+  }
+  if (key == HdMerlinRenderSettingsTokens->toneMapping) {
+    return VtValue(std::string(merlin::render::ToneMappingName(
+        impl_->bridge->EffectiveOutputTransformSettings().tone_mapping)));
+  }
   if (!IsGaussianRenderSetting(key)) {
     return HdRenderDelegate::GetRenderSetting(key);
   }
@@ -4509,6 +4591,19 @@ void HdMerlinRenderDelegate::SetCameraFrontFaceCounterClockwise(
 
 void HdMerlinRenderDelegate::SetHgiProjectionYReflection(bool reflect) {
   impl_->bridge->SetHgiProjectionYReflection(reflect);
+}
+
+void HdMerlinRenderDelegate::SetOutputTransformSettings(
+    merlin::render::OutputTransformSettings settings) {
+  // Validate both fields before either is changed.
+  (void)merlin::render::PackForwardOutputTransform(settings);
+  if (settings == impl_->bridge->EffectiveOutputTransformSettings())
+    return;
+  impl_->bridge->SetOutputTransformSettings(settings);
+  HdRenderDelegate::SetRenderSetting(HdMerlinRenderSettingsTokens->exposureEv,
+      VtValue(static_cast<double>(settings.exposure_ev)));
+  HdRenderDelegate::SetRenderSetting(HdMerlinRenderSettingsTokens->toneMapping,
+      VtValue(std::string(merlin::render::ToneMappingName(settings.tone_mapping))));
 }
 
 void HdMerlinRenderDelegate::SetGpuDrivenIndexedSettings(

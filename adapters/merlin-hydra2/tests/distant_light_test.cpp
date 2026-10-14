@@ -46,6 +46,7 @@ public:
   }
   merlin::render::CompletionToken Submit(const merlin::render::RenderRequest& request) override {
     snapshot = request.snapshot;
+    output_transform = request.output_transform;
     return {99, 1};
   }
   bool IsComplete(merlin::render::CompletionToken) const override {
@@ -56,6 +57,7 @@ public:
     return {};
   }
   std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot;
+  merlin::render::OutputTransformSettings output_transform;
 
 private:
   merlin::render::RendererCapabilities capabilities_;
@@ -156,6 +158,13 @@ void VerifyHydraTransport() {
     Check(backend->snapshot != nullptr, "no adapter snapshot submitted");
     return merlin::render::ExtractForwardDirectionalLighting(*backend->snapshot);
   };
+  delegate.SetOutputTransformSettings({2.0F, merlin::render::ToneMapping::None});
+  (void)render();
+  Check(backend->output_transform == merlin::render::OutputTransformSettings{
+                                         2.0F, merlin::render::ToneMapping::None},
+      "output settings were not forwarded to backend");
+  delegate.SetOutputTransformSettings({});
+
   const auto sync = [&](HdDirtyBits bits) {
     light->Sync(&source, nullptr, &bits);
     Check(bits == HdLight::Clean, "light dirty bits were not consumed");

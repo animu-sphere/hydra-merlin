@@ -1,6 +1,7 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/metal/backend.hpp>
+#include "forward_output_fixture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -32,9 +33,11 @@ bool Same(const RenderResult& a, const RenderResult& b) {
 }
 
 RenderResult Render(merlin::render::Backend& backend,
-    std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot) {
+    std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
+    merlin::render::OutputTransformSettings output_transform = {}) {
   merlin::render::RenderRequest request;
   request.snapshot = std::move(snapshot);
+  request.output_transform = output_transform;
   request.width = request.height = 64;
   request.products = {{merlin::Aov::Color, true}, {merlin::Aov::Depth, true},
       {merlin::Aov::PrimId, true}, {merlin::Aov::InstanceId, true}};
@@ -74,6 +77,11 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
        frame < backend.capabilities().limits.max_frames_in_flight; ++frame) {
     (void)render();
   }
+
+  merlin::tests::VerifyForwardOutputTransforms(
+      [&](merlin::render::OutputTransformSettings settings) {
+        return Render(backend, extractor.snapshot(), settings);
+      }, albedo);
 
   std::ofstream report(output / "comparison.json");
   report << "{\n  \"schema\": \"merlin-metal-forward-lighting/v1\",\n"

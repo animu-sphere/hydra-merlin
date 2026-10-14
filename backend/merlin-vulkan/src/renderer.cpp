@@ -267,7 +267,8 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   SyncGeometry(*request.snapshot, resource_sync_mode);
   SyncTextures(*request.snapshot, resource_sync_mode);
   SyncSamplers(*request.snapshot, resource_sync_mode);
-  PrepareMaterialDescriptors(frame, *request.snapshot);
+  PrepareMaterialDescriptors(frame, *request.snapshot,
+      render::PackForwardOutputTransform(request.output_transform));
   PrepareBindlessDescriptors();
   const auto gaussian_attribute_upload_start = CpuClock::now();
   SyncGaussianAttributes(*request.snapshot, resource_sync_mode);
@@ -784,6 +785,12 @@ void Renderer::Impl::ValidateRequest(const RenderRequest& request) const {
     throw RendererError(RendererErrorCode::InvalidRequest,
         "validate render request",
         "GPU-driven indexed mode is invalid");
+  }
+  try {
+    (void)render::PackForwardOutputTransform(request.output_transform);
+  } catch (const render::RendererError& error) {
+    throw RendererError(RendererErrorCode::InvalidRequest,
+        "validate render request", error.detail());
   }
   ValidateExtent(request.width, request.height);
   if (!std::isfinite(request.clear_color.x) ||

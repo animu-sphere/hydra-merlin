@@ -87,6 +87,7 @@ struct alignas(16) MaterialConstants {
   Vec4 light_direction_intensity;
   Vec4 light_color_alpha_cutoff;
   std::array<Vec4, 9> diffuse_environment;
+  Vec4 output_transform;
 };
 
 struct alignas(16) GpuSceneDrawConstants {
@@ -101,8 +102,9 @@ static_assert(offsetof(extraction::DrawVertex, color) == 24);
 static_assert(offsetof(extraction::DrawVertex, texcoord) == 40);
 static_assert(sizeof(extraction::DrawVertex) == 48);
 static_assert(sizeof(DrawConstants) == 144);
-static_assert(sizeof(MaterialConstants) == 192);
+static_assert(sizeof(MaterialConstants) == 208);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
+static_assert(offsetof(MaterialConstants, output_transform) == 192);
 static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);

@@ -4,9 +4,10 @@ namespace merlin::metal {
 
 MaterialConstants
 Backend::Impl::MakeMaterial(const extraction::MaterialRecord& material,
-    const render::ForwardDirectionalLighting& lighting) {
+    const render::ForwardDirectionalLighting& lighting,
+    Vec4 output_transform) {
   return render::MakeForwardMaterialConstants<MaterialConstants>(material, lighting,
-      render::PackagedDiffuseEnvironment().coefficients);
+      render::PackagedDiffuseEnvironment().coefficients, output_transform);
 }
 
 void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& frame,
@@ -37,6 +38,8 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
   pass.depthAttachment.storeAction = MTLStoreActionStore;
   pass.depthAttachment.clearDepth = 1.0;
 
+  const auto output_transform =
+      render::PackForwardOutputTransform(request.output_transform);
   const auto lighting =
       render::ExtractForwardDirectionalLighting(*request.snapshot);
   id<MTLRenderCommandEncoder> encoder =
@@ -201,7 +204,7 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     }
 
     const bool use_gpu_scene = gpu_scene_ready && !material.module;
-    const auto material_constants = MakeMaterial(material, lighting);
+    const auto material_constants = MakeMaterial(material, lighting, output_transform);
     [encoder setRenderPipelineState:use_gpu_scene
                                         ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
                                         : (float_color ? float_pipeline_ : pipeline_)];

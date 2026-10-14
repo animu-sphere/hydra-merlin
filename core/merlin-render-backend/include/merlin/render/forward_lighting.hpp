@@ -1,6 +1,7 @@
 #pragma once
 
 #include <merlin/extraction/frame_snapshot.hpp>
+#include <merlin/render/output_transform.hpp>
 
 namespace merlin::render {
 
@@ -30,13 +31,15 @@ template <typename Constants>
 [[nodiscard]] Constants MakeForwardMaterialConstants(
     const extraction::MaterialRecord& material,
     const ForwardDirectionalLighting& lighting,
-    const std::array<Vec4, 9>& diffuse_environment) {
+    const std::array<Vec4, 9>& diffuse_environment,
+    Vec4 output_transform) {
   Constants result{};
   result.base_color = material.parameters.base_color;
   result.light_direction_intensity = lighting.direction_intensity;
   result.light_color_alpha_cutoff = {lighting.color.x, lighting.color.y,
       lighting.color.z, material.parameters.alpha_cutoff};
   result.diffuse_environment = diffuse_environment;
+  result.output_transform = output_transform;
   return result;
 }
 

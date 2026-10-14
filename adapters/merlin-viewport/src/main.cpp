@@ -715,6 +715,8 @@ int main(int argc, char** argv) {
 
       merlin::render::RenderRequest request;
       request.snapshot = scene_snapshot;
+      request.output_transform = {renderer_settings.contract.exposure_ev,
+          renderer_settings.contract.tone_mapping};
       request.gpu_driven_indexed =
           renderer_settings.contract.gpu_driven_indexed;
       request.gpu_driven_gaussian =
