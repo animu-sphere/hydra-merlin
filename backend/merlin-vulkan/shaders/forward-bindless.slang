@@ -16,7 +16,8 @@ ForwardVertexOutput forward_bindless_vertex(ForwardVertexInput input)
 }
 
 [shader("fragment")]
-ForwardFragmentOutput forward_bindless_fragment(ForwardVertexOutput input)
+ForwardFragmentOutput forward_bindless_fragment(
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
     // The tables are PARTIALLY_BOUND: an untextured material leaves both
     // indices at 0, and sampler slot 0 is only written once some material
@@ -33,5 +34,5 @@ ForwardFragmentOutput forward_bindless_fragment(ForwardVertexOutput input)
             bindless_samplers[sampler_index], input.texture_coordinate);
     }
     return MakeForwardFragmentOutput(
-        ShadeForward(input, material_constants, texture_sample));
+        ShadeForward(input, front_facing, material_constants, texture_sample));
 }

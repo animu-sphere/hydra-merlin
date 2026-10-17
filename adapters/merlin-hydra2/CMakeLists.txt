@@ -597,7 +597,7 @@ if(MERLIN_BUILD_TESTS)
            TARGET hgiMetal AND MERLIN_ENABLE_HGI_METAL_BRIDGE)
       list(APPEND _merlin_forward_modes hgi-metal)
     endif()
-    set(_merlin_forward_fixtures lighting motion navigation)
+    set(_merlin_forward_fixtures lighting motion navigation normals)
     if(MERLIN_FORWARD_SCENE)
       if(NOT EXISTS "${MERLIN_FORWARD_SCENE}" OR IS_DIRECTORY "${MERLIN_FORWARD_SCENE}")
         message(FATAL_ERROR "MERLIN_FORWARD_SCENE must name an existing USD stage")
@@ -618,6 +618,7 @@ if(MERLIN_BUILD_TESTS)
       foreach(_merlin_forward_fixture IN LISTS _merlin_forward_fixtures)
         set(_merlin_forward_motion OFF)
         set(_merlin_forward_navigation OFF)
+        set(_merlin_forward_normals OFF)
         set(_merlin_forward_scene "")
         set(_merlin_forward_script "${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_lighting_usdview_test.py")
         set(_merlin_forward_timeout 90)
@@ -628,6 +629,10 @@ if(MERLIN_BUILD_TESTS)
         if(_merlin_forward_fixture STREQUAL "navigation")
           set(_merlin_forward_navigation ON)
           set(_merlin_forward_timeout 240)
+        endif()
+        if(_merlin_forward_fixture STREQUAL "normals")
+          set(_merlin_forward_normals ON)
+          set(_merlin_forward_timeout 180)
         endif()
         if(_merlin_forward_fixture STREQUAL "scene")
           set(_merlin_forward_scene "${MERLIN_FORWARD_SCENE}")
@@ -653,6 +658,7 @@ if(MERLIN_BUILD_TESTS)
             "-DMERLIN_FORWARD_LIGHTING_ONLY=ON"
             "-DMERLIN_FORWARD_MOTION_ONLY=${_merlin_forward_motion}"
             "-DMERLIN_FORWARD_NAVIGATION_ONLY=${_merlin_forward_navigation}"
+            "-DMERLIN_FORWARD_NORMALS_ONLY=${_merlin_forward_normals}"
             "-DMERLIN_FORWARD_SCENE=${_merlin_forward_scene}"
             "-DMERLIN_USDVIEW_TEST_SCRIPT=${_merlin_forward_script}"
             "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
@@ -757,6 +763,18 @@ if(MERLIN_BUILD_TESTS)
         LABELS "host-smoke;gpu;lighting;presentation;comparison"
         TIMEOUT 120 RUN_SERIAL TRUE
         FIXTURES_REQUIRED "merlin-forward-navigation-tier0;merlin-forward-navigation-hgi-vulkan")
+      add_test(
+        NAME merlin-hydra2-forward-normals-comparison
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_usdview_smoke.py"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-normals-tier0-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-normals-hgi-vulkan-install"
+          "${CMAKE_CURRENT_BINARY_DIR}/forward-normals-comparison.json"
+          --forward-normals-only)
+      set_tests_properties(merlin-hydra2-forward-normals-comparison PROPERTIES
+        LABELS "host-smoke;gpu;lighting;presentation;comparison"
+        TIMEOUT 120 RUN_SERIAL TRUE
+        FIXTURES_REQUIRED "merlin-forward-normals-tier0;merlin-forward-normals-hgi-vulkan")
     endif()
   endif()
 endif()

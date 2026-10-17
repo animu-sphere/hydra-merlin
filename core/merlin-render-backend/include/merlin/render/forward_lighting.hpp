@@ -25,6 +25,13 @@ struct ForwardDirectionalLighting {
 [[nodiscard]] Mat4 MultiplyForwardMatrices(const Mat4& lhs, const Mat4& rhs);
 [[nodiscard]] std::array<Vec4, 3> ForwardNormalMatrix(const Mat4& transform);
 
+// Per-frame values packed into every Forward material constant block: the
+// output transform and the surface policy (Ng orientation and debug view).
+struct ForwardFramePolicy {
+  Vec4 output_transform;
+  Vec4 surface_policy{1.0F, 0.0F, 0.0F, 0.0F};
+};
+
 // Backends supply their ABI type and selected environment; policy packing is
 // shared without coupling Core to either native binding layout.
 template <typename Constants>
@@ -32,14 +39,15 @@ template <typename Constants>
     const extraction::MaterialRecord& material,
     const ForwardDirectionalLighting& lighting,
     const std::array<Vec4, 9>& diffuse_environment,
-    Vec4 output_transform) {
+    const ForwardFramePolicy& frame) {
   Constants result{};
   result.base_color = material.parameters.base_color;
   result.light_direction_intensity = lighting.direction_intensity;
   result.light_color_alpha_cutoff = {lighting.color.x, lighting.color.y,
       lighting.color.z, material.parameters.alpha_cutoff};
   result.diffuse_environment = diffuse_environment;
-  result.output_transform = output_transform;
+  result.output_transform = frame.output_transform;
+  result.surface_policy = frame.surface_policy;
   return result;
 }
 

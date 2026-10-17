@@ -57,6 +57,7 @@ void DrawPolicies() {
     merlin::Vec4 light_color_alpha_cutoff;
     std::array<merlin::Vec4, 9> diffuse_environment;
     merlin::Vec4 output_transform;
+    merlin::Vec4 surface_policy;
   };
   merlin::extraction::MaterialRecord material;
   material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
@@ -67,7 +68,9 @@ void DrawPolicies() {
   std::array<merlin::Vec4, 9> environment{};
   environment[8] = {1.0F, 2.0F, 3.0F, 4.0F};
   const auto upload = merlin::render::MakeForwardMaterialConstants<Upload>(material, lighting, environment,
-      merlin::render::PackForwardOutputTransform({}));
+      {merlin::render::PackForwardOutputTransform({}), {-1.0F, 3.0F, 0.0F, 0.0F}});
+  assert(upload.surface_policy.x == -1.0F);
+  assert(upload.surface_policy.y == 3.0F);
   assert(upload.output_transform.x == 1.0F);
   assert(upload.output_transform.y == 1.0F);
   assert(upload.output_transform.z == 1.0F);

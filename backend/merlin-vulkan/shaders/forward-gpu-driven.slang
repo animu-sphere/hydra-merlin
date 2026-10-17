@@ -25,7 +25,8 @@ struct GpuDrivenForwardVertexOutput
     [[vk::location(0)]] float4 color : COLOR0;
     [[vk::location(1)]] float3 shading_normal : TEXCOORD0;
     [[vk::location(2)]] float2 texture_coordinate : TEXCOORD1;
-    [[vk::location(3)]] nointerpolation uint draw_slot : TEXCOORD2;
+    [[vk::location(3)]] float3 object_position : TEXCOORD2;
+    [[vk::location(4)]] nointerpolation uint draw_slot : TEXCOORD3;
 };
 
 [[vk::push_constant]]
@@ -73,13 +74,14 @@ GpuDrivenForwardVertexOutput forward_gpu_driven_vertex(
     output.color = evaluated.color;
     output.shading_normal = evaluated.shading_normal;
     output.texture_coordinate = evaluated.texture_coordinate;
+    output.object_position = evaluated.object_position;
     output.draw_slot = draw_slot;
     return output;
 }
 
 [shader("fragment")]
 ForwardFragmentOutput forward_gpu_driven_fragment(
-    GpuDrivenForwardVertexOutput input)
+    GpuDrivenForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
     DrawConstants draw = LoadGpuDrivenDrawConstants(input.draw_slot);
     MaterialConstants material = LoadGpuDrivenMaterial(input.draw_slot);
@@ -88,6 +90,7 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
     conventional_input.color = input.color;
     conventional_input.shading_normal = input.shading_normal;
     conventional_input.texture_coordinate = input.texture_coordinate;
+    conventional_input.object_position = input.object_position;
     GpuMaterial gpu_material =
         gpu_materials[gpu_draws[input.draw_slot].material_index];
     float4 texture_sample = float4(1.0f);
@@ -100,5 +103,6 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
                 input.texture_coordinate);
     }
     return MakeForwardFragmentOutput(
-        ShadeForward(conventional_input, material, texture_sample, draw), draw);
+        ShadeForward(conventional_input, front_facing, material,
+            texture_sample, draw), draw);
 }

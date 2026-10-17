@@ -69,6 +69,14 @@ def _check_forward_lighting(app_controller):
         camera.CreateFocalLengthAttr(25)
     _render_phase(app_controller, "baseline")
 
+    if os.environ.get("MERLIN_FORWARD_NORMALS_ONLY") == "1":
+        normals = runpy.run_path(os.path.join(
+            os.path.dirname(os.environ["MERLIN_USDVIEW_SMOKE_HELPERS"]),
+            "forward_normals_usdview_test.py"))
+        normals["check_forward_normals"](
+            app_controller, root, ext, _render_phase, _read_events)
+        return
+
     if os.environ.get("MERLIN_FORWARD_NAVIGATION_ONLY") == "1":
         navigation = runpy.run_path(os.path.join(
             os.path.dirname(os.environ["MERLIN_USDVIEW_SMOKE_HELPERS"]),

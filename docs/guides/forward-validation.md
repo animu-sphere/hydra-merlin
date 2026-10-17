@@ -52,7 +52,12 @@ ctest --test-dir build/metal -R '^merlin-metal-forward-lighting$' --output-on-fa
 
 CTest enables Metal API and shader validation. PPM images, expected/actual
 center RGB, resource counters and rejection counts live under
-`tests/forward-images-metal/{color,white}`.
+`tests/forward-images-metal/{color,white}`. The same gate, and each
+`merlin-vulkan-output-<mode>` case, also runs the analytic
+[surface geometry](../design/surface-geometry.md) fixture: 13 single-patch
+cases compare the `geometric-normal`, `shading-normal-base`, `normal` and
+`front-facing` views with a double-precision oracle (at most 1/255 per
+channel) and require single-sided back faces to stay uncovered.
 
 ## Vulkan host gates
 
@@ -73,6 +78,7 @@ comparison cases. Select the other gates with:
 | Lighting | `-R '^merlin-hydra2-forward-lighting'` | `adapters/merlin-hydra2/forward-lighting-*-install` |
 | First-frame motion | `-R '^merlin-hydra2-forward-motion'` | `adapters/merlin-hydra2/forward-motion-*-install`, `forward-motion-comparison.json` |
 | Qt navigation | `-R '^merlin-hydra2-forward-navigation'` | `adapters/merlin-hydra2/forward-navigation-*-install`, `forward-navigation-comparison.json` |
+| Surface normals | `-R '^merlin-hydra2-forward-normals'` | `adapters/merlin-hydra2/forward-normals-*-install`, `forward-normals-comparison.json` |
 | External scene | `-R '^merlin-hydra2-forward-scene'` | `adapters/merlin-hydra2/forward-scene-*-install`, `forward-scene-comparison.json` |
 
 Each host report retains images, per-frame JSON, structural counters and host
@@ -93,19 +99,20 @@ capability workflow.
 
 ## Metal host gates
 
-Metal/Hydra builds register the lighting, first-frame motion and Qt navigation
+Metal/Hydra builds register the lighting, first-frame motion, Qt navigation and
+surface normals
 fixtures for `tier0` and, when the native bridge is built, `hgi-metal`:
 
 ```sh
 ctest --test-dir build/metal-hydra --output-on-failure \
-  -R '^merlin-hydra2-forward-(lighting|motion|navigation)'
+  -R '^merlin-hydra2-forward-(lighting|motion|navigation|normals)'
 ```
 
 Tier 0 sets `MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1` before delegate
 creation; `hgi-metal` enables the bridge. Selecting `merlin-hydra2-forward-lighting`
 also selects the native Metal fixture for the center comparison. Host
 artifacts live under
-`adapters/merlin-hydra2/forward-{lighting,motion,navigation}-{tier0,hgi-metal}-install`,
+`adapters/merlin-hydra2/forward-{lighting,motion,navigation,normals}-{tier0,hgi-metal}-install`,
 with comparison JSON files alongside. Configuring `MERLIN_FORWARD_SCENE`
 registers the external scene gate for both presentation modes.
 

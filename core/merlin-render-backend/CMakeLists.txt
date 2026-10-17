@@ -6,6 +6,7 @@ add_library(merlin-render-backend STATIC
   src/gpu_driven.cpp
   src/gpu_scene.cpp
   src/gpu_scene_packing.cpp
+  src/surface_geometry.cpp
 )
 merlin_target_defaults(merlin-render-backend)
 

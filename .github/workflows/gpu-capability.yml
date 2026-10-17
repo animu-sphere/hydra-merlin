@@ -307,7 +307,7 @@ jobs:
       - name: Run Tier 0 and HgiVulkan usdview regressions
         run: >-
           ctest --test-dir build -C Release
-          -R "^merlin-(install-consumer|vulkan-install-runtime|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation)-(tier0|hgi-vulkan|comparison)))$"
+          -R "^merlin-(install-consumer|vulkan-install-runtime|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation|normals)-(tier0|hgi-vulkan|comparison)))$"
           --output-on-failure --verbose --no-tests=error --output-junit forward-runtime-tests.xml
 
       - name: Require executed native and host Forward coverage
@@ -342,6 +342,10 @@ jobs:
             build/adapters/merlin-hydra2/forward-navigation-*-install/*.json
             build/adapters/merlin-hydra2/forward-navigation-*-install/*.png
             build/adapters/merlin-hydra2/forward-navigation-comparison.json
+            build/adapters/merlin-hydra2/forward-normals-*-install/*.log
+            build/adapters/merlin-hydra2/forward-normals-*-install/*.json
+            build/adapters/merlin-hydra2/forward-normals-*-install/*.png
+            build/adapters/merlin-hydra2/forward-normals-comparison.json
             build/tests/forward-images-handwritten/**
             build/adapters/merlin-viewport/viewport*.json
             build/Testing/Temporary/LastTest.log

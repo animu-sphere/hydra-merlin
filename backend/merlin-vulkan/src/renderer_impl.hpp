@@ -198,6 +198,7 @@ public:
     extraction::PersistentTable<extraction::GeometryRecord> geometries;
     extraction::PersistentTable<extraction::MaterialRecord> materials;
     FrontFaceWinding front_face{};
+    std::uint64_t instance_orientation_revision{};
   };
 
   struct GpuDrivenFrameResources {
@@ -807,7 +808,7 @@ public:
   MaterialUniforms MakeMaterialUniforms(
       const extraction::MaterialRecord& material,
       const render::ForwardDirectionalLighting& lighting,
-      Vec4 output_transform) const;
+      const render::ForwardFramePolicy& frame_policy) const;
 
   void RejectGeneratedMaterial(std::size_t index,
       MaterialDiagnosticCategory category,
@@ -836,7 +837,7 @@ public:
 
   void PrepareBindlessMaterialDescriptors(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot,
-      Vec4 output_transform);
+      const render::ForwardFramePolicy& frame_policy);
 
   void PrepareGaussianInstances(FrameContext& frame);
 
@@ -844,7 +845,7 @@ public:
 
   void PrepareMaterialDescriptors(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot,
-      Vec4 output_transform);
+      const render::ForwardFramePolicy& frame_policy);
 
   void ReleaseGaussianAttributes(GaussianAttributeSlot& slot);
 
@@ -1166,6 +1167,7 @@ public:
   extraction::PersistentTable<extraction::GeometryRecord> generated_preflight_geometries_;
   extraction::PersistentTable<extraction::MaterialRecord> generated_preflight_materials_;
   FrontFaceWinding generated_preflight_front_face_{};
+  std::uint64_t generated_preflight_orientation_revision_{};
   std::vector<std::pair<std::uint32_t, std::uint32_t>> generated_preflight_variants_;
   std::vector<bool> mesh_material_is_drawn_;
   std::uint64_t mesh_triangle_count_{};

@@ -10,20 +10,22 @@ ForwardVertexOutput merlin_vertex(ForwardVertexInput input)
 }
 
 [shader("fragment")]
-ForwardFragmentOutput merlin_fragment_argument_buffer(ForwardVertexOutput input)
+ForwardFragmentOutput merlin_fragment_argument_buffer(
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
     float4 texture_sample = float4(1.0f);
     if (HasBaseColorTexture(draw_constants))
         texture_sample = resources.textures[draw_constants.texture_index].Sample(
             resources.samplers[draw_constants.sampler_index], input.texture_coordinate);
-    return ShadeMetalForward(input, draw_constants, material_constants, texture_sample);
+    return ShadeMetalForward(input, front_facing, draw_constants, material_constants, texture_sample);
 }
 
 [shader("fragment")]
-ForwardFragmentOutput merlin_fragment_conventional(ForwardVertexOutput input)
+ForwardFragmentOutput merlin_fragment_conventional(
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
     float4 texture_sample = float4(1.0f);
     if (HasBaseColorTexture(draw_constants))
         texture_sample = base_color_texture.Sample(base_color_sampler, input.texture_coordinate);
-    return ShadeMetalForward(input, draw_constants, material_constants, texture_sample);
+    return ShadeMetalForward(input, front_facing, draw_constants, material_constants, texture_sample);
 }

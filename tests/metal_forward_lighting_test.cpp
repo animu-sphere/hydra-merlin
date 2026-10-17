@@ -2,6 +2,8 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/metal/backend.hpp>
 #include "forward_output_fixture.hpp"
+#include "surface_geometry_fixture.hpp"
+#include <merlin/render/gpu_scene_packing.hpp>
 
 #include <algorithm>
 #include <array>
@@ -12,6 +14,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -333,6 +336,75 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
 
 } // namespace
 
+// Every Metal Forward entry builds the same surface context. The packed GPU
+// Scene path reads its normal matrix from the instance table instead of the
+// draw constants, so both paths run the analytic gate. Each fixture case is a
+// new extraction source; Metal geometry residency is keyed by handle and
+// revision only, so every source gets a fresh backend.
+void RunSurfaceFixture(const merlin::render::BackendCreateInfo& info,
+    bool gpu_scene) {
+  const merlin::render::GpuScenePackingCapacities capacities{1, 1, 1, 1};
+  merlin::metal::BackendOptions options;
+  if (gpu_scene)
+    options.gpu_scene_capacities = capacities;
+  const merlin::metal::BackendFactory factory(options);
+  std::unique_ptr<merlin::render::Backend> backend;
+  std::optional<merlin::render::GpuScenePackingState> packing;
+  std::uint64_t source{};
+  std::uint64_t validation_messages{};
+  const std::vector placements{merlin::render::GpuGeometryPlacement{0, 0}};
+  const std::vector identities{merlin::render::GpuInstanceIdentity{17, 23}};
+  const std::vector bindings{merlin::render::GpuMaterialBinding{}};
+  std::uint64_t completion{};
+  const auto report = merlin::tests::VerifySurfaceGeometryViews(
+      [&](std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
+          merlin::render::DebugView view) {
+        if (snapshot->source_id != source) {
+          if (backend)
+            validation_messages += backend->statistics().validation_messages;
+          backend = factory.Create(info);
+          packing.emplace(capacities);
+          source = snapshot->source_id;
+          completion = 0;
+        }
+        merlin::render::RenderRequest request;
+        request.snapshot = snapshot;
+        request.debug_view = view;
+        request.width = request.height = 64;
+        request.products = {{merlin::Aov::Color, true},
+            {merlin::Aov::Depth, true}};
+        if (gpu_scene) {
+          request.gpu_scene_update =
+              std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+                  packing->Apply(*snapshot, completion, completion,
+                      {placements, identities, bindings}));
+        }
+        auto result = backend->Resolve(backend->Submit(request));
+        completion = result.completion_value;
+        Require(result.telemetry.gpu_scene_draw_count == (gpu_scene ? 1U : 0U),
+            "surface fixture changed Forward path");
+        return result;
+      });
+  validation_messages += backend->statistics().validation_messages;
+  Require(report.cases == 13 && report.samples > 0,
+      "surface fixture skipped cases");
+  Require(validation_messages == 0, "surface fixture validation messages");
+  std::cout << (gpu_scene ? "gpu-scene" : "conventional")
+            << ": surface geometry cases=" << report.cases
+            << " samples=" << report.samples
+            << " max_channel_error=" << report.maximum_channel_error << '\n';
+  merlin::render::RenderRequest invalid;
+  invalid.snapshot = std::make_shared<merlin::extraction::FrameSnapshot>();
+  invalid.debug_view = merlin::render::DebugView::Depth;
+  bool rejected{};
+  try {
+    (void)backend->Submit(invalid);
+  } catch (const merlin::render::RendererError& error) {
+    rejected = error.code() == merlin::render::RendererErrorCode::InvalidRequest;
+  }
+  Require(rejected, "unsupported debug view reached Metal submission");
+}
+
 int main(int argc, char** argv) {
   if (argc != 2) {
     std::cerr << "usage: metal_forward_lighting_test IMAGE_DIR\n";
@@ -351,6 +423,8 @@ int main(int argc, char** argv) {
     RunFixture(*backend, {0.4F, 0.1875F, 0.1F, 1},
         std::filesystem::path(argv[1]) / "color");
     RunFixture(*backend, {1, 1, 1, 1}, std::filesystem::path(argv[1]) / "white");
+    RunSurfaceFixture(info, false);
+    RunSurfaceFixture(info, true);
     std::cout << "Metal Forward directional selection and analytic images verified\n";
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

@@ -1,6 +1,6 @@
 # Versioned renderer settings
 
-**Last reviewed:** 2026-10-13
+**Last reviewed:** 2026-10-18
 
 `merlin::render::RendererSettings` is the configuration vocabulary shared by
 native viewport, Hydra/DCC adapters, headless tools, and renderer backends. It
@@ -22,7 +22,7 @@ enum, Metal object, or UI widget crosses this boundary.
 | `exposure_ev` | Lit Forward energy multiplier `2^EV`, bounded to `[-32, 32]` | `0` |
 | `tone_mapping` | None or Reinhard for lit Forward; ACES reserved and rejected | `reinhard` |
 | `alpha_policy` | Opaque, mask, or blend policy | `opaque` |
-| `debug_view` | None, color, depth, primitive ID, instance ID, or normal | `none` |
+| `debug_view` | None, color, depth, primitive ID, instance ID, normal (final `Ns`), geometric normal, base shading normal, or front-facing | `none` |
 | `validation` | Request validation for a backend created with validation support | `false` |
 | `telemetry` | Off, basic, or detailed collection policy | `basic` |
 
@@ -47,7 +47,8 @@ Every current backend still rejects experimental Visibility until a selectable
 capability is added to `RendererCapabilities`. The same rule applies to values
 whose execution wiring is still future work: with capabilities supplied, the
 current profile accepts Color AOV, Diagnostic lighting, finite EV in `[-32, 32]`,
-None or Reinhard tone mapping, Opaque global alpha, no debug view, and Basic telemetry. Other named values are
+None or Reinhard tone mapping, Opaque global alpha, no debug view or a Forward
+surface debug view, and Basic telemetry. Other named values are
 rejected rather than silently stored.
 
 ## Validation and application
@@ -85,6 +86,18 @@ rejected Hydra edits leave effective values and settings revisions unchanged.
 `none`/`reinhard` strings or tokens. Both are listed in host setting descriptors.
 The native viewport applies the same fields through its settings controls.
 
+## Forward surface debug views
+
+`normal`, `geometric-normal`, `shading-normal-base` and `front-facing` render
+the shared Forward [surface context](surface-geometry.md#debug-views) as unlit
+RGB. They are per-submission `RenderRequest::debug_view` values, like the
+output transform, and do not dirty snapshots, geometry or pipelines. Color,
+depth and ID debug views remain representable but rejected. Hydra accepts
+`merlin:debugView` as a string or token, lists it in the setting descriptors,
+rejects other names with `renderer-settings.invalid-debug-view` or
+`renderer-settings.debug-view-unsupported`, and keeps the effective view. The
+native viewport applies the same field through its settings controls.
+
 ## Hydra render settings
 
 The Hydra render delegate translates host render settings into the v3
@@ -121,7 +134,8 @@ development viewport's `SetGpuDrivenGaussianSettings` shares it too.
 Settings versioning does not silently coerce an unknown schema to v3. Schema v2
 added the GPU-driven indexed submission policy and schema v3 the GPU-driven
 Gaussian execution policy; each bumped the backend capability contract.
-Backend contract version 4 adds the per-request Forward output transform;
+Backend contract version 4 adds the per-request Forward output transform and
+version 5 the per-request Forward surface debug view;
 the renderer-settings field layout remains v3. Adapters may translate a host's own configuration into v3, but
 must preserve an explicit rejected/fallback result for values that cannot be represented or
 executed.

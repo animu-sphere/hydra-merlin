@@ -139,7 +139,7 @@ int main() {
           "exposure descriptor must use the host-supported float UI type"))
     return 1;
   (void)NoDiagnostics(pending);
-  if (!Check(descriptors.size() == 4 && described_flag(enabled) &&
+  if (!Check(descriptors.size() == 5 && described_flag(enabled) &&
                  described_flag(tiled),
           "Gaussian render setting descriptors are not the two flags") ||
       !Check(Policy(pending, "disabled", "sorted-stream") &&
@@ -187,6 +187,47 @@ int main() {
     return 1;
   pending.SetOutputTransformSettings({});
   (void)NoDiagnostics(pending);
+
+  // The Forward surface debug view shares the settings vocabulary: surface
+  // views apply, representable views outside the surface context and unknown
+  // names reject and keep the effective view.
+  const auto& debug_view = HdMerlinRenderSettingsTokens->debugView;
+  if (!Check(Setting(pending, debug_view) == "none",
+          "incorrect debug view default"))
+    return 1;
+  for (const auto* name :
+      {"geometric-normal", "shading-normal-base", "normal", "front-facing"}) {
+    pending.SetRenderSetting(debug_view, VtValue(TfToken(name)));
+    if (!Check(Setting(pending, debug_view) == name,
+            "surface debug view was not applied"))
+      return 1;
+  }
+  const auto debug_version = pending.GetRenderSettingsVersion();
+  pending.SetRenderSetting(debug_view, VtValue(std::string("front-facing")));
+  if (!Check(pending.GetRenderSettingsVersion() == debug_version,
+          "unchanged debug view advanced revision"))
+    return 1;
+  pending.SetRenderSetting(debug_view, VtValue(std::string("depth")));
+  if (!Check(Setting(pending, debug_view) == "front-facing" &&
+                 pending.GetRenderSettingsVersion() == debug_version,
+          "unsupported debug view changed state") ||
+      !Check(Rejected(pending, "renderer-settings.debug-view-unsupported",
+                 debug_view, "keep front-facing"),
+          "unsupported debug view lost diagnostic"))
+    return 1;
+  pending.SetRenderSetting(debug_view, VtValue(std::string("tangent")));
+  if (!Check(Rejected(pending, "renderer-settings.invalid-debug-view",
+                 debug_view, "keep front-facing"),
+          "unknown debug view lost diagnostic"))
+    return 1;
+  pending.SetDebugView(merlin::render::DebugView::None);
+  (void)NoDiagnostics(pending);
+  HdRenderSettingsMap debug_map;
+  debug_map[debug_view] = VtValue(std::string("geometric-normal"));
+  HdMerlinRenderDelegate initial_debug(debug_map);
+  if (!Check(Setting(initial_debug, debug_view) == "geometric-normal",
+          "initial debug view was ignored"))
+    return 1;
 
   HdRenderSettingsMap output_map;
   output_map[exposure] = VtValue(-2.0);

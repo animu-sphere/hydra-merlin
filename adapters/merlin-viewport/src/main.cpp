@@ -717,6 +717,7 @@ int main(int argc, char** argv) {
       request.snapshot = scene_snapshot;
       request.output_transform = {renderer_settings.contract.exposure_ev,
           renderer_settings.contract.tone_mapping};
+      request.debug_view = renderer_settings.contract.debug_view;
       request.gpu_driven_indexed =
           renderer_settings.contract.gpu_driven_indexed;
       request.gpu_driven_gaussian =

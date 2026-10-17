@@ -119,6 +119,9 @@ struct MeshDescriptor {
   std::vector<Vec4> colors;
   std::vector<Vec2> texcoords;
   std::vector<std::uint32_t> indices;
+  // Host Mesh doubleSided state. Like a double-sided material it disables
+  // back-face culling, and back-facing fragments flip Ng and Ns_base.
+  bool double_sided{};
 };
 
 enum class GaussianProjectionMode { Perspective,
