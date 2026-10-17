@@ -109,7 +109,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Native Vulkan viewport | Supported | `merlin-viewport` provides GLFW window/input, a Dear ImGui capability/timing/residency/AOV/material diagnostic surface, usdview-style tumble/track/dolly/frame-all navigation with Y/Z `upAxis`, resize, click-triggered ID picking, screenshots, benchmark mode, vsync selection, and optional Hydra USD loading |
 | Vulkan swapchain presentation | Supported | GPU-only offscreen-to-swapchain blit with per-image completion, out-of-date/resize recovery, zero CPU readback by default, and exact offscreen product parity evidence |
 | Basic Vulkan material shading | Validated | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available. Vulkan/Metal share stable-handle single-directional selection and normalization. Hydra distant radiance is converted using angle, normalize, exposure and diffuse. Focused local RTX A5000/OpenUSD 26.08 color/white fixtures cover Camera Light ON/OFF, rotated/returned cameras, native/Tier 0 center values, Tier 0/HgiVulkan images and host linear/sRGB output; native Vulkan handwritten/generated prototype images agree. A bounded 30-degree camera sweep also checks 256 immediate frames per host against settled poses and compares 393 Tier 0/HgiVulkan images. Opt-in Kitchen_set Qt navigation covers 1,788 meshes, three relative starting viewpoints and 288 immediate frames per path, with 649 Tier 0/HgiVulkan images within existing tolerances; stored-PNG saturation is recorded separately from displayed-color clipping. See [known limitations](#known-limitations) and the [Forward lighting design](../design/forward-lighting.md) |
-| Lit Forward output transform | Validated (Vulkan); Not yet validated (Metal execution) | Per-frame EV and None/Reinhard share Core packing and Slang policy. RTX A5000 native conventional/bindless/GPU Scene/GPU-driven oracle/rejection gates pass; OpenUSD 26.08 Tier 0/HgiVulkan captures cover both modes, EV edits and host linear/sRGB encoding. All 41 default/output comparison images match exactly. Native Metal MSL/reflection and shared image gates are provided; new independent Metal runtime evidence remains pending. Defaults preserve 0 EV/Reinhard. See the [output contract](../design/forward-lighting.md#output-transform) for scope and color-management limits. |
+| Lit Forward output transform | Validated | Per-frame EV and None/Reinhard share Core packing and Slang policy. RTX A5000 native conventional/bindless/GPU Scene/GPU-driven oracle, repeat/restore and rejection gates pass in Debug and Release, including MaterialX-generated Forward builds; Apple M3 native Metal Debug/Release execute the same shared oracle. OpenUSD 26.08 Tier 0/HgiVulkan and Tier 0/HgiMetal captures cover both modes, EV edits and host linear/sRGB encoding; all 41 default/output comparison images match exactly per backend, and independent Vulkan/Metal comparisons agree exactly on all 16 output centers in each presentation mode. Defaults preserve 0 EV/Reinhard. See the [v0.16.4 release record](../releases/v0.16.4.md) and the [output contract](../design/forward-lighting.md#output-transform) for scope and color-management limits. |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Supported | Available for Mesh and the CPU-sorted Gaussian MVP; Gaussian `primId` is the resource handle and `instanceId` is the zero-based particle index of the nearest contributing splat in front of opaque depth |
 | Metal Forward lighting evidence | Validated | Focused Apple M3/OpenUSD 26.08 fixtures compare native/Tier 0 linear centers and Tier 0/HgiMetal lighting, first-frame camera sweeps and Qt navigation images. API validation covers host runs; native Metal gates separately enable shader validation because host shader instrumentation fails OpenUSD display pipeline creation. Refreshed SH/Reinhard captures retain white OFF headroom in linear/sRGB output; all 12 native/Tier 0 centers and all 851 Tier 0/HgiMetal lighting/sweep/navigation images match exactly. The bridge-enabled selection passes 16/16, and a separate bridge-disabled native/Tier 0 selection passes 3/3 without skips. Independent Vulkan/Metal default-output host comparisons pass all 24 centers in each Tier 0/Hgi mode with zero observed error. See [known limitations](#known-limitations). |
 | Explicit submit/completion/timeout-aware resolve | Supported | Backend-neutral contract implemented by Vulkan and Metal |
@@ -164,13 +164,10 @@ they are not implied to work by the availability of the surrounding adapter.
   evaluated; shadows are unsupported. Extended emitters are evaluated at their
   center direction.
 - Lit Forward exposes EV in `[-32, 32]` and None/Reinhard, with default 0 EV
-  and Reinhard. Local RTX A5000 native conventional/bindless/GPU Scene/GPU-driven
-  image gates validate both modes, extreme exposures, stable alpha/depth/IDs,
-  rejection and warmed zero-resource edits. Metal uses the same policy and
-  upload ABI; MSL/reflection checks do not establish new Metal device output
-  evidence. Independent Metal device execution remains pending; the local generated
-  Vulkan oracle and MaterialX compilation/reflection gates pass. Gaussian, clear color and unlit diagnostic colors retain their
-  existing policies. None clips at the RGBA8 AOV; ACES and HDR output remain
+  and Reinhard. Output evidence is from RTX A5000 Vulkan and Apple M3 Metal
+  analytic fixtures and host center/image comparisons; representative-scene
+  exposure quality is not yet validated. Gaussian, clear color and unlit
+  diagnostic colors retain their existing policies. None clips at the RGBA8 AOV; ACES and HDR output remain
   unsupported. Display encoding follows the linear AOV in the host or native
   presentation path (SDR sRGB, and Display P3 on native Metal). There is no
   OCIO/ICC working-space conversion, gamut mapping or complete color management.
@@ -187,6 +184,31 @@ they are not implied to work by the availability of the surrounding adapter.
 - Forward evidence is from RTX A5000 and Apple M3 with OpenUSD 26.08 host
   runtimes; other hardware and OpenUSD 26.05 device-host execution are not yet
   validated.
+
+### Surface geometry and normals
+
+The [surface geometry contract](../design/surface-geometry.md) defines the
+target semantics. Current Mesh behavior differs as follows:
+
+- Hydra normals are accepted for all five interpolations, indexed or not, and
+  expanded per triangle corner; authored values are renormalized. Missing
+  normals are generated flat per triangle in the Hydra adapter only; there is no
+  smooth generation, and native meshes without normals shade with `+Z`.
+- The inverse-transpose normal matrix is shared by all Forward paths. There is
+  no separate geometric normal: double-sided back faces are not culled but
+  their normals are not flipped, and negative-determinant instances do not
+  reverse winding, so mirrored single-sided geometry can be culled from the
+  wrong side.
+- `leftHanded` orientation reverses triangle winding without negating authored
+  normals. The Mesh `doubleSided` primvar is not ingested; double-sided state
+  comes only from native materials.
+- Tangents, tangent-space normal maps and derivative frames are unsupported.
+  The `normal` debug view is representable but rejected by renderer settings;
+  no normal, tangent or facing debug view executes. MaterialX `normal` accepts
+  an already constructed world-space normal only.
+- Existing normal coverage is the Hydra orientation/`faceVarying` smoke and
+  normal-matrix unit checks; the contract's transform, mirror and double-sided
+  fixtures are not yet validated.
 
 ### Other
 

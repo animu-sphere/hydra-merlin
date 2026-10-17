@@ -46,14 +46,15 @@ cost evidence.
 
 **Goal:** Select bounded two-level Gaussian tiling only when measured 4K/8K
 p95/p99 benefit justifies it. Independently broaden Standard Surface,
-UV/normal/opacity/emissive coverage, multi-light, environment and authored
+UV/opacity/emissive coverage, multi-light, environment and authored
 lighting, shadows, asynchronous compilation, residency, and Forward/Visibility
 material parity.
 
 **Depends on:** Flat Gaussian tile evidence, the
 [MaterialX function boundary](../design/materialxgenslang-boundary.md), and the
-v0.16.x Forward output-transform and representative-quality baseline. Material
-evaluation does not own lighting or passes.
+v0.16.x Forward output-transform, [surface geometry](../design/surface-geometry.md)
+and representative-quality baseline. Material evaluation does not own lighting,
+surface frames or passes.
 
 **Exit:** Overflow falls back safely; representative material/lighting fixtures
 and backend comparisons meet declared tolerances. Unsupported inputs have
@@ -163,6 +164,11 @@ material, lighting, fallback, compatibility, and performance evidence in the
   second consumer; retain renderer-specific policies until separately proven.
   Remaining OpenStrata integration asks are recorded in the
   [OST recheck](../reports/ost/13-2026-09-26-v0.23.8-recheck-v0.24.0-asks.md).
+- **Advanced surface detail:** Displacement, parallax and advanced bump
+  mapping, anisotropic tangent reconstruction, subdivision-specific tangents,
+  and geometry/meshlet normal compression build on the
+  [surface geometry contract](../design/surface-geometry.md) without changing
+  it.
 - **Post-v1 research:** Hierarchical meshlets and virtualized geometry require
   separately approved simplification, crack handling, streaming, paging,
   residency, and recovery evidence; static meshlets do not imply them.

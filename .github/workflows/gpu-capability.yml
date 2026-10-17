@@ -6,7 +6,7 @@ on:
       suite:
         description: Capability suite to execute
         type: choice
-        options: [all, hydra]
+        options: [all, hydra, generated]
         default: all
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   vulkan-headless:
-    if: inputs.suite != 'hydra'
+    if: inputs.suite == 'all'
     name: Vulkan 1.4 headless / ${{ matrix.build_type }}
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 30
@@ -60,8 +60,16 @@ jobs:
       - name: Run reproducibility, Gaussian, viewport, headless smoke, and validation tests
         run: >-
           ctest --test-dir build-native -C ${{ matrix.build_type }}
-          -R "^merlin-(render-world|render-extraction|render-backend|backend-boundaries|gaussian-(resource|preparation)|shader-(contract|abi)|render-product-contract|render-artifacts|viewport-vulkan|benchmark-(json|compare)|install-consumer|release-metadata|vulkan-(gaussian-raster|execution-lifetime|resource-update|gpu-scene-upload|material-resources|bindless-residency|offscreen|validation|install-runtime))$"
-          --output-on-failure --verbose
+          -R "^merlin-(render-world|render-extraction|render-backend|backend-boundaries|gaussian-(resource|preparation)|shader-(contract|abi)|render-product-contract|render-artifacts|viewport-vulkan|benchmark-(json|compare)|install-consumer|release-metadata|output-transform|vulkan-(gaussian-raster|execution-lifetime|resource-update|gpu-scene-upload|material-resources|bindless-residency|offscreen|validation|install-runtime|output-(conventional|bindless|gpu-scene|gpu-driven)))$"
+          --output-on-failure --verbose --no-tests=error
+          --output-junit native-runtime-tests.xml
+
+      - name: Require executed native Forward output coverage
+        shell: pwsh
+        run: >-
+          & (Join-Path $env:LOCALAPPDATA 'Programs/Python/Python313/python.exe')
+          scripts/check-forward-runtime-evidence.py --suite native
+          --junit build-native/native-runtime-tests.xml
 
       - name: Record descriptor selection and exhaustion evidence
         shell: pwsh
@@ -140,9 +148,74 @@ jobs:
             build-native/tests/validation-artifacts
             build-native/tests/render-artifacts
             build-native/tests/forward-images-handwritten/**
+            build-native/native-runtime-tests.xml
             build-native/Testing/Temporary/LastTest.log
 
+  generated-forward:
+    if: inputs.suite != 'hydra'
+    name: Generated Forward / ${{ matrix.build_type }}
+    runs-on: [self-hosted, Windows, X64, vulkan-1.4]
+    timeout-minutes: 30
+    env:
+      MSBUILDDISABLENODEREUSE: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Restore the LunarG Vulkan SDK cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/vulkan-sdk/1.4.350.0
+          key: lunarg-vulkan-sdk-windows-x64-1.4.350.0-vma
+
+      - name: Provision the LunarG Vulkan SDK
+        shell: pwsh
+        run: .github/scripts/setup-vulkan.ps1
+
+      - name: Configure MaterialX-generated Forward
+        run: >-
+          cmake -S . -B build-generated -A x64
+          -DMERLIN_ENABLE_VULKAN=ON
+          -DMERLIN_ENABLE_MATERIALX=ON
+          -DMERLIN_FETCH_MATERIALX=ON
+
+      - name: Build
+        run: >-
+          cmake --build build-generated --config ${{ matrix.build_type }}
+          --parallel 4 -- /nodeReuse:false
+
+      - name: Execute handwritten and generated Forward
+        run: >-
+          ctest --test-dir build-generated -C ${{ matrix.build_type }}
+          -R "^merlin-(output-transform|vulkan-(generated-material|material-resources|output-(conventional|bindless|gpu-scene|gpu-driven)))$"
+          --output-on-failure --verbose --no-tests=error
+          --output-junit generated-forward-tests.xml
+
+      - name: Require executed generated Forward coverage
+        shell: pwsh
+        run: >-
+          & (Join-Path $env:LOCALAPPDATA 'Programs/Python/Python313/python.exe')
+          scripts/check-forward-runtime-evidence.py --suite generated
+          --junit build-generated/generated-forward-tests.xml
+
+      - name: Upload generated Forward evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: generated-forward-${{ matrix.build_type }}-evidence-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            build-generated/generated-forward-tests.xml
+            build-generated/tests/forward-images-handwritten/**
+            build-generated/tests/forward-images-generated/**
+            build-generated/Testing/Temporary/LastTest.log
+
   hydra:
+    if: inputs.suite != 'generated'
     name: OpenUSD ${{ matrix.openusd }} HgiVulkan
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 60

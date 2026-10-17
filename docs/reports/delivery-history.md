@@ -11,6 +11,54 @@ Legend: ✅ done
 
 ---
 
+## v0.16.4 output-transform validation and closure — 2026-10-18
+
+Release preparation starts from merge commit `36b0470`, containing the shared
+exposure/tone-mapping contract from `a4b90f3`; both commits have identical
+trees. Branch `release/v0.16.4` adds capability-workflow gates at `02c32c3`
+without renderer changes.
+
+[Capability run 39051749745](https://github.com/animu-sphere/hydra-merlin/actions/runs/39051749745)
+on `02c32c3` completes successfully on RTX A5000. Native Debug and Release
+each pass 29/29 selected cases, now including `merlin-output-transform` and the
+conventional/bindless/GPU Scene/GPU-driven `merlin-vulkan-output-*` gates; a
+JUnit checker rejects any missing or skipped output case. A separate
+MaterialX-enabled build passes 10/10 cases in each Debug/Release
+configuration, executing generated and handwritten Forward plus the output
+gates. OpenUSD 26.08 discovery/bridge/RenderBuffer/viewport and the
+native/host/install selection (17/17) also pass without skips.
+
+Downloaded evidence is under `build/v0164-vulkan-evidence`. Tier 0/HgiVulkan
+comparisons contain 41 lighting/output, 393 motion and 433 navigation image
+pairs plus 21 Mesh/click pairs, all with zero changed pixels; all 12
+native/Tier 0 centers agree.
+
+Metal evidence was captured locally on Apple M3 (macOS 15.7.9, Xcode 16.4,
+Slang 2026.8, OpenUSD 26.08) at `a4b90f3` and saved under
+`build/pr141-metal-validation`. Metal Debug and Release each pass 36/36 and
+Metal/Hydra Release passes 56/56 without skips. Both tone modes at -32, -2, 0,
++1, +4 and +32 EV meet the shared oracle within one RGBA8 step under Metal API
+and shader validation, with exact repeat/restore, unchanged alpha/depth/IDs
+and zero warmed uploads, allocations and pipeline creation. All 41 Tier
+0/HgiMetal lighting/output images match exactly.
+
+The offline comparator now accepts `usdview-first-frame-forward-output.json`
+reports. Using the refreshed Vulkan reports and the Apple M3 reports:
+
+| Comparison | Result | Saved report |
+| --- | --- | --- |
+| Native Debug | 20/20, maximum channel error 1/255 | `backend-native-debug-comparison.json` |
+| Native Release | 20/20, maximum channel error 1/255 | `backend-native-release-comparison.json` |
+| Tier 0 host and output | 24/24 and 16/16, zero error | `backend-host-tier0-comparison.json` |
+| Hgi host and output | 24/24 and 16/16, zero error | `backend-host-hgi-vulkan-comparison.json` |
+
+Release identity is prepared as `0.16.4`, dated 2026-10-18 JST. A fresh Core
+Release build in `build/release-v0164-core` passes 24/24 without skips. The
+support matrix promotes the lit Forward output transform to Validated on both
+backends. The [release record](../releases/v0.16.4.md) summarizes this phase;
+the surface geometry contract and its implementation milestones stay in the
+roadmap.
+
 ## v0.16.3 independent validation and closure — 2026-10-13
 
 Release preparation starts from merge commit `3815552`, containing the backend/

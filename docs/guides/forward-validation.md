@@ -120,14 +120,20 @@ python tests/compare_forward_backends.py VULKAN_NATIVE_DIR METAL_NATIVE_DIR comp
 
 Native directories contain `color/comparison.json` and `white/comparison.json`.
 Host inputs are the `usdview-first-frame-forward-lighting.json` files from the
-same presentation mode; run the Tier 0 and Hgi comparisons separately.
+same presentation mode; run the Tier 0 and Hgi comparisons separately. Add
+`--vulkan-output` and `--metal-output` with the matching
+`usdview-first-frame-forward-output.json` files to compare the 16 selectable
+exposure/tone-mapping centers within the host tolerance.
 
 ## Capability workflows
 
-The Windows GPU capability workflow selects and archives the native, lighting,
-motion and navigation gates using the pinned OpenUSD 26.08 Vulkan Lookdev
-runtime and its matching Python interpreter; dispatch `suite=hydra` to refresh
-only the host gates. The scheduled Debug/Release Metal capability workflow
+The Windows GPU capability workflow selects and archives the native output,
+lighting, motion and navigation gates using the pinned OpenUSD 26.08 Vulkan
+Lookdev runtime and its matching Python interpreter, plus a MaterialX-enabled
+Debug/Release build that executes generated and handwritten Forward. JUnit
+checks reject missing or skipped required cases. Dispatch `suite=hydra` to
+refresh only the host gates, or `suite=generated` for only the generated
+Forward build. The scheduled Debug/Release Metal capability workflow
 selects the native Metal gate and archives its images and reports. GPU-free
 hosted Hydra validation excludes these cases through the `host-smoke` and `gpu`
 labels; SDK-only compilation does not establish device-host execution.
