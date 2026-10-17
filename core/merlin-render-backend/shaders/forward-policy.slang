@@ -31,7 +31,15 @@ struct MaterialConstants
     float4 light_color_alpha_cutoff;
     float4 diffuse_environment[9];
     float4 output_transform;
+    // x: +/-1 derivative geometric-normal orientation, y: surface debug view,
+    // zw: reserved. See merlin::render::PackForwardSurfacePolicy.
+    float4 surface_policy;
 };
+
+static const float kSurfaceDebugGeometricNormal = 1.0f;
+static const float kSurfaceDebugShadingNormalBase = 2.0f;
+static const float kSurfaceDebugShadingNormal = 3.0f;
+static const float kSurfaceDebugFrontFacing = 4.0f;
 
 #ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
 [[vk::push_constant]]
@@ -68,6 +76,9 @@ struct ForwardVertexOutput
     [[vk::location(0)]] float4 color : COLOR0;
     [[vk::location(1)]] float3 shading_normal : TEXCOORD0;
     [[vk::location(2)]] float2 texture_coordinate : TEXCOORD1;
+    // Object-space position; its screen derivatives give Ng without a world
+    // matrix in the draw constants.
+    [[vk::location(3)]] float3 object_position : TEXCOORD2;
 };
 
 struct ForwardFragmentOutput
@@ -97,6 +108,7 @@ ForwardVertexOutput EvaluateForwardVertex(
         draw.normal_matrix_column1.xyz * input.normal.y +
         draw.normal_matrix_column2.xyz * input.normal.z;
     output.texture_coordinate = input.texcoord;
+    output.object_position = input.position;
     return output;
 }
 
@@ -110,18 +122,130 @@ ForwardVertexOutput EvaluateForwardVertex(
 }
 #endif
 
+// Shared surface context of the surface geometry contract. Ng and Ns_base are
+// already flipped toward the visible side on double-sided back faces; Ns is
+// the lighting normal after the hemisphere rule.
+struct SurfaceGeometry
+{
+    float3 geometric_normal;
+    float3 shading_normal_base;
+    float3 shading_normal;
+    float2 texture_coordinate;
+    bool front_facing;
+};
+
+[ForceInline]
+float3 SafeNormalize(float3 value, float3 fallback)
+{
+    float length_squared = dot(value, value);
+    return length_squared > 1.0e-30f && length_squared < 1.0e30f
+        ? value * rsqrt(length_squared)
+        : fallback;
+}
+
+// Must run in uniform control flow: Ng uses screen-space derivatives.
+[ForceInline]
+SurfaceGeometry BuildSurfaceGeometry(
+    ForwardVertexOutput input,
+    bool front_facing,
+    MaterialConstants material,
+    DrawConstants draw)
+{
+    float3 column0 = draw.normal_matrix_column0.xyz;
+    float3 column1 = draw.normal_matrix_column1.xyz;
+    float3 column2 = draw.normal_matrix_column2.xyz;
+    // cross(ddx(p), ddy(p)) is the oriented triangle normal over its signed
+    // framebuffer area. The inverse-transpose maps it to world space up to
+    // det(M), and the per-frame sign fixes the camera winding/NDC direction,
+    // which orients Ng toward the visible side for front and back faces.
+    float3 object_derivative_normal = cross(
+        ddx(input.object_position), ddy(input.object_position));
+    float3 world_derivative_normal = column0 * object_derivative_normal.x +
+        column1 * object_derivative_normal.y +
+        column2 * object_derivative_normal.z;
+    float handedness = dot(column0, cross(column1, column2)) < 0.0f
+        ? -1.0f
+        : 1.0f;
+    float3 interpolated = input.shading_normal;
+    SurfaceGeometry surface;
+    surface.front_facing = front_facing;
+    surface.texture_coordinate = input.texture_coordinate;
+    // Back faces of double-sided surfaces flip Ns_base before any later
+    // perturbation; single-sided back faces are culled.
+    float facing = front_facing ? 1.0f : -1.0f;
+    float3 fallback = SafeNormalize(interpolated * facing,
+        float3(0.0f, 0.0f, 1.0f));
+    surface.geometric_normal = SafeNormalize(
+        world_derivative_normal *
+            (material.surface_policy.x * handedness),
+        fallback);
+    surface.shading_normal_base = SafeNormalize(
+        interpolated * facing, surface.geometric_normal);
+    surface.shading_normal = surface.shading_normal_base;
+    return surface;
+}
+
+// Facing and hemisphere rules for any candidate shading normal, including a
+// world-space normal returned by a material: a normal pointing behind Ng is
+// bent back to the Ng hemisphere instead of lighting the surface from behind.
+[ForceInline]
+float3 ResolveShadingNormal(SurfaceGeometry surface, float3 candidate)
+{
+    float3 normal = SafeNormalize(candidate, surface.shading_normal_base);
+    float alignment = dot(normal, surface.geometric_normal);
+    if (alignment < 0.0f)
+    {
+        normal = SafeNormalize(
+            normal - (alignment - 1.0e-3f) * surface.geometric_normal,
+            surface.geometric_normal);
+    }
+    return normal;
+}
+
+[ForceInline]
+SurfaceGeometry BuildForwardSurface(
+    ForwardVertexOutput input,
+    bool front_facing,
+    MaterialConstants material,
+    DrawConstants draw)
+{
+    SurfaceGeometry surface =
+        BuildSurfaceGeometry(input, front_facing, material, draw);
+    surface.shading_normal =
+        ResolveShadingNormal(surface, surface.shading_normal_base);
+    return surface;
+}
+
+[ForceInline]
+float3 EvaluateSurfaceDebugView(SurfaceGeometry surface, float view)
+{
+    if (view == kSurfaceDebugGeometricNormal)
+        return surface.geometric_normal * 0.5f + 0.5f;
+    if (view == kSurfaceDebugShadingNormalBase)
+        return surface.shading_normal_base * 0.5f + 0.5f;
+    if (view == kSurfaceDebugShadingNormal)
+        return surface.shading_normal * 0.5f + 0.5f;
+    return surface.front_facing ? float3(1.0f, 1.0f, 1.0f)
+                                : float3(0.0f, 0.0f, 0.0f);
+}
+
 [ForceInline]
 float4 ShadeForwardSurface(
-    ForwardVertexOutput input,
+    SurfaceGeometry surface,
     MaterialConstants material,
     float4 base_color,
-    float3 shading_normal,
     DrawConstants draw)
 {
     float4 shaded = base_color;
-    if ((draw.feature_mask & kDirectionalLightFlag) != 0u)
+    if (material.surface_policy.y != 0.0f)
     {
-        float3 normal = normalize(shading_normal);
+        // Unlit diagnostic RGB; alpha keeps coverage and masking unchanged.
+        shaded.rgb = EvaluateSurfaceDebugView(
+            surface, material.surface_policy.y);
+    }
+    else if ((draw.feature_mask & kDirectionalLightFlag) != 0u)
+    {
+        float3 normal = surface.shading_normal;
         float x = normal.x;
         float y = normal.y;
         float z = normal.z;
@@ -176,27 +300,40 @@ float4 ShadeForwardSurface(
 [ForceInline]
 float4 ShadeForward(
     ForwardVertexOutput input,
+    bool front_facing,
     MaterialConstants material,
     float4 texture_sample,
     DrawConstants draw)
 {
+    SurfaceGeometry surface =
+        BuildForwardSurface(input, front_facing, material, draw);
     float4 base_color = input.color;
     if (HasBaseColorTexture(draw))
     {
         base_color *= texture_sample;
     }
-    return ShadeForwardSurface(
-        input, material, base_color, input.shading_normal, draw);
+    return ShadeForwardSurface(surface, material, base_color, draw);
 }
 
 #ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
 [ForceInline]
+SurfaceGeometry BuildForwardSurface(
+    ForwardVertexOutput input,
+    bool front_facing,
+    MaterialConstants material)
+{
+    return BuildForwardSurface(input, front_facing, material, draw_constants);
+}
+
+[ForceInline]
 float4 ShadeForward(
     ForwardVertexOutput input,
+    bool front_facing,
     MaterialConstants material,
     float4 texture_sample)
 {
-    return ShadeForward(input, material, texture_sample, draw_constants);
+    return ShadeForward(
+        input, front_facing, material, texture_sample, draw_constants);
 }
 #endif
 

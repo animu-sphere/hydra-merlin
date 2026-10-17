@@ -188,27 +188,47 @@ they are not implied to work by the availability of the surrounding adapter.
 ### Surface geometry and normals
 
 The [surface geometry contract](../design/surface-geometry.md) defines the
-target semantics. Current Mesh behavior differs as follows:
+semantics. The normal part is implemented; tangent frames and normal mapping
+are not:
 
-- Hydra normals are accepted for all five interpolations, indexed or not, and
-  expanded per triangle corner; authored values are renormalized. Missing
-  normals are generated flat per triangle in the Hydra adapter only; there is no
-  smooth generation, and native meshes without normals shade with `+Z`.
-- The inverse-transpose normal matrix is shared by all Forward paths. There is
-  no separate geometric normal: double-sided back faces are not culled but
-  their normals are not flipped, and negative-determinant instances do not
-  reverse winding, so mirrored single-sided geometry can be culled from the
-  wrong side.
-- `leftHanded` orientation reverses triangle winding without negating authored
-  normals. The Mesh `doubleSided` primvar is not ingested; double-sided state
-  comes only from native materials.
-- Tangents, tangent-space normal maps and derivative frames are unsupported.
-  The `normal` debug view is representable but rejected by renderer settings;
-  no normal, tangent or facing debug view executes. MaterialX `normal` accepts
-  an already constructed world-space normal only.
-- Existing normal coverage is the Hydra orientation/`faceVarying` smoke and
-  normal-matrix unit checks; the contract's transform, mirror and double-sided
-  fixtures are not yet validated.
+- Shared Mesh attribute preparation applies authored -> generated -> `Ng` for
+  native and Hydra meshes. Hydra accepts all five interpolations, indexed or
+  not, and keeps flat generation for missing normals; native meshes without
+  normals are generated smooth (area-weighted per shared vertex). Authored
+  values are renormalized; zero-length or non-finite values fall back to the
+  triangle `Ng` with a `mesh.normals.degenerate` diagnostic (native records
+  count them on the geometry record). Malformed primvars reject the prim.
+- Every Vulkan and Metal Forward entry, including generated material wrappers,
+  builds one Slang surface context: `Ng` from screen derivatives of the
+  object-space position, `Ns_base` from the inverse-transpose normal matrix,
+  facing from the rasterizer and `Ns` after the hemisphere rule.
+- Negative-determinant instances reverse the effective winding per draw
+  (Vulkan pipeline variants and GPU-driven batches, Metal encoder state).
+  `leftHanded` reverses winding before generation. Mesh `doubleSided` is
+  ingested from Hydra and native descriptors and, like a double-sided material,
+  disables culling; back faces flip `Ng` and `Ns_base`.
+- `geometric-normal`, `shading-normal-base`, `normal` (final `Ns`) and
+  `front-facing` debug views execute through renderer settings, render
+  requests, the Hydra `merlin:debugView` setting and the native viewport.
+  Color, depth and ID debug views remain rejected.
+- Local Apple M3 evidence: 13 analytic image cases (interpolation, uniform,
+  non-uniform, negative and nested transforms, reversed winding and
+  double-sided material/Mesh) pass the native Metal conventional and GPU Scene
+  paths with at most 1/255 channel error. The OpenUSD 26.08 usdview fixture
+  (flat, `faceVarying`, `leftHanded`, negative scale, double-sided and culled
+  back faces) passes on Tier 0 and HgiMetal with identical centers. On RTX
+  A5000 (GPU capability CI, Debug/Release) the analytic gate passes Vulkan
+  conventional, bindless, GPU Scene and GPU-driven Forward with the same
+  1/255 bound, and the usdview fixture passes Tier 0 and HgiVulkan with an
+  exact center comparison; lavapipe CI runs the native gate as well. All 24
+  usdview normals centers agree between RTX A5000 Vulkan and Apple M3 Metal
+  within 1/255 in both presentation modes. The MaterialX-generated Forward
+  build passes the same gates and the generated material comparison in Debug
+  and Release after shader ABI 12.
+- Tangents, tangent-space normal maps, derivative tangent frames and tangent
+  debug views are unsupported (v0.16.6). MaterialX `normal` accepts an already
+  constructed world-space normal, which is subject to the facing and hemisphere
+  rules.
 
 ### Other
 

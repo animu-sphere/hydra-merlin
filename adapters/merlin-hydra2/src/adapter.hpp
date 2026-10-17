@@ -24,9 +24,11 @@ class Backend;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-// Hydra keys for Gaussian execution and lit Forward output. Gaussian names
-// remain unlisted aliases of the two flags. Exposure accepts float/double EV;
-// tone mapping accepts none/reinhard strings or tokens.
+// Hydra keys for Gaussian execution, lit Forward output and the Forward
+// surface debug view. Gaussian names remain unlisted aliases of the two flags.
+// Exposure accepts float/double EV; tone mapping accepts none/reinhard and the
+// debug view none/normal/geometric-normal/shading-normal-base/front-facing,
+// as strings or tokens.
 // clang-format off
 #define HD_MERLIN_RENDER_SETTINGS_TOKENS                                \
   ((gpuDrivenGaussianMode, "merlin:gpuDrivenGaussian:mode"))            \
@@ -34,7 +36,8 @@ PXR_NAMESPACE_OPEN_SCOPE
   ((gpuDrivenGaussianEnabled, "merlin:gpuDrivenGaussian:enabled"))      \
   ((gpuDrivenGaussianTiled, "merlin:gpuDrivenGaussian:tiled"))          \
   ((exposureEv, "merlin:exposureEv"))                                   \
-  ((toneMapping, "merlin:toneMapping"))
+  ((toneMapping, "merlin:toneMapping"))                                 \
+  ((debugView, "merlin:debugView"))
 // clang-format on
 
 TF_DECLARE_PUBLIC_TOKENS(HdMerlinRenderSettingsTokens,
@@ -188,6 +191,8 @@ public:
   void SetHgiProjectionYReflection(bool reflect);
   void SetOutputTransformSettings(
       merlin::render::OutputTransformSettings settings);
+  // Forward surface debug view; rejects views outside the surface context.
+  void SetDebugView(merlin::render::DebugView view);
 
   void SetGpuDrivenIndexedSettings(
       merlin::render::GpuDrivenIndexedSettings settings);

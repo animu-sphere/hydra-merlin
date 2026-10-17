@@ -43,9 +43,15 @@ struct GeometryRecord {
   std::vector<ElementRange> index_ranges;
   std::shared_ptr<const std::vector<DrawVertex>> vertices;
   std::shared_ptr<const std::vector<std::uint32_t>> indices;
+  // has_normals reports authored normals. Missing normals are generated
+  // smooth by shared Mesh attribute preparation, so every vertex payload
+  // carries a usable normal; degenerate authored normals are repaired.
   bool has_normals{};
   bool has_colors{};
   bool has_texcoords{};
+  bool generated_normals{};
+  std::uint32_t degenerate_normal_count{};
+  bool double_sided{};
 };
 
 struct GaussianRecord {
@@ -136,6 +142,8 @@ struct InstanceRecord {
   std::uint64_t material{};
   Mat4 transform;
   bool visible{true};
+  // det(upper 3x3 of transform) < 0; the draw's effective winding reverses.
+  bool mirrored{};
 };
 
 struct DrawRecord {
@@ -236,6 +244,10 @@ struct FrameSnapshot {
   Mat4 view;
   Mat4 projection;
   FrontFaceWinding front_face{FrontFaceWinding::Clockwise};
+  // Advances whenever any instance's mirrored state changes, so consumers
+  // that group draws by winding can reuse their grouping across transform
+  // edits that keep every handedness.
+  std::uint64_t instance_orientation_revision{};
 };
 
 } // namespace merlin::extraction

@@ -1,5 +1,7 @@
 #include "renderer_impl.hpp"
 
+#include <merlin/render/surface_geometry.hpp>
+
 namespace merlin::vulkan {
 
 void Renderer::Impl::EnsureBindlessMaterialDescriptorSetLayout() {
@@ -831,10 +833,14 @@ Renderer::Impl::DrawPipelineVariant Renderer::Impl::MakeDrawPipelineVariant(
   if (material.alpha_mode == AlphaMode::Masked) {
     variant_key |= kMaskedAlphaFlag;
   }
-  if (material.double_sided) {
+  if (material.double_sided || geometry.double_sided) {
     variant_key |= kDoubleSidedFlag;
   }
-  if (snapshot.front_face == FrontFaceWinding::CounterClockwise) {
+  // A mirrored instance reverses the camera winding so that its outward faces
+  // stay in front; the variant therefore carries the effective winding.
+  const auto& instance = instance_records_[draw.instance_index];
+  if (render::ForwardDrawFrontFace(snapshot.front_face, instance.mirrored) ==
+      FrontFaceWinding::CounterClockwise) {
     variant_key |= kCounterClockwiseFrontFaceFlag;
   }
   return {feature_mask, variant_key};
@@ -850,7 +856,9 @@ void Renderer::Impl::PreflightGeneratedMaterialPipelines(
   if (generated_preflight_draws_.table_identity() != snapshot.draws.table_identity() ||
       generated_preflight_geometries_.table_identity() != snapshot.geometries.table_identity() ||
       generated_preflight_materials_.table_identity() != snapshot.materials.table_identity() ||
-      generated_preflight_front_face_ != snapshot.front_face) {
+      generated_preflight_front_face_ != snapshot.front_face ||
+      generated_preflight_orientation_revision_ !=
+          snapshot.instance_orientation_revision) {
     // Build transactionally. Artifact selection is reevaluated every frame;
     // this immutable plan only caches material membership and variant keys.
     std::set<std::pair<std::uint32_t, std::uint32_t>> variants;
@@ -867,6 +875,8 @@ void Renderer::Impl::PreflightGeneratedMaterialPipelines(
     generated_preflight_geometries_ = snapshot.geometries;
     generated_preflight_materials_ = snapshot.materials;
     generated_preflight_front_face_ = snapshot.front_face;
+    generated_preflight_orientation_revision_ =
+        snapshot.instance_orientation_revision;
   }
   std::set<std::string> failed_modules;
   for (const auto& [material_index, variant_key] : generated_preflight_variants_) {

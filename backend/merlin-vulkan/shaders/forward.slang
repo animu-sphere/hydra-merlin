@@ -15,7 +15,8 @@ ForwardVertexOutput forward_vertex(ForwardVertexInput input)
 }
 
 [shader("fragment")]
-ForwardFragmentOutput forward_fragment(ForwardVertexOutput input)
+ForwardFragmentOutput forward_fragment(
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
     float4 texture_sample = float4(1.0f, 1.0f, 1.0f, 1.0f);
     if (HasBaseColorTexture())
@@ -23,5 +24,5 @@ ForwardFragmentOutput forward_fragment(ForwardVertexOutput input)
         texture_sample = base_color_texture.Sample(input.texture_coordinate);
     }
     return MakeForwardFragmentOutput(
-        ShadeForward(input, material_constants, texture_sample));
+        ShadeForward(input, front_facing, material_constants, texture_sample));
 }

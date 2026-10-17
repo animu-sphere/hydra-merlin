@@ -23,9 +23,10 @@ ForwardVertexOutput EvaluateMetalVertex(ForwardVertexInput input, DrawConstants 
 
 [ForceInline]
 ForwardFragmentOutput ShadeMetalForward(
-    ForwardVertexOutput input, DrawConstants draw,
+    ForwardVertexOutput input, bool front_facing, DrawConstants draw,
     MaterialConstants material, float4 texture_sample)
 {
     input.color *= material.base_color;
-    return MakeForwardFragmentOutput(ShadeForward(input, material, texture_sample, draw), draw);
+    return MakeForwardFragmentOutput(
+        ShadeForward(input, front_facing, material, texture_sample, draw), draw);
 }

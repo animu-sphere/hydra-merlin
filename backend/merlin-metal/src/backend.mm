@@ -1,5 +1,7 @@
 #include "backend_impl.hpp"
 
+#include <merlin/render/surface_geometry.hpp>
+
 namespace merlin::metal {
 
 Backend::Impl::Impl(const render::BackendCreateInfo& info, BackendOptions options)
@@ -228,6 +230,12 @@ render::CompletionToken Backend::Impl::Submit(const render::RenderRequest& reque
 render::CompletionToken Backend::Impl::SubmitFrame(const render::RenderRequest& request) {
   const auto submit_begin = Clock::now();
   (void)render::PackForwardOutputTransform(request.output_transform);
+  if (!render::IsForwardSurfaceDebugView(request.debug_view)) {
+    throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+        "submit Metal frame",
+        "debug view " + std::string(render::DebugViewName(request.debug_view)) +
+            " is not executed by the Forward surface context");
+  }
   if (!request.snapshot) {
     throw render::RendererError(render::RendererErrorCode::InvalidRequest,
         "submit Metal frame", "snapshot is null");

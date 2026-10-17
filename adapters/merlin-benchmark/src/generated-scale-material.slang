@@ -5,8 +5,11 @@
 [[vk::binding(31, 0)]] ConstantBuffer<MaterialConstants> material_constants;
 float3 evaluateMaterial() { return tint.xyz; }
 [shader("fragment")]
-ForwardFragmentOutput benchmark_generated_fragment(ForwardVertexOutput input)
+ForwardFragmentOutput benchmark_generated_fragment(
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
-    return MakeForwardFragmentOutput(ShadeForwardSurface(input, material_constants,
-        float4(evaluateMaterial(), input.color.a), input.shading_normal, draw_constants));
+    SurfaceGeometry surface =
+        BuildForwardSurface(input, front_facing, material_constants);
+    return MakeForwardFragmentOutput(ShadeForwardSurface(surface, material_constants,
+        float4(evaluateMaterial(), input.color.a), draw_constants));
 }

@@ -591,6 +591,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
       renderer_settings.contract.gpu_driven_gaussian);
   render_delegate.SetOutputTransformSettings({renderer_settings.contract.exposure_ev,
       renderer_settings.contract.tone_mapping});
+  render_delegate.SetDebugView(renderer_settings.contract.debug_view);
   DeveloperUiSettingsFeedback settings_feedback;
   DeveloperUiAovPreview aov_preview;
   std::optional<DeveloperUiBenchmark> saved_benchmark;
@@ -796,6 +797,7 @@ static std::optional<std::filesystem::path> RunHydraViewportSession(
             renderer_settings.contract.gpu_driven_gaussian);
         render_delegate.SetOutputTransformSettings({renderer_settings.contract.exposure_ev,
             renderer_settings.contract.tone_mapping});
+        render_delegate.SetDebugView(renderer_settings.contract.debug_view);
         readback_requested =
             readback_requested || renderer_settings.continuous_color_readback ||
             renderer_settings.aov_inspection_enabled;

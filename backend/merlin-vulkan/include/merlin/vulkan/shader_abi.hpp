@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 11;
+inline constexpr std::uint32_t kVersion = 12;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -44,6 +44,7 @@ struct alignas(16) MaterialConstants {
   Vec4 light_color_alpha_cutoff;
   std::array<Vec4, 9> diffuse_environment;
   Vec4 output_transform;
+  Vec4 surface_policy;
 };
 
 // Table-backed Forward keeps indexed submission on the CPU while selecting a
@@ -406,13 +407,14 @@ static_assert(offsetof(DrawConstants, feature_mask) == 112);
 static_assert(offsetof(DrawConstants, prim_id) == 116);
 static_assert(offsetof(DrawConstants, instance_id) == 120);
 static_assert(offsetof(DrawConstants, texture_index) == 124);
-static_assert(sizeof(MaterialConstants) == 208);
+static_assert(sizeof(MaterialConstants) == 224);
 static_assert(alignof(MaterialConstants) == 16);
 static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);
 static_assert(offsetof(MaterialConstants, light_color_alpha_cutoff) == 32);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 static_assert(offsetof(MaterialConstants, output_transform) == 192);
+static_assert(offsetof(MaterialConstants, surface_policy) == 208);
 static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);

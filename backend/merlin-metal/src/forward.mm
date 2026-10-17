@@ -1,13 +1,15 @@
 #include "backend_impl.hpp"
 
+#include <merlin/render/surface_geometry.hpp>
+
 namespace merlin::metal {
 
 MaterialConstants
 Backend::Impl::MakeMaterial(const extraction::MaterialRecord& material,
     const render::ForwardDirectionalLighting& lighting,
-    Vec4 output_transform) {
+    const render::ForwardFramePolicy& frame_policy) {
   return render::MakeForwardMaterialConstants<MaterialConstants>(material, lighting,
-      render::PackagedDiffuseEnvironment().coefficients, output_transform);
+      render::PackagedDiffuseEnvironment().coefficients, frame_policy);
 }
 
 void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& frame,
@@ -38,8 +40,11 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
   pass.depthAttachment.storeAction = MTLStoreActionStore;
   pass.depthAttachment.clearDepth = 1.0;
 
-  const auto output_transform =
-      render::PackForwardOutputTransform(request.output_transform);
+  // Metal maps NDC +Y up in framebuffer coordinates.
+  const render::ForwardFramePolicy frame_policy{
+      render::PackForwardOutputTransform(request.output_transform),
+      render::PackForwardSurfacePolicy(request.snapshot->front_face,
+          render::NdcYDirection::Up, request.debug_view)};
   const auto lighting =
       render::ExtractForwardDirectionalLighting(*request.snapshot);
   id<MTLRenderCommandEncoder> encoder =
@@ -60,10 +65,6 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
   const MTLScissorRect scissor{0, 0, request.width, request.height};
   [encoder setViewport:viewport];
   [encoder setScissorRect:scissor];
-  [encoder setFrontFacingWinding:request.snapshot->front_face ==
-                                         FrontFaceWinding::Clockwise
-                                     ? MTLWindingCounterClockwise
-                                     : MTLWindingClockwise];
   if (bindless_) {
     [encoder setFragmentBuffer:frame.argument_buffer offset:0 atIndex:3];
     for (const auto& [handle, texture] : textures_) {
@@ -124,8 +125,18 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
       continue;
     }
     const auto& material = request.snapshot->materials[draw.material_index];
-    [encoder setCullMode:material.double_sided ? MTLCullModeNone
-                                               : MTLCullModeBack];
+    // Metal evaluates winding with NDC +Y up, opposite to the logical
+    // framebuffer convention, so the native winding is reversed. A mirrored
+    // instance reverses it again to keep its outward faces in front.
+    [encoder setFrontFacingWinding:render::ForwardDrawFrontFace(
+                                       request.snapshot->front_face,
+                                       instance.mirrored) ==
+                                           FrontFaceWinding::Clockwise
+                                       ? MTLWindingCounterClockwise
+                                       : MTLWindingClockwise];
+    [encoder setCullMode:material.double_sided || geometry_record.double_sided
+                             ? MTLCullModeNone
+                             : MTLCullModeBack];
 
     DrawConstants constants;
     constants.model_view_projection =
@@ -204,7 +215,7 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     }
 
     const bool use_gpu_scene = gpu_scene_ready && !material.module;
-    const auto material_constants = MakeMaterial(material, lighting, output_transform);
+    const auto material_constants = MakeMaterial(material, lighting, frame_policy);
     [encoder setRenderPipelineState:use_gpu_scene
                                         ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
                                         : (float_color ? float_pipeline_ : pipeline_)];

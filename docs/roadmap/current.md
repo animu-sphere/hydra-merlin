@@ -15,19 +15,11 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Normal contract and core correctness (v0.16.5):** implement the
-  [surface geometry contract](../design/surface-geometry.md) for normals.
-  - Separate `Ng`, `Ns_base` and facing in one shared Slang surface context
-    used by every Vulkan and Metal Forward entry.
-  - Move normal expansion and flat/smooth fallback into shared Mesh attribute
-    preparation so native and Hydra meshes follow one priority order;
-    degenerate authored normals fall back to `Ng` with diagnostics.
-  - Reverse winding for negative-determinant draws/instances, ingest Mesh
-    `doubleSided`, and flip `Ng`/`Ns_base` on double-sided back faces.
-  - Connect `Ng`/`Ns`/facing debug views through renderer settings.
-  - Add analytic and image fixtures for interpolation, uniform/non-uniform/
-    negative/nested transforms, `leftHanded` and double-sided cases on both
-    backends and both host presentation modes.
+- **Normal contract validation (v0.16.5):** complete independent evidence for
+  the implemented normal part of the
+  [surface geometry contract](../design/surface-geometry.md).
+  - Confirm representative scenes show no unexplained change from
+    double-sided flipping, mirrored winding or generated native normals.
 
 ### Next
 

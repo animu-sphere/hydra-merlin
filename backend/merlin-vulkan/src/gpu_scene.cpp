@@ -318,6 +318,8 @@ void Renderer::Impl::PrepareGpuDrivenIndexed(FrameContext& frame,
       cached->materials.table_identity() ==
           snapshot.materials.table_identity() &&
       cached->front_face == snapshot.front_face &&
+      cached->instance_orientation_revision ==
+          snapshot.instance_orientation_revision &&
       resources.batch_draw_slots == draw_slots &&
       resources.geometry_generation == geometry_residency_generation_) {
     const auto compute_pipeline =
@@ -509,7 +511,8 @@ void Renderer::Impl::PrepareGpuDrivenIndexed(FrameContext& frame,
       static_cast<std::uint32_t>(draw_slots->size());
   resources.pending_batch_snapshot = std::make_shared<GpuDrivenBatchSource>(
       snapshot.source_id, snapshot.draws, snapshot.geometries,
-      snapshot.materials, snapshot.front_face);
+      snapshot.materials, snapshot.front_face,
+      snapshot.instance_orientation_revision);
   resources.pending_batch_draw_slots = draw_slots;
   resources.geometry_generation = geometry_residency_generation_;
   resources.selected = true;

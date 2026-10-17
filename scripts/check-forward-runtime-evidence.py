@@ -12,7 +12,7 @@ HOST = {
     'merlin-hydra2-hgi-vulkan-aov',
     'merlin-hydra2-forward-lighting-native-comparison',
 }
-for kind in ('lighting', 'motion', 'navigation'):
+for kind in ('lighting', 'motion', 'navigation', 'normals'):
     for mode in ('tier0', 'hgi-vulkan', 'comparison'):
         HOST.add(f'merlin-hydra2-forward-{kind}-{mode}')
 

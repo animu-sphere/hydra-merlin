@@ -832,6 +832,22 @@ private:
         }
         ImGui::EndCombo();
       }
+      // Surface views render the shared Forward surface context unlit.
+      if (ImGui::BeginCombo("Forward debug view",
+              render::DebugViewName(settings_contract_.debug_view).data())) {
+        for (const auto view : {render::DebugView::None,
+                 render::DebugView::GeometricNormal,
+                 render::DebugView::ShadingNormalBase,
+                 render::DebugView::Normal, render::DebugView::FrontFacing}) {
+          const bool selected = settings_contract_.debug_view == view;
+          if (ImGui::Selectable(render::DebugViewName(view).data(), selected)) {
+            settings_contract_.debug_view = view;
+          }
+          if (selected)
+            ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+      }
 
       if (ImGui::BeginCombo(
               "Indexed draw submission",
