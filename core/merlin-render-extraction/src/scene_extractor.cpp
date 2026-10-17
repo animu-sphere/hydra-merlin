@@ -317,13 +317,16 @@ public:
         vertices->push_back(vertex);
       }
       // A derived normal depends on neighboring positions and topology, so
-      // the caller's authored ranges do not bound it. Diff against the
+      // the caller's authored ranges do not bound it. When the caller bounds
+      // its edit (known ranges, or a topology-only edit), diff against the
       // resident payload instead: only vertices whose packed value changed
-      // are uploaded, and an edit that changes none keeps the payload.
+      // are uploaded, and an edit that changes none keeps the payload. An
+      // unbounded vertex edit keeps the full-payload contract.
       const bool derived =
           normals.generated || normals.degenerate_count != 0U;
+      const bool bounded = !has_vertex_aspect || change.vertex_ranges_known;
       std::optional<std::vector<ElementRange>> derived_ranges;
-      if (derived && !created && entry.vertices &&
+      if (derived && bounded && !created && entry.vertices &&
           entry.vertices->size() == vertices->size()) {
         derived_ranges = ChangedVertexRanges(*entry.vertices, *vertices);
       }
