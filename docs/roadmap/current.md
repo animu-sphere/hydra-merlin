@@ -18,11 +18,7 @@ rendering semantics; backends own execution.
 - **Normal contract validation (v0.16.5):** complete independent evidence for
   the implemented normal part of the
   [surface geometry contract](../design/surface-geometry.md).
-  - Run the analytic surface fixture on RTX A5000 Vulkan conventional,
-    bindless, GPU Scene and GPU-driven Forward, and the usdview normals fixture
-    on Tier 0/HgiVulkan; compare Vulkan/Metal debug-view centers.
-  - Refresh generated MaterialX Debug/Release Vulkan evidence after shader
-    ABI 12, and confirm representative scenes show no unexplained change from
+  - Confirm representative scenes show no unexplained change from
     double-sided flipping, mirrored winding or generated native normals.
 
 ### Next

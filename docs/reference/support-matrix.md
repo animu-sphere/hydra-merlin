@@ -216,10 +216,15 @@ are not:
   double-sided material/Mesh) pass the native Metal conventional and GPU Scene
   paths with at most 1/255 channel error. The OpenUSD 26.08 usdview fixture
   (flat, `faceVarying`, `leftHanded`, negative scale, double-sided and culled
-  back faces) passes on Tier 0 and HgiMetal with identical centers. The same
-  analytic gate runs on Vulkan conventional, bindless, GPU Scene and
-  GPU-driven Forward and the Tier 0/HgiVulkan host modes; independent Vulkan
-  device evidence is pending.
+  back faces) passes on Tier 0 and HgiMetal with identical centers. On RTX
+  A5000 (GPU capability CI, Debug/Release) the analytic gate passes Vulkan
+  conventional, bindless, GPU Scene and GPU-driven Forward with the same
+  1/255 bound, and the usdview fixture passes Tier 0 and HgiVulkan with an
+  exact center comparison; lavapipe CI runs the native gate as well. All 24
+  usdview normals centers agree between RTX A5000 Vulkan and Apple M3 Metal
+  within 1/255 in both presentation modes. The MaterialX-generated Forward
+  build passes the same gates and the generated material comparison in Debug
+  and Release after shader ABI 12.
 - Tangents, tangent-space normal maps, derivative tangent frames and tangent
   debug views are unsupported (v0.16.6). MaterialX `normal` accepts an already
   constructed world-space normal, which is subject to the facing and hemisphere
