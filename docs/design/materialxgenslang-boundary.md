@@ -182,7 +182,9 @@ Required node and data coverage is intentionally narrow:
 
 `convert` may be supported as an implementation helper without expanding the
 public coverage claim. Normal input may initially use an already constructed
-shading normal. Complete tangent-space normal mapping is deferred.
+shading normal. Tangent-space normal mapping follows the shared
+[surface geometry contract](surface-geometry.md), which owns the tangent frame
+and facing rules.
 
 The following are outside the bounded feature contract:
 

@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.4] - 2026-10-18
+
 ### Added
 
 - Lit Forward exposure in EV and selectable None/Reinhard tone mapping through
@@ -17,6 +19,9 @@ after its public API and release process are established.
   their existing semantics. Gaussian, clear color and unlit diagnostics retain
   their output policy. Backend contract 4 and shader ABI 11 require rebuilt
   consumers, artifacts and binaries.
+- The GPU capability workflow requires executed native Vulkan output gates and
+  a MaterialX-enabled Debug/Release generated Forward build, and the offline
+  backend comparator accepts host exposure/tone-mapping reports.
 
 ## [0.16.3] - 2026-10-13
 
@@ -1299,7 +1304,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.3...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.4...main
+[0.16.4]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.0...v0.16.1

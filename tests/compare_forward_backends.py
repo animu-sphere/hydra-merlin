@@ -18,6 +18,12 @@ HOST_PHASES = tuple(
     for light in ("off", "on")
     for pose in ("static", "moving", "restored")
 )
+OUTPUT_PHASES = tuple(
+    f"output-{output}-{tone}-ev{ev}"
+    for output in ("linear", "srgb")
+    for tone in ("none", "reinhard")
+    for ev in (-2, 0, 1, 4)
+)
 
 
 def phases(report, schema, key):
@@ -71,6 +77,27 @@ def compare_host(vulkan, metal):
         phases(metal, "merlin-usdview-forward-lighting/v1", "phase"), HOST_PHASES, 2)
 
 
+def output_phases(report):
+    if report.get("schema") != "merlin-usdview-forward-output/v1":
+        raise ValueError("unsupported output schema")
+    result = {}
+    for phase in report["phases"]:
+        name = phase["phase"]
+        if name in result:
+            raise ValueError(f"duplicate phase: {name}")
+        rgb = phase["center_rgb"]
+        if len(rgb) != 3 or any(type(c) is not int or not 0 <= c <= 255 for c in rgb):
+            raise ValueError(f"invalid RGB: {name}")
+        if phase["upload_bytes"] != 0 or phase["pipeline_creation_count"] != 0:
+            raise ValueError(f"resources rebuilt: {name}")
+        result[name] = rgb
+    return result
+
+
+def compare_output(vulkan, metal):
+    return compare(output_phases(vulkan), output_phases(metal), OUTPUT_PHASES, 2)
+
+
 def read(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -82,18 +109,24 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--vulkan-host", type=Path)
     parser.add_argument("--metal-host", type=Path)
+    parser.add_argument("--vulkan-output", type=Path)
+    parser.add_argument("--metal-output", type=Path)
     args = parser.parse_args()
     if bool(args.vulkan_host) != bool(args.metal_host):
         parser.error("both host reports are required for a host comparison")
+    if bool(args.vulkan_output) != bool(args.metal_output):
+        parser.error("both output reports are required for an output comparison")
     result = {"schema": "merlin-forward-backend-comparison/v1",
               "lighting_profile": PROFILE, "native_center_tolerance": 1,
-              "host_center_tolerance": 2, "native": {}, "host": None}
+              "host_center_tolerance": 2, "native": {}, "host": None, "output": None}
     for albedo in ("color", "white"):
         result["native"][albedo] = compare_native(
             read(args.vulkan_native / albedo / "comparison.json"),
             read(args.metal_native / albedo / "comparison.json"))
     if args.vulkan_host:
         result["host"] = compare_host(read(args.vulkan_host), read(args.metal_host))
+    if args.vulkan_output:
+        result["output"] = compare_output(read(args.vulkan_output), read(args.metal_output))
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
 

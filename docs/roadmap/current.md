@@ -15,17 +15,28 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Exposure and tone-mapping validation (v0.16.4):** complete independent
-  execution evidence for the [shared output contract](../design/forward-lighting.md#output-transform).
-  - Refresh independent Metal execution and Debug generated Vulkan evidence
-    after the output constant ABI change; require the shared transform oracle,
-    preserved default-profile images and warmed resource invariants.
-  - Refresh offline backend/host comparisons for selectable exposure/tone modes
-    before closing cross-backend output evidence.
+- **Normal contract and core correctness (v0.16.5):** implement the
+  [surface geometry contract](../design/surface-geometry.md) for normals.
+  - Separate `Ng`, `Ns_base` and facing in one shared Slang surface context
+    used by every Vulkan and Metal Forward entry.
+  - Move normal expansion and flat/smooth fallback into shared Mesh attribute
+    preparation so native and Hydra meshes follow one priority order;
+    degenerate authored normals fall back to `Ng` with diagnostics.
+  - Reverse winding for negative-determinant draws/instances, ingest Mesh
+    `doubleSided`, and flip `Ng`/`Ns_base` on double-sided back faces.
+  - Connect `Ng`/`Ns`/facing debug views through renderer settings.
+  - Add analytic and image fixtures for interpolation, uniform/non-uniform/
+    negative/nested transforms, `leftHanded` and double-sided cases on both
+    backends and both host presentation modes.
 
 ### Next
 
-- **Representative Forward quality (v0.16.5):** interior Kitchen views,
+- **Tangent frame and normal mapping (v0.16.6):** authored tangents,
+  generated tangents with handedness, derivative-frame fallback and reported
+  disablement; mirrored UVs and seams; linear normal-map decode and TBN
+  application shared by UsdPreviewSurface and MaterialX; tangent/bitangent
+  debug views; Vulkan/Metal agreement on normal-map sign and seams.
+- **Representative Forward quality (v0.16.7):** interior Kitchen views,
   bright/dark lighting, textured, rough and metallic materials, Camera Light
   ON/OFF, linear/display output, sustained camera navigation, Vulkan/Metal and
   native/Hydra comparisons. Keep analytic, small-fixture, representative-scene
@@ -34,11 +45,12 @@ rendering semantics; backends own execution.
   clipping or flicker, navigation exposes no stale-frame or resource-update
   errors, and backend differences are understood and recorded in the support
   matrix.
-- **Material and backend parity hardening (v0.16.6):** base color, roughness,
-  metallic, textures, vertex color, opacity/alpha mask, normals, double-sided
-  state, generated material ingestion, the generated Metal material path and
-  material ABI reflection behave consistently across supported paths.
-  Unsupported MaterialX capabilities remain explicitly unsupported.
+- **Material and backend parity hardening (v0.16.8):** base color, roughness,
+  metallic, textures, vertex color, opacity/alpha mask, double-sided state,
+  generated material ingestion, the generated Metal material path and
+  material ABI reflection behave consistently across supported paths, on top
+  of the shared surface context. Unsupported MaterialX capabilities remain
+  explicitly unsupported.
 
 Patch numbers are labels for the phases above and may change; the phase
 responsibilities do not.
@@ -48,7 +60,8 @@ responsibilities do not.
 v0.16.x closes when this statement is substantially true:
 
 > Forward rendering has stable cross-backend semantics, an explicit
-> output-transform policy, maintainable backend/shader architecture,
+> output-transform policy, a stable Mesh surface shading contract for normals,
+> tangent frames and normal mapping, maintainable backend/shader architecture,
 > representative real-scene quality evidence, and no known unexplained
 > Vulkan/Metal contract divergence in the supported material subset.
 
@@ -61,4 +74,5 @@ Unless required to fix a correctness regression, these belong to the
 Gaussian tiles, temporal Gaussian reuse, Gaussian LOD/compression, streaming
 and out-of-core execution, production meshlets, Hi-Z, Mesh Shader, Visibility
 Buffer productionization, broad new MaterialX graph coverage, a complete shadow
-system and major new renderer architecture experiments.
+system, displacement/parallax and other advanced surface detail, and major new
+renderer architecture experiments.

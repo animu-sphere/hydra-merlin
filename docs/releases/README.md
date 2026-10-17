@@ -12,6 +12,7 @@ work in the [roadmap](../roadmap/). Not every patch needs a separate file here.
 
 | Version | Record | Theme |
 | --- | --- | --- |
+| v0.16.4 | [v0.16.4](v0.16.4.md) | Forward exposure and tone mapping |
 | v0.16.3 | [v0.16.3](v0.16.3.md) | Backend modules and shared Forward shader policy |
 | v0.16.2 | [v0.16.2](v0.16.2.md) | Forward output alignment |
 | v0.16.1 | [v0.16.1](v0.16.1.md) | Gaussian quality and host validation |

@@ -24,6 +24,7 @@ Shipped user-visible changes are recorded in the [changelog](../CHANGELOG.md).
 - [Execution and render-product lifetime](design/execution-lifetime.md)
 - [Renderer settings](design/renderer-settings.md)
 - [Forward lighting](design/forward-lighting.md)
+- [Surface geometry, normals and tangent frames](design/surface-geometry.md)
 - [MaterialXGenSlang material boundary](design/materialxgenslang-boundary.md)
 - [Multi-backend shader and presentation strategy](design/multibackend-slang-materialx.md)
 - [Hgi host presentation](design/hgi-host-presentation.md)
