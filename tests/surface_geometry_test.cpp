@@ -266,8 +266,25 @@ void Extraction() {
   assert(extractor.snapshot()->instance_orientation_revision ==
          base_revision + 1);
 
-  // Moving one point re-derives its neighbors' generated normals; the range
-  // must cover every vertex rather than the caller's single point.
+  // Generated normals diff against the resident payload: an in-plane move
+  // changes only that vertex, and an index rotation with the same winding
+  // changes no vertex at all.
+  mesh.positions[1].x = 1.5F;
+  world.UpdateMesh(mesh_handle, mesh, ChangeAspect::Points,
+      std::vector<ElementRange>{{1, 1}});
+  extractor.Apply(world, world.Commit());
+  const auto& slid = extractor.snapshot()->geometries[0];
+  assert(slid.vertex_ranges.size() == 1 && slid.vertex_ranges[0].first == 1 &&
+         slid.vertex_ranges[0].count == 1);
+  const auto vertex_revision = slid.vertex_revision;
+  mesh.indices = {1, 2, 0, 2, 3, 0};
+  world.UpdateMesh(mesh_handle, mesh, ChangeAspect::Topology);
+  extractor.Apply(world, world.Commit());
+  assert(extractor.snapshot()->geometries[0].vertex_revision ==
+         vertex_revision);
+
+  // Moving one point out of the plane re-derives its neighbors' generated
+  // normals, so the range covers every vertex rather than the caller's one.
   mesh.positions[2].z = 1.0F;
   world.UpdateMesh(mesh_handle, mesh, ChangeAspect::Points,
       std::vector<ElementRange>{{2, 1}});

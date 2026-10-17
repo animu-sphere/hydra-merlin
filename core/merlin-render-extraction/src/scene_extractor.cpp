@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <optional>
@@ -103,6 +104,26 @@ struct InstanceEntry {
   std::uint64_t material_binding_revision{};
   InstanceDescriptor descriptor;
 };
+
+// Contiguous runs of vertices whose packed bytes differ. Both payloads have
+// the same size.
+std::vector<ElementRange> ChangedVertexRanges(
+    const std::vector<DrawVertex>& previous,
+    const std::vector<DrawVertex>& current) {
+  std::vector<ElementRange> ranges;
+  for (std::size_t i = 0; i < current.size(); ++i) {
+    if (std::memcmp(&previous[i], &current[i], sizeof(DrawVertex)) == 0) {
+      continue;
+    }
+    if (!ranges.empty() &&
+        ranges.back().first + ranges.back().count == i) {
+      ++ranges.back().count;
+    } else {
+      ranges.push_back({static_cast<std::uint32_t>(i), 1U});
+    }
+  }
+  return ranges;
+}
 
 ResourceDelta& DeltaFor(SnapshotDelta& delta, ObjectKind kind) {
   switch (kind) {
@@ -295,15 +316,23 @@ public:
         }
         vertices->push_back(vertex);
       }
-      entry.vertices = std::move(vertices);
-      entry.vertex_revision = change.resource_revision;
-      entry.vertex_ranges = change.vertex_ranges;
       // A derived normal depends on neighboring positions and topology, so
-      // the caller's authored ranges do not bound it.
-      if ((normals.generated || normals.degenerate_count != 0U) &&
-          (derived_normals_changed || !change.vertex_ranges.empty())) {
-        entry.vertex_ranges = {
-            {0U, static_cast<std::uint32_t>(descriptor.positions.size())}};
+      // the caller's authored ranges do not bound it. Diff against the
+      // resident payload instead: only vertices whose packed value changed
+      // are uploaded, and an edit that changes none keeps the payload.
+      const bool derived =
+          normals.generated || normals.degenerate_count != 0U;
+      std::optional<std::vector<ElementRange>> derived_ranges;
+      if (derived && !created && entry.vertices &&
+          entry.vertices->size() == vertices->size()) {
+        derived_ranges = ChangedVertexRanges(*entry.vertices, *vertices);
+      }
+      if (!derived_ranges || !derived_ranges->empty()) {
+        entry.vertices = std::move(vertices);
+        entry.vertex_revision = change.resource_revision;
+        entry.vertex_ranges = derived_ranges ? std::move(*derived_ranges)
+                              : derived      ? std::vector<ElementRange>{}
+                                             : change.vertex_ranges;
       }
       entry.has_normals = !descriptor.normals.empty();
       entry.generated_normals = normals.generated;
