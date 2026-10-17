@@ -47,8 +47,10 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/core/diagnostic.hpp>
 #include <merlin/core/gaussian.hpp>
+#include <merlin/core/mesh_attributes.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
+#include <merlin/render/surface_geometry.hpp>
 #ifdef MERLIN_HYDRA2_ENABLE_VULKAN
 #include <merlin/vulkan/backend.hpp>
 #include <merlin/vulkan/shader_abi.hpp>
@@ -501,11 +503,7 @@ private:
   CpuClock::time_point start_;
 };
 
-struct MeshCorner {
-  std::uint32_t point{};
-  std::uint32_t face{};
-  std::uint32_t authored_corner{};
-};
+using merlin::MeshCorner;
 
 struct PrimvarInput {
   VtValue value;
@@ -577,6 +575,49 @@ bool ReadArrayElement(const VtValue& value, std::size_t index,
   }
   result = convert(array[index]);
   return true;
+}
+
+// Resolves Hydra storage into the host-neutral primvar consumed by shared
+// normal preparation; the element mapping itself is not duplicated here.
+std::optional<merlin::NormalPrimvar> ToNormalPrimvar(
+    const PrimvarInput& input) {
+  merlin::NormalPrimvar result;
+  switch (input.interpolation) {
+  case HdInterpolationConstant:
+    result.interpolation = merlin::PrimvarInterpolation::Constant;
+    break;
+  case HdInterpolationUniform:
+    result.interpolation = merlin::PrimvarInterpolation::Uniform;
+    break;
+  case HdInterpolationVertex:
+    result.interpolation = merlin::PrimvarInterpolation::Vertex;
+    break;
+  case HdInterpolationVarying:
+    result.interpolation = merlin::PrimvarInterpolation::Varying;
+    break;
+  case HdInterpolationFaceVarying:
+    result.interpolation = merlin::PrimvarInterpolation::FaceVarying;
+    break;
+  case HdInterpolationInstance:
+  case HdInterpolationCount:
+    return std::nullopt;
+  }
+  const auto append = [&](const auto& values) {
+    result.values.reserve(values.size());
+    for (const auto& value : values) {
+      result.values.push_back({static_cast<float>(value[0]),
+          static_cast<float>(value[1]), static_cast<float>(value[2])});
+    }
+  };
+  if (input.value.IsHolding<VtVec3fArray>()) {
+    append(input.value.UncheckedGet<VtVec3fArray>());
+  } else if (input.value.IsHolding<VtVec3dArray>()) {
+    append(input.value.UncheckedGet<VtVec3dArray>());
+  } else {
+    return std::nullopt;
+  }
+  result.indices.assign(input.indices.begin(), input.indices.end());
+  return result;
 }
 
 bool ReadVec3(const PrimvarInput& input, const MeshCorner& corner,
@@ -1206,6 +1247,16 @@ public:
     return output_transform_;
   }
 
+  void SetDebugView(merlin::render::DebugView view) {
+    std::scoped_lock lock(mutex_);
+    debug_view_ = view;
+  }
+
+  merlin::render::DebugView EffectiveDebugView() const {
+    std::scoped_lock lock(mutex_);
+    return debug_view_;
+  }
+
   void SetGpuDrivenIndexedSettings(
       merlin::render::GpuDrivenIndexedSettings settings) {
     std::scoped_lock lock(mutex_);
@@ -1760,6 +1811,7 @@ public:
     merlin::render::RenderRequest request;
     request.snapshot = snapshot;
     request.output_transform = output_transform_;
+    request.debug_view = debug_view_;
     request.gpu_driven_indexed = gpu_driven_indexed_;
     request.gpu_driven_gaussian = gpu_driven_gaussian_;
     request.width = width;
@@ -2469,6 +2521,7 @@ private:
       merlin::FrontFaceWinding::Clockwise};
   bool reflect_hgi_projection_y_{};
   merlin::render::OutputTransformSettings output_transform_;
+  merlin::render::DebugView debug_view_{merlin::render::DebugView::None};
   merlin::render::GpuDrivenIndexedSettings gpu_driven_indexed_;
   merlin::render::GpuDrivenGaussianSettings gpu_driven_gaussian_;
   std::optional<PendingGaussianSettings> pending_gpu_driven_gaussian_;
@@ -2782,7 +2835,8 @@ public:
            HdChangeTracker::DirtyMaterialId |
            HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyVisibility |
            HdChangeTracker::DirtyRenderTag |
-           HdChangeTracker::DirtyInstancer;
+           HdChangeTracker::DirtyInstancer |
+           HdChangeTracker::DirtyDoubleSided;
   }
 
   void Sync(HdSceneDelegate* delegate, HdRenderParam* render_param,
@@ -2855,6 +2909,15 @@ public:
     }
     if (triangulation_dirty || relevant_primvars_changed) {
       RebuildPackedMesh();
+    }
+    if ((*dirty_bits & HdChangeTracker::DirtyDoubleSided) != 0) {
+      // Gprim doubleSided is surface state rather than a primvar; it travels
+      // with the Primvars aspect, whose computed vertex ranges stay empty.
+      const bool double_sided = delegate->GetDoubleSided(GetId());
+      if (double_sided != descriptor_.double_sided) {
+        descriptor_.double_sided = double_sided;
+        mesh_aspects |= merlin::ChangeAspect::Primvars;
+      }
     }
     auto vertex_ranges = ChangedVertexRanges(previous_descriptor, descriptor_);
     std::optional<std::vector<merlin::ElementRange>> known_vertex_ranges;
@@ -3256,47 +3319,46 @@ private:
       return;
     }
     const bool has_display_color = colors_.present || opacities_.present;
-    for (std::size_t triangle = 0; triangle < packed_corners_.size();
-        triangle += 3U) {
-      if (packed_corners_.size() - triangle < 3U) {
-        ResetPackedMesh();
+    if (packed_corners_.size() % 3U != 0U) {
+      ReportHydraDiagnostic(
+          "hydra.mesh.triangulation-cache", GetId(),
+          "cached triangulation is not a multiple of three corners",
+          merlin::DiagnosticDisposition::Rejected, "reject-prim");
+      return;
+    }
+    // Shared Mesh attribute preparation owns the authored -> flat -> Ng
+    // priority, renormalization and degenerate fallback. Missing normals
+    // stay flat per triangle, matching the established Hydra baseline.
+    std::vector<merlin::Vec3> positions;
+    positions.reserve(points_.size());
+    for (const auto& point : points_) {
+      positions.push_back({static_cast<float>(point[0]),
+          static_cast<float>(point[1]), static_cast<float>(point[2])});
+    }
+    std::optional<merlin::NormalPrimvar> authored_normals;
+    if (normals_.present) {
+      authored_normals = ToNormalPrimvar(normals_);
+      if (!authored_normals) {
         ReportHydraDiagnostic(
-            "hydra.mesh.triangulation-cache", GetId(),
-            "cached triangulation is not a multiple of three corners",
+            "mesh.normals.malformed", GetId(),
+            "normals primvar type, interpolation, or indices are malformed",
             merlin::DiagnosticDisposition::Rejected, "reject-prim");
         return;
       }
-      const auto& a = points_[packed_corners_[triangle].point];
-      const auto& b = points_[packed_corners_[triangle + 1U].point];
-      const auto& c = points_[packed_corners_[triangle + 2U].point];
-      GfVec3d generated_normal = GfCross(b - a, c - a);
-      generated_normal.Normalize();
+    }
+    const auto normals = merlin::PrepareCornerNormals(positions,
+        packed_corners_, authored_normals ? &*authored_normals : nullptr,
+        merlin::NormalGeneration::Flat, GetId().GetString(),
+        &g_diagnostic_sink);
+    if (!normals.accepted()) {
+      return;
+    }
+    for (std::size_t triangle = 0; triangle < packed_corners_.size();
+        triangle += 3U) {
       for (std::size_t local = 0; local < 3U; ++local) {
         const auto& corner = packed_corners_[triangle + local];
-        const auto& point = points_[corner.point];
-        descriptor_.positions.push_back(
-            {static_cast<float>(point[0]), static_cast<float>(point[1]),
-                static_cast<float>(point[2])});
-        merlin::Vec3 normal{static_cast<float>(generated_normal[0]),
-            static_cast<float>(generated_normal[1]),
-            static_cast<float>(generated_normal[2])};
-        if (normals_.present && !ReadVec3(normals_, corner, normal)) {
-          ReportHydraDiagnostic(
-              "hydra.mesh.primvar.normals", GetId(),
-              "normals primvar type, interpolation, or indices are malformed",
-              merlin::DiagnosticDisposition::Rejected, "reject-prim");
-          ResetPackedMesh();
-          return;
-        }
-        const float length = std::sqrt(normal.x * normal.x +
-                                       normal.y * normal.y +
-                                       normal.z * normal.z);
-        if (length > 1.0e-20F) {
-          normal.x /= length;
-          normal.y /= length;
-          normal.z /= length;
-        }
-        descriptor_.normals.push_back(normal);
+        descriptor_.positions.push_back(positions[corner.point]);
+        descriptor_.normals.push_back((*normals.normals)[triangle + local]);
         merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
         merlin::Vec3 rgb;
         if (colors_.present && !ReadVec3(colors_, corner, rgb)) {
@@ -4425,6 +4487,10 @@ void HdMerlinRenderDelegate::ApplyInitialRenderSettings() {
     SetRenderSetting(HdMerlinRenderSettingsTokens->exposureEv, exposure);
   if (!tone.IsEmpty())
     SetRenderSetting(HdMerlinRenderSettingsTokens->toneMapping, tone);
+  const auto debug_view =
+      HdRenderDelegate::GetRenderSetting(HdMerlinRenderSettingsTokens->debugView);
+  if (!debug_view.IsEmpty())
+    SetRenderSetting(HdMerlinRenderSettingsTokens->debugView, debug_view);
   const merlin::render::GpuDrivenGaussianSettings defaults;
   merlin::render::GpuDrivenGaussianSettings settings;
   for (const auto& key : GaussianRenderSettingKeys()) {
@@ -4456,7 +4522,9 @@ HdMerlinRenderDelegate::GetRenderSettingDescriptors() const {
           VtValue(false)},
       {"Forward exposure (EV)", HdMerlinRenderSettingsTokens->exposureEv, VtValue(0.0F)},
       {"Forward tone mapping", HdMerlinRenderSettingsTokens->toneMapping,
-          VtValue(std::string("reinhard"))}};
+          VtValue(std::string("reinhard"))},
+      {"Forward debug view", HdMerlinRenderSettingsTokens->debugView,
+          VtValue(std::string("none"))}};
 }
 
 void HdMerlinRenderDelegate::SetRenderSetting(
@@ -4509,6 +4577,45 @@ void HdMerlinRenderDelegate::SetRenderSetting(
     SetOutputTransformSettings(settings);
     return;
   }
+  if (key == HdMerlinRenderSettingsTokens->debugView) {
+    const auto previous = impl_->bridge->EffectiveDebugView();
+    const auto name = ReadRenderSettingString(value);
+    std::optional<merlin::render::DebugView> requested;
+    for (const auto view : {merlin::render::DebugView::None,
+             merlin::render::DebugView::Color, merlin::render::DebugView::Depth,
+             merlin::render::DebugView::PrimId,
+             merlin::render::DebugView::InstanceId,
+             merlin::render::DebugView::Normal,
+             merlin::render::DebugView::GeometricNormal,
+             merlin::render::DebugView::ShadingNormalBase,
+             merlin::render::DebugView::FrontFacing}) {
+      if (name == merlin::render::DebugViewName(view))
+        requested = view;
+    }
+    merlin::render::RendererSettingsValidationError error{
+        "renderer-settings.invalid-debug-view",
+        "Debug view requires none, normal, geometric-normal, "
+        "shading-normal-base or front-facing."};
+    if (requested) {
+      // Representable views outside the surface context reject with the
+      // validator's shared code.
+      error = merlin::render::IsForwardSurfaceDebugView(*requested)
+                  ? merlin::render::RendererSettingsValidationError{}
+                  : merlin::render::RendererSettingsValidationError{
+                        "renderer-settings.debug-view-unsupported",
+                        "Only the Forward surface debug views are connected "
+                        "to renderer settings."};
+    }
+    if (!error.code.empty()) {
+      g_diagnostic_sink.Report({merlin::kDiagnosticSchemaVersion, error.code,
+          merlin::DiagnosticSeverity::Warning, merlin::DiagnosticDisposition::Rejected,
+          key.GetString(), error.message,
+          "keep " + std::string(merlin::render::DebugViewName(previous))});
+      return;
+    }
+    SetDebugView(*requested);
+    return;
+  }
   if (!IsGaussianRenderSetting(key)) {
     HdRenderDelegate::SetRenderSetting(key, value);
     return;
@@ -4534,6 +4641,10 @@ VtValue HdMerlinRenderDelegate::GetRenderSetting(const TfToken& key) const {
   if (key == HdMerlinRenderSettingsTokens->toneMapping) {
     return VtValue(std::string(merlin::render::ToneMappingName(
         impl_->bridge->EffectiveOutputTransformSettings().tone_mapping)));
+  }
+  if (key == HdMerlinRenderSettingsTokens->debugView) {
+    return VtValue(std::string(
+        merlin::render::DebugViewName(impl_->bridge->EffectiveDebugView())));
   }
   if (!IsGaussianRenderSetting(key)) {
     return HdRenderDelegate::GetRenderSetting(key);
@@ -4604,6 +4715,20 @@ void HdMerlinRenderDelegate::SetOutputTransformSettings(
       VtValue(static_cast<double>(settings.exposure_ev)));
   HdRenderDelegate::SetRenderSetting(HdMerlinRenderSettingsTokens->toneMapping,
       VtValue(std::string(merlin::render::ToneMappingName(settings.tone_mapping))));
+}
+
+void HdMerlinRenderDelegate::SetDebugView(merlin::render::DebugView view) {
+  if (!merlin::render::IsForwardSurfaceDebugView(view)) {
+    throw merlin::render::RendererError(
+        merlin::render::RendererErrorCode::InvalidRequest, "set debug view",
+        "debug view " + std::string(merlin::render::DebugViewName(view)) +
+            " is not executed by the Forward surface context");
+  }
+  if (view == impl_->bridge->EffectiveDebugView())
+    return;
+  impl_->bridge->SetDebugView(view);
+  HdRenderDelegate::SetRenderSetting(HdMerlinRenderSettingsTokens->debugView,
+      VtValue(std::string(merlin::render::DebugViewName(view))));
 }
 
 void HdMerlinRenderDelegate::SetGpuDrivenIndexedSettings(

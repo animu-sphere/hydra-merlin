@@ -1,5 +1,7 @@
 #include "renderer_impl.hpp"
 
+#include <merlin/render/surface_geometry.hpp>
+
 namespace merlin::vulkan {
 
 std::string_view RendererErrorCodeName(RendererErrorCode code) noexcept {
@@ -267,8 +269,11 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   SyncGeometry(*request.snapshot, resource_sync_mode);
   SyncTextures(*request.snapshot, resource_sync_mode);
   SyncSamplers(*request.snapshot, resource_sync_mode);
+  // Vulkan maps NDC +Y down in framebuffer coordinates.
   PrepareMaterialDescriptors(frame, *request.snapshot,
-      render::PackForwardOutputTransform(request.output_transform));
+      {render::PackForwardOutputTransform(request.output_transform),
+          render::PackForwardSurfacePolicy(request.snapshot->front_face,
+              render::NdcYDirection::Down, request.debug_view)});
   PrepareBindlessDescriptors();
   const auto gaussian_attribute_upload_start = CpuClock::now();
   SyncGaussianAttributes(*request.snapshot, resource_sync_mode);
@@ -788,6 +793,8 @@ void Renderer::Impl::ValidateRequest(const RenderRequest& request) const {
   }
   try {
     (void)render::PackForwardOutputTransform(request.output_transform);
+    (void)render::PackForwardSurfacePolicy(FrontFaceWinding::Clockwise,
+        render::NdcYDirection::Down, request.debug_view);
   } catch (const render::RendererError& error) {
     throw RendererError(RendererErrorCode::InvalidRequest,
         "validate render request", error.detail());

@@ -270,10 +270,23 @@ int main() {
   settings.alpha_policy = AlphaPolicy::Blend;
   require_unsupported(settings,
       "renderer-settings.alpha-policy-unsupported");
+  for (const auto view : {DebugView::Normal, DebugView::GeometricNormal,
+           DebugView::ShadingNormalBase, DebugView::FrontFacing}) {
+    settings = {};
+    settings.debug_view = view;
+    assert(!ValidateRendererSettings(settings, &backend->capabilities()));
+  }
+  for (const auto view : {DebugView::Color, DebugView::Depth,
+           DebugView::PrimId, DebugView::InstanceId}) {
+    settings = {};
+    settings.debug_view = view;
+    require_unsupported(settings,
+        "renderer-settings.debug-view-unsupported");
+  }
   settings = {};
-  settings.debug_view = DebugView::Normal;
-  require_unsupported(settings,
-      "renderer-settings.debug-view-unsupported");
+  settings.debug_view = static_cast<DebugView>(99);
+  assert(ValidateRendererSettings(settings)->code ==
+         "renderer-settings.invalid-debug-view");
   settings = {};
   settings.telemetry = TelemetryMode::Detailed;
   require_unsupported(settings,

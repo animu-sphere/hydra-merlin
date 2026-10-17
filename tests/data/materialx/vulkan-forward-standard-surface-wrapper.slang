@@ -9,16 +9,22 @@ ConstantBuffer<MaterialConstants> material_constants;
 
 [shader("fragment")]
 ForwardFragmentOutput merlin_materialx_standard_surface_forward_fragment(
-    ForwardVertexOutput input)
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
+    // MaterialX reads the shared surface context and returns a world-space
+    // normal; the facing and hemisphere rules still apply to it.
+    SurfaceGeometry surface =
+        BuildForwardSurface(input, front_facing, material_constants);
     MaterialInputs material_inputs = {};
-    material_inputs.normalWorld = normalize(input.shading_normal);
+    material_inputs.normalWorld = surface.shading_normal_base;
     material_inputs.texcoord_0 = input.texture_coordinate;
     MaterialResult material = evaluateMaterial(material_inputs);
+    surface.shading_normal =
+        ResolveShadingNormal(surface, material.shading_normal);
     return MakeForwardFragmentOutput(
         ShadeForwardSurface(
-            input,
+            surface,
             material_constants,
             float4(material.base_color, input.color.a),
-            material.shading_normal, draw_constants));
+            draw_constants));
 }

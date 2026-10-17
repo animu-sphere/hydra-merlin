@@ -22,7 +22,8 @@ ForwardVertexOutput merlin_vertex_gpu_scene(ForwardVertexInput input)
 }
 
 [shader("fragment")]
-ForwardFragmentOutput merlin_fragment_gpu_scene(ForwardVertexOutput input)
+ForwardFragmentOutput merlin_fragment_gpu_scene(
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
     GpuDraw draw = gpu_draws[gpu_scene_constants.draw_slot];
     GpuMaterial material = gpu_materials[draw.material_index];
@@ -33,5 +34,6 @@ ForwardFragmentOutput merlin_fragment_gpu_scene(ForwardVertexOutput input)
     if (HasBaseColorTexture(constants))
         texture_sample = resources.textures[constants.texture_index].Sample(
             resources.samplers[constants.sampler_index], input.texture_coordinate);
-    return ShadeMetalForward(input, constants, effective_material, texture_sample);
+    return ShadeMetalForward(
+        input, front_facing, constants, effective_material, texture_sample);
 }

@@ -1,5 +1,6 @@
 #include <merlin/extraction/scene_extractor.hpp>
 
+#include <merlin/core/mesh_attributes.hpp>
 #include <merlin/core/render_world.hpp>
 
 #include <algorithm>
@@ -41,6 +42,9 @@ struct MeshEntry {
   bool has_normals{};
   bool has_colors{};
   bool has_texcoords{};
+  bool generated_normals{};
+  std::uint32_t degenerate_normal_count{};
+  bool double_sided{};
 };
 
 struct GaussianEntry {
@@ -267,17 +271,22 @@ public:
     if (created || change.HasAspect(ChangeAspect::Primvars)) {
       entry.primvar_revision = change.resource_revision;
     }
-    if (created ||
+    // Generated normals also follow topology, so an index edit rebuilds them.
+    const bool derived_normals_changed = descriptor.normals.empty() &&
+                                         change.HasAspect(ChangeAspect::Topology);
+    if (created || derived_normals_changed ||
         (has_vertex_aspect &&
             (!change.vertex_ranges_known || !change.vertex_ranges.empty()))) {
+      // Shared preparation fills missing normals and repairs degenerate ones
+      // with the same priority Hydra uses, instead of shading with +Z.
+      const auto normals = PrepareVertexNormals(descriptor.positions,
+          descriptor.indices, descriptor.normals);
       auto vertices = std::make_shared<std::vector<DrawVertex>>();
       vertices->reserve(descriptor.positions.size());
       for (std::size_t i = 0; i < descriptor.positions.size(); ++i) {
         DrawVertex vertex;
         vertex.position = descriptor.positions[i];
-        if (!descriptor.normals.empty()) {
-          vertex.normal = descriptor.normals[i];
-        }
+        vertex.normal = normals.normals[i];
         if (!descriptor.colors.empty()) {
           vertex.color = descriptor.colors[i];
         }
@@ -289,10 +298,21 @@ public:
       entry.vertices = std::move(vertices);
       entry.vertex_revision = change.resource_revision;
       entry.vertex_ranges = change.vertex_ranges;
+      // A derived normal depends on neighboring positions and topology, so
+      // the caller's authored ranges do not bound it.
+      if ((normals.generated || normals.degenerate_count != 0U) &&
+          (derived_normals_changed || !change.vertex_ranges.empty())) {
+        entry.vertex_ranges = {
+            {0U, static_cast<std::uint32_t>(descriptor.positions.size())}};
+      }
       entry.has_normals = !descriptor.normals.empty();
+      entry.generated_normals = normals.generated;
+      entry.degenerate_normal_count =
+          static_cast<std::uint32_t>(normals.degenerate_count);
       entry.has_colors = !descriptor.colors.empty();
       entry.has_texcoords = !descriptor.texcoords.empty();
     }
+    entry.double_sided = descriptor.double_sided;
     if (created || change.HasAspect(ChangeAspect::Topology)) {
       entry.topology_revision = change.resource_revision;
     }
@@ -860,7 +880,10 @@ public:
               entry.indices,
               entry.has_normals,
               entry.has_colors,
-              entry.has_texcoords};
+              entry.has_texcoords,
+              entry.generated_normals,
+              entry.degenerate_normal_count,
+              entry.double_sided};
         },
         next->build_counters, initialize);
     std::vector<std::uint64_t> changed_geometry_records;
@@ -976,7 +999,8 @@ public:
               instance.mesh.value(),
               instance.material.value(),
               instance.transform,
-              instance.visible};
+              instance.visible,
+              IsTransformMirrored(instance.transform)};
         },
         next->build_counters, initialize);
     next->delta->instances.upserts.insert(
@@ -1005,6 +1029,7 @@ public:
     next->view = {};
     next->projection = {};
     next->front_face = FrontFaceWinding::Clockwise;
+    next->instance_orientation_revision = instance_orientation_revision;
     if (active_camera.valid()) {
       const auto camera = cameras.find(active_camera.value());
       if (camera != cameras.end()) {
@@ -1043,6 +1068,7 @@ public:
   std::map<std::uint64_t, TextureEntry> textures;
   std::map<std::uint64_t, SamplerEntry> samplers;
   std::map<std::uint64_t, InstanceEntry> instances;
+  std::uint64_t instance_orientation_revision{};
   std::map<std::uint64_t, CameraDescriptor> cameras;
   std::map<std::uint64_t, LightEntry> lights;
   std::map<std::uint64_t, std::size_t> geometry_indices;
@@ -1189,6 +1215,10 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
           impl_->RemoveInstanceDependencies(change.handle,
               found->second.descriptor);
         }
+        if (found != impl_->instances.end() &&
+            IsTransformMirrored(found->second.descriptor.transform)) {
+          ++impl_->instance_orientation_revision;
+        }
         impl_->instances.erase(change.handle);
         impl_->draw_ids.erase(change.handle);
       } else {
@@ -1212,8 +1242,13 @@ void SceneExtractor::Apply(const RenderWorld& world, const ChangeSet& changes) {
             change.HasAspect(ChangeAspect::MaterialBinding)) {
           entry.material_binding_revision = change.resource_revision;
         }
+        const bool was_mirrored = found != impl_->instances.end() &&
+            IsTransformMirrored(found->second.descriptor.transform);
         entry.descriptor =
             world.Get(InstanceHandle::FromValue(change.handle));
+        if (IsTransformMirrored(entry.descriptor.transform) != was_mirrored) {
+          ++impl_->instance_orientation_revision;
+        }
         impl_->AddInstanceDependencies(change.handle, entry.descriptor);
         impl_->instances.insert_or_assign(
             impl_->instances.end(), change.handle, std::move(entry));

@@ -14,6 +14,12 @@ target_link_libraries(merlin-output-transform-tests PRIVATE Merlin::RenderBacken
 add_test(NAME merlin-output-transform COMMAND merlin-output-transform-tests)
 set_tests_properties(merlin-output-transform PROPERTIES LABELS "core;lighting;color")
 
+add_executable(merlin-surface-geometry-tests surface_geometry_test.cpp)
+merlin_target_defaults(merlin-surface-geometry-tests)
+target_link_libraries(merlin-surface-geometry-tests PRIVATE Merlin::RenderBackend)
+add_test(NAME merlin-surface-geometry COMMAND merlin-surface-geometry-tests)
+set_tests_properties(merlin-surface-geometry PROPERTIES LABELS "core;surface;normals")
+
 add_executable(merlin-forward-lighting-tests forward_lighting_test.cpp)
 merlin_target_defaults(merlin-forward-lighting-tests)
 target_link_libraries(merlin-forward-lighting-tests PRIVATE Merlin::RenderBackend)

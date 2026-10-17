@@ -24,9 +24,9 @@ void Renderer::Impl::EnsureEnvironmentLighting(const std::filesystem::path& path
 MaterialUniforms Renderer::Impl::MakeMaterialUniforms(
     const extraction::MaterialRecord& material,
     const render::ForwardDirectionalLighting& lighting,
-    Vec4 output_transform) const {
+    const render::ForwardFramePolicy& frame_policy) const {
   return render::MakeForwardMaterialConstants<MaterialUniforms>(material, lighting,
-      environment_lighting_.coefficients, output_transform);
+      environment_lighting_.coefficients, frame_policy);
 }
 
 void Renderer::Impl::RejectGeneratedMaterial(std::size_t index,
@@ -320,7 +320,7 @@ void Renderer::Impl::PackGeneratedMaterialParameters(
 
 void Renderer::Impl::PrepareBindlessMaterialDescriptors(
     FrameContext& frame, const extraction::FrameSnapshot& snapshot,
-    Vec4 output_transform) {
+    const render::ForwardFramePolicy& frame_policy) {
   frame.material_descriptor_sets.clear();
   if (material_records_.empty()) {
     return;
@@ -420,7 +420,7 @@ void Renderer::Impl::PrepareBindlessMaterialDescriptors(
       "map bindless material uniform buffer");
   for (std::uint32_t i = 0; i < material_count; ++i) {
     const auto& material = material_records_[i];
-    const auto uniforms = MakeMaterialUniforms(material, lighting, output_transform);
+    const auto uniforms = MakeMaterialUniforms(material, lighting, frame_policy);
     std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
         &uniforms, sizeof(uniforms));
   }
@@ -444,10 +444,10 @@ void Renderer::Impl::ValidateMaterialTextureBindings() const {
 
 void Renderer::Impl::PrepareMaterialDescriptors(
     FrameContext& frame, const extraction::FrameSnapshot& snapshot,
-    Vec4 output_transform) {
+    const render::ForwardFramePolicy& frame_policy) {
   ValidateMaterialTextureBindings();
   if (bindless_texture_table_) {
-    PrepareBindlessMaterialDescriptors(frame, snapshot, output_transform);
+    PrepareBindlessMaterialDescriptors(frame, snapshot, frame_policy);
     return;
   }
   const auto lighting = ExtractDirectionalLighting(snapshot);
@@ -542,7 +542,7 @@ void Renderer::Impl::PrepareMaterialDescriptors(
       "map material uniform buffer");
   for (std::uint32_t i = 0; i < material_count; ++i) {
     const auto& material = material_records_[i];
-    const auto uniforms = MakeMaterialUniforms(material, lighting, output_transform);
+    const auto uniforms = MakeMaterialUniforms(material, lighting, frame_policy);
     std::memcpy(static_cast<std::byte*>(mapped) + uniform_stride * i,
         &uniforms, sizeof(uniforms));
   }

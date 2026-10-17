@@ -19,7 +19,7 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 4;
+inline constexpr std::uint32_t kBackendContractVersion = 5;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 3;
 
 enum class BackendKind { Vulkan,
@@ -47,12 +47,17 @@ enum class LightingMode { Diagnostic,
 enum class AlphaPolicy { Opaque,
   Mask,
   Blend };
+// Normal is the final shading normal Ns. The surface views render the shared
+// Forward surface context as unlit RGB; see the surface geometry design.
 enum class DebugView { None,
   Color,
   Depth,
   PrimId,
   InstanceId,
-  Normal };
+  Normal,
+  GeometricNormal,
+  ShadingNormalBase,
+  FrontFacing };
 enum class TelemetryMode { Off,
   Basic,
   Detailed };
@@ -224,6 +229,12 @@ struct GpuDrivenGaussianSettings {
     return "instance-id";
   case DebugView::Normal:
     return "normal";
+  case DebugView::GeometricNormal:
+    return "geometric-normal";
+  case DebugView::ShadingNormalBase:
+    return "shading-normal-base";
+  case DebugView::FrontFacing:
+    return "front-facing";
   }
   return "unknown";
 }
@@ -550,6 +561,9 @@ struct RenderRequest {
       {Aov::Color, true}, {Aov::Depth, true}};
   PresentationTarget presentation;
   OutputTransformSettings output_transform;
+  // Forward surface debug view (None, Normal, GeometricNormal,
+  // ShadingNormalBase or FrontFacing); other views are rejected.
+  DebugView debug_view{DebugView::None};
 };
 
 struct ImageRgba8 {

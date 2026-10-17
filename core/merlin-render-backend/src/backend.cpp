@@ -1,4 +1,5 @@
 #include <merlin/render/backend.hpp>
+#include <merlin/render/surface_geometry.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -138,10 +139,11 @@ std::optional<RendererSettingsValidationError> ValidateRendererSettings(
         "Only the Opaque global alpha policy is currently "
         "connected to renderer settings.");
   }
-  if (settings.debug_view != DebugView::None) {
+  if (!IsForwardSurfaceDebugView(settings.debug_view)) {
     return invalid("renderer-settings.debug-view-unsupported",
-        "Debug views are not yet connected to renderer settings; "
-        "use None.");
+        "Only the Forward surface debug views (normal, geometric-normal, "
+        "shading-normal-base, front-facing) are connected to renderer "
+        "settings.");
   }
   if (settings.telemetry != TelemetryMode::Basic) {
     return invalid("renderer-settings.telemetry-unsupported",

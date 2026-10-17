@@ -51,7 +51,8 @@ ForwardVertexOutput forward_gpu_scene_vertex(ForwardVertexInput input)
 }
 
 [shader("fragment")]
-ForwardFragmentOutput forward_gpu_scene_fragment(ForwardVertexOutput input)
+ForwardFragmentOutput forward_gpu_scene_fragment(
+    ForwardVertexOutput input, bool front_facing : SV_IsFrontFace)
 {
     GpuDraw draw = gpu_draws[gpu_scene_constants.draw_slot];
     GpuGeometry geometry = gpu_geometries[draw.geometry_index];
@@ -71,6 +72,7 @@ ForwardFragmentOutput forward_gpu_scene_fragment(ForwardVertexOutput input)
             bindless_samplers[sampler_index], input.texture_coordinate);
     }
     return MakeForwardFragmentOutput(
-        ShadeForward(input, effective_material, texture_sample, constants),
+        ShadeForward(input, front_facing, effective_material, texture_sample,
+            constants),
         constants);
 }
