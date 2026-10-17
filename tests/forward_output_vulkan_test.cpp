@@ -2,6 +2,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/vulkan/renderer.hpp>
 #include "forward_output_fixture.hpp"
+#include "surface_geometry_fixture.hpp"
 
 #include <iostream>
 #include <limits>
@@ -99,6 +100,57 @@ int main(int argc, char** argv) try {
   if (renderer->statistics().validation_messages != 0)
     return 1;
   std::cout << mode << ": output transforms, alpha/depth/IDs, repeats and rejection passed\n";
+
+  // Surface geometry views on the same Forward entry. Each fixture case is a
+  // fresh source, so a fresh renderer keeps its geometry at arena offset 0.
+  std::uint64_t surface_source{};
+  std::optional<merlin::render::GpuScenePackingState> surface_packing;
+  std::uint64_t validation_messages{};
+  const auto surface = merlin::tests::VerifySurfaceGeometryViews(
+      [&](std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
+          merlin::render::DebugView view) {
+        if (snapshot->source_id != surface_source) {
+          validation_messages += renderer->statistics().validation_messages;
+          renderer.reset();
+          renderer.emplace(options);
+          surface_packing.emplace(capacities);
+          surface_source = snapshot->source_id;
+          completion = 0;
+        }
+        request.snapshot = snapshot;
+        request.output_transform = {};
+        request.debug_view = view;
+        if (scene) {
+          request.gpu_scene_update =
+              std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
+                  surface_packing->Apply(*snapshot, completion, completion,
+                      {placements, identities, bindings}));
+        }
+        const auto result = renderer->Resolve(renderer->Submit(request));
+        completion = result.completion_value;
+        if (scene && result.counters.gpu_scene_draw_count != 1) {
+          throw std::runtime_error("surface fixture fell back from GPU Scene");
+        }
+        if (mode == "gpu-driven" &&
+            result.counters.gpu_driven_indirect_draw_count != 1) {
+          throw std::runtime_error("surface fixture fell back from GPU-driven Forward");
+        }
+        return result;
+      });
+  validation_messages += renderer->statistics().validation_messages;
+  request.debug_view = merlin::render::DebugView::Depth;
+  bool debug_view_rejected{};
+  try {
+    (void)renderer->Submit(request);
+  } catch (const merlin::vulkan::RendererError& error) {
+    debug_view_rejected =
+        error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest;
+  }
+  if (!debug_view_rejected || validation_messages != 0)
+    return 1;
+  std::cout << mode << ": surface geometry cases=" << surface.cases
+            << " samples=" << surface.samples
+            << " max_channel_error=" << surface.maximum_channel_error << '\n';
 } catch (const std::exception& error) {
   std::cerr << error.what() << '\n';
   return 1;

@@ -8,6 +8,27 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- The Mesh normal part of the surface geometry contract. Core prepares
+  normals for native and Hydra meshes with one authored -> generated -> `Ng`
+  priority; degenerate authored normals fall back to `Ng` with diagnostics.
+  Every Vulkan and Metal Forward entry builds one shared Slang surface context
+  with `Ng`, `Ns_base`, `Ns` and facing. Mirrored instances reverse winding,
+  Hydra Mesh `doubleSided` is ingested, and double-sided back faces flip their
+  normals. `geometric-normal`, `shading-normal-base`, `normal` and
+  `front-facing` debug views run through renderer settings, the Hydra
+  `merlin:debugView` setting and the native viewport.
+- Analytic surface geometry image fixtures for native Vulkan/Metal Forward
+  paths and a usdview normals fixture for Tier 0 and native Hgi presentation.
+
+### Changed
+
+- Native meshes without normals now use generated smooth normals instead of
+  `+Z`. Backend contract 5 and shader ABI 12 (`MaterialConstants`
+  `surface_policy` and the object-position interstage value) require rebuilt
+  consumers, artifacts and binaries.
+
 ## [0.16.4] - 2026-10-18
 
 ### Added

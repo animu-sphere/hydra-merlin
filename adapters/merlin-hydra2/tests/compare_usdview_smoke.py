@@ -59,6 +59,13 @@ NAVIGATION_PHASES = tuple(
         f"{kind}-{index:02d}" for kind in ("reference", "immediate")
         for index in range(8)) + ("restored",))
 )
+NORMALS_PHASES = tuple(
+    f"normals-{probe}-{view}"
+    for probe in ("flat", "face-varying", "left-handed", "negative-scale",
+                  "double-sided-back", "single-sided-back")
+    for view in ("geometric-normal", "shading-normal-base", "normal",
+                 "front-facing")
+)
 SCENE_PHASES = tuple(
     f"scene-{viewpoint}-authored-{output}-{light}-{gesture}-{capture}"
     for viewpoint in ("full", "quarter", "opposite")
@@ -88,6 +95,7 @@ def parse_args() -> argparse.Namespace:
     fixture.add_argument("--forward-lighting-only", action="store_true")
     fixture.add_argument("--forward-motion-only", action="store_true")
     fixture.add_argument("--forward-navigation-only", action="store_true")
+    fixture.add_argument("--forward-normals-only", action="store_true")
     fixture.add_argument("--forward-scene-only", action="store_true")
     return parser.parse_args()
 
@@ -210,15 +218,18 @@ def performance_evidence(tier0: dict, gpu_copy: dict) -> dict:
 def main() -> None:
     args = parse_args()
     forward_only = (args.forward_lighting_only or args.forward_motion_only or
-                    args.forward_navigation_only or args.forward_scene_only)
+                    args.forward_navigation_only or args.forward_scene_only or
+                    args.forward_normals_only)
     phases = PHASES
     forward_reports = []
     if forward_only:
         fixture = ("scene" if args.forward_scene_only else
                    "navigation" if args.forward_navigation_only else
+                   "normals" if args.forward_normals_only else
                    "motion" if args.forward_motion_only else "lighting")
         fixture_phases = {"lighting": LIGHTING_PHASES, "motion": MOTION_PHASES,
-                          "navigation": NAVIGATION_PHASES, "scene": SCENE_PHASES}[fixture]
+                          "navigation": NAVIGATION_PHASES, "scene": SCENE_PHASES,
+                          "normals": NORMALS_PHASES}[fixture]
         phases = ("baseline",) + fixture_phases
         for directory in (args.tier0, args.gpu_copy):
             report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
@@ -243,6 +254,16 @@ def main() -> None:
                 if any(phase["render_count"] != 1 for phase in report["phases"]):
                     raise ValueError(f"{fixture} capture rendered more than once in {directory}")
             forward_reports.append(report)
+        if args.forward_normals_only:
+            for report in forward_reports:
+                if tuple(phase["phase"] for phase in report["phases"]) != NORMALS_PHASES:
+                    raise ValueError("missing or reordered normals captures")
+            # Debug views are exact renderer values; both hosts must agree on
+            # every analytic center sample.
+            centers = [[phase["center_rgb"] for phase in report["phases"]]
+                       for report in forward_reports]
+            if centers[0] != centers[1]:
+                raise ValueError("normals debug views differ between presentation paths")
         if args.forward_scene_only and forward_reports[0]["scene"] != forward_reports[1]["scene"]:
             raise ValueError("external scene inputs differ between presentation paths")
         if args.forward_lighting_only:
@@ -287,6 +308,7 @@ def main() -> None:
         "forward_motion": forward_reports if args.forward_motion_only else [],
         "forward_navigation": forward_reports if args.forward_navigation_only else [],
         "forward_scene": forward_reports if args.forward_scene_only else [],
+        "forward_normals": forward_reports if args.forward_normals_only else [],
         "summary": {
             "maximum_changed_pixel_fraction": max(
                 image["changed_pixel_fraction"] for image in images

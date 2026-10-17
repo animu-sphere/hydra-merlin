@@ -61,7 +61,11 @@ Ns_base + tangent frame + normal map ─► Ns ─► lighting
 
 Authored normals are renormalized. A zero-length or non-finite authored normal
 falls back to `Ng` for that element and is counted in diagnostics; malformed
-primvar sizes or indices reject the primitive, as for other primvars. Smoothing
+primvar sizes or indices reject the primitive, as for other primvars. The
+generation mode is a host input to the shared preparation: Hydra keeps flat
+generation, and native indexed meshes, which store one normal per shared
+vertex, generate smooth normals and repair a degenerate vertex normal with the
+area-weighted `Ng` of its triangles. Smoothing
 groups, crease inference and angle thresholds are not inferred; a host that
 needs hard edges authors `faceVarying` or `uniform` normals.
 
@@ -190,6 +194,16 @@ The GPU layout is not fixed by this structure; ABI packing follows the
 [renderer architecture](renderer-architecture.md) and shader ABI contracts. The
 requirement is that every material source and backend reads the same concepts
 from one shared Slang module rather than re-deriving them.
+
+The current Forward implementation (`forward-policy.slang`) derives `Ng` from
+`cross(ddx(p), ddy(p))` of the interpolated object-space position, mapped by
+the normal matrix. That cross product is the oriented triangle normal divided
+by its signed framebuffer area, and a mirrored draw reverses both its winding
+and that sign, so a per-frame sign (camera front-face winding × the backend's
+NDC Y direction) and the sign of `det(M3)` orient `Ng` toward the visible side
+without a world matrix in the draw constants. `MaterialConstants.surface_policy`
+carries that sign and the debug view. Positions with no usable derivative fall
+back to `Ns_base`.
 
 ## Debug views
 

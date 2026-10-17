@@ -240,28 +240,25 @@ SurfaceGeometryReport VerifySurfaceGeometryViews(Render render) {
       throw std::runtime_error("surface geometry fixture: " + message);
     }
   };
-  RenderWorld world;
-  extraction::SceneExtractor extractor;
-  const auto cases = surface_fixture::Cases();
-  MaterialDescriptor material;
-  material.features = MaterialFeature::DirectionalLight;
-  const auto material_handle = world.CreateMaterial(material);
-  InstanceDescriptor instance;
-  instance.mesh = world.CreateMesh(cases.front().mesh);
-  instance.material = material_handle;
-  const auto instance_handle = world.CreateInstance(instance);
-  extractor.SetActiveCamera(world.CreateCamera({}));
-
   SurfaceGeometryReport report;
   const auto encode = [](double value) {
     return static_cast<int>(std::lround(255.0 * (0.5 * value + 0.5)));
   };
-  for (const auto& test : cases) {
-    world.UpdateMesh(instance.mesh, test.mesh);
+  // Each case is its own extraction source with one mesh, material and
+  // instance, so a consumer can recreate GPU Scene state per source and keep
+  // fixed single-geometry placements.
+  for (const auto& test : surface_fixture::Cases()) {
+    RenderWorld world;
+    extraction::SceneExtractor extractor;
+    MaterialDescriptor material;
+    material.features = MaterialFeature::DirectionalLight;
     material.double_sided = test.material_double_sided;
-    world.UpdateMaterial(material_handle, material);
+    InstanceDescriptor instance;
+    instance.mesh = world.CreateMesh(test.mesh);
+    instance.material = world.CreateMaterial(material);
     instance.transform = test.transform;
-    world.UpdateInstance(instance_handle, instance, ChangeAspect::Transform);
+    world.CreateInstance(instance);
+    extractor.SetActiveCamera(world.CreateCamera({}));
     extractor.Apply(world, world.Commit());
     const auto snapshot = extractor.snapshot();
     ++report.cases;
