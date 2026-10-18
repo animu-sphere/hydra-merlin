@@ -225,6 +225,17 @@ are not:
   within 1/255 in both presentation modes. The MaterialX-generated Forward
   build passes the same gates and the generated material comparison in Debug
   and Release after shader ABI 12.
+- Representative-scene evidence (Apple M3, Tier 0 and HgiMetal): Kitchen_set
+  (1,788 meshes without authored normals, 363 `doubleSided`) changes by at
+  most 5 of 120,701 pixels from v0.16.4 across the three gate viewpoints,
+  linear/sRGB and Camera Light ON/OFF, comparable to 0–2 pixels between
+  repeated runs of one build; no back face of a `doubleSided` Mesh is visible
+  from those viewpoints. An X-mirrored Kitchen_set, culled from the wrong side
+  in v0.16.4, has a front-facing view identical to the flipped original and
+  X-negated world normals except 32 pixels on sub-pixel-thin geometry; lit
+  differences come from the world-fixed SH environment. Native producers in
+  this repository either author normals or are planar `+Z` meshes, whose
+  generated normals equal the previous `+Z` fallback.
 - Tangents, tangent-space normal maps, derivative tangent frames and tangent
   debug views are unsupported (v0.16.6). MaterialX `normal` accepts an already
   constructed world-space normal, which is subject to the facing and hemisphere

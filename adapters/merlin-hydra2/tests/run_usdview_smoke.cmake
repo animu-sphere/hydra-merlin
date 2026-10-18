@@ -31,6 +31,10 @@ if(MERLIN_HYDRA2_TEST_BACKEND STREQUAL "metal")
   # Hgi host shader instrumentation fails pipeline creation on the validated
   # OpenUSD runtime. Native Metal gates separately require shader validation.
   list(APPEND hgi_environment "MTL_DEBUG_LAYER=1" "MTL_SHADER_VALIDATION=0")
+  # External stages such as Kitchen_set exceed the 64 MiB default scene heap.
+  if(MERLIN_FORWARD_SCENE AND NOT DEFINED ENV{MERLIN_METAL_HEAP_MIB})
+    list(APPEND hgi_environment "MERLIN_METAL_HEAP_MIB=1024")
+  endif()
 endif()
 if(MERLIN_DISABLE_HGI_METAL_BRIDGE)
   list(APPEND hgi_environment "MERLIN_HYDRA2_DISABLE_HGI_METAL_BRIDGE=1")

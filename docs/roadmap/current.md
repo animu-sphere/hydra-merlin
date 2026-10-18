@@ -15,11 +15,9 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Normal contract validation (v0.16.5):** complete independent evidence for
-  the implemented normal part of the
+- **Normal contract release (v0.16.5):** prepare the release record for the
+  validated normal part of the
   [surface geometry contract](../design/surface-geometry.md).
-  - Confirm representative scenes show no unexplained change from
-    double-sided flipping, mirrored winding or generated native normals.
 
 ### Next
 

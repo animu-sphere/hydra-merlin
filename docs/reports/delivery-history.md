@@ -11,6 +11,26 @@ Legend: ✅ done
 
 ---
 
+## v0.16.5 representative-scene normal evidence — 2026-10-18
+
+Captured locally on Apple M3 (macOS 15.7.9, Xcode 16.4, OpenUSD 26.08) with
+Metal/Hydra Release builds of `v0.16.4` and `ff8dfe3`, under Metal API
+validation, in Tier 0 and HgiMetal. Each capture renders the Kitchen_set gate's
+full, quarter and opposite viewpoints in linear/sRGB with Camera Light ON/OFF
+(12 images per mode, 401×301). Evidence, control layers and scripts are under
+`build/v0165-scene-evidence`.
+
+| Change | Control | Result |
+| --- | --- | --- |
+| Generated Hydra normals and `doubleSided` ingestion | Kitchen_set (1,788 meshes, none with authored normals, 363 `doubleSided`); a layer overriding all 363 to single-sided | v0.16.4 to `ff8dfe3`: at most 5 changed pixels per image; same build repeated: 0–2. The single-sided layer differs from both by at most 4 pixels. The `front-facing` view shows at most 1 back-face pixel made visible by `doubleSided`. |
+| Mirrored winding | Kitchen_set under `scale (-1, 1, 1)`, compared horizontally flipped against the full view | v0.16.4 culls the wrong side (ceiling and walls removed, 27,000–33,600 pixels beyond a 1-pixel neighborhood). `ff8dfe3`: `front-facing` identical; `geometric-normal`, `shading-normal-base` and `normal` equal the original with X negated except 32 pixels on sub-pixel-thin vertical geometry. Lit images differ by 3,500–7,900 pixels because `0.15 * SH(N)` is evaluated in world space and the environment is not X-symmetric. |
+| Generated native normals | Native producers in this repository | `merlin-viewport` and `merlin-headless` author normals; `merlin-benchmark` meshes are planar counter-clockwise `+Z` triangles and quads, whose generated normals equal the previous `+Z` fallback. Non-planar generation is covered by the analytic fixtures. |
+
+The registered Kitchen_set gate previously exhausted the 64 MiB Metal scene
+heap and timed out. With `MERLIN_METAL_HEAP_MIB=1024`, now the runner default
+for external Metal scenes, Tier 0, HgiMetal and their comparison pass (3/3).
+The 649 image pairs differ by at most 5 pixels.
+
 ## v0.16.4 output-transform validation and closure — 2026-10-18
 
 Release preparation starts from merge commit `36b0470`, containing the shared
