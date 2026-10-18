@@ -3,6 +3,9 @@
 [[vk::binding(0, 0)]]
 Sampler2D base_color_texture;
 
+[[vk::binding(1, 0)]]
+Sampler2D normal_texture;
+
 // Bindings below this are reserved for generated material resources. The
 // conventional and generated Forward variants share this vertex ABI.
 [[vk::binding(31, 0)]]
@@ -23,6 +26,11 @@ ForwardFragmentOutput forward_fragment(
     {
         texture_sample = base_color_texture.Sample(input.texture_coordinate);
     }
-    return MakeForwardFragmentOutput(
-        ShadeForward(input, front_facing, material_constants, texture_sample));
+    float4 normal_sample = float4(0.5f, 0.5f, 1.0f, 1.0f);
+    if (HasNormalTexture())
+    {
+        normal_sample = normal_texture.Sample(input.texture_coordinate);
+    }
+    return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
+        material_constants, texture_sample, normal_sample));
 }

@@ -62,10 +62,12 @@ struct GpuInstanceIdentity {
 };
 
 // Physical indices into the persistent sampled-image and sampler tables.
-// Both stay invalid for an untextured material.
+// Each pair stays invalid when the material has no such texture.
 struct GpuMaterialBinding {
   std::uint32_t texture_index{kInvalidGpuSceneTableIndex};
   std::uint32_t sampler_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t normal_texture_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t normal_sampler_index{kInvalidGpuSceneTableIndex};
 };
 
 template <typename Record>

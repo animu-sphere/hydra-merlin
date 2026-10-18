@@ -123,6 +123,24 @@ void Renderer::Impl::StageGpuSceneUpdate(
             RendererErrorCode::InvalidRequest, "upload GPU Scene",
             "material texture or sampler reference exceeds bindless capacity");
       }
+      const bool has_normal_texture = material.normal_texture_index !=
+                                      render::kInvalidGpuSceneTableIndex;
+      const bool has_normal_sampler = material.normal_sampler_index !=
+                                      render::kInvalidGpuSceneTableIndex;
+      if (has_normal_texture != has_normal_sampler) {
+        throw RendererError(
+            RendererErrorCode::InvalidRequest, "upload GPU Scene",
+            "material normal texture and sampler table references are "
+            "incomplete");
+      }
+      if (has_normal_texture && bindless_texture_table_ &&
+          (material.normal_texture_index >= bindless_texture_views_.size() ||
+              material.normal_sampler_index >= bindless_samplers_.size())) {
+        throw RendererError(
+            RendererErrorCode::InvalidRequest, "upload GPU Scene",
+            "material normal texture or sampler reference exceeds bindless "
+            "capacity");
+      }
     }
   }
   for (const auto& range : update->draws.ranges) {

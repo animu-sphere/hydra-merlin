@@ -3,6 +3,7 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
+#include <merlin/render/gpu_scene_packing.hpp>
 
 #include <array>
 #include <cmath>
@@ -18,8 +19,9 @@ namespace merlin::tests {
 // Shared native surface-geometry image gate. Each case renders one patch
 // through the identity orthographic camera and compares the debug views at
 // pixel centers with an independent double-precision oracle: Ng and Ns_base
-// from the inverse-transpose of the instance transform, the hemisphere rule
-// for Ns, and the expected facing or culling.
+// from the inverse-transpose of the instance transform, the tangent frame from
+// the transform and handedness, the decoded and frame-applied normal map, the
+// hemisphere rule for Ns, and the expected facing or culling.
 struct SurfaceGeometryReport {
   std::size_t cases{};
   std::size_t samples{};
@@ -128,12 +130,28 @@ inline Double3 ResolveShading(Double3 shading, Double3 geometric) {
       shading[1] - offset * geometric[1], shading[2] - offset * geometric[2]});
 }
 
+// Visible-side tangent frame and the shading normal before the hemisphere
+// rule. Zero tangent and bitangent mean no frame.
+struct Frame {
+  Double3 tangent{};
+  Double3 bitangent{};
+  std::optional<Double3> mapped_normal;
+};
+
 struct Sample {
   std::uint32_t column{32};
   std::uint32_t row{32};
   Double3 geometric_normal;
   Double3 shading_normal_base;
   bool front_facing{true};
+  Frame frame;
+};
+
+// One constant tangent-space texel, linear RGBA8.
+struct NormalMap {
+  std::array<std::uint8_t, 4> texel{128, 128, 255, 255};
+  float scale{1.0F};
+  bool flip_green{};
 };
 
 struct Case {
@@ -143,7 +161,73 @@ struct Case {
   bool material_double_sided{};
   // Empty for a single-sided back face, which must stay uncovered.
   std::vector<Sample> samples;
+  std::optional<NormalMap> normal_map;
 };
+
+inline Double3 Cross(Double3 a, Double3 b) {
+  return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0]};
+}
+
+inline double Dot(Double3 a, Double3 b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+inline double Determinant(const Mat4& m) {
+  const auto& v = m.values;
+  return double(v[0]) * (double(v[5]) * v[10] - double(v[6]) * v[9]) -
+         double(v[4]) * (double(v[1]) * v[10] - double(v[2]) * v[9]) +
+         double(v[8]) * (double(v[1]) * v[6] - double(v[2]) * v[5]);
+}
+
+// M3 * v for a surface direction.
+inline Double3 TransformDirection(const Mat4& m, Double3 v) {
+  Double3 result{};
+  for (int row = 0; row < 3; ++row) {
+    result[row] = m.values[row] * v[0] + m.values[4 + row] * v[1] +
+                  m.values[8 + row] * v[2];
+  }
+  return Normalize(result);
+}
+
+// Object tangent and handedness through the transform: T by M3, handedness
+// by det(M3), Gram-Schmidt against the front-side Ns_base, B = cross(N, T)*w;
+// on a back face T and w are negated with N. Applies the decoded normal map.
+inline Frame TangentFrame(const Mat4& m, Double3 tangent, double handedness,
+    Double3 front_normal, bool front, const std::optional<NormalMap>& map) {
+  auto t = TransformDirection(m, tangent);
+  auto w = handedness * (Determinant(m) < 0.0 ? -1.0 : 1.0);
+  const double along = Dot(front_normal, t);
+  t = Normalize({t[0] - front_normal[0] * along, t[1] - front_normal[1] * along,
+      t[2] - front_normal[2] * along});
+  auto n = front_normal;
+  if (!front) {
+    t = {-t[0], -t[1], -t[2]};
+    w = -w;
+    n = {-n[0], -n[1], -n[2]};
+  }
+  const auto b0 = Cross(n, t);
+  Frame frame{t, {b0[0] * w, b0[1] * w, b0[2] * w}, std::nullopt};
+  if (map) {
+    Double3 decoded{};
+    for (std::size_t channel = 0; channel < 3; ++channel) {
+      decoded[channel] = 2.0 * (map->texel[channel] / 255.0) - 1.0;
+    }
+    if (map->flip_green) {
+      decoded[1] = -decoded[1];
+    }
+    decoded[0] *= map->scale;
+    decoded[1] *= map->scale;
+    decoded = Normalize(decoded);
+    Double3 mapped{};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+      mapped[axis] = decoded[0] * frame.tangent[axis] +
+                     decoded[1] * frame.bitangent[axis] + decoded[2] * n[axis];
+    }
+    frame.mapped_normal = Normalize(mapped);
+  }
+  return frame;
+}
 
 inline MeshDescriptor Patch(std::vector<Vec3> normals, bool reversed = false) {
   MeshDescriptor mesh;
@@ -152,6 +236,16 @@ inline MeshDescriptor Patch(std::vector<Vec3> normals, bool reversed = false) {
   mesh.normals = std::move(normals);
   mesh.indices = reversed ? std::vector<std::uint32_t>{0, 2, 1, 0, 3, 2}
                           : std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3};
+  return mesh;
+}
+
+// The patch mapped with u = (x + 0.7) / 1.4, v = (y + 0.7) / 1.4, so the
+// generated object tangent is +X with handedness +1.
+inline MeshDescriptor TexturedPatch(std::vector<Vec3> normals,
+    std::vector<Vec4> tangents = {}) {
+  auto mesh = Patch(std::move(normals));
+  mesh.texcoords = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+  mesh.tangents = std::move(tangents);
   return mesh;
 }
 
@@ -226,10 +320,92 @@ inline std::vector<Case> Cases() {
   double_sided_mesh.double_sided = true;
   cases.push_back({"reversed-double-sided-mesh", double_sided_mesh, depth,
       false, {{32, 32, plus_z, {-0.6, 0, 0.8}, false}}});
+
+  // Tangent frames and normal mapping. The texel encodes (0.36, 0.48, 0.8),
+  // so both tangent and bitangent contribute and a green flip is visible.
+  const NormalMap map{{173, 189, 230, 255}, 1.0F, false};
+  const Double3 plus_x{1, 0, 0};
+  const auto flat = std::vector<Vec3>(4, {0, 0, 1});
+  const auto mapped = [&](const Mat4& m, Double3 tangent, double handedness,
+                          bool front, const std::optional<NormalMap>& normal_map) {
+    const auto n = TransformNormal(m, plus_z);
+    return TangentFrame(m, tangent, handedness, n, front, normal_map);
+  };
+  cases.push_back({"normal-map-generated", TexturedPatch(flat), depth, false,
+      {{32, 32, plus_z, plus_z, true, mapped(depth, plus_x, 1, true, map)}},
+      map});
+  // Authored T = +Y with handedness -1 gives B = +X.
+  cases.push_back({"normal-map-authored",
+      TexturedPatch(flat, std::vector<Vec4>(4, {0, 2, 0, -1})), depth, false,
+      {{32, 32, plus_z, plus_z, true, mapped(depth, {0, 1, 0}, -1, true, map)}},
+      map});
+  // A 4x exaggerated, green-flipped map still lands in the Ng hemisphere.
+  const NormalMap exaggerated{map.texel, 4.0F, true};
+  cases.push_back({"normal-map-exaggerated", TexturedPatch(flat), depth, false,
+      {{32, 32, plus_z, plus_z, true,
+          mapped(depth, plus_x, 1, true, exaggerated)}},
+      exaggerated});
+  // A tilted Ns_base is the frame's normal, and the rotated, non-uniformly
+  // scaled tangent is orthogonalized against it.
+  cases.push_back({"normal-map-tilted-non-uniform",
+      TexturedPatch(std::vector<Vec3>(4, {0.6F, 0, 0.8F})),
+      Multiply(depth, non_uniform), false,
+      {{32, 32, TransformNormal(non_uniform, plus_z),
+          TransformNormal(non_uniform, tilted), true,
+          TangentFrame(non_uniform, plus_x, 1,
+              TransformNormal(non_uniform, tilted), true, map)}},
+      map});
+  // A mirrored instance mirrors the frame: T = -X with handedness -1 keeps
+  // B = +Y, so the mapped normal mirrors in x.
+  cases.push_back({"normal-map-mirrored", TexturedPatch(flat),
+      Multiply(depth, mirror_x), false,
+      {{32, 32, plus_z, plus_z, true, mapped(mirror_x, plus_x, 1, true, map)}},
+      map});
+  // Seen from behind, the double-sided map yields the negated front normal.
+  {
+    const auto n = TransformNormal(mirror_z, plus_z);
+    cases.push_back({"normal-map-double-sided-back", TexturedPatch(flat),
+        Multiply(depth, mirror_z), true,
+        {{32, 32, plus_z, plus_z, false,
+            TangentFrame(mirror_z, plus_x, 1, n, false, map)}},
+        map});
+  }
+  // A native vertex shared by opposite UV handedness has no vertex frame;
+  // both triangles fall back to the derivative frame: T = +X, w = +1 below
+  // the diagonal and T = -X, w = -1 above it.
+  {
+    auto folded = TexturedPatch(flat);
+    folded.texcoords = {{0, 0}, {1, 0}, {1, 1}, {2, 1}};
+    cases.push_back({"normal-map-derivative-frame", folded, depth, false,
+        {{48, 32, plus_z, plus_z, true, mapped(depth, plus_x, 1, true, map)},
+            {16, 32, plus_z, plus_z, true,
+                mapped(depth, {-1, 0, 0}, -1, true, map)}},
+        map});
+  }
+  // Without texture coordinates the normal map is disabled and no frame is
+  // shown; Ns stays Ns_base.
+  cases.push_back({"normal-map-without-texcoords", Patch(flat), depth, false,
+      {{32, 32, plus_z, plus_z, true, {}}}, map});
   return cases;
 }
 
 } // namespace surface_fixture
+
+// GPU Scene material binding for a fixture snapshot. The fixture's only
+// texture is the normal map, resident at the backend's first texture and
+// sampler table slots.
+inline std::vector<render::GpuMaterialBinding> SurfaceGeometryMaterialBindings(
+    const extraction::FrameSnapshot& snapshot, std::uint32_t first_texture_slot,
+    std::uint32_t first_sampler_slot) {
+  std::vector<render::GpuMaterialBinding> bindings(snapshot.materials.size());
+  for (std::size_t index = 0; index < bindings.size(); ++index) {
+    if (snapshot.materials[index].normal_texture) {
+      bindings[index].normal_texture_index = first_texture_slot;
+      bindings[index].normal_sampler_index = first_sampler_slot;
+    }
+  }
+  return bindings;
+}
 
 // Render(snapshot, view) returns a result with color/depth CPU products.
 template <typename Render>
@@ -253,6 +429,20 @@ SurfaceGeometryReport VerifySurfaceGeometryViews(Render render) {
     MaterialDescriptor material;
     material.features = MaterialFeature::DirectionalLight;
     material.double_sided = test.material_double_sided;
+    if (test.normal_map) {
+      TextureDescriptor texture;
+      texture.label = test.name;
+      texture.width = texture.height = 2;
+      for (int texel = 0; texel < 4; ++texel) {
+        texture.pixels.insert(texture.pixels.end(),
+            test.normal_map->texel.begin(), test.normal_map->texel.end());
+      }
+      material.normal_texture = TextureBinding{
+          world.CreateTexture(texture), world.CreateSampler({}), 0};
+      material.features |= MaterialFeature::NormalTexture;
+      material.parameters.normal_scale = test.normal_map->scale;
+      material.parameters.normal_flip_green = test.normal_map->flip_green;
+    }
     InstanceDescriptor instance;
     instance.mesh = world.CreateMesh(test.mesh);
     instance.material = world.CreateMaterial(material);
@@ -264,7 +454,8 @@ SurfaceGeometryReport VerifySurfaceGeometryViews(Render render) {
     ++report.cases;
     for (const auto view : {render::DebugView::GeometricNormal,
              render::DebugView::ShadingNormalBase, render::DebugView::Normal,
-             render::DebugView::FrontFacing}) {
+             render::DebugView::FrontFacing, render::DebugView::Tangent,
+             render::DebugView::Bitangent}) {
       const auto result = render(snapshot, view);
       const auto repeated = render(snapshot, view);
       require(result.color.pixels == repeated.color.pixels &&
@@ -292,7 +483,14 @@ SurfaceGeometryReport VerifySurfaceGeometryViews(Render render) {
           break;
         case render::DebugView::Normal:
           expected = surface_fixture::ResolveShading(
-              sample.shading_normal_base, sample.geometric_normal);
+              sample.frame.mapped_normal.value_or(sample.shading_normal_base),
+              sample.geometric_normal);
+          break;
+        case render::DebugView::Tangent:
+          expected = sample.frame.tangent;
+          break;
+        case render::DebugView::Bitangent:
+          expected = sample.frame.bitangent;
           break;
         default:
           expected = sample.front_facing ? Double3{1, 1, 1}

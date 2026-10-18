@@ -157,46 +157,65 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     constants.prim_id = static_cast<std::uint32_t>(geometry_record.mesh);
     constants.instance_id = static_cast<std::uint32_t>(instance.instance);
 
-    id<MTLTexture> texture = nil;
-    id<MTLSamplerState> sampler = nil;
-    if (material.base_color_texture) {
-      if (material.base_color_texture->texture_index >=
-              request.snapshot->textures.size() ||
-          material.base_color_texture->sampler_index >=
-              request.snapshot->samplers.size()) {
-        [encoder endEncoding];
-        throw render::RendererError(
-            render::RendererErrorCode::InvalidRequest,
-            "encode Metal material",
-            "material texture binding index is invalid");
-      }
-      const auto texture_handle =
-          request.snapshot
-              ->textures[material.base_color_texture->texture_index]
-              .texture;
-      const auto sampler_handle =
-          request.snapshot
-              ->samplers[material.base_color_texture->sampler_index]
-              .sampler;
-      const auto texture_found = textures_.find(texture_handle);
-      const auto sampler_found = samplers_.find(sampler_handle);
-      if (texture_found != textures_.end() &&
-          sampler_found != samplers_.end()) {
-        texture = texture_found->second.texture;
-        sampler = sampler_found->second.sampler;
-        const auto texture_slot = texture_slots_.Find(texture_handle);
-        const auto sampler_slot = sampler_slots_.Find(sampler_handle);
-        if (texture_slot && sampler_slot) {
-          constants.texture_index = texture_slot->index;
-          constants.sampler_index = sampler_slot->index;
-        }
-      } else {
-        constants.feature_mask &=
-            ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture);
-        build.telemetry.material_fallbacks.Record(
-            MaterialFallback::BasicMaterial);
-      }
+    // Resolves one material texture binding to its native objects and its
+    // argument-table slots. A binding whose resources are not resident drops
+    // `feature` and records the basic-material fallback.
+    struct ResolvedTexture {
+      id<MTLTexture> texture = nil;
+      id<MTLSamplerState> sampler = nil;
+      std::uint32_t texture_index{};
+      std::uint32_t sampler_index{};
+    };
+    const auto resolve_texture =
+        [&](const std::optional<extraction::TextureBindingRecord>& binding,
+            MaterialFeature feature) {
+          ResolvedTexture resolved;
+          if (!binding) {
+            return resolved;
+          }
+          if (binding->texture_index >= request.snapshot->textures.size() ||
+              binding->sampler_index >= request.snapshot->samplers.size()) {
+            [encoder endEncoding];
+            throw render::RendererError(
+                render::RendererErrorCode::InvalidRequest,
+                "encode Metal material",
+                "material texture binding index is invalid");
+          }
+          const auto texture_handle =
+              request.snapshot->textures[binding->texture_index].texture;
+          const auto sampler_handle =
+              request.snapshot->samplers[binding->sampler_index].sampler;
+          const auto texture_found = textures_.find(texture_handle);
+          const auto sampler_found = samplers_.find(sampler_handle);
+          if (texture_found == textures_.end() ||
+              sampler_found == samplers_.end()) {
+            constants.feature_mask &= ~static_cast<std::uint32_t>(feature);
+            build.telemetry.material_fallbacks.Record(
+                MaterialFallback::BasicMaterial);
+            return resolved;
+          }
+          resolved.texture = texture_found->second.texture;
+          resolved.sampler = sampler_found->second.sampler;
+          const auto texture_slot = texture_slots_.Find(texture_handle);
+          const auto sampler_slot = sampler_slots_.Find(sampler_handle);
+          if (texture_slot && sampler_slot) {
+            resolved.texture_index = texture_slot->index;
+            resolved.sampler_index = sampler_slot->index;
+          }
+          return resolved;
+        };
+    const auto base_color = resolve_texture(
+        material.base_color_texture, MaterialFeature::BaseColorTexture);
+    constants.texture_index = base_color.texture_index;
+    constants.sampler_index = base_color.sampler_index;
+    // Normal mapping needs texture coordinates; without them it is disabled
+    // for the draw and reported through render::ForwardNormalMapDisabled.
+    if (!geometry_record.has_texcoords) {
+      constants.feature_mask &=
+          ~static_cast<std::uint32_t>(MaterialFeature::NormalTexture);
     }
+    const auto normal_map = resolve_texture(
+        material.normal_texture, MaterialFeature::NormalTexture);
 
     if (material.module) {
       ++build.telemetry.generated_material_fallback_count;
@@ -215,7 +234,9 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     }
 
     const bool use_gpu_scene = gpu_scene_ready && !material.module;
-    const auto material_constants = MakeMaterial(material, lighting, frame_policy);
+    auto material_constants = MakeMaterial(material, lighting, frame_policy);
+    material_constants.normal_map_resource = {
+        normal_map.texture_index, normal_map.sampler_index, 0U, 0U};
     [encoder setRenderPipelineState:use_gpu_scene
                                         ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
                                         : (float_color ? float_pipeline_ : pipeline_)];
@@ -261,8 +282,10 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
       [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:1];
     }
     if (!bindless_) {
-      [encoder setFragmentTexture:texture atIndex:0];
-      [encoder setFragmentSamplerState:sampler atIndex:0];
+      [encoder setFragmentTexture:base_color.texture atIndex:0];
+      [encoder setFragmentSamplerState:base_color.sampler atIndex:0];
+      [encoder setFragmentTexture:normal_map.texture atIndex:1];
+      [encoder setFragmentSamplerState:normal_map.sampler atIndex:1];
     }
     [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                         indexCount:geometry->second.index_count

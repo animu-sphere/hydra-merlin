@@ -414,15 +414,19 @@ void Renderer::Impl::EnsureDescriptorSetLayout() {
     return;
   }
   ++frame_counters_.descriptor_layout_cache_misses;
-  std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+  std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
   bindings[0].binding = shader_abi::kConventionalBaseColorTexture.binding;
   bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   bindings[0].descriptorCount = 1;
   bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  bindings[1].binding = shader_abi::kConventionalMaterialConstants.binding;
-  bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  bindings[1].binding = shader_abi::kConventionalNormalTexture.binding;
+  bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   bindings[1].descriptorCount = 1;
-  bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
+  bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  bindings[2].binding = shader_abi::kConventionalMaterialConstants.binding;
+  bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  bindings[2].descriptorCount = 1;
+  bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT;
   VkDescriptorSetLayoutCreateInfo info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -562,7 +566,7 @@ VkPipeline Renderer::Impl::CreatePipeline(
           nullptr}}};
   const VkVertexInputBindingDescription binding{
       0, sizeof(extraction::DrawVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-  const std::array<VkVertexInputAttributeDescription, 4> attributes{{
+  const std::array<VkVertexInputAttributeDescription, 5> attributes{{
       {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, position))},
       {1, 0, VK_FORMAT_R32G32B32_SFLOAT,
@@ -571,6 +575,8 @@ VkPipeline Renderer::Impl::CreatePipeline(
           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, color))},
       {3, 0, VK_FORMAT_R32G32_SFLOAT,
           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, texcoord))},
+      {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+          static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, tangent))},
   }};
   VkPipelineVertexInputStateCreateInfo vertex_input{
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -826,8 +832,11 @@ Renderer::Impl::DrawPipelineVariant Renderer::Impl::MakeDrawPipelineVariant(
         ~static_cast<std::uint32_t>(MaterialFeature::VertexColor);
   }
   if (!geometry.has_texcoords) {
+    // Normal mapping without texture coordinates is disabled for the draw
+    // and reported through render::ForwardNormalMapDisabled.
     feature_mask &=
-        ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture);
+        ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture |
+                                    MaterialFeature::NormalTexture);
   }
   auto variant_key = feature_mask;
   if (material.alpha_mode == AlphaMode::Masked) {

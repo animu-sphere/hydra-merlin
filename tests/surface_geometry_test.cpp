@@ -3,6 +3,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/surface_geometry.hpp>
 
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -201,12 +202,14 @@ void SurfacePolicy() {
   assert(PackForwardSurfacePolicy(FrontFaceWinding::CounterClockwise,
              NdcYDirection::Down, DebugView::None)
              .x == -1.0F);
-  const std::array<std::pair<DebugView, float>, 5> codes{{
+  const std::array<std::pair<DebugView, float>, 7> codes{{
       {DebugView::None, 0.0F},
       {DebugView::GeometricNormal, 1.0F},
       {DebugView::ShadingNormalBase, 2.0F},
       {DebugView::Normal, 3.0F},
       {DebugView::FrontFacing, 4.0F},
+      {DebugView::Tangent, 5.0F},
+      {DebugView::Bitangent, 6.0F},
   }};
   for (const auto& [view, code] : codes) {
     assert(render::IsForwardSurfaceDebugView(view));
@@ -222,6 +225,168 @@ void SurfacePolicy() {
     rejected = error.code() == render::RendererErrorCode::InvalidRequest;
   }
   assert(rejected && !render::IsForwardSurfaceDebugView(DebugView::Depth));
+}
+
+bool Near(const Vec4& a, const Vec4& b, float tolerance = 1.0e-6F) {
+  return Near(Vec3{a.x, a.y, a.z}, Vec3{b.x, b.y, b.z}, tolerance) &&
+         std::abs(a.w - b.w) <= tolerance;
+}
+
+// Two quads in z = 0 sharing the edge x = 0 (points 1 and 4): face 0 spans
+// x in [-1, 0], face 1 x in [0, 1]. Corners are faceVarying-ordered.
+const std::vector<Vec3> kStripPoints{{-1, 0, 0}, {0, 0, 0}, {1, 0, 0},
+    {-1, 1, 0}, {0, 1, 0}, {1, 1, 0}};
+const std::vector<MeshCorner> kStripCorners{
+    {0, 0, 0}, {1, 0, 1}, {4, 0, 2}, {0, 0, 0}, {4, 0, 2}, {3, 0, 3},
+    {1, 1, 4}, {2, 1, 5}, {5, 1, 6}, {1, 1, 4}, {5, 1, 6}, {4, 1, 7}};
+const std::vector<Vec3> kStripNormals(12, Vec3{0, 0, 1});
+
+std::vector<Vec2> StripTexcoords(bool mirror_left, bool rotate_right) {
+  std::vector<Vec2> result;
+  for (const auto& corner : kStripCorners) {
+    const auto& p = kStripPoints[corner.point];
+    if (corner.face == 0U) {
+      result.push_back({mirror_left ? -p.x : p.x, p.y});
+    } else {
+      result.push_back(rotate_right ? Vec2{p.y, -p.x} : Vec2{p.x, p.y});
+    }
+  }
+  return result;
+}
+
+void TangentFrames() {
+  // A planar mapping u = x, v = y gives T = +X with right-handed B = +Y.
+  auto result = PrepareCornerTangents(kStripPoints, kStripCorners,
+      kStripNormals, StripTexcoords(false, false), nullptr, "/strip");
+  assert(result.accepted() && result.generated && result.unresolved_count == 0);
+  for (const auto& tangent : *result.tangents) {
+    assert(Near(tangent, {1, 0, 0, 1}));
+  }
+  // A mirrored island (u = -x on face 0) has opposite handedness. The shared
+  // seam points keep each side's frame instead of averaging to zero.
+  result = PrepareCornerTangents(kStripPoints, kStripCorners, kStripNormals,
+      StripTexcoords(true, false), nullptr, "/strip");
+  for (std::size_t corner = 0; corner < 6; ++corner) {
+    assert(Near((*result.tangents)[corner], {-1, 0, 0, -1}));
+  }
+  for (std::size_t corner = 6; corner < 12; ++corner) {
+    assert(Near((*result.tangents)[corner], {1, 0, 0, 1}));
+  }
+  // A UV seam (face 1 rotated, u = y) splits the shared points as well.
+  result = PrepareCornerTangents(kStripPoints, kStripCorners, kStripNormals,
+      StripTexcoords(false, true), nullptr, "/strip");
+  assert(Near((*result.tangents)[1], {1, 0, 0, 1}));
+  assert(Near((*result.tangents)[6], {0, 1, 0, 1}));
+
+  // Without texture coordinates, or with a collapsed UV mapping, no frame is
+  // generated and shading falls back to the derivative frame.
+  result = PrepareCornerTangents(kStripPoints, kStripCorners, kStripNormals,
+      {}, nullptr, "/strip");
+  assert(result.accepted() && !result.generated &&
+         result.unresolved_count == 12);
+  const std::vector<Vec2> collapsed(12, Vec2{0.5F, 0.5F});
+  result = PrepareCornerTangents(kStripPoints, kStripCorners, kStripNormals,
+      collapsed, nullptr, "/strip");
+  assert(result.unresolved_count == 12 &&
+         Near((*result.tangents)[0], {0, 0, 0, 0}));
+
+  // Authored tangents are renormalized with a +/-1 handedness; a degenerate
+  // corner uses the generated tangent and is reported once.
+  CollectingSink sink;
+  TangentPrimvar constant{PrimvarInterpolation::Constant, {{0, 2, 0, -3}}, {}};
+  result = PrepareCornerTangents(kStripPoints, kStripCorners, kStripNormals,
+      StripTexcoords(false, false), &constant, "/strip", &sink);
+  assert(!result.generated && sink.reported.empty());
+  assert(Near((*result.tangents)[5], {0, 1, 0, -1}));
+  TangentPrimvar degenerate{PrimvarInterpolation::Uniform,
+      {{0, 1, 0, 1}, {0, 0, 1, 1}}, {}};
+  result = PrepareCornerTangents(kStripPoints, kStripCorners, kStripNormals,
+      StripTexcoords(false, false), &degenerate, "/strip", &sink);
+  assert(result.degenerate_count == 6 && sink.reported.size() == 1 &&
+         sink.reported[0].code == "mesh.tangents.degenerate");
+  assert(Near((*result.tangents)[0], {0, 1, 0, 1}));
+  assert(Near((*result.tangents)[6], {1, 0, 0, 1}));
+  TangentPrimvar malformed{PrimvarInterpolation::Vertex, {{1, 0, 0, 1}}, {}};
+  result = PrepareCornerTangents(kStripPoints, kStripCorners, kStripNormals,
+      StripTexcoords(false, false), &malformed, "/strip", &sink);
+  assert(!result.accepted() &&
+         sink.reported.back().code == "mesh.tangents.malformed");
+
+  // Native indexed meshes keep one tangent per vertex. A vertex shared by
+  // opposite UV handedness is left without a frame and counted.
+  const std::vector<Vec3> positions{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}};
+  const std::vector<std::uint32_t> indices{0, 1, 2, 0, 2, 3};
+  const std::vector<Vec3> normals(4, Vec3{0, 0, 1});
+  const std::vector<Vec2> texcoords{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+  auto vertex = PrepareVertexTangents(positions, indices, normals, texcoords, {});
+  assert(vertex.generated && vertex.handedness_conflicts == 0 &&
+         vertex.unresolved_count == 0);
+  for (const auto& tangent : vertex.tangents) {
+    assert(Near(tangent, {1, 0, 0, 1}));
+  }
+  const std::vector<Vec2> folded{{0, 0}, {1, 0}, {1, 1}, {2, 1}};
+  vertex = PrepareVertexTangents(positions, indices, normals, folded, {});
+  assert(vertex.handedness_conflicts == 2 && vertex.unresolved_count == 2);
+  assert(Near(vertex.tangents[0], {0, 0, 0, 0}) &&
+         Near(vertex.tangents[1], {1, 0, 0, 1}) &&
+         Near(vertex.tangents[3], {-1, 0, 0, -1}));
+  vertex = PrepareVertexTangents(positions, indices, normals, {},
+      std::vector<Vec4>(4, Vec4{0, 0, 3, 1}));
+  assert(!vertex.generated && vertex.degenerate_count == 4 &&
+         vertex.unresolved_count == 4);
+}
+
+void NormalMapExtraction() {
+  RenderWorld world;
+  extraction::SceneExtractor extractor;
+  TextureDescriptor texture;
+  texture.width = 1;
+  texture.height = 1;
+  texture.pixels = {128, 128, 255, 255};
+  MaterialDescriptor material;
+  material.normal_texture = TextureBinding{
+      world.CreateTexture(texture), world.CreateSampler({}), 0};
+  material.features |= MaterialFeature::NormalTexture;
+  material.parameters.normal_scale = 2.0F;
+  material.parameters.normal_flip_green = true;
+  const auto material_handle = world.CreateMaterial(material);
+
+  MeshDescriptor textured;
+  textured.positions = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}};
+  textured.texcoords = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+  textured.indices = {0, 1, 2, 0, 2, 3};
+  auto untextured = textured;
+  untextured.texcoords.clear();
+  auto authored = textured;
+  authored.tangents.assign(4, {0, 1, 0, -1});
+  for (const auto& mesh : {textured, untextured, authored}) {
+    InstanceDescriptor instance;
+    instance.mesh = world.CreateMesh(mesh);
+    instance.material = material_handle;
+    (void)world.CreateInstance(instance);
+  }
+  extractor.Apply(world, world.Commit());
+  const auto snapshot = extractor.snapshot();
+  assert(snapshot->geometries.size() == 3 && snapshot->material_fallbacks.empty());
+  const auto& record = snapshot->materials[0];
+  assert(record.normal_texture && record.normal_texture->texture_index == 0 &&
+         record.parameters.normal_scale == 2.0F &&
+         record.parameters.normal_flip_green);
+  std::size_t generated{};
+  for (const auto& geometry : snapshot->geometries) {
+    if (geometry.generated_tangents) {
+      ++generated;
+      assert(Near((*geometry.vertices)[2].tangent, {1, 0, 0, 1}));
+    } else if (geometry.has_tangents) {
+      assert(Near((*geometry.vertices)[0].tangent, {0, 1, 0, -1}));
+    } else {
+      assert(!geometry.has_texcoords && geometry.unresolved_tangent_count == 4);
+      assert(render::ForwardNormalMapDisabled(geometry, record));
+    }
+  }
+  assert(generated == 1);
+  // Only the draw without texture coordinates loses its normal map.
+  assert(render::CountForwardNormalMapDisabledDraws(*snapshot) == 1);
 }
 
 void Extraction() {
@@ -318,5 +483,7 @@ int main() {
   Orientation();
   SurfacePolicy();
   Extraction();
+  TangentFrames();
+  NormalMapExtraction();
   return 0;
 }

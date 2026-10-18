@@ -838,7 +838,8 @@ private:
         for (const auto view : {render::DebugView::None,
                  render::DebugView::GeometricNormal,
                  render::DebugView::ShadingNormalBase,
-                 render::DebugView::Normal, render::DebugView::FrontFacing}) {
+                 render::DebugView::Normal, render::DebugView::FrontFacing,
+                 render::DebugView::Tangent, render::DebugView::Bitangent}) {
           const bool selected = settings_contract_.debug_view == view;
           if (ImGui::Selectable(render::DebugViewName(view).data(), selected)) {
             settings_contract_.debug_view = view;

@@ -71,8 +71,17 @@ ForwardFragmentOutput forward_gpu_scene_fragment(
         texture_sample = bindless_textures[texture_index].Sample(
             bindless_samplers[sampler_index], input.texture_coordinate);
     }
+    float4 normal_sample = float4(0.5f, 0.5f, 1.0f, 1.0f);
+    if (HasNormalTexture(constants))
+    {
+        normal_sample = bindless_textures[NonUniformResourceIndex(
+            material.normal_texture_index)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    material.normal_sampler_index)],
+                input.texture_coordinate);
+    }
     return MakeForwardFragmentOutput(
         ShadeForward(input, front_facing, effective_material, texture_sample,
-            constants),
+            normal_sample, constants),
         constants);
 }

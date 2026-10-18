@@ -46,6 +46,11 @@ struct MeshEntry {
   bool generated_normals{};
   std::uint32_t degenerate_normal_count{};
   bool double_sided{};
+  bool has_tangents{};
+  bool generated_tangents{};
+  std::uint32_t degenerate_tangent_count{};
+  std::uint32_t unresolved_tangent_count{};
+  std::uint32_t tangent_handedness_conflicts{};
 };
 
 struct GaussianEntry {
@@ -292,9 +297,12 @@ public:
     if (created || change.HasAspect(ChangeAspect::Primvars)) {
       entry.primvar_revision = change.resource_revision;
     }
-    // Generated normals also follow topology, so an index edit rebuilds them.
-    const bool derived_normals_changed = descriptor.normals.empty() &&
-                                         change.HasAspect(ChangeAspect::Topology);
+    // Generated normals and tangents also follow topology, so an index edit
+    // rebuilds them.
+    const bool derived_normals_changed =
+        (descriptor.normals.empty() ||
+            (descriptor.tangents.empty() && !descriptor.texcoords.empty())) &&
+        change.HasAspect(ChangeAspect::Topology);
     if (created || derived_normals_changed ||
         (has_vertex_aspect &&
             (!change.vertex_ranges_known || !change.vertex_ranges.empty()))) {
@@ -302,6 +310,9 @@ public:
       // with the same priority Hydra uses, instead of shading with +Z.
       const auto normals = PrepareVertexNormals(descriptor.positions,
           descriptor.indices, descriptor.normals);
+      const auto tangents = PrepareVertexTangents(descriptor.positions,
+          descriptor.indices, normals.normals, descriptor.texcoords,
+          descriptor.tangents);
       auto vertices = std::make_shared<std::vector<DrawVertex>>();
       vertices->reserve(descriptor.positions.size());
       for (std::size_t i = 0; i < descriptor.positions.size(); ++i) {
@@ -314,6 +325,7 @@ public:
         if (!descriptor.texcoords.empty()) {
           vertex.texcoord = descriptor.texcoords[i];
         }
+        vertex.tangent = tangents.tangents[i];
         vertices->push_back(vertex);
       }
       // A derived normal depends on neighboring positions and topology, so
@@ -322,8 +334,10 @@ public:
       // resident payload instead: only vertices whose packed value changed
       // are uploaded, and an edit that changes none keeps the payload. An
       // unbounded vertex edit keeps the full-payload contract.
-      const bool derived =
-          normals.generated || normals.degenerate_count != 0U;
+      const bool derived = normals.generated ||
+                           normals.degenerate_count != 0U ||
+                           tangents.generated ||
+                           tangents.degenerate_count != 0U;
       const bool bounded = !has_vertex_aspect || change.vertex_ranges_known;
       std::optional<std::vector<ElementRange>> derived_ranges;
       if (derived && bounded && !created && entry.vertices &&
@@ -343,6 +357,14 @@ public:
           static_cast<std::uint32_t>(normals.degenerate_count);
       entry.has_colors = !descriptor.colors.empty();
       entry.has_texcoords = !descriptor.texcoords.empty();
+      entry.has_tangents = !descriptor.tangents.empty();
+      entry.generated_tangents = tangents.generated;
+      entry.degenerate_tangent_count =
+          static_cast<std::uint32_t>(tangents.degenerate_count);
+      entry.unresolved_tangent_count =
+          static_cast<std::uint32_t>(tangents.unresolved_count);
+      entry.tangent_handedness_conflicts =
+          static_cast<std::uint32_t>(tangents.handedness_conflicts);
     }
     entry.double_sided = descriptor.double_sided;
     if (created || change.HasAspect(ChangeAspect::Topology)) {
@@ -464,6 +486,32 @@ public:
             static_cast<std::uint32_t>(texture->second),
             static_cast<std::uint32_t>(sampler->second),
             material.base_color_texture->texcoord_set};
+      }
+    }
+    if (material.normal_texture &&
+        HasMaterialFeature(record.features, MaterialFeature::NormalTexture)) {
+      const auto texture =
+          texture_indices.find(material.normal_texture->texture.value());
+      const auto sampler =
+          sampler_indices.find(material.normal_texture->sampler.value());
+      if (texture == texture_indices.end() ||
+          sampler == sampler_indices.end()) {
+        record.features = static_cast<MaterialFeature>(
+            static_cast<std::uint32_t>(record.features) &
+            ~static_cast<std::uint32_t>(MaterialFeature::NormalTexture));
+        const bool missing_texture = texture == texture_indices.end();
+        fallbacks.push_back({handle,
+            missing_texture ? MaterialFallbackCode::MissingTexture
+                            : MaterialFallbackCode::MissingSampler,
+            missing_texture
+                ? "normal texture is unavailable; normal mapping is disabled"
+                : "normal sampler is unavailable; normal mapping is "
+                  "disabled"});
+      } else {
+        record.normal_texture = TextureBindingRecord{
+            static_cast<std::uint32_t>(texture->second),
+            static_cast<std::uint32_t>(sampler->second),
+            material.normal_texture->texcoord_set};
       }
     }
     return record;
@@ -777,11 +825,12 @@ public:
 
   void AddMaterialDependencies(std::uint64_t handle,
       const MaterialDescriptor& descriptor) {
-    if (descriptor.base_color_texture) {
-      AddDependency(texture_materials,
-          descriptor.base_color_texture->texture.value(), handle);
-      AddDependency(sampler_materials,
-          descriptor.base_color_texture->sampler.value(), handle);
+    for (const auto& binding :
+        {descriptor.base_color_texture, descriptor.normal_texture}) {
+      if (binding) {
+        AddDependency(texture_materials, binding->texture.value(), handle);
+        AddDependency(sampler_materials, binding->sampler.value(), handle);
+      }
     }
     for (const auto& entry : descriptor.generated_resources.entries) {
       for (const auto& value : entry.values) {
@@ -797,11 +846,12 @@ public:
 
   void RemoveMaterialDependencies(std::uint64_t handle,
       const MaterialDescriptor& descriptor) {
-    if (descriptor.base_color_texture) {
-      RemoveDependency(texture_materials,
-          descriptor.base_color_texture->texture.value(), handle);
-      RemoveDependency(sampler_materials,
-          descriptor.base_color_texture->sampler.value(), handle);
+    for (const auto& binding :
+        {descriptor.base_color_texture, descriptor.normal_texture}) {
+      if (binding) {
+        RemoveDependency(texture_materials, binding->texture.value(), handle);
+        RemoveDependency(sampler_materials, binding->sampler.value(), handle);
+      }
     }
     for (const auto& entry : descriptor.generated_resources.entries) {
       for (const auto& value : entry.values) {
@@ -915,7 +965,12 @@ public:
               entry.has_texcoords,
               entry.generated_normals,
               entry.degenerate_normal_count,
-              entry.double_sided};
+              entry.double_sided,
+              entry.has_tangents,
+              entry.generated_tangents,
+              entry.degenerate_tangent_count,
+              entry.unresolved_tangent_count,
+              entry.tangent_handedness_conflicts};
         },
         next->build_counters, initialize);
     std::vector<std::uint64_t> changed_geometry_records;

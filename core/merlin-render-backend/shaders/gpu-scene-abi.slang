@@ -36,6 +36,11 @@ struct GpuMaterial
     uint base_color_texture_index;
     uint base_color_sampler_index;
     uint base_color_texcoord_set;
+    float4 normal_factors;
+    uint normal_texture_index;
+    uint normal_sampler_index;
+    uint normal_texcoord_set;
+    uint reserved;
 };
 
 struct GpuDraw

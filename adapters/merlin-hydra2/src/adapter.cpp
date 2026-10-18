@@ -4588,14 +4588,16 @@ void HdMerlinRenderDelegate::SetRenderSetting(
              merlin::render::DebugView::Normal,
              merlin::render::DebugView::GeometricNormal,
              merlin::render::DebugView::ShadingNormalBase,
-             merlin::render::DebugView::FrontFacing}) {
+             merlin::render::DebugView::FrontFacing,
+             merlin::render::DebugView::Tangent,
+             merlin::render::DebugView::Bitangent}) {
       if (name == merlin::render::DebugViewName(view))
         requested = view;
     }
     merlin::render::RendererSettingsValidationError error{
         "renderer-settings.invalid-debug-view",
         "Debug view requires none, normal, geometric-normal, "
-        "shading-normal-base or front-facing."};
+        "shading-normal-base, front-facing, tangent or bitangent."};
     if (requested) {
       // Representable views outside the surface context reject with the
       // validator's shared code.

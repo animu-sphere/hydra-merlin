@@ -237,7 +237,8 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   if (!IsFinite(source.parameters.base_color) ||
       !std::isfinite(source.parameters.metallic) ||
       !std::isfinite(source.parameters.roughness) ||
-      !std::isfinite(source.parameters.alpha_cutoff)) {
+      !std::isfinite(source.parameters.alpha_cutoff) ||
+      !std::isfinite(source.parameters.normal_scale)) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
         "material parameters are not finite");
   }
@@ -255,6 +256,14 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
       has_texture != has_packed_sampler) {
     Throw(GpuScenePackingErrorCode::MissingResidency,
         "material texture and sampler residency is incomplete");
+  }
+  const bool has_normal_texture = source.normal_texture.has_value();
+  if (has_normal_texture !=
+          (binding.normal_texture_index != kInvalidGpuSceneTableIndex) ||
+      has_normal_texture !=
+          (binding.normal_sampler_index != kInvalidGpuSceneTableIndex)) {
+    Throw(GpuScenePackingErrorCode::MissingResidency,
+        "material normal texture and sampler residency is incomplete");
   }
 
   GpuMaterial result;
@@ -275,6 +284,13 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   result.base_color_sampler_index = binding.sampler_index;
   if (source.base_color_texture) {
     result.base_color_texcoord_set = source.base_color_texture->texcoord_set;
+  }
+  result.normal_factors = {source.parameters.normal_scale,
+      source.parameters.normal_flip_green ? -1.0F : 1.0F, 0.0F, 0.0F};
+  result.normal_texture_index = binding.normal_texture_index;
+  result.normal_sampler_index = binding.normal_sampler_index;
+  if (source.normal_texture) {
+    result.normal_texcoord_set = source.normal_texture->texcoord_set;
   }
   return result;
 }

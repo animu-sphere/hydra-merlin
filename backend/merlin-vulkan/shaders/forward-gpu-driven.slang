@@ -15,6 +15,7 @@ struct GpuDrivenForwardVertexInput
     [[vk::location(1)]] float3 normal : NORMAL;
     [[vk::location(2)]] float4 display_color : COLOR0;
     [[vk::location(3)]] float2 texcoord : TEXCOORD0;
+    [[vk::location(4)]] float4 tangent : TANGENT;
     uint instance_id : SV_InstanceID;
     uint base_instance : SV_StartInstanceLocation;
 };
@@ -26,7 +27,8 @@ struct GpuDrivenForwardVertexOutput
     [[vk::location(1)]] float3 shading_normal : TEXCOORD0;
     [[vk::location(2)]] float2 texture_coordinate : TEXCOORD1;
     [[vk::location(3)]] float3 object_position : TEXCOORD2;
-    [[vk::location(4)]] nointerpolation uint draw_slot : TEXCOORD3;
+    [[vk::location(4)]] float4 tangent : TEXCOORD3;
+    [[vk::location(5)]] nointerpolation uint draw_slot : TEXCOORD4;
 };
 
 [[vk::push_constant]]
@@ -67,6 +69,7 @@ GpuDrivenForwardVertexOutput forward_gpu_driven_vertex(
     conventional_input.normal = input.normal;
     conventional_input.display_color = input.display_color;
     conventional_input.texcoord = input.texcoord;
+    conventional_input.tangent = input.tangent;
     ForwardVertexOutput evaluated = EvaluateForwardVertex(
         conventional_input, LoadGpuDrivenMaterial(draw_slot), draw);
     GpuDrivenForwardVertexOutput output;
@@ -75,6 +78,7 @@ GpuDrivenForwardVertexOutput forward_gpu_driven_vertex(
     output.shading_normal = evaluated.shading_normal;
     output.texture_coordinate = evaluated.texture_coordinate;
     output.object_position = evaluated.object_position;
+    output.tangent = evaluated.tangent;
     output.draw_slot = draw_slot;
     return output;
 }
@@ -91,6 +95,7 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
     conventional_input.shading_normal = input.shading_normal;
     conventional_input.texture_coordinate = input.texture_coordinate;
     conventional_input.object_position = input.object_position;
+    conventional_input.tangent = input.tangent;
     GpuMaterial gpu_material =
         gpu_materials[gpu_draws[input.draw_slot].material_index];
     float4 texture_sample = float4(1.0f);
@@ -102,7 +107,16 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
                     gpu_material.base_color_sampler_index)],
                 input.texture_coordinate);
     }
+    float4 normal_sample = float4(0.5f, 0.5f, 1.0f, 1.0f);
+    if (HasNormalTexture(draw))
+    {
+        normal_sample = bindless_textures[NonUniformResourceIndex(
+            gpu_material.normal_texture_index)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    gpu_material.normal_sampler_index)],
+                input.texture_coordinate);
+    }
     return MakeForwardFragmentOutput(
         ShadeForward(conventional_input, front_facing, material,
-            texture_sample, draw), draw);
+            texture_sample, normal_sample, draw), draw);
 }

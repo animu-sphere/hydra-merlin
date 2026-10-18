@@ -18,7 +18,7 @@ int main() {
   return output.x > 0.66F && output.x < 0.67F && extractor.snapshot()->draws.empty() &&
                  backend_info.backend ==
                      merlin::render::BackendRequest::Automatic &&
-                 merlin::render::kBackendContractVersion == 5 &&
+                 merlin::render::kBackendContractVersion == 6 &&
                  renderer_settings.schema_version ==
                      merlin::render::kRendererSettingsSchemaVersion &&
                  !merlin::render::ValidateRendererSettings(renderer_settings) &&

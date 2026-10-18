@@ -118,6 +118,10 @@ struct MeshDescriptor {
   std::vector<Vec3> normals;
   std::vector<Vec4> colors;
   std::vector<Vec2> texcoords;
+  // Optional tangents: xyz direction of increasing u, w handedness (+/-1) so
+  // that B = cross(N, T.xyz) * T.w. Missing tangents are generated from
+  // texcoord set 0 by shared Mesh attribute preparation.
+  std::vector<Vec4> tangents;
   std::vector<std::uint32_t> indices;
   // Host Mesh doubleSided state. Like a double-sided material it disables
   // back-face culling, and back-facing fragments flip Ng and Ns_base.
@@ -181,6 +185,8 @@ enum class MaterialFeature : std::uint32_t {
   VertexColor = 1U << 0U,
   BaseColorTexture = 1U << 1U,
   DirectionalLight = 1U << 2U,
+  // Tangent-space normal map; requires MaterialIR::normal_texture.
+  NormalTexture = 1U << 3U,
 };
 
 [[nodiscard]] constexpr MaterialFeature operator|(MaterialFeature lhs,
@@ -211,6 +217,11 @@ struct MaterialParameterBlock {
   float metallic{};
   float roughness{0.5F};
   float alpha_cutoff{0.5F};
+  // Tangent-space normal map decode: n = 2 * texel - 1, y negated when
+  // normal_flip_green (a -Y/DirectX-convention map), xy scaled by
+  // normal_scale, then renormalized. The default convention is +Y up.
+  float normal_scale{1.0F};
+  bool normal_flip_green{};
 };
 
 struct TextureBinding {
@@ -377,6 +388,9 @@ struct MaterialIR {
   std::string label;
   MaterialParameterBlock parameters;
   std::optional<TextureBinding> base_color_texture;
+  // Sampled as linear, non-color data and applied through the shared
+  // surface tangent frame.
+  std::optional<TextureBinding> normal_texture;
   AlphaMode alpha_mode{AlphaMode::Opaque};
   bool double_sided{};
   MaterialFeature features{MaterialFeature::VertexColor |

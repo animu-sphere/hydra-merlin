@@ -100,6 +100,8 @@ void RequireCommonAbi(std::string_view json) {
   RequireField(json, "diffuse_environment", 48, 144);
   RequireField(json, "output_transform", 192, 16);
   RequireField(json, "surface_policy", 208, 16);
+  RequireField(json, "normal_map", 224, 16);
+  RequireField(json, "normal_map_resource", 240, 16);
 }
 
 void RequireBinding(std::string_view json, std::string_view name,
@@ -233,6 +235,8 @@ int main(int argc, char** argv) {
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
     RequireContains(conventional_fragment, "\"combined\":true",
         "base color texture is not a combined image sampler");
+    RequireBinding(conventional_fragment, "normal_texture",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
     RequireBinding(conventional_fragment, "material_constants",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":31}");
     RequireBinding(bindless_fragment, "bindless_samplers",
@@ -559,7 +563,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
         "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":12",
+    RequireContains(manifest, "\"shader_abi_version\":13",
         "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
         "Slang toolchain series is not pinned");
@@ -582,10 +586,12 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 12);
+    static_assert(kVersion == 13);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
+    static_assert(kConventionalNormalTexture.set == 0);
+    static_assert(kConventionalNormalTexture.binding == 1);
     static_assert(kConventionalMaterialConstants.binding == 31);
     static_assert(kBindlessSamplers.binding == 0);
     static_assert(kBindlessTextures.binding == 1);

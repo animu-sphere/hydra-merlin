@@ -354,7 +354,6 @@ void RunSurfaceFixture(const merlin::render::BackendCreateInfo& info,
   std::uint64_t validation_messages{};
   const std::vector placements{merlin::render::GpuGeometryPlacement{0, 0}};
   const std::vector identities{merlin::render::GpuInstanceIdentity{17, 23}};
-  const std::vector bindings{merlin::render::GpuMaterialBinding{}};
   std::uint64_t completion{};
   const auto report = merlin::tests::VerifySurfaceGeometryViews(
       [&](std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
@@ -374,6 +373,10 @@ void RunSurfaceFixture(const merlin::render::BackendCreateInfo& info,
         request.products = {{merlin::Aov::Color, true},
             {merlin::Aov::Depth, true}};
         if (gpu_scene) {
+          // A fresh backend places the fixture's normal map at the first
+          // argument-table texture and sampler slots.
+          const auto bindings =
+              merlin::tests::SurfaceGeometryMaterialBindings(*snapshot, 0, 0);
           request.gpu_scene_update =
               std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
                   packing->Apply(*snapshot, completion, completion,
@@ -386,7 +389,7 @@ void RunSurfaceFixture(const merlin::render::BackendCreateInfo& info,
         return result;
       });
   validation_messages += backend->statistics().validation_messages;
-  Require(report.cases == 13 && report.samples > 0,
+  Require(report.cases == 21 && report.samples > 0,
       "surface fixture skipped cases");
   Require(validation_messages == 0, "surface fixture validation messages");
   std::cout << (gpu_scene ? "gpu-scene" : "conventional")

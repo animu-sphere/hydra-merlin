@@ -38,6 +38,9 @@ void Backend::Impl::CreateLibraryAndPipeline() {
   vertices.attributes[3].format = MTLVertexFormatFloat2;
   vertices.attributes[3].offset = offsetof(extraction::DrawVertex, texcoord);
   vertices.attributes[3].bufferIndex = 0;
+  vertices.attributes[4].format = MTLVertexFormatFloat4;
+  vertices.attributes[4].offset = offsetof(extraction::DrawVertex, tangent);
+  vertices.attributes[4].bufferIndex = 0;
   vertices.layouts[0].stride = sizeof(extraction::DrawVertex);
   vertices.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
 

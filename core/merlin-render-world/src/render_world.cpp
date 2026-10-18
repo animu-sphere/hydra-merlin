@@ -54,6 +54,7 @@ void ValidateMesh(const MeshDescriptor& descriptor) {
   validate_primvar_size(descriptor.normals.size(), "normal");
   validate_primvar_size(descriptor.colors.size(), "color");
   validate_primvar_size(descriptor.texcoords.size(), "texcoord");
+  validate_primvar_size(descriptor.tangents.size(), "tangent");
 }
 
 bool IsFinite(const Vec3& value) {
@@ -175,9 +176,9 @@ bool IsFiniteMaterialValue(const MaterialValue& value) {
 
 void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
   const auto& p = descriptor.parameters;
-  const std::array<float, 7> values{p.base_color.x, p.base_color.y,
+  const std::array<float, 8> values{p.base_color.x, p.base_color.y,
       p.base_color.z, p.base_color.w, p.metallic,
-      p.roughness, p.alpha_cutoff};
+      p.roughness, p.alpha_cutoff, p.normal_scale};
   if (std::any_of(values.begin(), values.end(),
           [](float value) { return !std::isfinite(value); })) {
     throw std::invalid_argument("material parameters must be finite");
@@ -189,7 +190,8 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
   }
   constexpr auto supported = MaterialFeature::VertexColor |
                              MaterialFeature::BaseColorTexture |
-                             MaterialFeature::DirectionalLight;
+                             MaterialFeature::DirectionalLight |
+                             MaterialFeature::NormalTexture;
   const auto unsupported = static_cast<std::uint32_t>(descriptor.features) &
                            ~static_cast<std::uint32_t>(supported);
   if (unsupported != 0U) {
@@ -201,8 +203,16 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
     throw std::invalid_argument(
         "base-color texture feature requires a texture binding");
   }
-  if (descriptor.base_color_texture &&
-      descriptor.base_color_texture->texcoord_set != 0U) {
+  if (HasMaterialFeature(descriptor.features,
+          MaterialFeature::NormalTexture) &&
+      !descriptor.normal_texture) {
+    throw std::invalid_argument(
+        "normal texture feature requires a texture binding");
+  }
+  if ((descriptor.base_color_texture &&
+          descriptor.base_color_texture->texcoord_set != 0U) ||
+      (descriptor.normal_texture &&
+          descriptor.normal_texture->texcoord_set != 0U)) {
     throw std::invalid_argument(
         "only texture coordinate set 0 is currently supported");
   }
@@ -529,9 +539,12 @@ class RenderWorld::Impl {
 public:
   void ValidateMaterialResourceHandles(
       const MaterialDescriptor& descriptor) const {
-    if (descriptor.base_color_texture) {
-      (void)textures.Get(descriptor.base_color_texture->texture);
-      (void)samplers.Get(descriptor.base_color_texture->sampler);
+    for (const auto& binding :
+        {descriptor.base_color_texture, descriptor.normal_texture}) {
+      if (binding) {
+        (void)textures.Get(binding->texture);
+        (void)samplers.Get(binding->sampler);
+      }
     }
     for (const auto& entry : descriptor.generated_resources.entries) {
       for (const auto& value : entry.values) {
@@ -662,7 +675,8 @@ void RenderWorld::UpdateMesh(MeshHandle h, MeshDescriptor d,
         previous.positions.size() != d.positions.size() ||
         previous.normals.size() != d.normals.size() ||
         previous.colors.size() != d.colors.size() ||
-        previous.texcoords.size() != d.texcoords.size();
+        previous.texcoords.size() != d.texcoords.size() ||
+        previous.tangents.size() != d.tangents.size();
     if (shape_changed) {
       vertex_ranges.reset();
     } else {
