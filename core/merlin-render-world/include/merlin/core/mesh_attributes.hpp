@@ -140,6 +140,8 @@ struct TangentPreparationResult {
 // without one and counted as a conflict; its triangles shade with the
 // derivative frame. Producers that need vertex frames there split vertices on
 // mirror seams exactly as they split them on texture seams.
+// An all-zero authored vertex tangent means "no frame" and is kept, not
+// repaired; any other unusable authored tangent is regenerated.
 struct VertexTangentPreparation {
   std::vector<Vec4> tangents;
   bool generated{};

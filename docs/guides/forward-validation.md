@@ -54,10 +54,15 @@ CTest enables Metal API and shader validation. PPM images, expected/actual
 center RGB, resource counters and rejection counts live under
 `tests/forward-images-metal/{color,white}`. The same gate, and each
 `merlin-vulkan-output-<mode>` case, also runs the analytic
-[surface geometry](../design/surface-geometry.md) fixture: 13 single-patch
-cases compare the `geometric-normal`, `shading-normal-base`, `normal` and
-`front-facing` views with a double-precision oracle (at most 1/255 per
-channel) and require single-sided back faces to stay uncovered.
+[surface geometry](../design/surface-geometry.md) fixture: 21 single-patch
+cases compare the `geometric-normal`, `shading-normal-base`, `normal`,
+`front-facing`, `tangent` and `bitangent` views with a double-precision oracle
+(at most 1/255 per channel) and require single-sided back faces to stay
+uncovered. Eight cases bind a constant tangent-space normal texture and cover
+generated and authored tangents, scaled and green-flipped maps, transformed,
+mirrored and double-sided frames, the derivative frame and the disabled map
+without texture coordinates. The usdview normals fixture adds the same
+normal-map probes through UsdPreviewSurface.
 
 ## Vulkan host gates
 

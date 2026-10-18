@@ -334,6 +334,13 @@ void TangentFrames() {
       std::vector<Vec4>(4, Vec4{0, 0, 3, 1}));
   assert(!vertex.generated && vertex.degenerate_count == 4 &&
          vertex.unresolved_count == 4);
+  // An all-zero authored tangent is an explicit "no frame", not a defect.
+  const std::vector<Vec4> partial{
+      {0, 0, 0, 0}, {1, 0, 0, 1}, {1, 0, 0, 1}, {1, 0, 0, 1}};
+  vertex = PrepareVertexTangents(positions, indices, normals, texcoords,
+      partial);
+  assert(vertex.degenerate_count == 0 && vertex.unresolved_count == 1 &&
+         Near(vertex.tangents[0], {0, 0, 0, 0}));
 }
 
 void NormalMapExtraction() {

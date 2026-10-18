@@ -150,21 +150,42 @@ B     = cross(Ns_base, T.xyz) * T.w
 
 `T` is Gram–Schmidt orthogonalized against `Ns_base` in the fragment stage.
 Handedness includes transform handedness, so mirrored instances and mirrored
-UVs reconstruct the same bitangent sense as authored.
+UVs reconstruct the same bitangent sense as authored. Tangents are surface
+directions and transform with `M3`, which the vertex stage recovers from the
+normal matrix as `cof(N) * sign(det N)`; `T.w` is multiplied by the sign of
+`det(M3)`.
 
 Tangent source priority:
 
 1. Authored tangent primvar with handedness, using the normal interpolation
-   rules.
-2. Renderer-generated per-vertex tangents from positions, normals and the
-   material's UV set, with handedness from UV winding (MikkTSpace-compatible
-   conventions).
-3. Screen-space derivative frame in the fragment stage.
-4. No usable frame: normal mapping is disabled for that draw and reported.
+   rules. Hydra reads `primvars:tangents` as float4 (handedness in `w`) or
+   float3 (right-handed). Values are renormalized with `w` = ±1; a zero-length,
+   non-finite or normal-parallel value uses the generated tangent and is
+   counted (`mesh.tangents.degenerate`); a malformed primvar rejects the prim
+   (`mesh.tangents.malformed`).
+2. Renderer-generated tangents from positions, normals and texture coordinate
+   set 0, with handedness from UV winding (MikkTSpace-compatible conventions):
+   per-triangle `dP/du` is projected onto the corner normal, angle-weighted
+   and accumulated over corners that share a point, texture coordinate, normal
+   and handedness.
+3. Screen-space derivative frame in the fragment stage, from the derivatives
+   of the object-space position and texture coordinate.
+4. No usable frame: normal mapping is disabled for that fragment, and for a
+   draw whose geometry has no texture coordinates it is disabled and reported.
 
 Mirrored UV islands and UV seams are first-class cases: tangents are not
 averaged across a handedness change, and seams split tangent elements just as
-`faceVarying` normals split normal elements.
+`faceVarying` normals split normal elements. An all-zero tangent marks an
+element without a frame. A triangle uses its interpolated vertex frame only
+when its three corners carry the same handedness (`|T.w|` stays 1); a corner
+without a frame selects the derivative frame for the triangle. Native indexed
+meshes store one tangent per vertex, so a vertex shared by triangles of
+opposite UV handedness is left without a frame and counted; producers that
+need vertex frames there split the vertex as they would on a texture seam.
+
+On a double-sided back face `T` and `T.w` are negated together with
+`Ns_base`, so `B` keeps its direction and a normal map yields the negated
+front-side normal, as for a thin two-sided sheet.
 
 ## Normal mapping
 
@@ -177,9 +198,21 @@ n ─► Ns = normalize(n.x * T + n.y * B + n.z * Ns_base)
 
 Normal textures are sampled without color-space conversion. The default
 convention is +Y up (OpenGL/MaterialX); a material declares a green-channel
-flip explicitly rather than per backend. A material that returns a world-space
+flip explicitly rather than per backend (`MaterialParameterBlock`
+`normal_scale` and `normal_flip_green`). A material that returns a world-space
 normal bypasses the tangent frame but is still subject to the facing and
 hemisphere rules.
+
+UsdPreviewSurface `normal` connected to a `UsdUVTexture` output becomes the
+material's normal texture. The texture's `texel * scale + bias` must express
+this decode: `z` as `2t - 1` and `xy` as `s * (2t - 1)` with `y` optionally
+negated, which maps to `normal_scale = s` and the green flip. A texture
+without scale/bias (identity) is decoded as `2t - 1` and reported
+(`hydra.material.normal-map`); any other encoding, a non-`UsdUVTexture`
+source or an unreadable image disables normal mapping for the material with
+the same diagnostic. A draw whose geometry has no texture coordinates drops
+the normal map; Hydra reports the count (`surface.normal-map.disabled`) and
+`render::CountForwardNormalMapDisabledDraws` exposes it to other hosts.
 
 ## Shared surface context
 
@@ -203,14 +236,17 @@ and that sign, so a per-frame sign (camera front-face winding × the backend's
 NDC Y direction) and the sign of `det(M3)` orient `Ng` toward the visible side
 without a world matrix in the draw constants. `MaterialConstants.surface_policy`
 carries that sign and the debug view. Positions with no usable derivative fall
-back to `Ns_base`.
+back to `Ns_base`. The same function builds the tangent frame;
+`MaterialConstants.normal_map` carries the normal scale and green sign, and
+paths that bind textures by table index read the normal texture slots from
+`MaterialConstants.normal_map_resource` or `GpuMaterial`.
 
 ## Debug views
 
 Diagnostic views render, as unlit RGB (`0.5 * v + 0.5` for vectors):
 
 - `Ng`, `Ns_base` and final `Ns`;
-- tangent and bitangent;
+- tangent and bitangent (mid-grey without a frame);
 - front-facing (white front, black back).
 
 They use the same surface context as lit shading, so a view isolates the stage

@@ -558,6 +558,11 @@ VertexTangentPreparation PrepareVertexTangents(
   std::vector<bool> missing(positions.size(), authored.empty());
   if (!authored.empty()) {
     for (std::size_t vertex = 0; vertex < positions.size(); ++vertex) {
+      // An all-zero tangent explicitly carries no frame (DrawVertex), as
+      // Hydra-prepared corners without a UV frame do.
+      if (IsZero(authored[vertex])) {
+        continue;
+      }
       if (const auto tangent =
               AuthoredTangent(authored[vertex], normals[vertex])) {
         result.tangents[vertex] = *tangent;

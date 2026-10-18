@@ -62,9 +62,11 @@ NAVIGATION_PHASES = tuple(
 NORMALS_PHASES = tuple(
     f"normals-{probe}-{view}"
     for probe in ("flat", "face-varying", "left-handed", "negative-scale",
-                  "double-sided-back", "single-sided-back")
+                  "double-sided-back", "single-sided-back", "normal-map",
+                  "normal-map-flipped-green", "normal-map-mirrored",
+                  "normal-map-authored-tangents")
     for view in ("geometric-normal", "shading-normal-base", "normal",
-                 "front-facing")
+                 "front-facing", "tangent", "bitangent")
 )
 SCENE_PHASES = tuple(
     f"scene-{viewpoint}-authored-{output}-{light}-{gesture}-{capture}"
@@ -234,7 +236,7 @@ def main() -> None:
         for directory in (args.tier0, args.gpu_copy):
             report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
                                 .read_text(encoding="utf-8"))
-            version = 2 if args.forward_scene_only else 1
+            version = 2 if args.forward_scene_only or args.forward_normals_only else 1
             if report["schema"] != f"merlin-usdview-forward-{fixture}/v{version}":
                 raise ValueError(f"unexpected Forward {fixture} schema in {directory}")
             if args.forward_scene_only:

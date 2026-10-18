@@ -8,6 +8,32 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- The tangent-frame and normal-mapping part of the surface geometry contract.
+  Core prepares Mesh tangents with an authored -> generated -> derivative
+  priority: generation follows MikkTSpace conventions and welds corners by
+  point, texture coordinate, normal and handedness, so mirrored UV islands and
+  seams are not averaged. Hydra reads a float3/float4 `tangents` primvar.
+  Every Vulkan and Metal Forward entry builds the tangent frame in the shared
+  Slang surface context, falls back to the screen-space derivative frame, and
+  decodes and applies linear tangent-space normal textures through it.
+  UsdPreviewSurface `normal` connected to `UsdUVTexture` becomes the material
+  normal texture, with its scale/bias mapped to the normal scale and green
+  channel flip. Normal maps on geometry without texture coordinates are
+  disabled per draw and reported. `tangent` and `bitangent` debug views join
+  the surface views.
+- Tangent-frame and normal-map cases in the analytic surface geometry image
+  fixture and in the usdview normals fixture.
+
+### Changed
+
+- Backend contract 6, shader ABI 13 and GPU Scene ABI 2: `DrawVertex` gains a
+  tangent (64-byte stride), `MaterialConstants` the normal-map policy and
+  table indices, `GpuMaterial` the normal texture, and the conventional Vulkan
+  material set a normal texture at binding 1. Rebuild consumers, shader
+  artifacts and binaries.
+
 ## [0.16.5] - 2026-10-18
 
 ### Added

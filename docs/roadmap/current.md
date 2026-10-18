@@ -15,12 +15,20 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Tangent frame and normal mapping (v0.16.6):** authored tangents,
-  generated tangents with handedness, derivative-frame fallback and reported
-  disablement; mirrored UVs and seams; linear normal-map decode and TBN
-  application shared by UsdPreviewSurface and MaterialX; tangent/bitangent
-  debug views; Vulkan/Metal agreement on normal-map sign and seams, building
-  on the [v0.16.5](../releases/v0.16.5.md) normal contract.
+- **Tangent frame and normal mapping (v0.16.6):** the tangent-frame and
+  normal-mapping part of the
+  [surface geometry contract](../design/surface-geometry.md) is implemented
+  for native and Hydra meshes and UsdPreviewSurface, with Apple M3 Metal and
+  usdview evidence. Remaining:
+  - Run the extended analytic surface fixture on RTX A5000 Vulkan
+    conventional, bindless, GPU Scene and GPU-driven Forward and the usdview
+    normals fixture on Tier 0/HgiVulkan; compare Vulkan/Metal normal-map sign,
+    seam and tangent debug-view centers.
+  - Refresh generated MaterialX Debug/Release Vulkan evidence after shader
+    ABI 13, and decide how MaterialX `normalmap` consumes the shared frame
+    and decode; it is currently diagnosed as unsupported.
+  - Confirm representative scenes show no unexplained change from generated
+    tangents and the new vertex layout.
 
 ### Next
 

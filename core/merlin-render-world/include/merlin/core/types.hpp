@@ -119,8 +119,9 @@ struct MeshDescriptor {
   std::vector<Vec4> colors;
   std::vector<Vec2> texcoords;
   // Optional tangents: xyz direction of increasing u, w handedness (+/-1) so
-  // that B = cross(N, T.xyz) * T.w. Missing tangents are generated from
-  // texcoord set 0 by shared Mesh attribute preparation.
+  // that B = cross(N, T.xyz) * T.w. An all-zero tangent marks a vertex
+  // without a frame. Missing tangents are generated from texcoord set 0 by
+  // shared Mesh attribute preparation.
   std::vector<Vec4> tangents;
   std::vector<std::uint32_t> indices;
   // Host Mesh doubleSided state. Like a double-sided material it disables
