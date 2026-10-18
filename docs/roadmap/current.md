@@ -15,14 +15,6 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Tangent frame and normal mapping (v0.16.6):** implemented and validated
-  for native and Hydra meshes and UsdPreviewSurface on RTX A5000 Vulkan and
-  Apple M3 Metal (see the
-  [support matrix](../reference/support-matrix.md#surface-geometry-and-normals)).
-  Remaining: the v0.16.6 release record.
-
-### Next
-
 - **Representative Forward quality (v0.16.7):** interior Kitchen views,
   bright/dark lighting, textured, rough and metallic materials, Camera Light
   ON/OFF, linear/display output, sustained camera navigation, Vulkan/Metal and
@@ -31,7 +23,11 @@ rendering semantics; backends own execution.
   gates. No supported mode needs the camera light disabled to avoid white
   clipping or flicker, navigation exposes no stale-frame or resource-update
   errors, and backend differences are understood and recorded in the support
-  matrix.
+  matrix. Builds on the [v0.16.6](../releases/v0.16.6.md) tangent frame and
+  normal-mapping contract.
+
+### Next
+
 - **Material and backend parity hardening (v0.16.8):** base color, roughness,
   metallic, textures, vertex color, opacity/alpha mask, double-sided state,
   generated material ingestion, the generated Metal material path and

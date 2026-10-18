@@ -11,6 +11,34 @@ Legend: ✅ done
 
 ---
 
+## v0.16.6 tangent-frame validation and closure — 2026-10-18
+
+Release preparation starts from merge commit `1765888`, containing the
+tangent-frame and normal-map contract from `9605a1e` and `3cdec23` and the
+RTX A5000 evidence from
+[capability run 39101630195](https://github.com/animu-sphere/hydra-merlin/actions/runs/39101630195)
+and [run 39102861812](https://github.com/animu-sphere/hydra-merlin/actions/runs/39102861812)
+recorded in the support matrix.
+
+Representative-scene evidence was captured locally on Apple M3 (macOS 15.7.9,
+Xcode 16.4, OpenUSD 26.08) with a Metal/Hydra Release build of `1765888`, under
+Metal API validation, in Tier 0 and HgiMetal, using the v0.16.5 capture script
+extended with `tangent` and `bitangent` views. The v0.16.5 baseline is the
+`ff8dfe3` capture under `build/v0165-scene-evidence`. Evidence, scripts and the
+comparison report are under `build/v0166-scene-evidence`.
+
+| Change | Control | Result |
+| --- | --- | --- |
+| Generated tangents and the 64-byte vertex layout | Kitchen_set (1,788 meshes, all with `st`, none with authored tangents or normal maps); the same build repeated | v0.16.5 to `1765888`: at most 3 changed pixels of 120,701 per lit image across the three viewpoints, linear/sRGB and Camera Light ON/OFF; same build repeated: up to 4. `geometric-normal`, `shading-normal-base` and `normal` change by at most 2 pixels and `front-facing` is identical. |
+| Tangent frame coverage | `tangent`/`bitangent` views against the covered area of the `normal` view | 4–7% of covered pixels show the mid-grey no-frame value, on tile grout, window frames and thin trim. Kitchen_set has 82,792 of 275,656 faces (in 733 meshes) with zero UV area, so neither a vertex nor a derivative frame exists there. Tier 0 and HgiMetal agree. |
+
+Release identity is prepared as `0.16.6`, dated 2026-10-18 JST. Fresh local
+Release builds pass without skips: Core 25/25 in `build/release-v0166-core`,
+native Metal 39/39 in `build/v0166-metal` and Metal/Hydra 69/69 in
+`build/v0166-hydra-metal`, the last including the Kitchen_set scene gate,
+whose 649 image pairs differ by at most 5 pixels. The
+[release record](../releases/v0.16.6.md) summarizes this phase.
+
 ## v0.16.5 representative-scene normal evidence — 2026-10-18
 
 Captured locally on Apple M3 (macOS 15.7.9, Xcode 16.4, OpenUSD 26.08) with
