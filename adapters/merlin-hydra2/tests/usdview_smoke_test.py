@@ -409,15 +409,18 @@ def testUsdviewInputFunction(appController):
                for event in primvar_changes)
     assert all(0 < event["changed_vertex_count"] < 9
                for event in primvar_changes)
+    # merlin::extraction::DrawVertex: position, normal, color, texcoord and
+    # tangent.
+    vertex_bytes = 64
     if os.environ.get("MERLIN_HYDRA2_TEST_BACKEND", "vulkan") == "vulkan":
         assert all(event["upload_bytes"] ==
-                   event["changed_vertex_count"] * 48
+                   event["changed_vertex_count"] * vertex_bytes
                    for event in primvar_changes)
     else:
         # Metal currently replaces the changed geometry's retained vertex and
         # index buffers together; it must still avoid unrelated resources.
         assert all(event["upload_bytes"] >=
-                   event["changed_vertex_count"] * 48
+                   event["changed_vertex_count"] * vertex_bytes
                    for event in primvar_changes)
         assert all(event["geometry_reconcile_count"] == 1
                    for event in primvar_changes)

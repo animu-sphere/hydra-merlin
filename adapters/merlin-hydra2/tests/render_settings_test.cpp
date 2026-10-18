@@ -196,7 +196,8 @@ int main() {
           "incorrect debug view default"))
     return 1;
   for (const auto* name :
-      {"geometric-normal", "shading-normal-base", "normal", "front-facing"}) {
+      {"geometric-normal", "shading-normal-base", "normal", "tangent",
+          "bitangent", "front-facing"}) {
     pending.SetRenderSetting(debug_view, VtValue(TfToken(name)));
     if (!Check(Setting(pending, debug_view) == name,
             "surface debug view was not applied"))
@@ -215,7 +216,7 @@ int main() {
                  debug_view, "keep front-facing"),
           "unsupported debug view lost diagnostic"))
     return 1;
-  pending.SetRenderSetting(debug_view, VtValue(std::string("tangent")));
+  pending.SetRenderSetting(debug_view, VtValue(std::string("albedo")));
   if (!Check(Rejected(pending, "renderer-settings.invalid-debug-view",
                  debug_view, "keep front-facing"),
           "unknown debug view lost diagnostic"))

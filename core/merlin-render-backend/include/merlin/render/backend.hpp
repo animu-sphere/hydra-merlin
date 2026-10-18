@@ -19,7 +19,7 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 5;
+inline constexpr std::uint32_t kBackendContractVersion = 6;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 3;
 
 enum class BackendKind { Vulkan,
@@ -57,7 +57,9 @@ enum class DebugView { None,
   Normal,
   GeometricNormal,
   ShadingNormalBase,
-  FrontFacing };
+  FrontFacing,
+  Tangent,
+  Bitangent };
 enum class TelemetryMode { Off,
   Basic,
   Detailed };
@@ -235,6 +237,10 @@ struct GpuDrivenGaussianSettings {
     return "shading-normal-base";
   case DebugView::FrontFacing:
     return "front-facing";
+  case DebugView::Tangent:
+    return "tangent";
+  case DebugView::Bitangent:
+    return "bitangent";
   }
   return "unknown";
 }
@@ -562,7 +568,8 @@ struct RenderRequest {
   PresentationTarget presentation;
   OutputTransformSettings output_transform;
   // Forward surface debug view (None, Normal, GeometricNormal,
-  // ShadingNormalBase or FrontFacing); other views are rejected.
+  // ShadingNormalBase, FrontFacing, Tangent or Bitangent); other views are
+  // rejected.
   DebugView debug_view{DebugView::None};
 };
 

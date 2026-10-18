@@ -25,8 +25,20 @@ MaterialUniforms Renderer::Impl::MakeMaterialUniforms(
     const extraction::MaterialRecord& material,
     const render::ForwardDirectionalLighting& lighting,
     const render::ForwardFramePolicy& frame_policy) const {
-  return render::MakeForwardMaterialConstants<MaterialUniforms>(material, lighting,
-      environment_lighting_.coefficients, frame_policy);
+  auto uniforms = render::MakeForwardMaterialConstants<MaterialUniforms>(
+      material, lighting, environment_lighting_.coefficients, frame_policy);
+  // The bindless entry reads the normal texture by table slot from the
+  // per-material block; the conventional entry binds it in the set instead.
+  if (bindless_texture_table_ && material.normal_texture) {
+    const auto texture_handle =
+        texture_records_[material.normal_texture->texture_index].texture;
+    const auto sampler_handle =
+        sampler_records_[material.normal_texture->sampler_index].sampler;
+    uniforms.normal_map_resource = {
+        texture_slots_.at(texture_handle).bindless_slot.index,
+        sampler_slots_.at(sampler_handle).bindless_slot.index, 0U, 0U};
+  }
+  return uniforms;
 }
 
 void Renderer::Impl::RejectGeneratedMaterial(std::size_t index,
@@ -430,14 +442,14 @@ void Renderer::Impl::PrepareBindlessMaterialDescriptors(
 void Renderer::Impl::ValidateMaterialTextureBindings() const {
   for (std::size_t i = 0; i < material_records_.size(); ++i) {
     const auto& material = material_records_[i];
-    if (material.base_color_texture &&
-        (material.base_color_texture->texture_index >=
-                texture_records_.size() ||
-            material.base_color_texture->sampler_index >=
-                sampler_records_.size())) {
-      throw RendererError(RendererErrorCode::InvalidRequest,
-          "prepare material descriptors",
-          "material texture binding index is invalid");
+    for (const auto& binding :
+        {material.base_color_texture, material.normal_texture}) {
+      if (binding && (binding->texture_index >= texture_records_.size() ||
+                         binding->sampler_index >= sampler_records_.size())) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+            "prepare material descriptors",
+            "material texture binding index is invalid");
+      }
     }
   }
 }
@@ -499,7 +511,7 @@ void Renderer::Impl::PrepareMaterialDescriptors(
       maximum_samplers = std::max(maximum_samplers, artifact_samplers);
     }
     std::vector<VkDescriptorPoolSize> sizes{
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count * 2U},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, material_count * 2U},
     };
     if (maximum_sampled_images != 0U) {
@@ -607,7 +619,9 @@ void Renderer::Impl::PrepareMaterialDescriptors(
       "allocate material descriptor sets");
   frame_counters_.descriptor_allocation_count += material_count;
 
-  std::size_t maximum_image_infos = material_count;
+  // Conventional sets hold the base-color and normal combined samplers.
+  // Writes point into image_infos, so its reservation must never grow.
+  std::size_t maximum_image_infos = material_count * 2U;
   for (const auto* artifact : selected_material_artifacts_) {
     if (artifact == nullptr) {
       continue;
@@ -628,7 +642,7 @@ void Renderer::Impl::PrepareMaterialDescriptors(
   std::vector<VkDescriptorBufferInfo> buffer_infos(material_count);
   std::vector<VkDescriptorBufferInfo> generated_buffer_infos(material_count);
   std::vector<VkWriteDescriptorSet> writes;
-  writes.reserve(material_count * 2U + maximum_image_infos);
+  writes.reserve(material_count * 3U + maximum_image_infos);
   for (std::uint32_t i = 0; i < material_count; ++i) {
     buffer_infos[i] = {frame.material_uniforms.handle, uniform_stride * i,
         sizeof(MaterialUniforms)};
@@ -707,37 +721,42 @@ void Renderer::Impl::PrepareMaterialDescriptors(
       writes.push_back(material_write);
       continue;
     }
-    auto image_view = FallbackTextureView();
-    auto sampler = fallback_sampler_.sampler;
     const auto& material = material_records_[i];
-    if (material.base_color_texture) {
-      if (material.base_color_texture->texture_index >=
-              texture_records_.size() ||
-          material.base_color_texture->sampler_index >=
-              sampler_records_.size()) {
-        throw RendererError(RendererErrorCode::InvalidRequest,
-            "prepare material descriptors",
-            "material texture binding index is invalid");
-      }
-      const auto texture_handle =
-          texture_records_[material.base_color_texture->texture_index]
-              .texture;
-      const auto sampler_handle =
-          sampler_records_[material.base_color_texture->sampler_index]
-              .sampler;
-      image_view = texture_slots_.at(texture_handle).view;
-      sampler = sampler_slots_.at(sampler_handle).sampler;
-    }
-    image_infos.push_back(
-        {sampler, image_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
-    VkWriteDescriptorSet image_write{
-        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    image_write.dstSet = frame.material_descriptor_sets[i];
-    image_write.dstBinding = shader_abi::kConventionalBaseColorTexture.binding;
-    image_write.descriptorCount = 1;
-    image_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    image_write.pImageInfo = &image_infos.back();
-    writes.push_back(image_write);
+    const auto write_texture =
+        [&](const std::optional<extraction::TextureBindingRecord>& binding,
+            std::uint32_t destination) {
+          auto image_view = FallbackTextureView();
+          auto sampler = fallback_sampler_.sampler;
+          if (binding) {
+            if (binding->texture_index >= texture_records_.size() ||
+                binding->sampler_index >= sampler_records_.size()) {
+              throw RendererError(RendererErrorCode::InvalidRequest,
+                  "prepare material descriptors",
+                  "material texture binding index is invalid");
+            }
+            const auto texture_handle =
+                texture_records_[binding->texture_index].texture;
+            const auto sampler_handle =
+                sampler_records_[binding->sampler_index].sampler;
+            image_view = texture_slots_.at(texture_handle).view;
+            sampler = sampler_slots_.at(sampler_handle).sampler;
+          }
+          image_infos.push_back(
+              {sampler, image_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+          VkWriteDescriptorSet image_write{
+              VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          image_write.dstSet = frame.material_descriptor_sets[i];
+          image_write.dstBinding = destination;
+          image_write.descriptorCount = 1;
+          image_write.descriptorType =
+              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+          image_write.pImageInfo = &image_infos.back();
+          writes.push_back(image_write);
+        };
+    write_texture(material.base_color_texture,
+        shader_abi::kConventionalBaseColorTexture.binding);
+    write_texture(material.normal_texture,
+        shader_abi::kConventionalNormalTexture.binding);
     VkWriteDescriptorSet buffer_write{
         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     buffer_write.dstSet = frame.material_descriptor_sets[i];

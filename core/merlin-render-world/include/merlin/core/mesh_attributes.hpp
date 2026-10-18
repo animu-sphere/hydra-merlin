@@ -91,4 +91,68 @@ struct VertexNormalPreparation {
     std::span<const Vec3> positions, std::span<const std::uint32_t> indices,
     std::span<const Vec3> authored);
 
+// Tangents carry the frame handedness in w: B = cross(N, T.xyz) * T.w. A zero
+// tangent (w == 0) means the element has no usable frame; shading then uses
+// the screen-space derivative frame.
+struct TangentPrimvar {
+  PrimvarInterpolation interpolation{PrimvarInterpolation::Vertex};
+  // A float3 primvar is stored with w = +1. A negative w is handedness -1;
+  // any other w is +1.
+  std::vector<Vec4> values;
+  std::vector<std::int32_t> indices;
+};
+
+struct TangentPreparationResult {
+  // One tangent per corner, or empty when the primitive is rejected.
+  std::optional<std::vector<Vec4>> tangents;
+  // True when the tangents were generated rather than authored.
+  bool generated{};
+  // Authored corners whose tangent was zero-length, non-finite or parallel to
+  // the normal and used the generated tangent instead.
+  std::size_t degenerate_count{};
+  // Corners left without a frame (zero tangent): no texture coordinates or a
+  // degenerate UV mapping on every triangle sharing the element.
+  std::size_t unresolved_count{};
+  std::vector<Diagnostic> diagnostics;
+
+  [[nodiscard]] bool accepted() const noexcept {
+    return tangents.has_value();
+  }
+};
+
+// Source priority: authored tangents, then generated tangents, then no frame.
+// Generation follows MikkTSpace conventions: per-triangle UV derivatives are
+// projected onto the corner normal, angle-weighted and accumulated over
+// corners that share a point, texture coordinate, normal and handedness. A
+// mirrored UV island (opposite handedness) or a UV seam therefore splits the
+// accumulation instead of averaging across it. `normals` and `texcoords` hold
+// one value per corner; empty texcoords leave every corner without a frame
+// unless tangents are authored. A malformed authored primvar rejects the
+// primitive with `mesh.tangents.malformed`.
+[[nodiscard]] TangentPreparationResult PrepareCornerTangents(
+    std::span<const Vec3> points, std::span<const MeshCorner> corners,
+    std::span<const Vec3> normals, std::span<const Vec2> texcoords,
+    const TangentPrimvar* authored, std::string_view source,
+    DiagnosticSink* sink = nullptr);
+
+// Native indexed meshes store one tangent per vertex. A vertex shared by
+// triangles of opposite UV handedness cannot hold either frame, so it is left
+// without one and counted as a conflict; its triangles shade with the
+// derivative frame. Producers that need vertex frames there split vertices on
+// mirror seams exactly as they split them on texture seams.
+// An all-zero authored vertex tangent means "no frame" and is kept, not
+// repaired; any other unusable authored tangent is regenerated.
+struct VertexTangentPreparation {
+  std::vector<Vec4> tangents;
+  bool generated{};
+  std::size_t degenerate_count{};
+  std::size_t unresolved_count{};
+  std::size_t handedness_conflicts{};
+};
+
+[[nodiscard]] VertexTangentPreparation PrepareVertexTangents(
+    std::span<const Vec3> positions, std::span<const std::uint32_t> indices,
+    std::span<const Vec3> normals, std::span<const Vec2> texcoords,
+    std::span<const Vec4> authored);
+
 } // namespace merlin

@@ -22,7 +22,7 @@ enum, Metal object, or UI widget crosses this boundary.
 | `exposure_ev` | Lit Forward energy multiplier `2^EV`, bounded to `[-32, 32]` | `0` |
 | `tone_mapping` | None or Reinhard for lit Forward; ACES reserved and rejected | `reinhard` |
 | `alpha_policy` | Opaque, mask, or blend policy | `opaque` |
-| `debug_view` | None, color, depth, primitive ID, instance ID, normal (final `Ns`), geometric normal, base shading normal, or front-facing | `none` |
+| `debug_view` | None, color, depth, primitive ID, instance ID, normal (final `Ns`), geometric normal, base shading normal, front-facing, tangent, or bitangent | `none` |
 | `validation` | Request validation for a backend created with validation support | `false` |
 | `telemetry` | Off, basic, or detailed collection policy | `basic` |
 
@@ -88,9 +88,9 @@ The native viewport applies the same fields through its settings controls.
 
 ## Forward surface debug views
 
-`normal`, `geometric-normal`, `shading-normal-base` and `front-facing` render
-the shared Forward [surface context](surface-geometry.md#debug-views) as unlit
-RGB. They are per-submission `RenderRequest::debug_view` values, like the
+`normal`, `geometric-normal`, `shading-normal-base`, `front-facing`,
+`tangent` and `bitangent` render the shared Forward
+[surface context](surface-geometry.md#debug-views) as unlit RGB. They are per-submission `RenderRequest::debug_view` values, like the
 output transform, and do not dirty snapshots, geometry or pipelines. Color,
 depth and ID debug views remain representable but rejected. Hydra accepts
 `merlin:debugView` as a string or token, lists it in the setting descriptors,
@@ -134,8 +134,9 @@ development viewport's `SetGpuDrivenGaussianSettings` shares it too.
 Settings versioning does not silently coerce an unknown schema to v3. Schema v2
 added the GPU-driven indexed submission policy and schema v3 the GPU-driven
 Gaussian execution policy; each bumped the backend capability contract.
-Backend contract version 4 adds the per-request Forward output transform and
-version 5 the per-request Forward surface debug view;
+Backend contract version 4 adds the per-request Forward output transform,
+version 5 the per-request Forward surface debug view and version 6 the
+tangent views with the tangent-carrying vertex layout;
 the renderer-settings field layout remains v3. Adapters may translate a host's own configuration into v3, but
 must preserve an explicit rejected/fallback result for values that cannot be represented or
 executed.

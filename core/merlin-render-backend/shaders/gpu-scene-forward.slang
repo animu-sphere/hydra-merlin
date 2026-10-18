@@ -16,6 +16,10 @@ DrawConstants LoadForwardGpuDrawConstants(float4x4 view_projection, GpuGeometry 
         material.base_color_texture_index == kInvalidGpuSceneTableIndex ||
         material.base_color_sampler_index == kInvalidGpuSceneTableIndex)
         result.feature_mask &= ~kBaseColorTextureFlag;
+    if ((geometry.attribute_mask & 4u) == 0u ||
+        material.normal_texture_index == kInvalidGpuSceneTableIndex ||
+        material.normal_sampler_index == kInvalidGpuSceneTableIndex)
+        result.feature_mask &= ~kNormalTextureFlag;
     if ((material.material_class_flags & (1u << 16u)) != 0u)
         result.feature_mask |= kMaskedAlphaFlag;
     result.prim_id = instance.object_id;
@@ -32,5 +36,8 @@ MaterialConstants LoadForwardGpuMaterialConstants(GpuMaterial material, Material
 {
     lighting.base_color = material.base_color;
     lighting.light_color_alpha_cutoff.a = material.surface_factors.z;
+    lighting.normal_map = material.normal_factors;
+    lighting.normal_map_resource = uint4(material.normal_texture_index,
+        material.normal_sampler_index, 0u, 0u);
     return lighting;
 }

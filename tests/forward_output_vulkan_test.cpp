@@ -1,5 +1,6 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
+#include <merlin/vulkan/descriptor_indexing.hpp>
 #include <merlin/vulkan/renderer.hpp>
 #include "forward_output_fixture.hpp"
 #include "surface_geometry_fixture.hpp"
@@ -121,10 +122,15 @@ int main(int argc, char** argv) try {
         request.output_transform = {};
         request.debug_view = view;
         if (scene) {
+          // A fresh renderer places the fixture's normal map at the first
+          // non-reserved bindless texture slot and the first sampler slot.
+          const auto surface_bindings =
+              merlin::tests::SurfaceGeometryMaterialBindings(*snapshot,
+                  merlin::vulkan::kReservedBindlessTextureSlots, 0);
           request.gpu_scene_update =
               std::make_shared<merlin::render::GpuScenePackedFrameUpdate>(
                   surface_packing->Apply(*snapshot, completion, completion,
-                      {placements, identities, bindings}));
+                      {placements, identities, surface_bindings}));
         }
         const auto result = renderer->Resolve(renderer->Submit(request));
         completion = result.completion_value;
@@ -146,7 +152,8 @@ int main(int argc, char** argv) try {
     debug_view_rejected =
         error.code() == merlin::vulkan::RendererErrorCode::InvalidRequest;
   }
-  if (!debug_view_rejected || validation_messages != 0)
+  if (!debug_view_rejected || validation_messages != 0 ||
+      surface.cases != 21)
     return 1;
   std::cout << mode << ": surface geometry cases=" << surface.cases
             << " samples=" << surface.samples

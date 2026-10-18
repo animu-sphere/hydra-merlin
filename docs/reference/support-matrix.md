@@ -1,6 +1,6 @@
 # Support matrix
 
-**Last reviewed:** 2026-10-12
+**Last reviewed:** 2026-10-18
 
 This is the canonical answer to "what works now?". It separates a required
 contract from a configuration actually exercised by project CI or local
@@ -188,8 +188,8 @@ they are not implied to work by the availability of the surrounding adapter.
 ### Surface geometry and normals
 
 The [surface geometry contract](../design/surface-geometry.md) defines the
-semantics. The normal part is implemented; tangent frames and normal mapping
-are not:
+semantics. Normals, tangent frames and tangent-space normal mapping are
+implemented:
 
 - Shared Mesh attribute preparation applies authored -> generated -> `Ng` for
   native and Hydra meshes. Hydra accepts all five interpolations, indexed or
@@ -236,10 +236,50 @@ are not:
   differences come from the world-fixed SH environment. Native producers in
   this repository either author normals or are planar `+Z` meshes, whose
   generated normals equal the previous `+Z` fallback.
-- Tangents, tangent-space normal maps, derivative tangent frames and tangent
-  debug views are unsupported (v0.16.6). MaterialX `normal` accepts an already
-  constructed world-space normal, which is subject to the facing and hemisphere
-  rules.
+- Shared Mesh attribute preparation applies authored -> generated tangents
+  for native and Hydra meshes. Hydra accepts a float3/float4 `tangents`
+  primvar with every interpolation; generation uses texture coordinate set 0
+  with MikkTSpace conventions and splits mirrored UV islands and seams. Native
+  vertices shared by opposite UV handedness carry no vertex frame and are
+  counted (`GeometryRecord::tangent_handedness_conflicts`).
+- Every Vulkan and Metal Forward entry builds the tangent frame in the shared
+  Slang surface context: vertex tangents transformed by `M3` with transform
+  handedness, Gram–Schmidt against `Ns_base`, the screen-space derivative
+  frame when a triangle has no consistent vertex frame, and `T`/`T.w` negated
+  on double-sided back faces. Linear normal textures decode as `2t - 1` with a
+  material green flip and xy scale and apply through that frame before the
+  hemisphere rule. Conventional Vulkan binds the normal texture at set 0
+  binding 1 and native Metal at texture/sampler 1; bindless, argument-table
+  and GPU Scene paths read its table slots from the material.
+- UsdPreviewSurface `normal` <- `UsdUVTexture` is ingested when its
+  scale/bias express the `2t - 1` decode (optionally with a negated green
+  channel or scaled xy); identity scale/bias decodes as `2t - 1` with a
+  `hydra.material.normal-map` diagnostic, other encodings disable the map.
+  Normal maps on geometry without texture coordinates are disabled per draw
+  and reported (`surface.normal-map.disabled`).
+- `tangent` and `bitangent` debug views join the surface views.
+- Local Apple M3 evidence: the analytic fixture's 21 cases, including
+  generated and authored tangents, a 4x exaggerated green-flipped map, a
+  tilted non-uniformly scaled frame, a mirrored instance, a double-sided back
+  face, a mirror-seam derivative frame and a map without texture coordinates,
+  pass the native Metal conventional and GPU Scene paths with at most 1/255
+  channel error in all six debug views. The usdview normals fixture adds
+  generated, green-flipped, mirrored and authored-tangent normal-map probes;
+  all 60 Tier 0 and HgiMetal centers match the oracle exactly and agree
+  between the presentation modes. On RTX A5000 (GPU capability CI
+  [39101630195](https://github.com/animu-sphere/hydra-merlin/actions/runs/39101630195),
+  Debug/Release) the 21 analytic cases pass Vulkan conventional, bindless,
+  GPU Scene and GPU-driven Forward within the same 1/255 bound, and the
+  MaterialX-generated Forward build passes after shader ABI 13. The usdview
+  normals fixture
+  ([39102861812](https://github.com/animu-sphere/hydra-merlin/actions/runs/39102861812))
+  passes Tier 0 and HgiVulkan with identical centers; all 60 centers,
+  including normal-map sign, flip, mirroring and authored tangents, agree
+  with Apple M3 Metal within 1/255.
+- MaterialX `normal` accepts an already constructed world-space normal, which
+  is subject to the facing and hemisphere rules. The MaterialX `normalmap`
+  node remains unsupported and diagnosed; MaterialX tangent-space normal maps
+  are not claimed.
 
 ### Other
 

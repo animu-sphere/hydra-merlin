@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 12;
+inline constexpr std::uint32_t kVersion = 13;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -45,6 +45,8 @@ struct alignas(16) MaterialConstants {
   std::array<Vec4, 9> diffuse_environment;
   Vec4 output_transform;
   Vec4 surface_policy;
+  Vec4 normal_map;
+  std::array<std::uint32_t, 4> normal_map_resource{};
 };
 
 // Table-backed Forward keeps indexed submission on the CPU while selecting a
@@ -57,7 +59,7 @@ struct alignas(16) GpuSceneDrawConstants {
 
 inline constexpr std::uint32_t kGpuDrivenVisibilityMaskCulling = 1U << 0U;
 inline constexpr std::uint32_t kGpuDrivenFrustumCulling = 1U << 1U;
-inline constexpr std::uint32_t kGpuDrivenIndexedVertexStride = 48U;
+inline constexpr std::uint32_t kGpuDrivenIndexedVertexStride = 64U;
 inline constexpr std::uint32_t kGpuDrivenIndexedWorkgroupSize = 64U;
 
 [[nodiscard]] constexpr std::uint32_t GpuDrivenIndexedWorkgroupCount(
@@ -407,7 +409,7 @@ static_assert(offsetof(DrawConstants, feature_mask) == 112);
 static_assert(offsetof(DrawConstants, prim_id) == 116);
 static_assert(offsetof(DrawConstants, instance_id) == 120);
 static_assert(offsetof(DrawConstants, texture_index) == 124);
-static_assert(sizeof(MaterialConstants) == 224);
+static_assert(sizeof(MaterialConstants) == 256);
 static_assert(alignof(MaterialConstants) == 16);
 static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);
@@ -415,6 +417,8 @@ static_assert(offsetof(MaterialConstants, light_color_alpha_cutoff) == 32);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 static_assert(offsetof(MaterialConstants, output_transform) == 192);
 static_assert(offsetof(MaterialConstants, surface_policy) == 208);
+static_assert(offsetof(MaterialConstants, normal_map) == 224);
+static_assert(offsetof(MaterialConstants, normal_map_resource) == 240);
 static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
@@ -518,6 +522,8 @@ struct ResourceBinding {
 
 inline constexpr ResourceBinding kConventionalBaseColorTexture{
     0, 0, ResourceClass::CombinedImageSampler};
+inline constexpr ResourceBinding kConventionalNormalTexture{
+    0, 1, ResourceClass::CombinedImageSampler};
 inline constexpr ResourceBinding kConventionalMaterialConstants{
     0, 31, ResourceClass::UniformBuffer};
 inline constexpr ResourceBinding kBindlessSamplers{

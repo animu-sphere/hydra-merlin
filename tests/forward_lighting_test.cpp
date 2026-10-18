@@ -58,10 +58,13 @@ void DrawPolicies() {
     std::array<merlin::Vec4, 9> diffuse_environment;
     merlin::Vec4 output_transform;
     merlin::Vec4 surface_policy;
+    merlin::Vec4 normal_map;
   };
   merlin::extraction::MaterialRecord material;
   material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
   material.parameters.alpha_cutoff = 0.25F;
+  material.parameters.normal_scale = 0.5F;
+  material.parameters.normal_flip_green = true;
   merlin::render::ForwardDirectionalLighting lighting;
   lighting.direction_intensity = {0.0F, 1.0F, 0.0F, 0.0F};
   lighting.color = {0.5F, 0.6F, 0.7F};
@@ -80,6 +83,7 @@ void DrawPolicies() {
   assert(upload.light_color_alpha_cutoff.z == 0.7F);
   assert(upload.light_color_alpha_cutoff.w == 0.25F);
   assert(upload.diffuse_environment[8].z == 3.0F);
+  assert(upload.normal_map.x == 0.5F && upload.normal_map.y == -1.0F);
 }
 
 } // namespace

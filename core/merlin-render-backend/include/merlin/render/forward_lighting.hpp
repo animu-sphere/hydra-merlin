@@ -48,6 +48,8 @@ template <typename Constants>
   result.diffuse_environment = diffuse_environment;
   result.output_transform = frame.output_transform;
   result.surface_policy = frame.surface_policy;
+  result.normal_map = {material.parameters.normal_scale,
+      material.parameters.normal_flip_green ? -1.0F : 1.0F, 0.0F, 0.0F};
   return result;
 }
 

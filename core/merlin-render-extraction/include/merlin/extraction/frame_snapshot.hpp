@@ -17,6 +17,9 @@ struct DrawVertex {
   Vec3 normal{0.0F, 0.0F, 1.0F};
   Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
   Vec2 texcoord{};
+  // Tangent xyz and handedness w (+/-1). A zero tangent has no vertex frame;
+  // shading uses the screen-space derivative frame.
+  Vec4 tangent{};
 };
 
 // Snapshot records are keyed by the serialized RenderWorld handle value, which
@@ -52,6 +55,15 @@ struct GeometryRecord {
   bool generated_normals{};
   std::uint32_t degenerate_normal_count{};
   bool double_sided{};
+  // has_tangents reports authored tangents. Missing tangents are generated
+  // from texcoord set 0; vertices without a usable frame, including vertices
+  // shared by opposite UV handedness (tangent_handedness_conflicts), carry a
+  // zero tangent and are counted in unresolved_tangent_count.
+  bool has_tangents{};
+  bool generated_tangents{};
+  std::uint32_t degenerate_tangent_count{};
+  std::uint32_t unresolved_tangent_count{};
+  std::uint32_t tangent_handedness_conflicts{};
 };
 
 struct GaussianRecord {
@@ -112,6 +124,7 @@ struct MaterialRecord {
   std::uint64_t resource_binding_revision{};
   MaterialParameterBlock parameters;
   std::optional<TextureBindingRecord> base_color_texture;
+  std::optional<TextureBindingRecord> normal_texture;
   AlphaMode alpha_mode{AlphaMode::Opaque};
   bool double_sided{};
   MaterialFeature features{MaterialFeature::None};

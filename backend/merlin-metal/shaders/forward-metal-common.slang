@@ -24,9 +24,21 @@ ForwardVertexOutput EvaluateMetalVertex(ForwardVertexInput input, DrawConstants 
 [ForceInline]
 ForwardFragmentOutput ShadeMetalForward(
     ForwardVertexOutput input, bool front_facing, DrawConstants draw,
-    MaterialConstants material, float4 texture_sample)
+    MaterialConstants material, float4 texture_sample, float4 normal_sample)
 {
     input.color *= material.base_color;
-    return MakeForwardFragmentOutput(
-        ShadeForward(input, front_facing, material, texture_sample, draw), draw);
+    return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
+        material, texture_sample, normal_sample, draw), draw);
+}
+
+// Argument-table normal texture read; the material block carries its slots.
+[ForceInline]
+float4 SampleMetalNormalTexture(
+    ForwardVertexOutput input, DrawConstants draw, MaterialConstants material)
+{
+    float4 normal_sample = float4(0.5f, 0.5f, 1.0f, 1.0f);
+    if (HasNormalTexture(draw))
+        normal_sample = resources.textures[material.normal_map_resource.x].Sample(
+            resources.samplers[material.normal_map_resource.y], input.texture_coordinate);
+    return normal_sample;
 }

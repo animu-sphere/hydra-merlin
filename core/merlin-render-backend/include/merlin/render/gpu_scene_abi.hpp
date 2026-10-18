@@ -11,7 +11,7 @@ namespace merlin::render {
 
 // Common CPU/shader layout for persistent GPU Scene tables. Bump the version
 // whenever any record's meaning, field order, size, or alignment changes.
-inline constexpr std::uint32_t kGpuSceneAbiVersion = 1;
+inline constexpr std::uint32_t kGpuSceneAbiVersion = 2;
 
 inline constexpr std::uint32_t kInvalidGpuSceneTableIndex = ~std::uint32_t{};
 
@@ -46,8 +46,10 @@ struct alignas(16) GpuInstance {
 };
 
 // surface_factors contains metallic, roughness, alpha cutoff, and one reserved
-// zero in that order. Resource indices name the persistent bindless tables;
-// an absent resource uses kInvalidGpuSceneTableIndex.
+// zero in that order. normal_factors contains the normal-map xy scale, the
+// green-channel sign (+1, or -1 for a flipped map) and two reserved zeros.
+// Resource indices name the persistent bindless tables; an absent resource
+// uses kInvalidGpuSceneTableIndex.
 struct alignas(16) GpuMaterial {
   Vec4 base_color{1.0F, 1.0F, 1.0F, 1.0F};
   Vec4 surface_factors{0.0F, 0.5F, 0.5F, 0.0F};
@@ -55,6 +57,11 @@ struct alignas(16) GpuMaterial {
   std::uint32_t base_color_texture_index{kInvalidGpuSceneTableIndex};
   std::uint32_t base_color_sampler_index{kInvalidGpuSceneTableIndex};
   std::uint32_t base_color_texcoord_set{};
+  Vec4 normal_factors{1.0F, 1.0F, 0.0F, 0.0F};
+  std::uint32_t normal_texture_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t normal_sampler_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t normal_texcoord_set{};
+  std::uint32_t reserved{};
 };
 
 // draw_id_low/high preserve the source-local 64-bit DrawRecord identity across
@@ -112,7 +119,7 @@ static_assert(offsetof(GpuInstance, flags) == 124);
 
 static_assert(std::is_standard_layout_v<GpuMaterial>);
 static_assert(std::is_trivially_copyable_v<GpuMaterial>);
-static_assert(sizeof(GpuMaterial) == 48);
+static_assert(sizeof(GpuMaterial) == 80);
 static_assert(alignof(GpuMaterial) == 16);
 static_assert(offsetof(GpuMaterial, base_color) == 0);
 static_assert(offsetof(GpuMaterial, surface_factors) == 16);
@@ -120,6 +127,11 @@ static_assert(offsetof(GpuMaterial, material_class_flags) == 32);
 static_assert(offsetof(GpuMaterial, base_color_texture_index) == 36);
 static_assert(offsetof(GpuMaterial, base_color_sampler_index) == 40);
 static_assert(offsetof(GpuMaterial, base_color_texcoord_set) == 44);
+static_assert(offsetof(GpuMaterial, normal_factors) == 48);
+static_assert(offsetof(GpuMaterial, normal_texture_index) == 64);
+static_assert(offsetof(GpuMaterial, normal_sampler_index) == 68);
+static_assert(offsetof(GpuMaterial, normal_texcoord_set) == 72);
+static_assert(offsetof(GpuMaterial, reserved) == 76);
 
 static_assert(std::is_standard_layout_v<GpuDraw>);
 static_assert(std::is_trivially_copyable_v<GpuDraw>);

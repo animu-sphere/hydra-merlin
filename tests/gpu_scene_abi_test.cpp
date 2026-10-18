@@ -155,7 +155,12 @@ void RequireAbi(std::string_view json) {
           FieldExpectation{"material_class_flags", 32, 4},
           FieldExpectation{"base_color_texture_index", 36, 4},
           FieldExpectation{"base_color_sampler_index", 40, 4},
-          FieldExpectation{"base_color_texcoord_set", 44, 4}});
+          FieldExpectation{"base_color_texcoord_set", 44, 4},
+          FieldExpectation{"normal_factors", 48, 16},
+          FieldExpectation{"normal_texture_index", 64, 4},
+          FieldExpectation{"normal_sampler_index", 68, 4},
+          FieldExpectation{"normal_texcoord_set", 72, 4},
+          FieldExpectation{"reserved", 76, 4}});
   RequireLayout(json, "GpuDraw",
       std::array{FieldExpectation{"geometry_index", 0, 4},
           FieldExpectation{"material_index", 4, 4},
@@ -179,12 +184,14 @@ int main(int argc, char** argv) {
     RequireAbi(CompactJson(Read(argv[2])));
 
     using namespace merlin::render;
-    static_assert(kGpuSceneAbiVersion == 1);
+    static_assert(kGpuSceneAbiVersion == 2);
     if (GpuGeometry{}.meshlet_offset != kInvalidGpuSceneTableIndex ||
         GpuMaterial{}.base_color_texture_index !=
             kInvalidGpuSceneTableIndex ||
         GpuMaterial{}.base_color_sampler_index !=
             kInvalidGpuSceneTableIndex ||
+        GpuMaterial{}.normal_texture_index != kInvalidGpuSceneTableIndex ||
+        GpuMaterial{}.normal_sampler_index != kInvalidGpuSceneTableIndex ||
         GpuDraw{}.geometry_index != kInvalidGpuSceneTableIndex ||
         GpuDraw{}.material_index != kInvalidGpuSceneTableIndex ||
         GpuDraw{}.instance_index != kInvalidGpuSceneTableIndex) {

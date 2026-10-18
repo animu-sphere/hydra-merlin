@@ -2,6 +2,8 @@
 #include "distant_light.hpp"
 
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/gf/vec4d.h>
+#include <pxr/base/gf/vec4f.h>
 #include <pxr/base/gf/quath.h>
 #include <pxr/base/gf/quatf.h>
 #include <pxr/base/gf/quaternion.h>
@@ -577,31 +579,36 @@ bool ReadArrayElement(const VtValue& value, std::size_t index,
   return true;
 }
 
+std::optional<merlin::PrimvarInterpolation> ToPrimvarInterpolation(
+    HdInterpolation interpolation) {
+  switch (interpolation) {
+  case HdInterpolationConstant:
+    return merlin::PrimvarInterpolation::Constant;
+  case HdInterpolationUniform:
+    return merlin::PrimvarInterpolation::Uniform;
+  case HdInterpolationVertex:
+    return merlin::PrimvarInterpolation::Vertex;
+  case HdInterpolationVarying:
+    return merlin::PrimvarInterpolation::Varying;
+  case HdInterpolationFaceVarying:
+    return merlin::PrimvarInterpolation::FaceVarying;
+  case HdInterpolationInstance:
+  case HdInterpolationCount:
+    break;
+  }
+  return std::nullopt;
+}
+
 // Resolves Hydra storage into the host-neutral primvar consumed by shared
 // normal preparation; the element mapping itself is not duplicated here.
 std::optional<merlin::NormalPrimvar> ToNormalPrimvar(
     const PrimvarInput& input) {
   merlin::NormalPrimvar result;
-  switch (input.interpolation) {
-  case HdInterpolationConstant:
-    result.interpolation = merlin::PrimvarInterpolation::Constant;
-    break;
-  case HdInterpolationUniform:
-    result.interpolation = merlin::PrimvarInterpolation::Uniform;
-    break;
-  case HdInterpolationVertex:
-    result.interpolation = merlin::PrimvarInterpolation::Vertex;
-    break;
-  case HdInterpolationVarying:
-    result.interpolation = merlin::PrimvarInterpolation::Varying;
-    break;
-  case HdInterpolationFaceVarying:
-    result.interpolation = merlin::PrimvarInterpolation::FaceVarying;
-    break;
-  case HdInterpolationInstance:
-  case HdInterpolationCount:
+  const auto interpolation = ToPrimvarInterpolation(input.interpolation);
+  if (!interpolation) {
     return std::nullopt;
   }
+  result.interpolation = *interpolation;
   const auto append = [&](const auto& values) {
     result.values.reserve(values.size());
     for (const auto& value : values) {
@@ -613,6 +620,39 @@ std::optional<merlin::NormalPrimvar> ToNormalPrimvar(
     append(input.value.UncheckedGet<VtVec3fArray>());
   } else if (input.value.IsHolding<VtVec3dArray>()) {
     append(input.value.UncheckedGet<VtVec3dArray>());
+  } else {
+    return std::nullopt;
+  }
+  result.indices.assign(input.indices.begin(), input.indices.end());
+  return result;
+}
+
+// A float4 `tangents` primvar carries handedness in w; a float3 one is
+// right-handed (w = +1).
+std::optional<merlin::TangentPrimvar> ToTangentPrimvar(
+    const PrimvarInput& input) {
+  merlin::TangentPrimvar result;
+  const auto interpolation = ToPrimvarInterpolation(input.interpolation);
+  if (!interpolation) {
+    return std::nullopt;
+  }
+  result.interpolation = *interpolation;
+  const auto append = [&](const auto& values, bool has_handedness) {
+    result.values.reserve(values.size());
+    for (const auto& value : values) {
+      result.values.push_back({static_cast<float>(value[0]),
+          static_cast<float>(value[1]), static_cast<float>(value[2]),
+          has_handedness ? static_cast<float>(value[3]) : 1.0F});
+    }
+  };
+  if (input.value.IsHolding<VtVec4fArray>()) {
+    append(input.value.UncheckedGet<VtVec4fArray>(), true);
+  } else if (input.value.IsHolding<VtVec4dArray>()) {
+    append(input.value.UncheckedGet<VtVec4dArray>(), true);
+  } else if (input.value.IsHolding<VtVec3fArray>()) {
+    append(input.value.UncheckedGet<VtVec3fArray>(), false);
+  } else if (input.value.IsHolding<VtVec3dArray>()) {
+    append(input.value.UncheckedGet<VtVec3dArray>(), false);
   } else {
     return std::nullopt;
   }
@@ -984,6 +1024,11 @@ struct ParsedMaterial {
   std::optional<merlin::TextureDescriptor> texture;
   merlin::SamplerDescriptor sampler;
   std::string diagnostic;
+  // UsdPreviewSurface normal <- UsdUVTexture. A rejected or reinterpreted
+  // normal input reports normal_diagnostic; the rest of the material stays.
+  std::optional<merlin::TextureDescriptor> normal_texture;
+  merlin::SamplerDescriptor normal_sampler;
+  std::string normal_diagnostic;
 };
 
 bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
@@ -993,22 +1038,26 @@ bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
          lhs.base_color.z == rhs.base_color.z &&
          lhs.base_color.w == rhs.base_color.w &&
          lhs.metallic == rhs.metallic && lhs.roughness == rhs.roughness &&
-         lhs.alpha_cutoff == rhs.alpha_cutoff;
+         lhs.alpha_cutoff == rhs.alpha_cutoff &&
+         lhs.normal_scale == rhs.normal_scale &&
+         lhs.normal_flip_green == rhs.normal_flip_green;
+}
+
+bool TextureBindingsEqual(const std::optional<merlin::TextureBinding>& lhs,
+    const std::optional<merlin::TextureBinding>& rhs) {
+  if (lhs.has_value() != rhs.has_value()) {
+    return false;
+  }
+  return !lhs || (lhs->texture == rhs->texture &&
+                     lhs->sampler == rhs->sampler &&
+                     lhs->texcoord_set == rhs->texcoord_set);
 }
 
 bool MaterialFeaturesEqual(const merlin::MaterialDescriptor& lhs,
     const merlin::MaterialDescriptor& rhs) {
-  if (lhs.base_color_texture.has_value() !=
-      rhs.base_color_texture.has_value()) {
+  if (!TextureBindingsEqual(lhs.base_color_texture, rhs.base_color_texture) ||
+      !TextureBindingsEqual(lhs.normal_texture, rhs.normal_texture)) {
     return false;
-  }
-  if (lhs.base_color_texture) {
-    const auto& a = *lhs.base_color_texture;
-    const auto& b = *rhs.base_color_texture;
-    if (a.texture != b.texture || a.sampler != b.sampler ||
-        a.texcoord_set != b.texcoord_set) {
-      return false;
-    }
   }
   return lhs.alpha_mode == rhs.alpha_mode &&
          lhs.double_sided == rhs.double_sided && lhs.features == rhs.features;
@@ -1026,6 +1075,92 @@ bool SamplerDescriptorsEqual(const merlin::SamplerDescriptor& lhs,
   return lhs.label == rhs.label && lhs.min_filter == rhs.min_filter &&
          lhs.mag_filter == rhs.mag_filter && lhs.address_u == rhs.address_u &&
          lhs.address_v == rhs.address_v;
+}
+
+bool ReadVec4Parameter(const HdMaterialNode2& node, const char* name,
+    merlin::Vec4& result) {
+  const auto* value = FindParameter(node, name);
+  if (value == nullptr) {
+    return false;
+  }
+  if (value->IsHolding<GfVec4f>()) {
+    const auto& v = value->UncheckedGet<GfVec4f>();
+    result = {v[0], v[1], v[2], v[3]};
+    return true;
+  }
+  if (value->IsHolding<GfVec4d>()) {
+    const auto& v = value->UncheckedGet<GfVec4d>();
+    result = {static_cast<float>(v[0]), static_cast<float>(v[1]),
+        static_cast<float>(v[2]), static_cast<float>(v[3])};
+    return true;
+  }
+  return false;
+}
+
+// UsdPreviewSurface.normal is a tangent-space normal produced by its
+// UsdUVTexture's `texel * scale + bias`. The surface contract decodes
+// 2 * texel - 1, optionally with a negated green channel and a scaled xy, so
+// that is the encoding accepted here: z must be 2t - 1 and xy s * (2t - 1),
+// with y possibly negated. A texture without scale/bias is decoded as 2t - 1
+// and reported; any other encoding disables normal mapping.
+void ParseNormalMap(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& surface, ParsedMaterial& result) {
+  const auto connection = surface.inputConnections.find(TfToken("normal"));
+  if (connection == surface.inputConnections.end() ||
+      connection->second.empty()) {
+    return;
+  }
+  const auto node =
+      network.nodes.find(connection->second.front().upstreamNode);
+  if (node == network.nodes.end() ||
+      node->second.nodeTypeId != TfToken("UsdUVTexture")) {
+    result.normal_diagnostic =
+        "normal connection is not a UsdUVTexture; normal mapping is disabled";
+    return;
+  }
+  merlin::Vec4 scale{1.0F, 1.0F, 1.0F, 1.0F};
+  merlin::Vec4 bias{};
+  const bool authored_scale = ReadVec4Parameter(node->second, "scale", scale);
+  const bool authored_bias = ReadVec4Parameter(node->second, "bias", bias);
+  const auto approx = [](float a, float b) { return std::abs(a - b) <= 1.0e-5F; };
+  const bool identity = approx(scale.x, 1.0F) && approx(scale.y, 1.0F) &&
+                        approx(scale.z, 1.0F) && approx(bias.x, 0.0F) &&
+                        approx(bias.y, 0.0F) && approx(bias.z, 0.0F);
+  float normal_scale = 1.0F;
+  bool flip_green = false;
+  if (identity) {
+    result.normal_diagnostic =
+        std::string(authored_scale || authored_bias ? "identity" : "no") +
+        " normal texture scale/bias; decoding it as 2 * texel - 1";
+  } else {
+    normal_scale = 0.5F * scale.x;
+    flip_green = scale.y < 0.0F;
+    const float green = flip_green ? -normal_scale : normal_scale;
+    if (!(normal_scale > 0.0F) || !std::isfinite(normal_scale) ||
+        !approx(bias.x, -normal_scale) || !approx(scale.y, 2.0F * green) ||
+        !approx(bias.y, -green) || !approx(scale.z, 2.0F) ||
+        !approx(bias.z, -1.0F)) {
+      result.normal_diagnostic =
+          "normal texture scale/bias is not a 2 * texel - 1 tangent-space "
+          "encoding; normal mapping is disabled";
+      return;
+    }
+  }
+  std::string load_diagnostic;
+  auto texture = LoadTexture(node->second, load_diagnostic);
+  if (!texture) {
+    result.normal_diagnostic =
+        load_diagnostic + "; normal mapping is disabled";
+    return;
+  }
+  result.normal_texture = std::move(texture);
+  result.normal_sampler.label =
+      result.material.label + ":normalSampler";
+  result.normal_sampler.address_u = ReadAddressMode(node->second, "wrapS");
+  result.normal_sampler.address_v = ReadAddressMode(node->second, "wrapT");
+  result.material.parameters.normal_scale = normal_scale;
+  result.material.parameters.normal_flip_green = flip_green;
+  result.material.features |= merlin::MaterialFeature::NormalTexture;
 }
 
 ParsedMaterial ParseMaterialResource(const SdfPath& path,
@@ -1096,6 +1231,8 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
   } else if (opacity < 1.0F) {
     result.material.alpha_mode = merlin::AlphaMode::Blended;
   }
+
+  ParseNormalMap(network, *surface, result);
 
   const auto color_connection =
       surface->inputConnections.find(TfToken("diffuseColor"));
@@ -1168,6 +1305,8 @@ struct MaterialEntry {
   merlin::MaterialDescriptor descriptor;
   std::optional<merlin::TextureHandle> texture;
   std::optional<merlin::SamplerHandle> sampler;
+  std::optional<merlin::TextureHandle> normal_texture;
+  std::optional<merlin::SamplerHandle> normal_sampler;
 };
 
 bool IsInCollection(const SdfPath& path,
@@ -1462,48 +1601,66 @@ public:
     cameras_.erase(found);
   }
 
+  // Creates or updates one material texture/sampler pair and returns its
+  // binding; nothing when the parsed material has no such texture.
+  std::optional<merlin::TextureBinding> AcquireTextureSlotLocked(
+      std::optional<merlin::TextureHandle>& texture,
+      std::optional<merlin::SamplerHandle>& sampler,
+      std::optional<merlin::TextureDescriptor> parsed_texture,
+      merlin::SamplerDescriptor parsed_sampler) {
+    if (!parsed_texture) {
+      return std::nullopt;
+    }
+    if (!texture) {
+      texture = world_.CreateTexture(std::move(*parsed_texture));
+    } else if (!TextureDescriptorsEqual(world_.Get(*texture), *parsed_texture)) {
+      world_.UpdateTexture(*texture, std::move(*parsed_texture));
+    }
+    if (!sampler) {
+      sampler = world_.CreateSampler(std::move(parsed_sampler));
+    } else if (!SamplerDescriptorsEqual(world_.Get(*sampler), parsed_sampler)) {
+      world_.UpdateSampler(*sampler, std::move(parsed_sampler));
+    }
+    return merlin::TextureBinding{*texture, *sampler, 0};
+  }
+
+  // Removes a pair the material no longer binds. Called after the material
+  // update so no committed material references a removed resource.
+  void ReleaseTextureSlotLocked(std::optional<merlin::TextureHandle>& texture,
+      std::optional<merlin::SamplerHandle>& sampler) {
+    if (texture) {
+      world_.Remove(*texture);
+      texture.reset();
+    }
+    if (sampler) {
+      world_.Remove(*sampler);
+      sampler.reset();
+    }
+  }
+
   void SyncMaterial(const SdfPath& path, ParsedMaterial parsed) {
     ScopedAtomicTimer update_timer(g_hydra_telemetry.render_world_update_ns);
     std::scoped_lock lock(mutex_);
     const auto key = path.GetString();
     auto found = materials_.find(key);
-    if (found == materials_.end()) {
-      MaterialEntry entry;
-      entry.authored = true;
-      entry.descriptor = std::move(parsed.material);
-      if (parsed.texture) {
-        entry.texture = world_.CreateTexture(std::move(*parsed.texture));
-        entry.sampler = world_.CreateSampler(std::move(parsed.sampler));
-        entry.descriptor.base_color_texture = merlin::TextureBinding{
-            *entry.texture, *entry.sampler, 0};
-      }
-      entry.handle = world_.CreateMaterial(entry.descriptor);
-      materials_.emplace(key, std::move(entry));
-      return;
+    const bool created = found == materials_.end();
+    if (created) {
+      found = materials_.emplace(key, MaterialEntry{}).first;
     }
-
     auto& entry = found->second;
     entry.authored = true;
+    const bool has_texture = parsed.texture.has_value();
+    const bool has_normal_texture = parsed.normal_texture.has_value();
     auto descriptor = std::move(parsed.material);
-    if (parsed.texture) {
-      if (entry.texture) {
-        if (!TextureDescriptorsEqual(world_.Get(*entry.texture),
-                *parsed.texture)) {
-          world_.UpdateTexture(*entry.texture, std::move(*parsed.texture));
-        }
-      } else {
-        entry.texture = world_.CreateTexture(std::move(*parsed.texture));
-      }
-      if (entry.sampler) {
-        if (!SamplerDescriptorsEqual(world_.Get(*entry.sampler),
-                parsed.sampler)) {
-          world_.UpdateSampler(*entry.sampler, std::move(parsed.sampler));
-        }
-      } else {
-        entry.sampler = world_.CreateSampler(std::move(parsed.sampler));
-      }
-      descriptor.base_color_texture =
-          merlin::TextureBinding{*entry.texture, *entry.sampler, 0};
+    descriptor.base_color_texture = AcquireTextureSlotLocked(entry.texture,
+        entry.sampler, std::move(parsed.texture), std::move(parsed.sampler));
+    descriptor.normal_texture = AcquireTextureSlotLocked(entry.normal_texture,
+        entry.normal_sampler, std::move(parsed.normal_texture),
+        std::move(parsed.normal_sampler));
+    if (created) {
+      entry.handle = world_.CreateMaterial(descriptor);
+      entry.descriptor = std::move(descriptor);
+      return;
     }
     merlin::ChangeAspect aspects = merlin::ChangeAspect::None;
     if (!MaterialParametersEqual(entry.descriptor.parameters,
@@ -1517,15 +1674,11 @@ public:
       world_.UpdateMaterial(entry.handle, descriptor, aspects);
     }
     entry.descriptor = std::move(descriptor);
-    if (!parsed.texture) {
-      if (entry.texture) {
-        world_.Remove(*entry.texture);
-        entry.texture.reset();
-      }
-      if (entry.sampler) {
-        world_.Remove(*entry.sampler);
-        entry.sampler.reset();
-      }
+    if (!has_texture) {
+      ReleaseTextureSlotLocked(entry.texture, entry.sampler);
+    }
+    if (!has_normal_texture) {
+      ReleaseTextureSlotLocked(entry.normal_texture, entry.normal_sampler);
     }
   }
 
@@ -1808,6 +1961,7 @@ public:
     const auto snapshot_build_counters =
         changes.empty() ? merlin::extraction::SnapshotBuildCounters{}
                         : snapshot->build_counters;
+    ReportNormalMapDisablementLocked(*snapshot);
     merlin::render::RenderRequest request;
     request.snapshot = snapshot;
     request.output_transform = output_transform_;
@@ -2109,6 +2263,13 @@ public:
                 }));
         const auto missing_texcoord_geometries =
             snapshot->geometries.size() - texcoord_geometries;
+        const auto normal_map_materials = static_cast<std::size_t>(
+            std::count_if(snapshot->materials.begin(),
+                snapshot->materials.end(), [](const auto& material) {
+                  return material.normal_texture.has_value();
+                }));
+        const auto normal_map_disabled_draws =
+            merlin::render::CountForwardNormalMapDisabledDraws(*snapshot);
         const auto hgi_vulkan_telemetry =
             hgi_vulkan_bridge_
                 ? hgi_vulkan_bridge_->telemetry()
@@ -2218,6 +2379,8 @@ public:
                << " texcoord_geometries=" << texcoord_geometries
                << " missing_texcoord_geometries="
                << missing_texcoord_geometries
+               << " normal_map_materials=" << normal_map_materials
+               << " normal_map_disabled_draws=" << normal_map_disabled_draws
                << " material_fallbacks=" << snapshot->material_fallbacks.size()
                << " generated_material_draw_count="
                << result.telemetry.generated_material_draw_count
@@ -2447,6 +2610,12 @@ private:
     if (found->second.sampler) {
       world_.Remove(*found->second.sampler);
     }
+    if (found->second.normal_texture) {
+      world_.Remove(*found->second.normal_texture);
+    }
+    if (found->second.normal_sampler) {
+      world_.Remove(*found->second.normal_sampler);
+    }
     materials_.erase(found);
   }
 
@@ -2515,7 +2684,30 @@ private:
     TfToken source;
   };
 
+  // Normal maps bound to geometry without texture coordinates are disabled
+  // per draw. Report each new count once per snapshot revision, not per frame.
+  void ReportNormalMapDisablementLocked(
+      const merlin::extraction::FrameSnapshot& snapshot) {
+    if (snapshot.revision == normal_map_report_revision_) {
+      return;
+    }
+    normal_map_report_revision_ = snapshot.revision;
+    const auto disabled =
+        merlin::render::CountForwardNormalMapDisabledDraws(snapshot);
+    if (disabled != 0U && disabled != reported_normal_map_disabled_draws_) {
+      ReportHydraDiagnostic("surface.normal-map.disabled",
+          SdfPath::AbsoluteRootPath(),
+          std::to_string(disabled) +
+              " draw(s) bind a normal map to geometry without texture "
+              "coordinates; normal mapping is disabled for them",
+          merlin::DiagnosticDisposition::Fallback, "use-shading-normal-base");
+    }
+    reported_normal_map_disabled_draws_ = disabled;
+  }
+
   mutable std::mutex mutex_;
+  std::uint64_t normal_map_report_revision_{};
+  std::size_t reported_normal_map_disabled_draws_{};
   merlin::RenderWorld world_;
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};
@@ -2715,6 +2907,11 @@ public:
         ReportHydraDiagnostic(
             "hydra.material.translation", GetId(), parsed.diagnostic,
             merlin::DiagnosticDisposition::Fallback, "constant-material");
+      }
+      if (!parsed.normal_diagnostic.empty()) {
+        ReportHydraDiagnostic("hydra.material.normal-map", GetId(),
+            parsed.normal_diagnostic, merlin::DiagnosticDisposition::Fallback,
+            parsed.normal_texture ? "decode-2t-minus-1" : "disable-normal-map");
       }
       bridge_->SyncMaterial(GetId(), std::move(parsed));
     }
@@ -3024,6 +3221,7 @@ private:
     descriptor_.normals.clear();
     descriptor_.colors.clear();
     descriptor_.texcoords.clear();
+    descriptor_.tangents.clear();
     descriptor_.indices.clear();
   }
 
@@ -3081,11 +3279,12 @@ private:
       TfToken name;
       bool texture_coordinate_fallback{};
     };
-    std::array<Request, 4> requests{
+    std::array<Request, 5> requests{
         Request{&normals_, HdTokens->normals, false},
         Request{&colors_, HdTokens->displayColor, false},
         Request{&opacities_, HdTokens->displayOpacity, false},
-        Request{&texcoords_, TfToken("st"), true}};
+        Request{&texcoords_, TfToken("st"), true},
+        Request{&tangents_, TfToken("tangents"), false}};
 
     bool changed{};
     for (auto& request : requests) {
@@ -3165,8 +3364,8 @@ private:
   }
 
   bool AnyCachedPrimvarDirty(HdChangeTracker& change_tracker) const {
-    const std::array<const PrimvarInput*, 4> caches{
-        &normals_, &colors_, &opacities_, &texcoords_};
+    const std::array<const PrimvarInput*, 5> caches{
+        &normals_, &colors_, &opacities_, &texcoords_, &tangents_};
     return std::any_of(caches.begin(), caches.end(), [&](const auto* cache) {
       return cache->present &&
              change_tracker.IsPrimvarDirty(GetId(), cache->source_name);
@@ -3353,6 +3552,46 @@ private:
     if (!normals.accepted()) {
       return;
     }
+    std::vector<merlin::Vec2> corner_texcoords;
+    if (texcoords_.present) {
+      corner_texcoords.reserve(packed_corners_.size());
+      for (const auto& corner : packed_corners_) {
+        merlin::Vec2 texcoord;
+        if (!ReadVec2(texcoords_, corner, texcoord)) {
+          ReportHydraDiagnostic(
+              "hydra.mesh.primvar.texcoord", GetId(),
+              "texture-coordinate primvar type, interpolation, or indices are malformed",
+              merlin::DiagnosticDisposition::Rejected, "reject-prim");
+          return;
+        }
+        corner_texcoords.push_back(texcoord);
+      }
+    }
+    // Shared preparation owns the authored -> generated tangent priority.
+    // Generation welds corners by point, UV, normal and handedness, so a mesh
+    // with flat generated normals keeps per-face frames.
+    std::optional<merlin::TangentPrimvar> authored_tangents;
+    if (tangents_.present) {
+      authored_tangents = ToTangentPrimvar(tangents_);
+      if (!authored_tangents) {
+        ReportHydraDiagnostic(
+            "mesh.tangents.malformed", GetId(),
+            "tangents primvar type, interpolation, or indices are malformed",
+            merlin::DiagnosticDisposition::Rejected, "reject-prim");
+        return;
+      }
+    }
+    std::optional<std::vector<merlin::Vec4>> corner_tangents;
+    if (authored_tangents || !corner_texcoords.empty()) {
+      auto tangents = merlin::PrepareCornerTangents(positions,
+          packed_corners_, *normals.normals, corner_texcoords,
+          authored_tangents ? &*authored_tangents : nullptr,
+          GetId().GetString(), &g_diagnostic_sink);
+      if (!tangents.accepted()) {
+        return;
+      }
+      corner_tangents = std::move(tangents.tangents);
+    }
     for (std::size_t triangle = 0; triangle < packed_corners_.size();
         triangle += 3U) {
       for (std::size_t local = 0; local < 3U; ++local) {
@@ -3387,18 +3626,11 @@ private:
         if (has_display_color) {
           descriptor_.colors.push_back(color);
         }
-        merlin::Vec2 texcoord;
-        if (texcoords_.present &&
-            !ReadVec2(texcoords_, corner, texcoord)) {
-          ReportHydraDiagnostic(
-              "hydra.mesh.primvar.texcoord", GetId(),
-              "texture-coordinate primvar type, interpolation, or indices are malformed",
-              merlin::DiagnosticDisposition::Rejected, "reject-prim");
-          ResetPackedMesh();
-          return;
+        if (!corner_texcoords.empty()) {
+          descriptor_.texcoords.push_back(corner_texcoords[triangle + local]);
         }
-        if (texcoords_.present) {
-          descriptor_.texcoords.push_back(texcoord);
+        if (corner_tangents) {
+          descriptor_.tangents.push_back((*corner_tangents)[triangle + local]);
         }
         descriptor_.indices.push_back(
             static_cast<std::uint32_t>(descriptor_.indices.size()));
@@ -3447,7 +3679,8 @@ private:
     if (previous.positions.size() != count ||
         previous.normals.size() != current.normals.size() ||
         previous.colors.size() != current.colors.size() ||
-        previous.texcoords.size() != current.texcoords.size()) {
+        previous.texcoords.size() != current.texcoords.size() ||
+        previous.tangents.size() != current.tangents.size()) {
       return FullRange(count);
     }
     const auto equal = [&](std::size_t index) {
@@ -3475,6 +3708,13 @@ private:
         const auto& a = previous.texcoords[index];
         const auto& b = current.texcoords[index];
         if (a.x != b.x || a.y != b.y) {
+          return false;
+        }
+      }
+      if (!current.tangents.empty()) {
+        const auto& a = previous.tangents[index];
+        const auto& b = current.tangents[index];
+        if (a.x != b.x || a.y != b.y || a.z != b.z || a.w != b.w) {
           return false;
         }
       }
@@ -3511,6 +3751,7 @@ private:
   PrimvarInput colors_;
   PrimvarInput opacities_;
   PrimvarInput texcoords_;
+  PrimvarInput tangents_;
   std::vector<DiscoveredPrimvar> primvar_descriptors_;
   SdfPath material_id_;
   GfMatrix4d hydra_transform_{1.0};
@@ -4588,14 +4829,16 @@ void HdMerlinRenderDelegate::SetRenderSetting(
              merlin::render::DebugView::Normal,
              merlin::render::DebugView::GeometricNormal,
              merlin::render::DebugView::ShadingNormalBase,
-             merlin::render::DebugView::FrontFacing}) {
+             merlin::render::DebugView::FrontFacing,
+             merlin::render::DebugView::Tangent,
+             merlin::render::DebugView::Bitangent}) {
       if (name == merlin::render::DebugViewName(view))
         requested = view;
     }
     merlin::render::RendererSettingsValidationError error{
         "renderer-settings.invalid-debug-view",
         "Debug view requires none, normal, geometric-normal, "
-        "shading-normal-base or front-facing."};
+        "shading-normal-base, front-facing, tangent or bitangent."};
     if (requested) {
       // Representable views outside the surface context reject with the
       // validator's shared code.
