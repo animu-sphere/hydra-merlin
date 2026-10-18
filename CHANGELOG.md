@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.5] - 2026-10-18
+
 ### Added
 
 - The Mesh normal part of the surface geometry contract. Core prepares
@@ -21,6 +23,8 @@ after its public API and release process are established.
   `merlin:debugView` setting and the native viewport.
 - Analytic surface geometry image fixtures for native Vulkan/Metal Forward
   paths and a usdview normals fixture for Tier 0 and native Hgi presentation.
+  The external Forward scene gate raises the Metal scene heap to 1 GiB by
+  default so Kitchen_set runs on Metal.
 
 ### Changed
 
@@ -1325,7 +1329,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.4...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.5...main
+[0.16.5]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.1...v0.16.2

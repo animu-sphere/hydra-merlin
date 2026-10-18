@@ -95,7 +95,9 @@ ctest --test-dir build/vulkan-hydra -C Release -R '^merlin-hydra2-forward-scene'
 
 An empty path leaves the scene cases unregistered; an explicitly configured
 missing file fails configure. The asset is not provisioned by the GPU
-capability workflow.
+capability workflow. On Metal the runner raises `MERLIN_METAL_HEAP_MIB` to 1024
+unless it is already set, because Kitchen_set exceeds the 64 MiB default scene
+heap.
 
 ## Metal host gates
 
