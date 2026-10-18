@@ -15,20 +15,11 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Tangent frame and normal mapping (v0.16.6):** the tangent-frame and
-  normal-mapping part of the
-  [surface geometry contract](../design/surface-geometry.md) is implemented
-  for native and Hydra meshes and UsdPreviewSurface, with Apple M3 Metal and
-  usdview evidence. Remaining:
-  - Run the extended analytic surface fixture on RTX A5000 Vulkan
-    conventional, bindless, GPU Scene and GPU-driven Forward and the usdview
-    normals fixture on Tier 0/HgiVulkan; compare Vulkan/Metal normal-map sign,
-    seam and tangent debug-view centers.
-  - Refresh generated MaterialX Debug/Release Vulkan evidence after shader
-    ABI 13, and decide how MaterialX `normalmap` consumes the shared frame
-    and decode; it is currently diagnosed as unsupported.
-  - Confirm representative scenes show no unexplained change from generated
-    tangents and the new vertex layout.
+- **Tangent frame and normal mapping (v0.16.6):** implemented and validated
+  for native and Hydra meshes and UsdPreviewSurface on RTX A5000 Vulkan and
+  Apple M3 Metal (see the
+  [support matrix](../reference/support-matrix.md#surface-geometry-and-normals)).
+  Remaining: the v0.16.6 release record.
 
 ### Next
 
@@ -45,8 +36,9 @@ rendering semantics; backends own execution.
   metallic, textures, vertex color, opacity/alpha mask, double-sided state,
   generated material ingestion, the generated Metal material path and
   material ABI reflection behave consistently across supported paths, on top
-  of the shared surface context. Unsupported MaterialX capabilities remain
-  explicitly unsupported.
+  of the shared surface context. MaterialX `normalmap` consumes the shared
+  tangent frame and normal-map decode rather than its own. Unsupported
+  MaterialX capabilities remain explicitly unsupported.
 
 Patch numbers are labels for the phases above and may change; the phase
 responsibilities do not.

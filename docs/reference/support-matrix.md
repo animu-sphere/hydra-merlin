@@ -266,8 +266,16 @@ implemented:
   channel error in all six debug views. The usdview normals fixture adds
   generated, green-flipped, mirrored and authored-tangent normal-map probes;
   all 60 Tier 0 and HgiMetal centers match the oracle exactly and agree
-  between the presentation modes. Vulkan execution of the new cases awaits
-  the RTX A5000 capability run; the Vulkan shaders and C++ compile locally.
+  between the presentation modes. On RTX A5000 (GPU capability CI
+  [39101630195](https://github.com/animu-sphere/hydra-merlin/actions/runs/39101630195),
+  Debug/Release) the 21 analytic cases pass Vulkan conventional, bindless,
+  GPU Scene and GPU-driven Forward within the same 1/255 bound, and the
+  MaterialX-generated Forward build passes after shader ABI 13. The usdview
+  normals fixture
+  ([39102861812](https://github.com/animu-sphere/hydra-merlin/actions/runs/39102861812))
+  passes Tier 0 and HgiVulkan with identical centers; all 60 centers,
+  including normal-map sign, flip, mirroring and authored tangents, agree
+  with Apple M3 Metal within 1/255.
 - MaterialX `normal` accepts an already constructed world-space normal, which
   is subject to the facing and hemisphere rules. The MaterialX `normalmap`
   node remains unsupported and diagnosed; MaterialX tangent-space normal maps
