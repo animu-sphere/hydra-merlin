@@ -1122,10 +1122,10 @@ void ParseNormalMap(const HdMaterialNetwork2& network,
   merlin::Vec4 bias{};
   const bool authored_scale = ReadVec4Parameter(node->second, "scale", scale);
   const bool authored_bias = ReadVec4Parameter(node->second, "bias", bias);
-  const auto near = [](float a, float b) { return std::abs(a - b) <= 1.0e-5F; };
-  const bool identity = near(scale.x, 1.0F) && near(scale.y, 1.0F) &&
-                        near(scale.z, 1.0F) && near(bias.x, 0.0F) &&
-                        near(bias.y, 0.0F) && near(bias.z, 0.0F);
+  const auto approx = [](float a, float b) { return std::abs(a - b) <= 1.0e-5F; };
+  const bool identity = approx(scale.x, 1.0F) && approx(scale.y, 1.0F) &&
+                        approx(scale.z, 1.0F) && approx(bias.x, 0.0F) &&
+                        approx(bias.y, 0.0F) && approx(bias.z, 0.0F);
   float normal_scale = 1.0F;
   bool flip_green = false;
   if (identity) {
@@ -1137,9 +1137,9 @@ void ParseNormalMap(const HdMaterialNetwork2& network,
     flip_green = scale.y < 0.0F;
     const float green = flip_green ? -normal_scale : normal_scale;
     if (!(normal_scale > 0.0F) || !std::isfinite(normal_scale) ||
-        !near(bias.x, -normal_scale) || !near(scale.y, 2.0F * green) ||
-        !near(bias.y, -green) || !near(scale.z, 2.0F) ||
-        !near(bias.z, -1.0F)) {
+        !approx(bias.x, -normal_scale) || !approx(scale.y, 2.0F * green) ||
+        !approx(bias.y, -green) || !approx(scale.z, 2.0F) ||
+        !approx(bias.z, -1.0F)) {
       result.normal_diagnostic =
           "normal texture scale/bias is not a 2 * texel - 1 tangent-space "
           "encoding; normal mapping is disabled";
