@@ -276,6 +276,13 @@ implemented:
   passes Tier 0 and HgiVulkan with identical centers; all 60 centers,
   including normal-map sign, flip, mirroring and authored tangents, agree
   with Apple M3 Metal within 1/255.
+- Representative-scene evidence (Apple M3, Tier 0 and HgiMetal): Kitchen_set
+  (1,788 meshes with texture coordinates, no authored tangents or normal
+  maps) generates tangents for every Mesh; its lit images change by at most 3
+  of 120,701 pixels from v0.16.5, within the 0–4 pixel variation between
+  repeated runs. Pixels without a tangent frame lie on faces with zero UV
+  area (82,792 of 275,656). Representative normal-mapped scenes are not yet
+  validated.
 - MaterialX `normal` accepts an already constructed world-space normal, which
   is subject to the facing and hemisphere rules. The MaterialX `normalmap`
   node remains unsupported and diagnosed; MaterialX tangent-space normal maps

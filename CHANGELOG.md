@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.6] - 2026-10-18
+
 ### Added
 
 - The tangent-frame and normal-mapping part of the surface geometry contract.
@@ -1355,7 +1357,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.5...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.6...main
+[0.16.6]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.5...v0.16.6
 [0.16.5]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.2...v0.16.3
