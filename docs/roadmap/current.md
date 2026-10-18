@@ -15,17 +15,15 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Normal contract release (v0.16.5):** prepare the release record for the
-  validated normal part of the
-  [surface geometry contract](../design/surface-geometry.md).
-
-### Next
-
 - **Tangent frame and normal mapping (v0.16.6):** authored tangents,
   generated tangents with handedness, derivative-frame fallback and reported
   disablement; mirrored UVs and seams; linear normal-map decode and TBN
   application shared by UsdPreviewSurface and MaterialX; tangent/bitangent
-  debug views; Vulkan/Metal agreement on normal-map sign and seams.
+  debug views; Vulkan/Metal agreement on normal-map sign and seams, building
+  on the [v0.16.5](../releases/v0.16.5.md) normal contract.
+
+### Next
+
 - **Representative Forward quality (v0.16.7):** interior Kitchen views,
   bright/dark lighting, textured, rough and metallic materials, Camera Light
   ON/OFF, linear/display output, sustained camera navigation, Vulkan/Metal and

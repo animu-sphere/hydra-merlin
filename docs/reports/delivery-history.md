@@ -31,6 +31,11 @@ heap and timed out. With `MERLIN_METAL_HEAP_MIB=1024`, now the runner default
 for external Metal scenes, Tier 0, HgiMetal and their comparison pass (3/3).
 The 649 image pairs differ by at most 5 pixels.
 
+Release identity is prepared as `0.16.5`, dated 2026-10-18 JST. Fresh local
+Release builds pass without skips: Core 25/25 in `build/release-v0165-core`,
+native Metal 39/39 and Metal/Hydra 69/69, the last including the Kitchen_set
+scene gate. The [release record](../releases/v0.16.5.md) summarizes this phase.
+
 ## v0.16.4 output-transform validation and closure — 2026-10-18
 
 Release preparation starts from merge commit `36b0470`, containing the shared
