@@ -102,6 +102,9 @@ including its Qt bindings, PyOpenGL and NumPy:
 Launch the SDK's `usdview` with `--renderer Merlin /path/to/scene.usdc`. These
 host dependencies are separate from `slangc` and the backend's SDK.
 
+For a direct PLY import and rendering smoke test, see the
+[Gaussian PLY host session](../../formations/gaussian-host-session/README.md).
+
 ### Presentation path
 
 Hydra presentation uses CPU RenderBuffers (Tier 0) as the universal path. When

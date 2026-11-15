@@ -15,7 +15,7 @@ concurrency:
 jobs:
   metal:
     name: Metal capability / macOS / ${{ matrix.build_type }}
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -29,6 +29,7 @@ jobs:
         run: >-
           cmake --preset metal -B build-runtime -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_BUILD_VIEWPORT=ON
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
       - name: Build
         run: cmake --build build-runtime --parallel 4
       - name: Run Metal capability tests and retain explicit skip reasons
