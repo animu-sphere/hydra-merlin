@@ -6,6 +6,12 @@ version = "0.16.6"
 platform = "cy2026"
 profile = "core"
 
+[build.intents.hydra-usd]
+cache = {
+  MERLIN_ENABLE_HYDRA2 = { type = "BOOL", value = true },
+  MERLIN_BUILD_VIEWPORT = { type = "BOOL", value = false }
+}
+
 [build.intents.viewport-usd]
 cache = {
   MERLIN_ENABLE_HYDRA2 = { type = "BOOL", value = true },

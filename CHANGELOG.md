@@ -8,6 +8,11 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- An OpenStrata Hydra build intent and a Gaussian PLY host-session smoke test
+  for the `gaussian-ply` importer and the Merlin render delegate.
+
 ## [0.16.6] - 2026-10-18
 
 ### Added
