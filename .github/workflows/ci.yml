@@ -29,16 +29,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-2022, macos-14]
+        os: [ubuntu-latest, windows-2022, macos-15]
         build_type: [Debug, Release]
         preset: [core]
         viewport: ["OFF"]
         include:
-          - os: macos-14
+          - os: macos-15
             build_type: Debug
             preset: metal
             viewport: "ON"
-          - os: macos-14
+          - os: macos-15
             build_type: Release
             preset: metal
             viewport: "ON"
@@ -60,7 +60,10 @@ jobs:
 
       - name: Configure Core or Metal (macOS)
         if: runner.os == 'macOS'
-        run: cmake --preset ${{ matrix.preset }} -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_BUILD_VIEWPORT=${{ matrix.viewport }}
+        run: >-
+          cmake --preset ${{ matrix.preset }} -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DMERLIN_BUILD_VIEWPORT=${{ matrix.viewport }}
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
