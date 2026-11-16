@@ -1,0 +1,22 @@
+schema = "openstrata.formation/v1alpha1"
+
+[formation]
+name = "merlin-gaussian-host-session"
+
+# OpenUSD 26.08, Windows x86_64, cy2026 lookdev (OpenGL host).
+[runtime]
+artifact = "sha256:b982656c07dd9147973e3c7197d9b050ee48dd1ac291988f7e6025c76c4a785b"
+
+[[components]]
+id = "gaussian-ply"
+kind = "plugin"
+artifact = "sha256:26ab97f2ef3516df71123511e2791ce817ee3b4d41595cf8ab81bc05b1a91d88"
+
+[[components]]
+id = "merlin"
+kind = "renderer"
+artifact = "sha256:f80faafc45a6dd0b608815edaa3056479c03c3b578029f2430093ae4d2ca8527"
+
+[command]
+program = "testusdview"
+args = ["sample.ply", "--defaultsettings", "--renderer", "Merlin", "--testScript", "gaussian_ply_check.py"]

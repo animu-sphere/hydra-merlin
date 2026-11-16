@@ -1,0 +1,158 @@
+{
+  "schema": "openstrata.formation-lock/v1alpha1",
+  "resolution": {
+    "schema": "openstrata.formation-resolved/v1alpha1",
+    "name": "merlin-gaussian-host-session",
+    "manifest_digest": "sha256:06d50bef3172ee1d37c5e79532e71c561fa43975ee6a30585e57865d1b49e19c",
+    "target": "cy2026-windows-x86_64-msvc143-py313-lookdev",
+    "runtime": {
+      "kind": "runtime",
+      "name": "openstrata-cy2026-windows-x86_64-py313-lookdev",
+      "version": "26.08",
+      "digest": "sha256:b982656c07dd9147973e3c7197d9b050ee48dd1ac291988f7e6025c76c4a785b",
+      "target": "windows-x86_64-msvc143-py313",
+      "profile": "lookdev",
+      "runtime_id": "openstrata-cy2026-windows-x86_64-py313-lookdev",
+      "runtime_digest": "sha256:330d3e83f9d79b3fb28d541e776dfa0db68f2ca2e953677748b0f78126d036c6"
+    },
+    "components": [
+      {
+        "id": "gaussian-ply",
+        "declared_kind": "plugin",
+        "kind": "plugin",
+        "name": "gaussian-ply",
+        "version": "0.8.0",
+        "digest": "sha256:26ab97f2ef3516df71123511e2791ce817ee3b4d41595cf8ab81bc05b1a91d88",
+        "target": "cy2026-windows-x86_64-py313-lookdev",
+        "profile": "lookdev",
+        "runtime_id": "openstrata-cy2026-windows-x86_64-py313-lookdev",
+        "runtime_digest": "sha256:330d3e83f9d79b3fb28d541e776dfa0db68f2ca2e953677748b0f78126d036c6",
+        "bundles": [
+          {
+            "name": "gaussian-ply",
+            "version": "0.8.0",
+            "kind": "usd-fileformat"
+          }
+        ]
+      },
+      {
+        "id": "merlin",
+        "declared_kind": "renderer",
+        "kind": "package",
+        "name": "hdMerlin",
+        "version": "0.16.6",
+        "digest": "sha256:f80faafc45a6dd0b608815edaa3056479c03c3b578029f2430093ae4d2ca8527",
+        "target": "cy2026-windows-x86_64-py313-lookdev",
+        "profile": "lookdev",
+        "runtime_id": "openstrata-cy2026-windows-x86_64-py313-lookdev",
+        "runtime_digest": "sha256:330d3e83f9d79b3fb28d541e776dfa0db68f2ca2e953677748b0f78126d036c6",
+        "bundles": []
+      }
+    ],
+    "environment": [
+      {
+        "key": "PATH",
+        "operation": "prepend",
+        "source": "runtime",
+        "paths": [
+          "runtime/bin"
+        ]
+      },
+      {
+        "key": "PATH",
+        "operation": "prepend",
+        "source": "runtime",
+        "paths": [
+          "runtime/lib"
+        ]
+      },
+      {
+        "key": "PYTHONPATH",
+        "operation": "prepend",
+        "source": "runtime",
+        "paths": [
+          "runtime/lib/python"
+        ]
+      },
+      {
+        "key": "CMAKE_PREFIX_PATH",
+        "operation": "prepend",
+        "source": "runtime",
+        "paths": [
+          "runtime"
+        ]
+      },
+      {
+        "key": "PXR_PLUGINPATH_NAME",
+        "operation": "prepend",
+        "source": "runtime",
+        "paths": [
+          "runtime/plugin/usd"
+        ]
+      },
+      {
+        "key": "PXR_PLUGINPATH_NAME",
+        "operation": "prepend",
+        "source": "gaussian-ply",
+        "paths": [
+          "components/gaussian-ply/plugin/resources/gaussian-ply"
+        ]
+      },
+      {
+        "key": "PATH",
+        "operation": "prepend",
+        "source": "gaussian-ply",
+        "paths": [
+          "components/gaussian-ply/lib",
+          "components/gaussian-ply/runtime/libraries/gaussianCore/lib",
+          "components/gaussian-ply/runtime/libraries/gaussianUsd/lib"
+        ]
+      },
+      {
+        "key": "PYTHONPATH",
+        "operation": "prepend",
+        "source": "gaussian-ply",
+        "paths": [
+          "components/gaussian-ply/python"
+        ]
+      },
+      {
+        "key": "PXR_PLUGINPATH_NAME",
+        "operation": "prepend",
+        "source": "merlin",
+        "paths": [
+          "components/merlin/lib/usd/hdMerlin/resources"
+        ]
+      },
+      {
+        "key": "PATH",
+        "operation": "prepend",
+        "source": "merlin",
+        "paths": [
+          "components/merlin/lib"
+        ]
+      },
+      {
+        "key": "PATH",
+        "operation": "prepend",
+        "source": "merlin",
+        "paths": [
+          "components/merlin/bin",
+          "components/merlin/lib"
+        ]
+      }
+    ],
+    "command": {
+      "program": "testusdview",
+      "args": [
+        "sample.ply",
+        "--defaultsettings",
+        "--renderer",
+        "Merlin",
+        "--testScript",
+        "gaussian_ply_check.py"
+      ]
+    },
+    "conflicts": []
+  }
+}
