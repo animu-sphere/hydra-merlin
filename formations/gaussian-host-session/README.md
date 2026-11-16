@@ -1,7 +1,7 @@
 # Gaussian PLY host session
 
-This OpenStrata Formation opens a Graphdeco-style PLY directly in `testusdview`
-and renders it with Merlin. The smoke test checks the imported
+This experimental OpenStrata Formation opens a Graphdeco-style PLY directly in
+`testusdview` and renders it with Merlin. The smoke test checks the imported
 `/Asset/Splat` prim and captures the three colored splats to `gaussian-ply.png`.
 The fixture is synthetic and ships with this repository.
 
@@ -13,9 +13,9 @@ RenderBuffer presentation path and the default CPU-sorted Gaussian path.
 
 Use OpenStrata 0.23.20 and run from `formations/gaussian-host-session`.
 To reproduce the clean-store check, set `OST_HOME` to a short, empty directory.
-Pull the OpenGL Lookdev runtime, `gaussian-ply` 0.8.0, and hdMerlin 0.16.6
-from GHCR by OCI digest. Each pull verifies the artifact digest used by the
-checked-in `formation.toml` and `formation.lock`.
+Pull the public OpenGL Lookdev runtime, `gaussian-ply` 0.8.0, and hdMerlin
+0.16.6 from GHCR by OCI digest. Each anonymous pull verifies the artifact
+digest used by the checked-in `formation.toml` and `formation.lock`.
 
 ```powershell
 ost artifact pull oci://ghcr.io/animu-sphere/openstrata-runtime-cy2026-lookdev@sha256:b840ed4690aa39d4582bc03c0a09fa7bab717216635b55a4eb718482dbfb196b --expect-artifact sha256:b982656c07dd9147973e3c7197d9b050ee48dd1ac291988f7e6025c76c4a785b --require-kind runtime
@@ -32,6 +32,17 @@ requires visible red, green, and blue splats. To open the fixture interactively:
 ```powershell
 ost formation run formation.toml -- usdview sample.ply --renderer Merlin
 ```
+
+## Verification
+
+On 2026-11-16, all three pinned artifacts were pulled anonymously from GHCR
+into an empty OpenStrata 0.23.20 store. `ost formation doctor` confirmed the
+lock matched the resolution. The locked `testusdview` run exited with code 0
+on an NVIDIA RTX A5000 (driver 597.16) and measured 5,874 red, 5,755 green,
+and 5,363 blue samples in the viewport. The host used the pinned OpenGL
+OpenUSD 26.08 runtime with Merlin's Vulkan 1.4 renderer and Tier 0 CPU
+presentation. This result covers the bundled synthetic PLY fixture on Windows
+x86_64 with Python 3.13.
 
 ## Build from source
 
