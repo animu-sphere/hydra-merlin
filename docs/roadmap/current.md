@@ -15,27 +15,15 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Representative Forward quality (v0.16.7):** extend Kitchen interior
-  coverage to Metal and native execution. Validate bright/dark lighting,
-  textured, rough and metallic materials, Camera Light ON/OFF, linear/display
-  output, and sustained camera navigation across backends and hosts. Keep
-  analytic, small-fixture, representative-scene
-  and interactive layers distinct; representative scenes are not pixel-exact
-  gates. No supported mode needs the camera light disabled to avoid white
-  clipping or flicker, navigation exposes no stale-frame or resource-update
-  errors, and backend differences are understood and recorded in the support
-  matrix. Builds on the [v0.16.6](../releases/v0.16.6.md) tangent frame and
-  normal-mapping contract.
-
-### Next
-
 - **Material and backend parity hardening (v0.16.8):** base color, roughness,
   metallic, textures, vertex color, opacity/alpha mask, double-sided state,
   generated material ingestion, the generated Metal material path and
   material ABI reflection behave consistently across supported paths, on top
   of the shared surface context. MaterialX `normalmap` consumes the shared
   tangent frame and normal-map decode rather than its own. Unsupported
-  MaterialX capabilities remain explicitly unsupported.
+  MaterialX capabilities remain explicitly unsupported. Cover texture
+  decoding and extend representative material comparisons beyond the
+  [v0.16.7 Forward profile](../releases/v0.16.7.md).
 
 Patch numbers are labels for the phases above and may change; the phase
 responsibilities do not.

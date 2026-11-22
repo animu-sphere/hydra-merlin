@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.7] - 2026-11-23
+
 ### Added
 
 - An OpenStrata Hydra build intent and a Gaussian PLY host-session smoke test
@@ -20,6 +22,9 @@ after its public API and release process are established.
 - Hydra Forward responds independently to usdview's Scene Lights, Default
   Camera Light and Default Dome Light. The default dome uses OpenUSD's
   Stinson Beach HDR for diffuse lighting and the viewport background.
+- The Merlin delegate follows usdview's smooth, flat, geometry-only, wireframe
+  and points display modes on Vulkan and Metal. Geometry-only uses display
+  color, and wireframe-on-surface hides occluded edges.
 - Backend contract 7 and shader ABI 14 carry explicit host lights and the
   dome background. Rebuild consumers and shader artifacts with the renderer.
 
@@ -1372,7 +1377,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.6...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.7...main
+[0.16.7]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.6...v0.16.7
 [0.16.6]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.5...v0.16.6
 [0.16.5]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.4...v0.16.5
 [0.16.4]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.3...v0.16.4
