@@ -156,6 +156,7 @@ public:
         generated_pipelines;
     VkPipeline gaussian_pipeline{};
     VkPipeline dome_pipeline{};
+    std::array<VkPipeline, 2> mesh_display_pipelines{};
     VkPipeline gaussian_id_pipeline{};
     // Same shaders reading the 64-byte GPU-prepared records in sorted order.
     VkPipeline gaussian_sorted_pipeline{};
@@ -420,6 +421,7 @@ public:
     std::vector<VkDeviceSize> generated_parameter_offsets;
     std::shared_ptr<const MaterialDescriptorSource> material_descriptor_source;
     Buffer generated_parameter_uniforms;
+    Buffer mesh_display_vertices;
     Buffer gaussian_instances;
     // Host-visible Gaussian buffers are frame-owned so they remain immutable
     // while a submission is in flight. Retain the packed contents for this
@@ -930,7 +932,8 @@ public:
   VkPipeline CreatePipeline(
       const ShaderPaths& shaders, std::uint32_t variant_key,
       const GeneratedMaterialArtifact* generated_artifact = nullptr,
-      bool gpu_driven_pipeline = false, bool dome_pipeline = false);
+      bool gpu_driven_pipeline = false, bool dome_pipeline = false,
+      render::MeshDisplayMode display_mode = render::MeshDisplayMode::Smooth);
 
   void RecordDome(VkCommandBuffer command, FrameContext& frame,
       const render::ForwardDomeLight& dome);
@@ -1067,12 +1070,11 @@ public:
       const extraction::FrameSnapshot& snapshot,
       const GpuDrivenIndexedRequest& request);
 
-  void RecordFrame(VkCommandBuffer command,
-      FrameContext& frame,
-      const extraction::FrameSnapshot& snapshot,
-      const Vec4& clear_color,
-      const std::optional<render::ForwardDomeLight>& dome,
-      const std::vector<Aov>& cpu_readback_aovs);
+  void RecordFrame(VkCommandBuffer command, FrameContext& frame,
+      const RenderRequest& request);
+
+  void RecordMeshDisplay(VkCommandBuffer command, FrameContext& frame,
+      const RenderRequest& request);
 
   std::uint64_t SubmitTransfers(FrameContext& frame);
 
@@ -1249,6 +1251,7 @@ public:
   VkDescriptorSetLayout descriptor_set_layout_{};
   VkDescriptorSetLayout dome_descriptor_set_layout_{};
   VkPipelineLayout dome_pipeline_layout_{};
+  VkPipelineLayout mesh_display_pipeline_layout_{};
   std::map<std::string, VkDescriptorSetLayout>
       generated_descriptor_set_layouts_;
   std::map<std::string, GeneratedMaterialArtifact>

@@ -273,7 +273,8 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   PrepareMaterialDescriptors(frame, *request.snapshot, PrepareForwardLighting(request),
       {render::PackForwardOutputTransform(request.output_transform),
           render::PackForwardSurfacePolicy(request.snapshot->front_face,
-              render::NdcYDirection::Down, request.debug_view)});
+              render::NdcYDirection::Down, request.debug_view,
+              request.mesh_display.mode)});
   PrepareBindlessDescriptors();
   const auto gaussian_attribute_upload_start = CpuClock::now();
   SyncGaussianAttributes(*request.snapshot, resource_sync_mode);
@@ -389,9 +390,7 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   }
   RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
       request.gpu_driven_indexed);
-  RecordFrame(frame.command_buffer, frame, *request.snapshot,
-      request.clear_color, request.forward_lighting.dome,
-      frame.cpu_readback_aovs);
+  RecordFrame(frame.command_buffer, frame, request);
   if (frame.timestamp_pool != VK_NULL_HANDLE) {
     vkCmdWriteTimestamp(frame.command_buffer,
         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,

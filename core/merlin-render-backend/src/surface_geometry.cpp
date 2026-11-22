@@ -1,6 +1,9 @@
 #include <merlin/render/surface_geometry.hpp>
+#include <merlin/render/forward_lighting.hpp>
 
+#include <limits>
 #include <string>
+#include <unordered_map>
 
 namespace merlin::render {
 
@@ -57,6 +60,11 @@ bool IsForwardSurfaceDebugView(DebugView view) noexcept {
 
 Vec4 PackForwardSurfacePolicy(FrontFaceWinding camera, NdcYDirection ndc_y,
     DebugView view) {
+  return PackForwardSurfacePolicy(camera, ndc_y, view, MeshDisplayMode::Smooth);
+}
+
+Vec4 PackForwardSurfacePolicy(FrontFaceWinding camera, NdcYDirection ndc_y,
+    DebugView view, MeshDisplayMode mode) {
   float code{};
   switch (view) {
   case DebugView::None:
@@ -92,7 +100,51 @@ Vec4 PackForwardSurfacePolicy(FrontFaceWinding camera, NdcYDirection ndc_y,
   // and the NDC Y direction remain.
   const float winding = camera == FrontFaceWinding::Clockwise ? 1.0F : -1.0F;
   const float direction = ndc_y == NdcYDirection::Down ? 1.0F : -1.0F;
-  return {winding * direction, code, 0.0F, 0.0F};
+  float geometry_color{};
+  if (mode == MeshDisplayMode::Geometry) {
+    geometry_color = 1.0F;
+  } else if (mode == MeshDisplayMode::HiddenSurfaceWireframe) {
+    geometry_color = 2.0F;
+  }
+  return {winding * direction, code,
+      mode == MeshDisplayMode::Flat ? 1.0F : 0.0F, geometry_color};
+}
+
+MeshDisplayBatch PrepareMeshDisplay(const extraction::FrameSnapshot& snapshot,
+    std::uint32_t width, std::uint32_t height, const MeshDisplaySettings& display) {
+  MeshDisplayBatch batch;
+  if (display.draws.empty()) {
+    return batch;
+  }
+  const auto view_projection = MultiplyForwardMatrices(
+      snapshot.projection, snapshot.view);
+  const auto extent = display.mode == MeshDisplayMode::Points
+      ? Vec2{display.point_size / static_cast<float>(width),
+            display.point_size / static_cast<float>(height)}
+      : Vec2{};
+  // All instances of one prototype share a single upload within this frame.
+  std::unordered_map<const std::vector<MeshDisplayVertex>*, std::size_t> offsets;
+  for (const auto& draw : display.draws) {
+    if (!draw.vertices || draw.vertices->empty()) {
+      continue;
+    }
+    if (draw.vertices->size() > std::numeric_limits<std::uint32_t>::max()) {
+      throw RendererError(RendererErrorCode::Unsupported,
+          "prepare mesh display", "display vertex count exceeds uint32 range");
+    }
+    const auto [offset, added] = offsets.emplace(draw.vertices.get(),
+        batch.vertices.size());
+    if (added) {
+      batch.vertices.insert(batch.vertices.end(), draw.vertices->begin(),
+          draw.vertices->end());
+    }
+    batch.draws.push_back({offset->second,
+        static_cast<std::uint32_t>(draw.vertices->size()),
+        {MultiplyForwardMatrices(view_projection, draw.transform),
+            display.wire_color, extent,
+            draw.prim_id, draw.instance_id}});
+  }
+  return batch;
 }
 
 } // namespace merlin::render

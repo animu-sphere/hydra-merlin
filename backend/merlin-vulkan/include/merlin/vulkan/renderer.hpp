@@ -626,6 +626,7 @@ struct RenderRequest {
   // Forward surface debug view; see render::RenderRequest::debug_view.
   render::DebugView debug_view{render::DebugView::None};
   render::ForwardLightingSettings forward_lighting;
+  render::MeshDisplaySettings mesh_display;
   Vec4 clear_color{kDefaultClearColor};
   std::vector<RenderProductRequest> products{
       {Aov::Color, true}, {Aov::Depth, true}};

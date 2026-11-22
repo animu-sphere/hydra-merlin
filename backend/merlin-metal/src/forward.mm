@@ -43,7 +43,7 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
   const render::ForwardFramePolicy frame_policy{
       render::PackForwardOutputTransform(request.output_transform),
       render::PackForwardSurfacePolicy(request.snapshot->front_face,
-          render::NdcYDirection::Up, request.debug_view)};
+          render::NdcYDirection::Up, request.debug_view, request.mesh_display.mode)};
   const auto lighting = render::PrepareForwardLighting(*request.snapshot,
       render::PackagedDiffuseEnvironment().coefficients, request.forward_lighting);
   id<MTLRenderCommandEncoder> encoder =
@@ -78,6 +78,10 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
   }
   [encoder setRenderPipelineState:float_color ? float_pipeline_ : pipeline_];
   [encoder setDepthStencilState:depth_state_];
+  const bool offset_surfaces = render::OffsetMeshSurfaces(request.mesh_display.mode);
+  if (offset_surfaces) {
+    [encoder setDepthBias:1.0F slopeScale:1.0F clamp:0.0F];
+  }
   if (bindless_) {
     [encoder setFragmentBuffer:frame.argument_buffer offset:0 atIndex:3];
     for (const auto& [handle, texture] : textures_) {
@@ -116,8 +120,9 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
                    usage:MTLResourceUsageRead
                   stages:MTLRenderStageVertex | MTLRenderStageFragment];
   }
-  for (std::size_t draw_index = 0;
-      draw_index < request.snapshot->draws.size(); ++draw_index) {
+  const auto surface_draw_count = render::DrawMeshSurfaces(request.mesh_display.mode)
+      ? request.snapshot->draws.size() : 0;
+  for (std::size_t draw_index = 0; draw_index < surface_draw_count; ++draw_index) {
     const auto& draw = request.snapshot->draws[draw_index];
     if (draw.geometry_index >= request.snapshot->geometries.size() ||
         draw.material_index >= request.snapshot->materials.size() ||
@@ -159,6 +164,9 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     constants.normal_matrix_column1 = normal[1];
     constants.normal_matrix_column2 = normal[2];
     constants.feature_mask = static_cast<std::uint32_t>(material.features);
+    if (geometry_record.has_colors) {
+      constants.feature_mask |= render::kForwardGeometryColorFlag;
+    }
     if (material.alpha_mode == AlphaMode::Masked) {
       constants.feature_mask |= kMaskedAlphaFlag;
     } else if (material.alpha_mode == AlphaMode::Blended) {
@@ -308,6 +316,38 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     ++build.telemetry.draw_count;
     build.telemetry.triangle_count += geometry->second.index_count / 3U;
     ++build.telemetry.visible_primitive_count;
+  }
+  if (offset_surfaces) {
+    [encoder setDepthBias:0.0F slopeScale:0.0F clamp:0.0F];
+  }
+  const auto display = render::PrepareMeshDisplay(*request.snapshot,
+      request.width, request.height, request.mesh_display);
+  if (!display.draws.empty()) {
+    const auto vertices = [device_ newBufferWithBytes:display.vertices.data()
+        length:display.vertices.size() * sizeof(render::MeshDisplayVertex)
+        options:MTLResourceStorageModeShared];
+    if (!vertices) {
+      [encoder endEncoding];
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "upload Metal mesh display vertices", "newBufferWithBytes returned nil");
+    }
+    const bool points = request.mesh_display.mode == render::MeshDisplayMode::Points;
+    const std::size_t index = points ? 1 : 0;
+    [encoder setRenderPipelineState:float_color ? float_mesh_display_pipelines_[index]
+                                              : mesh_display_pipelines_[index]];
+    [encoder setCullMode:MTLCullModeNone];
+    for (const auto& draw : display.draws) {
+      [encoder setVertexBuffer:vertices
+                        offset:draw.first * sizeof(render::MeshDisplayVertex) atIndex:0];
+      [encoder setVertexBytes:&draw.constants length:sizeof(draw.constants) atIndex:1];
+      [encoder setFragmentBytes:&draw.constants length:sizeof(draw.constants) atIndex:1];
+      if (points) {
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+                  instanceCount:draw.count];
+      } else {
+        [encoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:draw.count];
+      }
+    }
   }
   const bool has_gaussians = frame.gaussian_execution || frame.gaussian_count != 0;
   const bool sample_raster = has_gaussians && frame.gaussian_timestamps != nil;

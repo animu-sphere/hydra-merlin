@@ -369,6 +369,8 @@ private:
   id<MTLRenderPipelineState> pipeline_;
   id<MTLRenderPipelineState> dome_pipeline_;
   id<MTLRenderPipelineState> float_dome_pipeline_;
+  std::array<id<MTLRenderPipelineState>, 2> mesh_display_pipelines_;
+  std::array<id<MTLRenderPipelineState>, 2> float_mesh_display_pipelines_;
   id<MTLRenderPipelineState> gpu_scene_pipeline_;
   id<MTLRenderPipelineState> presentation_pipeline_;
   id<MTLDepthStencilState> depth_state_;

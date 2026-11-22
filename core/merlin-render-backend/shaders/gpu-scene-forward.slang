@@ -12,6 +12,8 @@ DrawConstants LoadForwardGpuDrawConstants(float4x4 view_projection, GpuGeometry 
     result.feature_mask = material.material_class_flags & 0x0000ffffu;
     if ((geometry.attribute_mask & 2u) == 0u)
         result.feature_mask &= ~kDisplayColorFlag;
+    else
+        result.feature_mask |= kGeometryColorFlag;
     if ((geometry.attribute_mask & 4u) == 0u ||
         material.base_color_texture_index == kInvalidGpuSceneTableIndex ||
         material.base_color_sampler_index == kInvalidGpuSceneTableIndex)

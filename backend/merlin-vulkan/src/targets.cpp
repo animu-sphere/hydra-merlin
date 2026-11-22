@@ -382,6 +382,12 @@ void Renderer::Impl::DestroyTarget(RenderTarget& target) noexcept {
     vkDestroyPipeline(device_, target.dome_pipeline, nullptr);
     target.dome_pipeline = VK_NULL_HANDLE;
   }
+  for (auto& pipeline : target.mesh_display_pipelines) {
+    if (pipeline != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device_, pipeline, nullptr);
+      pipeline = VK_NULL_HANDLE;
+    }
+  }
   if (target.gaussian_pipeline != VK_NULL_HANDLE) {
     vkDestroyPipeline(device_, target.gaussian_pipeline, nullptr);
     target.gaussian_pipeline = VK_NULL_HANDLE;

@@ -1,5 +1,7 @@
 #include "renderer_impl.hpp"
 
+#include <merlin/render/surface_geometry.hpp>
+
 namespace merlin::vulkan {
 
 render::ForwardLighting Renderer::Impl::PrepareForwardLighting(
@@ -775,12 +777,13 @@ void Renderer::Impl::PrepareMaterialDescriptors(
           selected_material_artifacts_});
 }
 
-void Renderer::Impl::RecordFrame(VkCommandBuffer command,
-    FrameContext& frame,
-    const extraction::FrameSnapshot& snapshot,
-    const Vec4& clear_color,
-    const std::optional<render::ForwardDomeLight>& dome,
-    const std::vector<Aov>& cpu_readback_aovs) {
+void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
+    const RenderRequest& request) {
+  const auto& snapshot = *request.snapshot;
+  const auto& clear_color = request.clear_color;
+  const auto& dome = request.forward_lighting.dome;
+  const auto& cpu_readback_aovs = frame.cpu_readback_aovs;
+  const auto display_mode = request.mesh_display.mode;
   std::array<VkClearValue, 4> clear{};
   clear[0].color = {
       {std::clamp(clear_color.x, 0.0F, 1.0F),
@@ -802,6 +805,8 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command,
   const VkRect2D scissor{{0, 0}, {active_target_->width, active_target_->height}};
   vkCmdSetViewport(command, 0, 1, &viewport);
   vkCmdSetScissor(command, 0, 1, &scissor);
+  const float polygon_offset = render::OffsetMeshSurfaces(display_mode) ? 1.0F : 0.0F;
+  vkCmdSetDepthBias(command, polygon_offset, 0.0F, polygon_offset);
   if (dome && dome->camera_visible) {
     RecordDome(command, frame, *dome);
   }
@@ -817,7 +822,10 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command,
   const bool gpu_scene_ready =
       bindless_texture_table_ && gpu_scene_draw_slots &&
       gpu_scene_draw_slots->size() == draw_records_.size();
-  if (frame.gpu_driven.selected) {
+  const bool draw_mesh_surfaces = render::DrawMeshSurfaces(display_mode);
+  const bool use_surface_materials = display_mode != render::MeshDisplayMode::Geometry &&
+      display_mode != render::MeshDisplayMode::HiddenSurfaceWireframe;
+  if (draw_mesh_surfaces && frame.gpu_driven.selected) {
     const std::array descriptor_sets{
         bindless_descriptor_set_, frame.bindless_material_descriptor_set};
     const std::uint32_t dynamic_offset{};
@@ -851,7 +859,7 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command,
           sizeof(render::GpuIndexedIndirectCommand));
       ++frame_counters_.gpu_driven_indirect_draw_count;
     }
-  } else {
+  } else if (draw_mesh_surfaces) {
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
       const auto& geometry = geometry_records_[draw.geometry_index];
@@ -866,7 +874,8 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command,
       const auto variant = MakeDrawPipelineVariant(draw, snapshot);
       auto feature_mask = variant.feature_mask;
       const auto* generated_artifact =
-          selected_material_artifacts_[draw.material_index];
+          use_surface_materials ? selected_material_artifacts_[draw.material_index]
+                                : nullptr;
       const bool use_gpu_scene =
           gpu_scene_ready && generated_artifact == nullptr;
       if (generated_artifact != nullptr) {
@@ -936,6 +945,9 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command,
         push.normal_matrix_column1 = normal_matrix[1];
         push.normal_matrix_column2 = normal_matrix[2];
         push.feature_mask = feature_mask;
+        if (geometry.has_colors) {
+          push.feature_mask |= render::kForwardGeometryColorFlag;
+        }
         if (material.alpha_mode == AlphaMode::Masked) {
           push.feature_mask |= kMaskedAlphaFlag;
         }
@@ -969,6 +981,7 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command,
       vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
     }
   }
+  RecordMeshDisplay(command, frame, request);
   vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
   if (frame.timestamp_pool != VK_NULL_HANDLE) {
     vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,

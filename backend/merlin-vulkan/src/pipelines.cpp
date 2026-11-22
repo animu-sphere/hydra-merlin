@@ -513,8 +513,11 @@ VkShaderModule Renderer::Impl::GetShaderModule(const std::filesystem::path& path
 VkPipeline Renderer::Impl::CreatePipeline(
     const ShaderPaths& shaders, std::uint32_t variant_key,
     const GeneratedMaterialArtifact* generated_artifact,
-    bool gpu_driven_pipeline, bool dome_pipeline) {
+    bool gpu_driven_pipeline, bool dome_pipeline,
+    render::MeshDisplayMode display_mode) {
   ++frame_counters_.pipeline_creation_count;
+  const bool mesh_display = display_mode != render::MeshDisplayMode::Smooth;
+  const bool points = display_mode == render::MeshDisplayMode::Points;
   const bool gpu_scene_pipeline =
       generated_artifact == nullptr &&
       (variant_key & kGpuScenePipelineFlag) != 0U;
@@ -540,6 +543,7 @@ VkPipeline Renderer::Impl::CreatePipeline(
           : shaders.gpu_driven_fragment;
   const auto vertex_shader = GetShaderModule(
       dome_pipeline ? shaders.vertex.parent_path() / "dome.vert.spv"
+      : mesh_display ? shaders.vertex.parent_path() / "mesh-display.vert.spv"
       : gpu_driven_pipeline
           ? gpu_driven_vertex
       : gpu_scene_pipeline
@@ -548,6 +552,7 @@ VkPipeline Renderer::Impl::CreatePipeline(
                                      : shaders.vertex));
   const auto fragment_path =
       dome_pipeline ? shaders.fragment.parent_path() / "dome.frag.spv"
+      : mesh_display ? shaders.fragment.parent_path() / "mesh-display.frag.spv"
       : generated_artifact != nullptr
           ? generated_artifact->fragment
           : (gpu_driven_pipeline
@@ -580,6 +585,15 @@ VkPipeline Renderer::Impl::CreatePipeline(
       {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
           static_cast<std::uint32_t>(offsetof(extraction::DrawVertex, tangent))},
   }};
+  const VkVertexInputBindingDescription display_binding{0,
+      sizeof(render::MeshDisplayVertex),
+      points ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX};
+  const std::array<VkVertexInputAttributeDescription, 2> display_attributes{{
+      {0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+          offsetof(render::MeshDisplayVertex, position)},
+      {1, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+          offsetof(render::MeshDisplayVertex, color)},
+  }};
   VkPipelineVertexInputStateCreateInfo vertex_input{
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
   vertex_input.vertexBindingDescriptionCount = 1;
@@ -590,10 +604,16 @@ VkPipeline Renderer::Impl::CreatePipeline(
   if (dome_pipeline) {
     vertex_input.vertexBindingDescriptionCount = 0;
     vertex_input.vertexAttributeDescriptionCount = 0;
+  } else if (mesh_display) {
+    vertex_input.pVertexBindingDescriptions = &display_binding;
+    vertex_input.vertexAttributeDescriptionCount =
+        static_cast<std::uint32_t>(display_attributes.size());
+    vertex_input.pVertexAttributeDescriptions = display_attributes.data();
   }
   VkPipelineInputAssemblyStateCreateInfo input_assembly{
       VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  input_assembly.topology = mesh_display && !points ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST
+                                                   : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
   VkPipelineViewportStateCreateInfo viewport_state{
       VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
   viewport_state.viewportCount = 1;
@@ -601,7 +621,8 @@ VkPipeline Renderer::Impl::CreatePipeline(
   VkPipelineRasterizationStateCreateInfo raster{
       VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
   raster.polygonMode = VK_POLYGON_MODE_FILL;
-  raster.cullMode = (variant_key & kDoubleSidedFlag) != 0U
+  raster.depthBiasEnable = !mesh_display && !dome_pipeline;
+  raster.cullMode = mesh_display || (variant_key & kDoubleSidedFlag) != 0U
                         ? VK_CULL_MODE_NONE
                         : VK_CULL_MODE_BACK_BIT;
   raster.frontFace =
@@ -616,7 +637,7 @@ VkPipeline Renderer::Impl::CreatePipeline(
       VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
   depth.depthTestEnable = dome_pipeline ? VK_FALSE : VK_TRUE;
   depth.depthWriteEnable = dome_pipeline ? VK_FALSE : VK_TRUE;
-  depth.depthCompareOp = VK_COMPARE_OP_LESS;
+  depth.depthCompareOp = mesh_display ? VK_COMPARE_OP_LESS_OR_EQUAL : VK_COMPARE_OP_LESS;
   VkPipelineColorBlendAttachmentState blend_attachment{};
   blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
                                     VK_COLOR_COMPONENT_G_BIT |
@@ -629,8 +650,8 @@ VkPipeline Renderer::Impl::CreatePipeline(
   blend.attachmentCount =
       static_cast<std::uint32_t>(blend_attachments.size());
   blend.pAttachments = blend_attachments.data();
-  const std::array<VkDynamicState, 2> dynamic_states{
-      VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+  const std::array<VkDynamicState, 3> dynamic_states{
+      VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS};
   VkPipelineDynamicStateCreateInfo dynamic{
       VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
   dynamic.dynamicStateCount =
@@ -649,6 +670,7 @@ VkPipeline Renderer::Impl::CreatePipeline(
   pipeline_info.pColorBlendState = &blend;
   pipeline_info.pDynamicState = &dynamic;
   pipeline_info.layout = dome_pipeline ? dome_pipeline_layout_
+                         : mesh_display ? mesh_display_pipeline_layout_
                          : generated_artifact != nullptr
                              ? active_target_->generated_pipeline_layouts.at(
                                    generated_artifact->module_key)
@@ -659,6 +681,56 @@ VkPipeline Renderer::Impl::CreatePipeline(
             &pipeline_info, nullptr, &pipeline),
       "create scene graphics pipeline");
   return pipeline;
+}
+
+void Renderer::Impl::RecordMeshDisplay(VkCommandBuffer command,
+    FrameContext& frame, const RenderRequest& request) {
+  const auto batch = render::PrepareMeshDisplay(*request.snapshot,
+      request.width, request.height, request.mesh_display);
+  if (batch.draws.empty()) {
+    return;
+  }
+  const auto bytes = batch.vertices.size() * sizeof(render::MeshDisplayVertex);
+  auto& buffer = frame.mesh_display_vertices;
+  if (buffer.size < bytes) {
+    DestroyBuffer(buffer);
+    buffer = CreateBuffer(bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  }
+  void* mapped{};
+  Check(vkMapMemory(device_, buffer.memory, 0, bytes, 0, &mapped),
+      "map mesh display vertices");
+  std::memcpy(mapped, batch.vertices.data(), bytes);
+  vkUnmapMemory(device_, buffer.memory);
+
+  constexpr auto stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  if (mesh_display_pipeline_layout_ == VK_NULL_HANDLE) {
+    const VkPushConstantRange range{stages, 0, sizeof(render::MeshDisplayConstants)};
+    VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layout.pushConstantRangeCount = 1;
+    layout.pPushConstantRanges = &range;
+    Check(vkCreatePipelineLayout(device_, &layout, nullptr, &mesh_display_pipeline_layout_),
+        "create mesh display pipeline layout");
+  }
+  using Mode = render::MeshDisplayMode;
+  const bool points = request.mesh_display.mode == Mode::Points;
+  auto& pipeline = active_target_->mesh_display_pipelines[points ? 1 : 0];
+  if (pipeline == VK_NULL_HANDLE) {
+    pipeline = CreatePipeline(active_target_->shaders, 0, nullptr, false, false,
+        points ? Mode::Points : Mode::Wireframe);
+  }
+  vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  for (const auto& draw : batch.draws) {
+    const VkDeviceSize offset = draw.first * sizeof(render::MeshDisplayVertex);
+    vkCmdBindVertexBuffers(command, 0, 1, &buffer.handle, &offset);
+    vkCmdPushConstants(command, mesh_display_pipeline_layout_, stages, 0,
+        sizeof(draw.constants), &draw.constants);
+    if (points) {
+      vkCmdDraw(command, 6, draw.count, 0, 0);
+    } else {
+      vkCmdDraw(command, draw.count, 1, 0, 0);
+    }
+  }
 }
 
 void Renderer::Impl::RecordDome(VkCommandBuffer command, FrameContext& frame,

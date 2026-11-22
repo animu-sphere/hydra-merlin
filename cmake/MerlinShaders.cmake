@@ -63,6 +63,9 @@ macro(merlin_add_vulkan_shaders)
       "${MERLIN_SHADER_OUTPUT_DIR}/dome.frag.spv")
   list(GET _dome_shaders 0 _dome_vertex)
   list(GET _dome_shaders 1 _dome_fragment)
+  set(_mesh_display_vertex "${MERLIN_SHADER_OUTPUT_DIR}/mesh-display.vert.spv")
+  set(_mesh_display_fragment "${MERLIN_SHADER_OUTPUT_DIR}/mesh-display.frag.spv")
+  set(_mesh_display_shaders "${_mesh_display_vertex}" "${_mesh_display_fragment}")
   set(MERLIN_VERTEX_METAL "${MERLIN_SHADER_OUTPUT_DIR}/triangle.vert.metal")
   set(MERLIN_FRAGMENT_METAL "${MERLIN_SHADER_OUTPUT_DIR}/triangle.frag.metal")
 
@@ -258,6 +261,10 @@ macro(merlin_add_vulkan_shaders)
     "${_merlin_slang_spirv_profile}" spirv_1_5 dome-background "rgbe_environment")
   _merlin_compile_shader("${_dome_fragment}" dome.slang dome_fragment fragment spirv
     "${_merlin_slang_spirv_profile}" spirv_1_5 dome-background "rgbe_environment")
+  _merlin_compile_shader("${_mesh_display_vertex}" mesh-display.slang mesh_display_vertex vertex spirv
+    "${_merlin_slang_spirv_profile}" spirv_1_5 mesh-display "wire_and_points")
+  _merlin_compile_shader("${_mesh_display_fragment}" mesh-display.slang mesh_display_fragment fragment spirv
+    "${_merlin_slang_spirv_profile}" spirv_1_5 mesh-display "wire_and_points")
   _merlin_compile_shader("${MERLIN_VERTEX_METAL}" forward.slang
     forward_vertex vertex metal "${_merlin_slang_metal_profile}"
     none forward-conventional "${_merlin_conventional_features}")
@@ -275,6 +282,7 @@ macro(merlin_add_vulkan_shaders)
   set(MERLIN_SHADER_MANIFEST "${MERLIN_SHADER_OUTPUT_DIR}/manifest.json")
   set(_merlin_shader_reflections
     "${_dome_vertex}.reflection.json" "${_dome_fragment}.reflection.json"
+    "${_mesh_display_vertex}.reflection.json" "${_mesh_display_fragment}.reflection.json"
     "${MERLIN_VERTEX_SPV}.reflection.json"
     "${MERLIN_FRAGMENT_SPV}.reflection.json"
     "${MERLIN_BINDLESS_VERTEX_SPV}.reflection.json"
@@ -326,7 +334,7 @@ macro(merlin_add_vulkan_shaders)
       "-DMERLIN_ENVIRONMENT_HDR:FILEPATH=${MERLIN_ENVIRONMENT_HDR}"
       -P "${PROJECT_SOURCE_DIR}/cmake/write-shader-manifest.cmake"
     DEPENDS
-      ${_dome_shaders}
+      ${_dome_shaders} ${_mesh_display_shaders}
       "${MERLIN_VERTEX_SPV}" "${MERLIN_FRAGMENT_SPV}"
       "${MERLIN_BINDLESS_VERTEX_SPV}" "${MERLIN_BINDLESS_FRAGMENT_SPV}"
       "${MERLIN_GPU_SCENE_VERTEX_SPV}" "${MERLIN_GPU_SCENE_FRAGMENT_SPV}"
@@ -371,7 +379,7 @@ macro(merlin_add_vulkan_shaders)
 
   add_custom_target(merlin-vulkan-shaders
     DEPENDS
-      ${_dome_shaders}
+      ${_dome_shaders} ${_mesh_display_shaders}
       "${MERLIN_VERTEX_SPV}"
       "${MERLIN_FRAGMENT_SPV}"
       "${MERLIN_BINDLESS_VERTEX_SPV}"
@@ -407,7 +415,7 @@ macro(merlin_add_vulkan_shaders)
   add_dependencies(merlin-vulkan merlin-vulkan-shaders)
 
   set(_merlin_shader_package_files
-    ${_dome_shaders}
+    ${_dome_shaders} ${_mesh_display_shaders}
     "${MERLIN_VERTEX_SPV}"
     "${MERLIN_FRAGMENT_SPV}"
     "${MERLIN_BINDLESS_VERTEX_SPV}"
