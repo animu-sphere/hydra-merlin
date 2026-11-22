@@ -31,7 +31,9 @@ def constants(typ, size, fields):
 
 material_fields = [("base_color", 0, 16), ("light_direction_intensity", 16, 16),
                    ("light_color_alpha_cutoff", 32, 16), ("diffuse_environment", 48, 144), ("output_transform", 192, 16),
-                   ("surface_policy", 208, 16), ("normal_map", 224, 16), ("normal_map_resource", 240, 16)]
+                   ("surface_policy", 208, 16), ("normal_map", 224, 16), ("normal_map_resource", 240, 16),
+                   ("light_policy", 256, 16), ("additional_light_directions", 272, 112),
+                   ("additional_light_colors", 384, 112), ("world_to_environment", 496, 64)]
 draw_fields = [("model_view_projection", 0, 64), ("normal_matrix_column0", 64, 16),
                ("normal_matrix_column1", 80, 16), ("normal_matrix_column2", 96, 16),
                ("feature_mask", 112, 4), ("prim_id", 116, 4), ("instance_id", 120, 4),
@@ -55,7 +57,7 @@ for stem, entry, stage in [
         assert [f["binding"]["index"] for f in fields] == [0, 1, 2, 3, 4]
         assert [f["type"]["elementCount"] for f in fields] == [3, 3, 4, 2, 4]
     else:
-        constants(parameter(data, source, "material_constants", "constantBuffer", 2), 256, material_fields)
+        constants(parameter(data, source, "material_constants", "constantBuffer", 2), 560, material_fields)
         outputs = data["entryPoints"][0]["result"]["type"]["fields"]
         assert [f["binding"]["index"] for f in outputs] == [0, 1, 2]
         assert outputs[0]["type"]["elementType"]["scalarType"] == "float32"
@@ -89,4 +91,9 @@ data, source = load("forward.color-convert", "merlin_convert_color", "compute")
 assert data["entryPoints"][0]["threadGroupSize"] == [8, 8, 1]
 parameter(data, source, "source_color", "shaderResource", 0, "texture")
 parameter(data, source, "destination_color", "shaderResource", 1, "texture")
-print("Metal Forward, GPU Scene, presentation and color-copy ABI verified")
+load("dome.vertex", "merlin_dome_vertex", "vertex")
+data, source = load("dome.fragment", "merlin_dome_fragment", "fragment")
+parameter(data, source, "dome_environment", "shaderResource", 0, "texture")
+constants(parameter(data, source, "dome_constants", "constantBuffer", 0), 80,
+          [("clip_to_environment", 0, 64), ("radiance_scale", 64, 16)])
+print("Metal Forward, GPU Scene, dome, presentation and color-copy ABI verified")

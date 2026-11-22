@@ -89,6 +89,11 @@ comparison cases. Select the other gates with:
 Each host report retains images, per-frame JSON, structural counters and host
 traces.
 
+The lighting gate also exercises all eight combinations of usdview's Scene
+Lights, Default Camera Light, and Default Dome Light using a red authored
+distant light. It checks the Stinson Beach background and verifies that
+`domeLightCameraVisibility` leaves the dome contribution on surfaces intact.
+
 ### External scene
 
 Configure an existing Hydra build with a local stage, then run its gate:
@@ -103,6 +108,23 @@ missing file fails configure. The asset is not provisioned by the GPU
 capability workflow. On Metal the runner raises `MERLIN_METAL_HEAP_MIB` to 1024
 unless it is already set, because Kitchen_set exceeds the 64 MiB default scene
 heap.
+
+Supply the checked-in camera recipes to run the Kitchen_set interior views.
+
+```powershell
+$views = (Resolve-Path adapters/merlin-hydra2/tests/fixtures/kitchen-interior-views.json).Path
+cmake -S . -B build/vulkan-hydra `
+  -DMERLIN_FORWARD_SCENE=C:/assets/Kitchen_set/Kitchen_set.usd `
+  "-DMERLIN_FORWARD_SCENE_VIEWS=$views"
+ctest --test-dir build/vulkan-hydra -C Release -R '^merlin-hydra2-forward-scene' --output-on-failure
+```
+
+Each JSON entry defines a unique lowercase `name`, world-space `eye` and
+`target` coordinates in stage units, and `vertical_fov_degrees`. The gate runs
+the listed views in order. Set `-DMERLIN_FORWARD_SCENE_VIEWS=` to restore the
+default frame-all views. Both configurations use the same artifact directories,
+so save the first run's artifacts before running the other if you need both.
+The same camera file can be supplied to a Metal/Hydra build.
 
 ## Metal host gates
 

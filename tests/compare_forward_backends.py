@@ -26,10 +26,12 @@ OUTPUT_PHASES = tuple(
 )
 
 
-def phases(report, schema, key):
-    if report.get("schema") != schema or report.get("lighting_profile") != PROFILE:
+def phases(report, schema, key, *, explicit=False):
+    profile = "forward-explicit-lights-reinhard/v1" if explicit else PROFILE
+    off_policy = "no-light-contribution" if explicit else "unit-white-plus-z-diagnostic-fallback"
+    if report.get("schema") != schema or report.get("lighting_profile") != profile:
         raise ValueError("unsupported schema or stale lighting profile")
-    if report.get("off_policy") != "unit-white-plus-z-diagnostic-fallback":
+    if report.get("off_policy") != off_policy:
         raise ValueError("OFF semantics differ")
     result = {}
     for phase in report["phases"]:
@@ -37,8 +39,10 @@ def phases(report, schema, key):
         if name in result:
             raise ValueError(f"duplicate phase: {name}")
         rgb = phase["center_rgb"]
-        minimum = 0 if name.startswith("environment-") else 1
-        if len(rgb) != 3 or any(type(c) is not int or not minimum <= c < 255 for c in rgb):
+        off = explicit and "-off-" in name
+        minimum = 0 if name.startswith("environment-") or off else 1
+        maximum = 0 if off else 254
+        if len(rgb) != 3 or any(type(c) is not int or not minimum <= c <= maximum for c in rgb):
             raise ValueError(f"invalid RGB or lost headroom: {name}")
         if phase["upload_bytes"] != 0 or phase["pipeline_creation_count"] != 0:
             raise ValueError(f"resources rebuilt: {name}")
@@ -69,12 +73,15 @@ def compare_native(vulkan, metal):
 
 
 def compare_host(vulkan, metal):
+    explicit = vulkan.get("schema") == "merlin-usdview-forward-lighting/v2"
+    schema = "merlin-usdview-forward-lighting/v2" if explicit else "merlin-usdview-forward-lighting/v1"
+    white_off = "black-required" if explicit else "headroom-required"
     for report, backend in ((vulkan, "vulkan"), (metal, "metal")):
-        if report.get("backend") != backend or report.get("white_off_policy") != "headroom-required":
+        if report.get("backend") != backend or report.get("white_off_policy") != white_off:
             raise ValueError("host backend or headroom policy differs")
     return compare(
-        phases(vulkan, "merlin-usdview-forward-lighting/v1", "phase"),
-        phases(metal, "merlin-usdview-forward-lighting/v1", "phase"), HOST_PHASES, 2)
+        phases(vulkan, schema, "phase", explicit=explicit),
+        phases(metal, schema, "phase", explicit=explicit), HOST_PHASES, 2)
 
 
 def output_phases(report):

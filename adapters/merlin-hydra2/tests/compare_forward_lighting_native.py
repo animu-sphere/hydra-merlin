@@ -13,7 +13,8 @@ def main():
     parser.add_argument("--backend", choices=("vulkan", "metal"), default="vulkan")
     args = parser.parse_args()
     host = json.loads(args.host.read_text(encoding="utf-8"))
-    if host["schema"] != "merlin-usdview-forward-lighting/v1":
+    explicit = host["schema"] == "merlin-usdview-forward-lighting/v2"
+    if not explicit and host["schema"] != "merlin-usdview-forward-lighting/v1":
         raise ValueError("unsupported host lighting report")
     if host.get("backend", "vulkan") != args.backend:
         raise ValueError("native/host backends differ")
@@ -25,15 +26,16 @@ def main():
                          else "merlin-forward-image-fixture/v1")
         if native["schema"] != native_schema:
             raise ValueError("unsupported native lighting report")
-        if native.get("lighting_profile") != "forward-sh-l2-reinhard/v1" or host.get("lighting_profile") != native["lighting_profile"]:
+        host_profile = "forward-explicit-lights-reinhard/v1" if explicit else native.get("lighting_profile")
+        if native.get("lighting_profile") != "forward-sh-l2-reinhard/v1" or host.get("lighting_profile") != host_profile:
             raise ValueError("native/host lighting profiles differ")
         native_phases = {phase["name"]: phase for phase in native["phases"]}
-        if native["off_policy"] != host["off_policy"]:
+        if ("no-light-contribution" if explicit else native["off_policy"]) != host["off_policy"]:
             raise ValueError("native/host OFF semantics differ")
         for light in ("off", "on"):
             for pose in ("static", "moving", "restored"):
                 phase = f"{light}-{pose}"
-                a = native_phases[phase]["center_rgb"]
+                a = native_phases[f"explicit-{phase}" if explicit else phase]["center_rgb"]
                 b = host_phases[f"lighting-{albedo}-linear-{phase}"]["center_rgb"]
                 if len(a) != 3 or len(b) != 3:
                     raise ValueError("expected three color channels")

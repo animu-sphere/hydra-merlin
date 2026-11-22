@@ -1,19 +1,15 @@
 #include <merlin/render/forward_lighting.hpp>
 #include <merlin/render/backend.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 namespace merlin::render {
 
-ForwardDirectionalLighting ExtractForwardDirectionalLighting(
-    const extraction::FrameSnapshot& snapshot) {
-  const extraction::LightRecord* selected = nullptr;
-  for (const auto& light : snapshot.lights) {
-    if (light.type == LightType::Directional &&
-        (selected == nullptr || light.light < selected->light)) {
-      selected = &light;
-    }
-  }
+namespace {
+
+ForwardDirectionalLighting PackDirectionalLight(
+    const extraction::LightRecord* selected) {
   ForwardDirectionalLighting result;
   if (selected == nullptr) {
     return result;
@@ -45,6 +41,70 @@ ForwardDirectionalLighting ExtractForwardDirectionalLighting(
   }
   result.color = selected->color;
   result.light = selected->light;
+  return result;
+}
+
+} // namespace
+
+DomeDrawConstants PackDomeDrawConstants(const ForwardDomeLight& dome) {
+  return {dome.clip_to_environment, {dome.radiance_scale.x,
+      dome.radiance_scale.y, dome.radiance_scale.z, 0.0F}};
+}
+
+ForwardDirectionalLighting ExtractForwardDirectionalLighting(
+    const extraction::FrameSnapshot& snapshot) {
+  const extraction::LightRecord* selected = nullptr;
+  for (const auto& light : snapshot.lights) {
+    if (light.type == LightType::Directional &&
+        (selected == nullptr || light.light < selected->light)) {
+      selected = &light;
+    }
+  }
+  return PackDirectionalLight(selected);
+}
+
+ForwardLighting PrepareForwardLighting(const extraction::FrameSnapshot& snapshot,
+    const std::array<Vec4, 9>& default_environment,
+    const ForwardLightingSettings& settings) {
+  ForwardLighting result;
+  if (!settings.explicit_lights && !settings.dome) {
+    result.primary = ExtractForwardDirectionalLighting(snapshot);
+    result.environment = default_environment;
+    return result;
+  }
+
+  std::vector<const extraction::LightRecord*> lights;
+  for (const auto& light : snapshot.lights) {
+    if (light.type == LightType::Directional) {
+      lights.push_back(&light);
+    }
+  }
+  const auto count = std::min(lights.size(), kForwardAdditionalLightCount + 1);
+  std::partial_sort(lights.begin(), lights.begin() + count, lights.end(),
+      [](const auto* a, const auto* b) { return a->light < b->light; });
+  if (count == 0) {
+    result.primary.direction_intensity.w = 0.0F;
+  } else {
+    result.primary = PackDirectionalLight(lights.front());
+    for (std::size_t i = 1; i < count; ++i) {
+      const auto light = PackDirectionalLight(lights[i]);
+      result.additional_directions[i - 1] = light.direction_intensity;
+      result.additional_colors[i - 1] = {
+          light.color.x, light.color.y, light.color.z, 0.0F};
+    }
+  }
+  result.policy = {settings.dome ? 1.0F : 0.0F, 1.0F,
+      count > 0 ? static_cast<float>(count - 1) : 0.0F, 0.0F};
+  if (settings.dome) {
+    const auto& dome = *settings.dome;
+    result.world_to_environment = dome.world_to_environment;
+    for (std::size_t i = 0; i < result.environment.size(); ++i) {
+      const auto& coefficient = dome.diffuse_environment[i];
+      result.environment[i] = {coefficient.x * dome.radiance_scale.x,
+          coefficient.y * dome.radiance_scale.y,
+          coefficient.z * dome.radiance_scale.z, 0.0F};
+    }
+  }
   return result;
 }
 

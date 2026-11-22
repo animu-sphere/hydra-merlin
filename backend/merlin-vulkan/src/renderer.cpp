@@ -270,7 +270,7 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   SyncTextures(*request.snapshot, resource_sync_mode);
   SyncSamplers(*request.snapshot, resource_sync_mode);
   // Vulkan maps NDC +Y down in framebuffer coordinates.
-  PrepareMaterialDescriptors(frame, *request.snapshot,
+  PrepareMaterialDescriptors(frame, *request.snapshot, PrepareForwardLighting(request),
       {render::PackForwardOutputTransform(request.output_transform),
           render::PackForwardSurfacePolicy(request.snapshot->front_face,
               render::NdcYDirection::Down, request.debug_view)});
@@ -390,7 +390,7 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   RecordGpuDrivenDispatch(frame.command_buffer, frame, *request.snapshot,
       request.gpu_driven_indexed);
   RecordFrame(frame.command_buffer, frame, *request.snapshot,
-      request.clear_color,
+      request.clear_color, request.forward_lighting.dome,
       frame.cpu_readback_aovs);
   if (frame.timestamp_pool != VK_NULL_HANDLE) {
     vkCmdWriteTimestamp(frame.command_buffer,

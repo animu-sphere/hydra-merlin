@@ -304,7 +304,7 @@ private:
 
   static MaterialConstants
   MakeMaterial(const extraction::MaterialRecord& material,
-      const render::ForwardDirectionalLighting& lighting,
+      const render::ForwardLighting& lighting,
       const render::ForwardFramePolicy& frame_policy);
 
   void PrepareGaussianExecution(const render::RenderRequest& request,
@@ -367,6 +367,8 @@ private:
   id<MTLLibrary> gaussian_library_;
   id<MTLSamplerState> presentation_sampler_;
   id<MTLRenderPipelineState> pipeline_;
+  id<MTLRenderPipelineState> dome_pipeline_;
+  id<MTLRenderPipelineState> float_dome_pipeline_;
   id<MTLRenderPipelineState> gpu_scene_pipeline_;
   id<MTLRenderPipelineState> presentation_pipeline_;
   id<MTLDepthStencilState> depth_state_;

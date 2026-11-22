@@ -38,7 +38,9 @@ macro(merlin_add_metal_shaders)
     "forward-gpu-scene-metal.slang|merlin_fragment_gpu_scene|fragment|forward.gpu-scene-fragment|forward-gpu-scene|gpu_scene"
     "color-convert-metal.slang|merlin_convert_color|compute|forward.color-convert|color-convert|color_copy"
     "presentation-metal.slang|merlin_presentation_vertex|vertex|presentation.vertex|presentation|native_presentation"
-    "presentation-metal.slang|merlin_presentation_fragment|fragment|presentation.fragment|presentation|native_presentation")
+    "presentation-metal.slang|merlin_presentation_fragment|fragment|presentation.fragment|presentation|native_presentation"
+    "dome-metal.slang|merlin_dome_vertex|vertex|dome.vertex|dome-background|rgbe_environment"
+    "dome-metal.slang|merlin_dome_fragment|fragment|dome.fragment|dome-background|rgbe_environment")
   foreach(_record IN LISTS _metal_entries)
     string(REPLACE "|" ";" _fields "${_record}")
     list(GET _fields 0 _source)
@@ -78,6 +80,7 @@ macro(merlin_add_metal_shaders)
         "${_metal_shared}/gaussian-raster-common.slang"
         "${_metal_shared}/gaussian-raster-abi.slang"
         "${_metal_shared}/forward-policy.slang"
+        "${_metal_shared}/dome-common.slang"
       DEPFILE "${_depfile}"
       WORKING_DIRECTORY "${_metal_source}"
       VERBATIM)

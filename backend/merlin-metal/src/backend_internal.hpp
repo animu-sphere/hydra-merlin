@@ -91,6 +91,10 @@ struct alignas(16) MaterialConstants {
   Vec4 surface_policy;
   Vec4 normal_map;
   std::array<std::uint32_t, 4> normal_map_resource{};
+  Vec4 light_policy;
+  std::array<Vec4, render::kForwardAdditionalLightCount> additional_light_directions;
+  std::array<Vec4, render::kForwardAdditionalLightCount> additional_light_colors;
+  Mat4 world_to_environment;
 };
 
 struct alignas(16) GpuSceneDrawConstants {
@@ -106,7 +110,7 @@ static_assert(offsetof(extraction::DrawVertex, texcoord) == 40);
 static_assert(offsetof(extraction::DrawVertex, tangent) == 48);
 static_assert(sizeof(extraction::DrawVertex) == 64);
 static_assert(sizeof(DrawConstants) == 144);
-static_assert(sizeof(MaterialConstants) == 256);
+static_assert(sizeof(MaterialConstants) == 560);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 static_assert(offsetof(MaterialConstants, output_transform) == 192);
 static_assert(offsetof(MaterialConstants, surface_policy) == 208);

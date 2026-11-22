@@ -13,6 +13,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace merlin::tests {
@@ -47,9 +48,17 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
   CameraDescriptor camera;
   const auto camera_handle = world.CreateCamera(camera);
   extractor.SetActiveCamera(camera_handle);
+  bool explicit_lights = false;
   const auto render = [&] {
     extractor.Apply(world, world.Commit());
-    return renderer.Render(*extractor.snapshot(), 64, 64, shaders);
+    vulkan::RenderRequest request;
+    request.snapshot = extractor.snapshot();
+    request.width = request.height = 64;
+    request.shaders = shaders;
+    request.products = {{Aov::Color, true}, {Aov::Depth, true},
+        {Aov::PrimId, true}, {Aov::InstanceId, true}};
+    request.forward_lighting.explicit_lights = explicit_lights;
+    return renderer.Resolve(renderer.Submit(request));
   };
   const auto same = [](const auto& a, const auto& b) {
     return a.color.pixels == b.color.pixels && a.depth.pixels == b.depth.pixels &&
@@ -124,8 +133,11 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
       world.UpdateMaterial(material_handle, material, ChangeAspect::MaterialModule);
     }
     for (std::size_t channel = 0; channel < 3; ++channel) {
-      const bool environment_sample = std::string(phase).starts_with("environment-");
-      RequireForwardImage((environment_sample || center(result, channel) > 0) && center(result, channel) < 255,
+      const std::string_view name(phase);
+      const bool light_off = name.starts_with("explicit-off-");
+      const bool valid = light_off ? center(result, channel) == 0 :
+          (name.starts_with("environment-") || center(result, channel) > 0) && center(result, channel) < 255;
+      RequireForwardImage(valid,
           std::string(phase) + " center lost color headroom");
     }
     std::ofstream image(output / (std::string(phase) + ".ppm"), std::ios::binary);
@@ -149,12 +161,20 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
            << ", \"material_maximum_channel_error\": " << material_channel_error << "}";
     return result;
   };
+  const auto capture_explicit = [&](const char* phase) {
+    explicit_lights = true;
+    const auto image = capture(phase);
+    explicit_lights = false;
+    return image;
+  };
   const auto off = capture("off-static");
+  const auto explicit_off = capture_explicit("explicit-off-static");
   LightDescriptor light;
   const auto sine = std::sin(0.53 * 3.141592653589793 / 360.0);
   light.intensity = static_cast<float>(15000 * sine * sine);
   const auto light_handle = world.CreateLight(light);
   const auto on = capture("on-static");
+  const auto explicit_on = capture_explicit("explicit-on-static");
   // Orthographic camera motion rotates about the patch center and translates
   // in X. The camera light follows orientation, while normals remain world-space.
   constexpr float cosine = 0.8660254F;
@@ -169,16 +189,20 @@ inline void RunForwardImageFixture(vulkan::Renderer& renderer,
   light.transform.values[10] = cosine;
   world.UpdateLight(light_handle, light, ChangeAspect::Transform);
   const auto moving = capture("on-moving");
+  (void)capture_explicit("explicit-on-moving");
   RequireForwardImage(on.color.pixels != moving.color.pixels, "motion did not change the image");
   world.Remove(light_handle);
   const auto off_moving = capture("off-moving");
+  (void)capture_explicit("explicit-off-moving");
   camera = {};
   world.UpdateCamera(camera_handle, camera);
   const auto restored = capture("off-restored");
+  RequireForwardImage(same(explicit_off, capture_explicit("explicit-off-restored")), "explicit OFF return differs");
   RequireForwardImage(same(off, restored), "return to OFF changed the image");
   light.transform = {};
   const auto restored_light = world.CreateLight(light);
   RequireForwardImage(same(on, capture("on-restored")), "return to ON changed the image");
+  RequireForwardImage(same(explicit_on, capture_explicit("explicit-on-restored")), "explicit ON return differs");
   light.intensity = 0;
   world.UpdateLight(restored_light, light, ChangeAspect::LightParameters);
   const auto zero = capture("zero-energy");

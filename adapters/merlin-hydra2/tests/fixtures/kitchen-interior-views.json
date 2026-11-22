@@ -1,0 +1,14 @@
+[
+  {
+    "name": "sink",
+    "eye": [150, -140, 145],
+    "target": [-35, 115, 125],
+    "vertical_fov_degrees": 50
+  },
+  {
+    "name": "cabinets",
+    "eye": [-140, -95, 145],
+    "target": [210, 100, 125],
+    "vertical_fov_degrees": 50
+  }
+]

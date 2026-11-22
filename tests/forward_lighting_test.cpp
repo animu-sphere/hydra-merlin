@@ -59,18 +59,21 @@ void DrawPolicies() {
     merlin::Vec4 output_transform;
     merlin::Vec4 surface_policy;
     merlin::Vec4 normal_map;
+    merlin::Vec4 light_policy;
+    std::array<merlin::Vec4, merlin::render::kForwardAdditionalLightCount> additional_light_directions;
+    std::array<merlin::Vec4, merlin::render::kForwardAdditionalLightCount> additional_light_colors;
+    merlin::Mat4 world_to_environment;
   };
   merlin::extraction::MaterialRecord material;
   material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
   material.parameters.alpha_cutoff = 0.25F;
   material.parameters.normal_scale = 0.5F;
   material.parameters.normal_flip_green = true;
-  merlin::render::ForwardDirectionalLighting lighting;
-  lighting.direction_intensity = {0.0F, 1.0F, 0.0F, 0.0F};
-  lighting.color = {0.5F, 0.6F, 0.7F};
-  std::array<merlin::Vec4, 9> environment{};
-  environment[8] = {1.0F, 2.0F, 3.0F, 4.0F};
-  const auto upload = merlin::render::MakeForwardMaterialConstants<Upload>(material, lighting, environment,
+  merlin::render::ForwardLighting lighting;
+  lighting.primary.direction_intensity = {0.0F, 1.0F, 0.0F, 0.0F};
+  lighting.primary.color = {0.5F, 0.6F, 0.7F};
+  lighting.environment[8] = {1.0F, 2.0F, 3.0F, 4.0F};
+  const auto upload = merlin::render::MakeForwardMaterialConstants<Upload>(material, lighting,
       {merlin::render::PackForwardOutputTransform({}), {-1.0F, 3.0F, 0.0F, 0.0F}});
   assert(upload.surface_policy.x == -1.0F);
   assert(upload.surface_policy.y == 3.0F);

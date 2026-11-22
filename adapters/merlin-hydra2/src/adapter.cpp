@@ -4,6 +4,8 @@
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/vec4d.h>
 #include <pxr/base/gf/vec4f.h>
+#include <pxr/base/plug/plugin.h>
+#include <pxr/base/plug/registry.h>
 #include <pxr/base/gf/quath.h>
 #include <pxr/base/gf/quatf.h>
 #include <pxr/base/gf/quaternion.h>
@@ -18,6 +20,7 @@
 #include <pxr/base/trace/trace.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/value.h>
+#include <pxr/imaging/glf/simpleLight.h>
 #include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/changeTracker.h>
@@ -52,6 +55,7 @@
 #include <merlin/core/mesh_attributes.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
+#include <merlin/render/diffuse_environment.hpp>
 #include <merlin/render/surface_geometry.hpp>
 #ifdef MERLIN_HYDRA2_ENABLE_VULKAN
 #include <merlin/vulkan/backend.hpp>
@@ -79,6 +83,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -1717,6 +1722,32 @@ public:
     lights_.erase(found);
   }
 
+  void SyncDomeLight(const SdfPath& path, const std::filesystem::path& image,
+      const GfMatrix4d& world_to_environment, const merlin::Vec3& radiance_scale) {
+    std::scoped_lock lock(mutex_);
+    auto found = dome_textures_.find(image);
+    if (found == dome_textures_.end()) {
+      merlin::TextureDescriptor texture;
+      texture.label = image.filename().string();
+      const auto diffuse = merlin::render::LoadDiffuseEnvironment(image, &texture.pixels);
+      texture.width = diffuse.width;
+      texture.height = diffuse.height;
+      found = dome_textures_.emplace(image,
+          DomeTexture{world_.CreateTexture(std::move(texture)), diffuse.coefficients}).first;
+    }
+    dome_lights_[path] = {found->second, world_to_environment, radiance_scale};
+  }
+
+  void RemoveDomeLight(const SdfPath& path) {
+    std::scoped_lock lock(mutex_);
+    dome_lights_.erase(path);
+  }
+
+  void SetDomeBackgroundVisible(bool visible) {
+    std::scoped_lock lock(mutex_);
+    dome_background_visible_ = visible;
+  }
+
   void Render(const HdRenderPassState& state,
       const HdRenderPassAovBindingVector& bindings,
       const HdRprimCollection& collection,
@@ -1744,33 +1775,19 @@ public:
     }
     render_world_update_ns += ElapsedNanoseconds(visibility_update_start);
 
-    merlin::CameraHandle active_camera;
-    if (const HdCamera* camera = state.GetCamera()) {
-      const auto key = camera->GetId().GetString();
-      const auto view = ToMerlinMatrix(state.GetWorldToViewMatrix());
-      auto projection_matrix = state.GetProjectionMatrix();
-      if (reflect_hgi_projection_y_) {
-        GfMatrix4d reflection(1.0);
-        reflection[1][1] = -1.0;
-        projection_matrix *= reflection;
-      }
-      const auto projection = ToMerlinMatrix(projection_matrix);
-      const auto camera_update_start = CpuClock::now();
-      active_camera = SyncCameraLocked(key, view, projection);
-      render_world_update_ns += ElapsedNanoseconds(camera_update_start);
-    } else {
-      const auto camera_update_start = CpuClock::now();
-      auto projection_matrix = state.GetProjectionMatrix();
-      if (reflect_hgi_projection_y_) {
-        GfMatrix4d reflection(1.0);
-        reflection[1][1] = -1.0;
-        projection_matrix *= reflection;
-      }
-      active_camera = SyncCameraLocked(
-          "__merlinViewportCamera", ToMerlinMatrix(state.GetWorldToViewMatrix()),
-          ToMerlinMatrix(projection_matrix));
-      render_world_update_ns += ElapsedNanoseconds(camera_update_start);
+    const HdCamera* camera = state.GetCamera();
+    const auto camera_key = camera ? camera->GetId().GetString() : "__merlinViewportCamera";
+    const auto view_matrix = state.GetWorldToViewMatrix();
+    auto projection_matrix = state.GetProjectionMatrix();
+    if (reflect_hgi_projection_y_) {
+      GfMatrix4d reflection(1.0);
+      reflection[1][1] = -1.0;
+      projection_matrix *= reflection;
     }
+    const auto camera_update_start = CpuClock::now();
+    const auto active_camera = SyncCameraLocked(camera_key,
+        ToMerlinMatrix(view_matrix), ToMerlinMatrix(projection_matrix));
+    render_world_update_ns += ElapsedNanoseconds(camera_update_start);
     extractor_.SetActiveCamera(active_camera);
 
     std::uint32_t width{};
@@ -1966,6 +1983,18 @@ public:
     request.snapshot = snapshot;
     request.output_transform = output_transform_;
     request.debug_view = debug_view_;
+    request.forward_lighting.explicit_lights = true;
+    if (!dome_lights_.empty()) {
+      const auto& dome = dome_lights_.begin()->second;
+      auto view_to_world = view_matrix.GetInverse();
+      view_to_world.SetTranslateOnly(GfVec3d(0.0));
+      request.forward_lighting.dome = merlin::render::ForwardDomeLight{
+          dome.texture.handle, ToMerlinMatrix(dome.world_to_environment),
+          ToMerlinMatrix(projection_matrix.GetInverse() * view_to_world *
+              dome.world_to_environment),
+          dome.texture.diffuse, dome.radiance_scale,
+          dome_background_visible_ && color_aov};
+    }
     request.gpu_driven_indexed = gpu_driven_indexed_;
     request.gpu_driven_gaussian = gpu_driven_gaussian_;
     request.width = width;
@@ -2684,6 +2713,17 @@ private:
     TfToken source;
   };
 
+  struct DomeTexture {
+    merlin::TextureHandle handle;
+    std::array<merlin::Vec4, 9> diffuse;
+  };
+
+  struct DomeLight {
+    DomeTexture texture;
+    GfMatrix4d world_to_environment;
+    merlin::Vec3 radiance_scale;
+  };
+
   // Normal maps bound to geometry without texture coordinates are disabled
   // per draw. Report each new count once per snapshot revision, not per frame.
   void ReportNormalMapDisablementLocked(
@@ -2729,6 +2769,9 @@ private:
   std::unordered_map<std::string, MaterialEntry> materials_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
   std::unordered_map<std::string, merlin::LightHandle> lights_;
+  std::map<std::filesystem::path, DomeTexture> dome_textures_;
+  std::map<SdfPath, DomeLight> dome_lights_;
+  bool dome_background_visible_{true};
   HdMerlinViewportFrame latest_viewport_frame_;
   mutable std::uint64_t diagnostic_cursor_{};
 };
@@ -3010,6 +3053,89 @@ private:
   std::shared_ptr<SceneBridge> bridge_;
   merlin::LightDescriptor descriptor_;
   bool applied_{};
+};
+
+class HdMerlinDomeLight final : public HdLight {
+public:
+  HdMerlinDomeLight(const SdfPath& id, std::shared_ptr<SceneBridge> bridge)
+      : HdLight(id), bridge_(std::move(bridge)) {}
+
+  ~HdMerlinDomeLight() override { bridge_->RemoveDomeLight(GetId()); }
+
+  void Sync(HdSceneDelegate* delegate, HdRenderParam*, HdDirtyBits* dirty_bits) override {
+    if (*dirty_bits == HdLight::Clean || GetId().IsEmpty()) {
+      return;
+    }
+    ScopedHydraSync sync_timer;
+    g_hydra_telemetry.light_sync_count.fetch_add(1, std::memory_order_relaxed);
+    *dirty_bits = HdLight::Clean;
+    const auto read = [&](const TfToken& name) {
+      return delegate->GetLightParamValue(GetId(), name);
+    };
+    const auto texture = read(HdLightTokens->textureFile);
+    std::filesystem::path image;
+    if (texture.IsHolding<SdfAssetPath>()) {
+      const auto& asset = texture.UncheckedGet<SdfAssetPath>();
+      image = asset.GetResolvedPath().empty() ? asset.GetAssetPath() : asset.GetResolvedPath();
+    }
+    if (image.empty()) {
+      const auto params = read(HdLightTokens->params);
+      if (params.IsHolding<GlfSimpleLight>()) {
+        const auto hdx = PlugRegistry::GetInstance().GetPluginWithName("hdx");
+        if (hdx) {
+          image = std::filesystem::path(hdx->GetResourcePath()) /
+                  "textures" / "StinsonBeach.hdr";
+        }
+      }
+    } else if (image.filename() == "StinsonBeach.tex") {
+      image.replace_extension(".hdr");
+    }
+    const auto invalid = [&](const std::string& message) {
+      ReportHydraDiagnostic("hydra.dome.invalid-parameters", GetId(), message,
+          merlin::DiagnosticDisposition::Rejected, "keep-previous-dome");
+    };
+    if (image.empty()) {
+      invalid("A dome light requires a resolved Radiance HDR image");
+      return;
+    }
+    float intensity = 1.0F, exposure = 0.0F;
+    const auto intensity_value = read(HdLightTokens->intensity);
+    const auto exposure_value = read(HdLightTokens->exposure);
+    merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
+    const auto color_value = read(HdLightTokens->color);
+    if ((!intensity_value.IsEmpty() && !ReadScalar(intensity_value, intensity)) ||
+        (!exposure_value.IsEmpty() && !ReadScalar(exposure_value, exposure)) ||
+        (!color_value.IsEmpty() && !ReadColor(color_value, color))) {
+      invalid("Dome color, intensity and exposure must be numeric");
+      return;
+    }
+    const auto energy = intensity * std::exp2(exposure);
+    const merlin::Vec3 scale{color.x * energy, color.y * energy, color.z * energy};
+    if (!std::isfinite(energy) || intensity < 0.0F || !std::isfinite(exposure) ||
+        !std::isfinite(scale.x) || !std::isfinite(scale.y) || !std::isfinite(scale.z) ||
+        color.x < 0.0F || color.y < 0.0F || color.z < 0.0F) {
+      invalid("Dome light requires finite color, intensity and exposure");
+      return;
+    }
+    auto rotation = delegate->GetTransform(GetId());
+    rotation.SetTranslateOnly(GfVec3d(0.0));
+    if (!rotation.Orthonormalize()) {
+      invalid("Dome light requires a valid orientation");
+      return;
+    }
+    // OpenUSD maps +X to the quarter-width meridian of a lat-long image.
+    const auto meridian = GfMatrix4d().SetRotate(GfRotation(GfVec3d::YAxis(), -90.0));
+    try {
+      bridge_->SyncDomeLight(GetId(), image, rotation.GetInverse() * meridian, scale);
+    } catch (const merlin::render::RendererError& error) {
+      invalid(error.what());
+    }
+  }
+
+  HdDirtyBits GetInitialDirtyBitsMask() const override { return HdLight::AllDirty; }
+
+private:
+  std::shared_ptr<SceneBridge> bridge_;
 };
 
 class HdMerlinMesh final : public HdMesh {
@@ -4732,6 +4858,11 @@ void HdMerlinRenderDelegate::ApplyInitialRenderSettings() {
       HdRenderDelegate::GetRenderSetting(HdMerlinRenderSettingsTokens->debugView);
   if (!debug_view.IsEmpty())
     SetRenderSetting(HdMerlinRenderSettingsTokens->debugView, debug_view);
+  const auto dome_visibility =
+      HdRenderDelegate::GetRenderSetting(HdRenderSettingsTokens->domeLightCameraVisibility);
+  if (dome_visibility.IsHolding<bool>()) {
+    impl_->bridge->SetDomeBackgroundVisible(dome_visibility.UncheckedGet<bool>());
+  }
   const merlin::render::GpuDrivenGaussianSettings defaults;
   merlin::render::GpuDrivenGaussianSettings settings;
   for (const auto& key : GaussianRenderSettingKeys()) {
@@ -4770,6 +4901,9 @@ HdMerlinRenderDelegate::GetRenderSettingDescriptors() const {
 
 void HdMerlinRenderDelegate::SetRenderSetting(
     const TfToken& key, const VtValue& value) {
+  if (key == HdRenderSettingsTokens->domeLightCameraVisibility && value.IsHolding<bool>()) {
+    impl_->bridge->SetDomeBackgroundVisible(value.UncheckedGet<bool>());
+  }
   if (key == HdMerlinRenderSettingsTokens->exposureEv ||
       key == HdMerlinRenderSettingsTokens->toneMapping) {
     const auto previous = impl_->bridge->EffectiveOutputTransformSettings();
@@ -5006,7 +5140,7 @@ const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedSprimTypes() const {
   static const TfTokenVector types{HdPrimTypeTokens->camera,
       HdPrimTypeTokens->material,
-      HdPrimTypeTokens->distantLight};
+      HdPrimTypeTokens->distantLight, HdPrimTypeTokens->domeLight};
   return types;
 }
 
@@ -5061,6 +5195,9 @@ HdSprim* HdMerlinRenderDelegate::CreateSprim(const TfToken& type_id,
   if (type_id == HdPrimTypeTokens->distantLight) {
     return new HdMerlinDistantLight(sprim_id, impl_->bridge);
   }
+  if (type_id == HdPrimTypeTokens->domeLight) {
+    return new HdMerlinDomeLight(sprim_id, impl_->bridge);
+  }
   return nullptr;
 }
 
@@ -5076,6 +5213,9 @@ HdSprim* HdMerlinRenderDelegate::CreateFallbackSprim(const TfToken& type_id) {
   if (type_id == HdPrimTypeTokens->distantLight) {
     return new HdMerlinDistantLight(SdfPath("/__merlinFallbackLight"),
         impl_->bridge);
+  }
+  if (type_id == HdPrimTypeTokens->domeLight) {
+    return new HdMerlinDomeLight(SdfPath(), impl_->bridge);
   }
   return nullptr;
 }

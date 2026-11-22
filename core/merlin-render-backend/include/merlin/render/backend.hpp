@@ -19,7 +19,7 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 6;
+inline constexpr std::uint32_t kBackendContractVersion = 7;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 3;
 
 enum class BackendKind { Vulkan,
@@ -549,6 +549,24 @@ private:
   std::uint64_t value_{};
 };
 
+struct ForwardDomeLight {
+  TextureHandle rgbe_texture;
+  Mat4 world_to_environment;
+  // Maps a far-plane clip position to the environment direction, without
+  // the camera translation.
+  Mat4 clip_to_environment;
+  std::array<Vec4, 9> diffuse_environment{};
+  Vec3 radiance_scale{1.0F, 1.0F, 1.0F};
+  bool camera_visible{true};
+};
+
+struct ForwardLightingSettings {
+  // Hydra supplies the lights visible to its render pass. An empty explicit
+  // light set has no diagnostic directional or packaged environment fill.
+  bool explicit_lights{};
+  std::optional<ForwardDomeLight> dome;
+};
+
 struct RenderRequest {
   std::shared_ptr<const extraction::FrameSnapshot> snapshot;
   // Optional packed ABI-v1 table update. A backend accepts this only when it
@@ -571,6 +589,7 @@ struct RenderRequest {
   // ShadingNormalBase, FrontFacing, Tangent or Bitangent); other views are
   // rejected.
   DebugView debug_view{DebugView::None};
+  ForwardLightingSettings forward_lighting;
 };
 
 struct ImageRgba8 {

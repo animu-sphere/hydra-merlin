@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <vector>
 
 #include <merlin/core/types.hpp>
 
@@ -17,6 +18,8 @@ struct DiffuseEnvironment {
 
 [[nodiscard]] DiffuseEnvironment LoadDiffuseEnvironment(
     const std::filesystem::path& path);
+[[nodiscard]] DiffuseEnvironment LoadDiffuseEnvironment(
+    const std::filesystem::path& path, std::vector<std::uint8_t>* rgbe_pixels);
 [[nodiscard]] Vec3 EvaluateDiffuseEnvironment(
     const DiffuseEnvironment& environment, const Vec3& normal);
 

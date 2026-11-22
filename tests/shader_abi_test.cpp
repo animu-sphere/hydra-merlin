@@ -102,6 +102,10 @@ void RequireCommonAbi(std::string_view json) {
   RequireField(json, "surface_policy", 208, 16);
   RequireField(json, "normal_map", 224, 16);
   RequireField(json, "normal_map_resource", 240, 16);
+  RequireField(json, "light_policy", 256, 16);
+  RequireField(json, "additional_light_directions", 272, 112);
+  RequireField(json, "additional_light_colors", 384, 112);
+  RequireField(json, "world_to_environment", 496, 64);
 }
 
 void RequireBinding(std::string_view json, std::string_view name,
@@ -563,7 +567,7 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
         "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":13",
+    RequireContains(manifest, "\"shader_abi_version\":14",
         "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
         "Slang toolchain series is not pinned");
@@ -579,14 +583,14 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 29,
+                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 31,
         "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 13);
+    static_assert(kVersion == 14);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);

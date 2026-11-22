@@ -11,6 +11,39 @@ Legend: ✅ done
 
 ---
 
+## usdview light switches and Kitchen interior views — 2026-11-23
+
+Local Windows x86_64 Release validation used an NVIDIA RTX A5000, driver
+597.16, Vulkan SDK 1.4.350.0, Slang 2026.8, and an OpenUSD 26.08 usdview
+host. The checkout starts at `5eaf929` with the changes described here.
+
+The lighting gate exercises all eight combinations of authored scene lights,
+the Hdx camera light and the Hdx dome. It also toggles dome camera visibility
+and compares independently captured Tier 0 and HgiVulkan images. All 51
+lighting, output and toggle image pairs agree exactly, as do the 12 explicit
+lighting centers compared with native Vulkan. The broader Forward selection
+passes 23/23, including the two dome entry points in the Metal source and
+reflection gate. A separate Storm usdview capture uses the same camera and
+light combinations. Both render
+black at the probe center with all lights disabled, respond to the red scene
+light and add light when the camera and dome sources are switched on. With
+only the default dome enabled, the mean absolute RGB difference across the
+sampled background region is 0.28 on the 8-bit scale. The probe center is
+`[58, 62, 69]` in Storm and `[39, 42, 47]` in Merlin. With only the camera light
+enabled, the centers are `[153, 153, 153]` and `[35, 35, 35]`, respectively.
+The measurements cover the controls and panorama in this setup. Each renderer
+retains its surface shading and output response.
+
+The [external scene gate](../guides/forward-validation.md#external-scene)
+accepts the checked-in Kitchen_set sink and cabinet camera recipes. The final
+Vulkan/Hydra run covered 192 immediate frames per presentation path and 433
+image pairs. Both paths matched all immediate frames to their own settled
+captures. The maximum changed-pixel fraction between paths was 0.0174% and
+maximum mean 8-bit channel difference 0.00083. The baseline three-view setup
+also passed an independent 649-image comparison before the light-control
+update. This evidence covers bounded navigation from the configured poses in
+the local 1,788-mesh Kitchen_set asset.
+
 ## v0.16.6 tangent-frame validation and closure — 2026-10-18
 
 Release preparation starts from merge commit `1765888`, containing the

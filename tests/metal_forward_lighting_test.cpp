@@ -37,10 +37,12 @@ bool Same(const RenderResult& a, const RenderResult& b) {
 
 RenderResult Render(merlin::render::Backend& backend,
     std::shared_ptr<const merlin::extraction::FrameSnapshot> snapshot,
-    merlin::render::OutputTransformSettings output_transform = {}) {
+    merlin::render::OutputTransformSettings output_transform = {},
+    bool explicit_lights = false) {
   merlin::render::RenderRequest request;
   request.snapshot = std::move(snapshot);
   request.output_transform = output_transform;
+  request.forward_lighting.explicit_lights = explicit_lights;
   request.width = request.height = 64;
   request.products = {{merlin::Aov::Color, true}, {merlin::Aov::Depth, true},
       {merlin::Aov::PrimId, true}, {merlin::Aov::InstanceId, true}};
@@ -70,9 +72,10 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
   merlin::LightDescriptor point;
   point.type = merlin::LightType::Point;
   const auto point_handle = world.CreateLight(point);
+  bool explicit_lights = false;
   const auto render = [&] {
     extractor.Apply(world, world.Commit());
-    return Render(backend, extractor.snapshot());
+    return Render(backend, extractor.snapshot(), {}, explicit_lights);
   };
   // Each frame context lazily creates its AOV/readback targets. Warm the whole
   // ring before distinguishing edit costs from initial target allocations.
@@ -144,7 +147,8 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
       actual[channel] = result.color.pixels[
           32U * result.color.row_pitch_bytes + 32U * 4U + channel];
       const auto linear = base[channel] *
-          (0.15 * environment[channel] + 0.85 * intensity * cosine * light_color[channel]);
+          (explicit_lights ? intensity * cosine * light_color[channel] :
+           0.15 * environment[channel] + 0.85 * intensity * cosine * light_color[channel]);
       expected[channel] = static_cast<int>(std::lround(255 * std::clamp(
           linear / (1.0 + linear), 0.0, 1.0)));
       maximum_error = std::max(maximum_error,
@@ -176,13 +180,21 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
            << ", \"draw_count\": " << result.telemetry.draw_count << "}";
     return result;
   };
+  const auto capture_explicit = [&](const char* phase, double intensity, double cosine = 1.0) {
+    explicit_lights = true;
+    const auto image = capture(phase, intensity, cosine);
+    explicit_lights = false;
+    return image;
+  };
   const auto off = capture("off-static", 1);
+  const auto explicit_off = capture_explicit("explicit-off-static", 0);
   merlin::LightDescriptor light;
   const auto sine = std::sin(0.53 * std::acos(-1.0) / 360.0);
   light.intensity = static_cast<float>(15000 * sine * sine);
   const auto intensity = light.intensity;
   const auto light_handle = world.CreateLight(light);
   const auto on = capture("on-static", intensity);
+  const auto explicit_on = capture_explicit("explicit-on-static", intensity);
   constexpr float cosine = 0.8660254F;
   camera.view.values[0] = cosine;
   camera.view.values[2] = 0.5F;
@@ -196,6 +208,7 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
   light.transform.values[10] = cosine;
   world.UpdateLight(light_handle, light, merlin::ChangeAspect::Transform);
   const auto moving = capture("on-moving", intensity, cosine);
+  (void)capture_explicit("explicit-on-moving", intensity, cosine);
   Require(camera_only.depth.pixels == moving.depth.pixels &&
               camera_only.prim_id.pixels == moving.prim_id.pixels &&
               camera_only.instance_id.pixels == moving.instance_id.pixels &&
@@ -203,12 +216,15 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
       "light rotation did not change only shading");
   world.Remove(light_handle);
   (void)capture("off-moving", 1);
+  (void)capture_explicit("explicit-off-moving", 0);
   camera = {};
   world.UpdateCamera(camera_handle, camera);
   Require(Same(off, capture("off-restored", 1)), "OFF return differs");
+  Require(Same(explicit_off, capture_explicit("explicit-off-restored", 0)), "explicit OFF return differs");
   light.transform = {};
   const auto restored_handle = world.CreateLight(light);
   Require(Same(on, capture("on-restored", intensity)), "ON return differs");
+  Require(Same(explicit_on, capture_explicit("explicit-on-restored", intensity)), "explicit ON return differs");
   light.intensity = 0;
   world.UpdateLight(restored_handle, light, merlin::ChangeAspect::LightParameters);
   (void)capture("zero-energy", 0);
