@@ -11,6 +11,47 @@ Legend: ✅ done
 
 ---
 
+## v0.16.7 Metal Forward validation — 2026-11-23
+
+Local Release verification started from `b2e4ece` on Apple M3, macOS 15.7.9,
+Xcode 16.4, Slang 2026.8 and OpenUSD 26.08. The build directories are
+`build/release-v0167-core`, `build/v0167-metal` and `build/v0167-hydra-metal`.
+Host tests enable Metal API validation. Native offscreen tests also enable
+Metal shader validation.
+
+- Core passes 25/25 and the native Metal SDK build passes 37/37 without
+  skips. The Metal/Hydra suite passes 69 cases together and the display-mode
+  case separately. A second run of the display-mode probe with the HgiMetal
+  bridge disabled passes on Tier 0. The probe samples inside the host image
+  after the HgiMetal composite left a border row outside the viewport.
+- All 51 focused lighting/output pairs and 12 native/Tier 0 lighting centers
+  agree exactly. Independently captured Tier 0 and HgiMetal pairs for the
+  first-frame motion, Qt navigation and normals fixtures also match exactly.
+- Kitchen_set contains 1,788 meshes and uses display colors. The sink and
+  cabinet recipes each exercise tumble, truck and zoom in linear and sRGB
+  with the camera light enabled and disabled. All 192 immediate frames in
+  each presentation mode match the independently settled poses exactly,
+  with zero camera-frame geometry uploads, pipeline creations and
+  diagnostics. Across 433 image pairs the maximum changed-pixel count is
+  two of 120,701 (0.00166%) and the maximum mean 8-bit channel difference
+  is 0.000565. The root layer SHA-256 is
+  `8f5cd40029d7bbb57b745a181b92e08515829236f9da4c9b2181851c7af5859b`.
+- The native Metal viewport presents 120 frames from the frame-all view
+  with 1 GiB of scene heap and zero validation messages, and writes a PPM
+  screenshot. The capture and counters live in `build/v0167-scene-evidence`.
+- A local session layer binds a `UsdPreviewSurface` material to Kitchen_set
+  and tests both poses with a PPM checker through `UsdUVTexture`. Each
+  Metal path shows a texture response and a camera-light response with
+  the default dome enabled. Switching to sRGB changes the image, and
+  re-enabling Camera Light restores it exactly. The measured 393×293
+  regions have zero saturated RGB pixels in the textured linear, sRGB,
+  and dome-only captures. At most 515 pixels of the measured region differ
+  across Tier 0 and HgiMetal in a textured capture. Roughness (0.85 to 0.15)
+  and metallic (0 to 1) edits leave the diffuse-profile images unchanged.
+  A four-channel sRGB PNG produced Hio's `Image format mismatch` and
+  selected constant-material fallback. The local probe, captures and
+  counters are under `build/v0167-scene-evidence`.
+
 ## usdview light switches and Kitchen interior views — 2026-11-23
 
 Local Windows x86_64 Release validation used an NVIDIA RTX A5000, driver

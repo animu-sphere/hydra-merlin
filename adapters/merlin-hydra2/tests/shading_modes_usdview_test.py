@@ -89,7 +89,10 @@ def testUsdviewInputFunction(controller):
     assert pixels(render(RenderModes.WIREFRAME, "wireframe-restored")) == pixels(wire)
     overlay = render(RenderModes.WIREFRAME_ON_SURFACE, "wireframe-on-surface")
     points = render(RenderModes.POINTS, "points")
-    background = wire.pixel(0, 0)
+    # Host composition can leave a border row outside the rendered viewport.
+    # The probe geometry is fully inside this inset.
+    inset = 4
+    background = wire.pixel(inset, inset)
     cx, cy = wire.width() // 2, wire.height() // 2
     assert wire.pixel(cx, cy) == background, "wireframe drew a triangulation diagonal"
     assert points.pixel(cx, cy) == background, "points filled the mesh interior"
@@ -102,6 +105,7 @@ def testUsdviewInputFunction(controller):
                for x in range(cx - 50, cx + 50) for y in range(cy - 50, cy + 50)), (
                    "hidden surface mode exposed rear edges")
     point_pixels = sum(points.pixel(x, y) != background
-                       for x in range(points.width()) for y in range(points.height()))
+                       for x in range(inset, points.width() - inset)
+                       for y in range(inset, points.height() - inset))
     assert 20 <= point_pixels <= 150, point_pixels
     assert pixels(render(RenderModes.SMOOTH_SHADED, "smooth-restored")) == pixels(smooth)

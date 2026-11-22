@@ -111,7 +111,8 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Basic Vulkan material shading | Validated | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available. Vulkan/Metal share stable-handle single-directional selection and normalization. Hydra distant radiance is converted using angle, normalize, exposure and diffuse. Focused local RTX A5000/OpenUSD 26.08 color/white fixtures cover Camera Light ON/OFF, rotated/returned cameras, native/Tier 0 center values, Tier 0/HgiVulkan images and host linear/sRGB output; native Vulkan handwritten/generated prototype images agree. A bounded 30-degree camera sweep also checks 256 immediate frames per host against settled poses and compares 393 Tier 0/HgiVulkan images. Opt-in Kitchen_set Qt navigation covers 1,788 meshes, three relative starting viewpoints and 288 immediate frames per path, with 649 Tier 0/HgiVulkan images within existing tolerances; stored-PNG saturation is recorded separately from displayed-color clipping. See [known limitations](#known-limitations) and the [Forward lighting design](../design/forward-lighting.md) |
 | Lit Forward output transform | Validated | Per-frame EV and None/Reinhard share Core packing and Slang policy. RTX A5000 native conventional/bindless/GPU Scene/GPU-driven oracle, repeat/restore and rejection gates pass in Debug and Release, including MaterialX-generated Forward builds; Apple M3 native Metal Debug/Release execute the same shared oracle. OpenUSD 26.08 Tier 0/HgiVulkan and Tier 0/HgiMetal captures cover both modes, EV edits and host linear/sRGB encoding; all 41 default/output comparison images match exactly per backend, and independent Vulkan/Metal comparisons agree exactly on all 16 output centers in each presentation mode. Defaults preserve 0 EV/Reinhard. See the [v0.16.4 release record](../releases/v0.16.4.md) and the [output contract](../design/forward-lighting.md#output-transform) for scope and color-management limits. |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Supported | Available for Mesh and the CPU-sorted Gaussian MVP; Gaussian `primId` is the resource handle and `instanceId` is the zero-based particle index of the nearest contributing splat in front of opaque depth |
-| Metal Forward lighting evidence | Validated (diagnostic profile) | Apple M3/OpenUSD 26.08 evidence predates explicit host lights. The diagnostic SH/Reinhard profile passed native/Tier 0 center comparisons and Tier 0/HgiMetal lighting, first-frame motion and Qt navigation. Explicit host lighting and the dome background have Metal shader reflection coverage. Apple GPU execution of that profile remains unvalidated. See [known limitations](#known-limitations). |
+| Metal Forward lighting evidence | Validated | Apple M3/OpenUSD 26.08 execution covers all eight combinations of the usdview light switches and independent dome camera visibility. Tier 0 and HgiMetal match all 51 focused lighting/output pairs; all 12 compared native/Tier 0 centers agree. Kitchen_set interior coverage and its limits are recorded below. |
+| usdview Mesh display modes | Validated | OpenUSD 26.08 exercises smooth, flat, geometry, wireframe (including overlay and hidden-surface), and points representations on Windows Vulkan and Apple M3 Metal. The probe covers material toggles, display colors, authored edges and rear-edge occlusion. Subdivision refinement remains unsupported. |
 | Explicit submit/completion/timeout-aware resolve | Supported | Backend-neutral contract implemented by Vulkan and Metal |
 | Per-request AOV request and CPU readback selection | Supported | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Supported | Exact comparison is available for color, depth, primId, and instanceId |
@@ -144,7 +145,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Material diagnostic and fallback contract | Supported | `merlin.material-diagnostic/v1` is available in Core with stable per-category codes, material/element/node/input/document/target and generator/compiler context, the declared simplification, basic-material, and error-material ladder under host policy, and an evidence aggregate reporting the worst fallback reached. Records flatten onto `merlin-diagnostic/v1`, and Vulkan Forward exposes the aggregate through frame telemetry and the renderer capability report. |
 | Standard OpenUSD Gaussian ingestion and rendering | Validated (CPU reference); Experimental (opt-in GPU) | Available on Vulkan: OpenUSD 26.05/26.08 `ParticleField3DGaussianSplat` through Hydra `particleField`, deterministic CPU preparation and sorting, procedural ellipse rasterization, mixed Mesh composition, IDs/picking, generation-checked persistent device-local position/covariance/opacity/SH ranges, zero-work static reuse, and range-only edits. Opt-in GPU preparation, frame-wide radix sorting, and sorted-stream indirect raster produce the image without a CPU-prepared upload and match the CPU-sorted reference image. Opt-in GPU tile binning produces verified per-tile pair ranges with bounded overflow, and opt-in compute tile raster composites them front to back with early termination, matching the CPU-sorted reference's depth and primId exactly and its color within a few rounding steps; an overflowing frame keeps the sorted-stream draws on the device. GPU-sorted frames skip the CPU preparation and sort unless validation against the CPU reference is requested; the CPU-sorted raster path remains the reference and fallback. Hosts select GPU execution through renderer settings v3 `gpu_driven_gaussian`; Hydra hosts such as usdview use the `merlin:gpuDrivenGaussian:enabled` and `merlin:gpuDrivenGaussian:tiled` flag render settings, or the unlisted `merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster` names. Separate GPU preparation/sort/tile/raster timestamps and warmed static/motion 1M/5M/10M comparisons are available. Local RTX A5000 captures have exact sorted-stream four-AOV parity at all tiers. After the v0.16.0 quality fix, Vulkan CPU/GPU sorted-stream and tiled execution use an RGBA32F working attachment and one final RGBA8 conversion, with pixel-center ellipse evaluation. Current RTX A5000 1M/5M/10M static/motion captures pass the unchanged six-step tiled color bound; the prior 10M 8/10-step failing captures are retained as historical evidence. Float blend/blit support is negotiated and reported by `gaussian_float_color_frame_count`; tiled additionally requires float storage-image support, with required rejection/preferred sorted-stream fallback when unavailable. Gaussian reference images remove legacy per-splat quantization error. Depth/primId remain exact; depth-tied instanceId differences stay within the established 1% allowance. These local timings have unpinned clocks/power and are not universal gates. |
 | Subdivision refinement | Unsupported | Unavailable |
-| Dome/multi-light viewport lighting, shadows, alpha blending, and production culling | Unsupported | Unavailable; basic Mesh and Gaussian ID picking is available |
+| Shadows, alpha blending, and production culling | Unsupported | Unavailable; supported Forward light types and limits are below. Basic Mesh and Gaussian ID picking is available |
 | Vulkan/Hgi low-copy host presentation | Validated (GPU copy); Unsupported (direct sharing) | Selected color/depth/ID GPU copy is available with the validated HgiVulkan packages; CPU readback/upload remains the universal fallback. Non-color RenderBuffer Map downloads the current Hgi target only when a CPU consumer requests it. Same-device direct sharing is explicitly rejected as `public-texture-import-unavailable` on OpenUSD 26.05/26.08, and other external interop is unsupported. |
 | Houdini, Husk, Hydra 1, and Maya integration packages | Unsupported | Unavailable |
 
@@ -177,17 +178,27 @@ they are not implied to work by the availability of the surrounding adapter.
 - usdview's Scene Lights, Default Camera Light, and Default Dome Light feed
   independent inputs to the Hydra renderer. The default dome supplies diffuse
   lighting and the OpenUSD Stinson Beach HDR background. Camera visibility
-  controls the background independently of illumination. Windows Vulkan
-  Tier 0 and HgiVulkan exercise these controls in OpenUSD 26.08. See the
+  controls the background independently of illumination. Windows Vulkan and
+  Apple M3 Metal exercise these controls in Tier 0 and native Hgi presentation
+  with OpenUSD 26.08. See the
   [Storm comparison](../reports/delivery-history.md#usdview-light-switches-and-kitchen-interior-views--2026-11-23)
   for the measured surface and background differences.
 - Custom Vulkan HDR environments have no Metal parity claim.
 - Cross-backend evidence compares center samples; full-image Vulkan/Metal
   rasterization parity is not yet validated.
-- The Vulkan/Hydra external gate covers two Kitchen interior views with bounded
-  camera motion. Broader representative scenes and materials, unrestricted
-  interactive navigation, Metal Kitchen quality and generated Metal materials
-  remain unvalidated. Motion and navigation gates measure first-frame correctness.
+- The Vulkan/Hydra and Metal/Hydra external gates cover two Kitchen_set
+  interior views through bounded tumble, truck and zoom, with Camera Light
+  ON/OFF and linear/sRGB output. The local scene has display colors and no
+  material bindings. The native Metal viewport also presents the frame-all
+  view in a 120-frame run. Broader scenes, unrestricted interactive
+  navigation, and generated Metal materials remain unvalidated. Motion and
+  navigation gates measure first-frame correctness.
+- A Metal Kitchen_set session layer exercises PPM base-color texture
+  sampling with the camera light and default dome. The diffuse-only Forward
+  profile does not use roughness or metallic to shade these surfaces.
+  OpenUSD 26.08 rejected the test RGBA8 sRGB PNG through the current
+  `UsdUVTexture` decoder and Merlin selected the constant-material fallback.
+  See the [material probe](../reports/delivery-history.md#v0167-metal-forward-validation--2026-11-23).
 - Forward evidence is from RTX A5000 and Apple M3 with OpenUSD 26.08 host
   runtimes; other hardware and OpenUSD 26.05 device-host execution are not yet
   validated.
