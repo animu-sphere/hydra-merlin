@@ -3,6 +3,8 @@ set(MERLIN_FORWARD_SCENE "" CACHE FILEPATH
   "Optional external USD stage (for example Kitchen_set) for Forward navigation tests")
 set(MERLIN_FORWARD_SCENE_VIEWS "" CACHE FILEPATH
   "Optional JSON camera viewpoints for the external Forward navigation tests")
+set(MERLIN_OPEN_CHESS_SET "" CACHE FILEPATH
+  "Optional Open Chess Set chess_set.usda stage for Forward material tests")
 set(MERLIN_GAUSSIAN_BUNDLED_SAMPLE
   "${CMAKE_CURRENT_SOURCE_DIR}/adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc")
 set(MERLIN_GAUSSIAN_BUNDLED_REFERENCE_IMAGE

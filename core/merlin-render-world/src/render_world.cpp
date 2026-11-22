@@ -118,6 +118,10 @@ void ValidateGaussian(const GaussianDescriptor& descriptor) {
 }
 
 void ValidateTexture(const TextureDescriptor& descriptor) {
+  if (descriptor.format != TextureFormat::Rgba8Unorm &&
+      descriptor.format != TextureFormat::Rgba8Srgb) {
+    throw std::invalid_argument("unsupported texture format");
+  }
   if (descriptor.width == 0 || descriptor.height == 0) {
     throw std::invalid_argument("texture extent must be non-zero");
   }

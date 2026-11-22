@@ -258,7 +258,22 @@ int main(int argc, char** argv) {
   assert(sampler_edit.counters.texture_reconcile_count == 0);
   assert(sampler_edit.counters.sampler_reconcile_count == 1);
 
+  // Sample sRGB RGB and linear alpha through the same resident binding.
+  texture.format = merlin::TextureFormat::Rgba8Srgb;
+  texture.pixels = {255, 128, 64, 127, 255, 128, 64, 127,
+      255, 128, 64, 127, 255, 128, 64, 127};
+  world.UpdateTexture(texture_handle, texture);
+  const auto srgb = render();
+  const auto center = 32U * srgb.color.row_pitch_bytes + 32U * 4U;
+  assert(srgb.color.pixels[center] >= 127 && srgb.color.pixels[center] <= 128);
+  assert(srgb.color.pixels[center + 1] >= 40 &&
+         srgb.color.pixels[center + 1] <= 42);
+  assert(srgb.color.pixels[center + 2] >= 12 &&
+         srgb.color.pixels[center + 2] <= 14);
+  assert(srgb.color.pixels[center + 3] == 127);
+
   // Alpha mask is a state variant: transparent texels discard every AOV write.
+  texture.format = merlin::TextureFormat::Rgba8Unorm;
   texture.pixels = {255, 255, 255, 255, 255, 255, 255, 0,
       255, 255, 255, 255, 255, 255, 255, 0};
   world.UpdateTexture(texture_handle, texture);

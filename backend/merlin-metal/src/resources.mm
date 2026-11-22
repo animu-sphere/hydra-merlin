@@ -222,8 +222,11 @@ void Backend::Impl::Reconcile(const extraction::FrameSnapshot& snapshot, FrameBu
           "upload Metal texture",
           "texture payload is invalid");
     }
+    const MTLPixelFormat format = record.format == TextureFormat::Rgba8Srgb
+        ? MTLPixelFormatRGBA8Unorm_sRGB
+        : MTLPixelFormatRGBA8Unorm;
     MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+        texture2DDescriptorWithPixelFormat:format
                                      width:record.width
                                     height:record.height
                                  mipmapped:NO];

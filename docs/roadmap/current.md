@@ -15,7 +15,12 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Material and backend parity hardening (v0.16.8):** base color, roughness,
+- **Open Chess Set materials and backend parity (v0.16.8):** use the
+  unmodified Open Chess Set stage as the Forward material acceptance scene.
+  Validate the chessboard and both sets of pieces with their authored
+  MaterialX base-color and tangent-space normal textures in usdview.
+  Run the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
+  on Vulkan and Metal. Continue parity hardening for base color, roughness,
   metallic, textures, vertex color, opacity/alpha mask, double-sided state,
   generated material ingestion, the generated Metal material path and
   material ABI reflection behave consistently across supported paths, on top

@@ -149,6 +149,7 @@ public:
   const TfTokenVector& GetSupportedRprimTypes() const override;
   const TfTokenVector& GetSupportedSprimTypes() const override;
   const TfTokenVector& GetSupportedBprimTypes() const override;
+  TfTokenVector GetMaterialRenderContexts() const override;
   HdResourceRegistrySharedPtr GetResourceRegistry() const override;
   HdRenderPassSharedPtr CreateRenderPass(
       HdRenderIndex* index, const HdRprimCollection& collection) override;
