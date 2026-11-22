@@ -244,8 +244,8 @@ int main(int argc, char** argv) {
   try {
     Require(argc == 2 || argc == 4,
         "usage: shader-artifact-key-test manifest.json [artifact-count module-count]");
-    const auto expected_artifacts = argc == 4 ? std::stoul(argv[2]) : 29U;
-    const auto expected_modules = argc == 4 ? std::stoul(argv[3]) : 11U;
+    const auto expected_artifacts = argc == 4 ? std::stoul(argv[2]) : 31U;
+    const auto expected_modules = argc == 4 ? std::stoul(argv[3]) : 12U;
     const auto manifest = CompactJson(Read(argv[1]));
 
     RequireContractSemantics();
@@ -334,16 +334,18 @@ int main(int argc, char** argv) {
     }
 
     Require(verified == expected_artifacts,
-        "manifest artifact count does not match the expected package");
+        "manifest contains " + std::to_string(verified) + " artifacts, expected " +
+            std::to_string(expected_artifacts));
     Require(artifact_keys.size() == verified,
         "two artifacts share an artifact key");
     // Conventional SPIR-V and Metal share one Forward module, bindless and
     // table-backed Forward, GPU-driven compute, GPU-driven Forward, and
     // Gaussian preparation, sorting, raster gather, tile binning, tile
-    // raster, and raster own one each. Fewer identities than artifacts is the
-    // expected, load-bearing result.
+    // raster, raster, and the dome background own one each. The two dome
+    // entry points have distinct artifact keys and share a module identity.
     Require(module_identities.size() == expected_modules,
-        "module identity count does not match the expected package");
+        "manifest contains " + std::to_string(module_identities.size()) +
+            " module identities, expected " + std::to_string(expected_modules));
   } catch (const std::exception& error) {
     std::cerr << "shader artifact key test failed: " << error.what() << '\n';
     return 1;
