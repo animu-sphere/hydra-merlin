@@ -83,6 +83,32 @@ void Backend::Impl::CreateLibraryAndPipeline() {
     throw render::RendererError(render::RendererErrorCode::BackendFailure,
         "create Metal dome pipeline", String(error.localizedDescription));
   }
+  MTLVertexDescriptor* display_vertices = [MTLVertexDescriptor vertexDescriptor];
+  display_vertices.attributes[0].format = MTLVertexFormatFloat3;
+  display_vertices.attributes[0].offset = offsetof(render::MeshDisplayVertex, position);
+  display_vertices.attributes[1].format = MTLVertexFormatFloat4;
+  display_vertices.attributes[1].offset = offsetof(render::MeshDisplayVertex, color);
+  display_vertices.layouts[0].stride = sizeof(render::MeshDisplayVertex);
+  MTLRenderPipelineDescriptor* mesh_display = [dome copy];
+  mesh_display.label = @"hdMerlin mesh display";
+  mesh_display.vertexFunction = [library_ newFunctionWithName:@"merlin_mesh_display_vertex"];
+  mesh_display.fragmentFunction = [library_ newFunctionWithName:@"merlin_mesh_display_fragment"];
+  for (std::size_t i = 0; i < mesh_display_pipelines_.size(); ++i) {
+    const bool points = i == 1;
+    display_vertices.layouts[0].stepFunction = points
+        ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex;
+    mesh_display.vertexDescriptor = display_vertices;
+    mesh_display.inputPrimitiveTopology = points
+        ? MTLPrimitiveTopologyClassTriangle : MTLPrimitiveTopologyClassLine;
+    mesh_display.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    mesh_display_pipelines_[i] = [device_ newRenderPipelineStateWithDescriptor:mesh_display error:&error];
+    mesh_display.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
+    float_mesh_display_pipelines_[i] = [device_ newRenderPipelineStateWithDescriptor:mesh_display error:&error];
+    if (!mesh_display_pipelines_[i] || !float_mesh_display_pipelines_[i]) {
+      throw render::RendererError(render::RendererErrorCode::BackendFailure,
+          "create Metal mesh display pipeline", String(error.localizedDescription));
+    }
+  }
   descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
   if (bindless_) {
     id<MTLFunction> gpu_scene_vertex =

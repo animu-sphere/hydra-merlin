@@ -244,8 +244,8 @@ int main(int argc, char** argv) {
   try {
     Require(argc == 2 || argc == 4,
         "usage: shader-artifact-key-test manifest.json [artifact-count module-count]");
-    const auto expected_artifacts = argc == 4 ? std::stoul(argv[2]) : 31U;
-    const auto expected_modules = argc == 4 ? std::stoul(argv[3]) : 12U;
+    const auto expected_artifacts = argc == 4 ? std::stoul(argv[2]) : 33U;
+    const auto expected_modules = argc == 4 ? std::stoul(argv[3]) : 13U;
     const auto manifest = CompactJson(Read(argv[1]));
 
     RequireContractSemantics();

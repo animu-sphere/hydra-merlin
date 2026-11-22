@@ -1187,6 +1187,7 @@ void Renderer::Impl::Destroy(bool wait_for_submissions) noexcept {
       DestroyTarget(frame.target);
       DestroyBuffer(frame.material_uniforms);
       DestroyBuffer(frame.generated_parameter_uniforms);
+      DestroyBuffer(frame.mesh_display_vertices);
       DestroyBuffer(frame.gaussian_instances);
       DestroyGpuDrivenFrameResources(frame.gpu_driven);
       DestroyGaussianGpuPreparationFrameResources(
@@ -1231,6 +1232,9 @@ void Renderer::Impl::Destroy(bool wait_for_submissions) noexcept {
     }
     if (dome_pipeline_layout_ != VK_NULL_HANDLE) {
       vkDestroyPipelineLayout(device_, dome_pipeline_layout_, nullptr);
+    }
+    if (mesh_display_pipeline_layout_ != VK_NULL_HANDLE) {
+      vkDestroyPipelineLayout(device_, mesh_display_pipeline_layout_, nullptr);
     }
     if (dome_descriptor_set_layout_ != VK_NULL_HANDLE) {
       vkDestroyDescriptorSetLayout(device_, dome_descriptor_set_layout_, nullptr);

@@ -583,7 +583,7 @@ int main(int argc, char** argv) {
     // merlin-shader-artifact-key recomputes these; here they only have to be
     // present, canonical, and one per artifact.
     Require(CountRegex(manifest, std::regex(
-                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 31,
+                                     "\\\"artifact_key\\\":\\\"sha256:[0-9a-f]{64}\\\"")) == 33,
         "manifest does not contain one deterministic key per artifact");
     RequireBareFilenames(manifest, "path");
     RequireBareFilenames(manifest, "reflection");

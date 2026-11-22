@@ -39,6 +39,8 @@ macro(merlin_add_metal_shaders)
     "color-convert-metal.slang|merlin_convert_color|compute|forward.color-convert|color-convert|color_copy"
     "presentation-metal.slang|merlin_presentation_vertex|vertex|presentation.vertex|presentation|native_presentation"
     "presentation-metal.slang|merlin_presentation_fragment|fragment|presentation.fragment|presentation|native_presentation"
+    "mesh-display-metal.slang|merlin_mesh_display_vertex|vertex|mesh-display.vertex|mesh-display|wire_and_points"
+    "mesh-display-metal.slang|merlin_mesh_display_fragment|fragment|mesh-display.fragment|mesh-display|wire_and_points"
     "dome-metal.slang|merlin_dome_vertex|vertex|dome.vertex|dome-background|rgbe_environment"
     "dome-metal.slang|merlin_dome_fragment|fragment|dome.fragment|dome-background|rgbe_environment")
   foreach(_record IN LISTS _metal_entries)

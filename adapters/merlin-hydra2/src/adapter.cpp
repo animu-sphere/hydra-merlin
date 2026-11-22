@@ -70,6 +70,15 @@
 #include <dlfcn.h>
 #endif
 
+#ifdef MERLIN_HYDRA2_HAVE_OPENGL
+#ifdef __APPLE__
+#define GL_SILENCE_DEPRECATION
+#include <OpenGL/gl.h>
+#else
+#include <GL/gl.h>
+#endif
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -1285,11 +1294,42 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
   return result;
 }
 
+using MeshDisplayVertices = std::vector<merlin::render::MeshDisplayVertex>;
+
+struct MeshDisplayGeometry {
+  std::shared_ptr<const MeshDisplayVertices> wire;
+  std::shared_ptr<const MeshDisplayVertices> points;
+};
+
+bool IsWireRepr(const TfToken& token) {
+  return token == HdReprTokens->wire || token == HdReprTokens->refinedWire;
+}
+
+bool IsWireOnSurfaceRepr(const TfToken& token) {
+  return token == HdReprTokens->wireOnSurf ||
+         token == HdReprTokens->refinedWireOnSurf;
+}
+
+bool IsUsdviewHiddenSurfacePrepass() {
+#ifdef MERLIN_HYDRA2_HAVE_OPENGL
+  // usdview uses polygon offset around its Geom Only prepass, then sends
+  // the same Hydra collection as ordinary Wireframe for the second pass.
+  if (glIsEnabled(GL_POLYGON_OFFSET_FILL) == GL_TRUE) {
+    GLfloat factor{}, units{};
+    glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &factor);
+    glGetFloatv(GL_POLYGON_OFFSET_UNITS, &units);
+    return factor == 1.0F && units == 1.0F;
+  }
+#endif
+  return false;
+}
+
 struct MeshState {
   merlin::MeshHandle mesh;
   std::vector<merlin::InstanceHandle> instances;
   merlin::MeshDescriptor mesh_descriptor;
   std::vector<merlin::InstanceDescriptor> instance_descriptors;
+  MeshDisplayGeometry display;
   // Key into SceneBridge::materials_ for the currently bound material, or empty
   // when the mesh uses the shared fallback material. Holds one reference.
   std::string material_key;
@@ -1445,6 +1485,7 @@ public:
   void SyncMesh(const SdfPath& path, merlin::MeshDescriptor mesh,
       const SdfPath& material_path,
       const std::vector<merlin::Mat4>& transforms, bool visible,
+      const MeshDisplayGeometry& display,
       merlin::ChangeAspect mesh_aspects,
       merlin::ChangeAspect instance_aspects,
       std::optional<std::vector<merlin::ElementRange>> vertex_ranges =
@@ -1470,6 +1511,7 @@ public:
       MeshState state;
       state.mesh_descriptor = std::move(mesh);
       state.mesh = world_.CreateMesh(state.mesh_descriptor);
+      state.display = display;
       state.authored_visible = visible;
       const auto material =
           AcquireMaterialLocked(material_path, state.material_key);
@@ -1488,6 +1530,7 @@ public:
     }
 
     auto& state = found->second;
+    state.display = display;
     state.mesh_descriptor = std::move(mesh);
     if (mesh_aspects != merlin::ChangeAspect::None) {
       world_.UpdateMesh(state.mesh, state.mesh_descriptor, mesh_aspects,
@@ -1984,6 +2027,51 @@ public:
     request.output_transform = output_transform_;
     request.debug_view = debug_view_;
     request.forward_lighting.explicit_lights = true;
+    auto& display = request.mesh_display;
+    using Mode = merlin::render::MeshDisplayMode;
+    const auto& repr = collection.GetReprSelector();
+    const bool hidden_prepass = color_aov && !state.GetLightingEnabled() &&
+        IsUsdviewHiddenSurfacePrepass();
+    const bool hidden_wire = std::exchange(hidden_surface_prepass_, hidden_prepass);
+    if (repr.Contains(HdReprTokens->points)) {
+      display.mode = Mode::Points;
+      display.point_size = state.GetPointSize();
+    } else if (repr.Contains(HdReprTokens->wire) ||
+               repr.Contains(HdReprTokens->refinedWire)) {
+      display.mode = hidden_wire ? Mode::HiddenSurfaceWireframe : Mode::Wireframe;
+    } else if (repr.Contains(HdReprTokens->wireOnSurf) ||
+               repr.Contains(HdReprTokens->refinedWireOnSurf)) {
+      display.mode = Mode::WireframeOnSurface;
+    } else if (!state.GetLightingEnabled()) {
+      display.mode = Mode::Geometry;
+    } else if (repr.Contains(HdReprTokens->hull)) {
+      display.mode = Mode::Flat;
+    }
+    if (display.mode == Mode::Points || display.mode == Mode::Wireframe ||
+        display.mode == Mode::WireframeOnSurface ||
+        display.mode == Mode::HiddenSurfaceWireframe) {
+      const auto& wire = state.GetWireframeColor();
+      display.wire_color = {wire[0], wire[1], wire[2], wire[3]};
+      if (wire[3] == 0.0F) {
+        const float gray = display.mode == Mode::WireframeOnSurface ? 0.0F : 0.035F;
+        display.wire_color = {gray, gray, gray, 1.0F};
+      }
+      for (const auto& [path, mesh] : meshes_) {
+        const auto& vertices = display.mode == Mode::Points
+                                   ? mesh.display.points : mesh.display.wire;
+        if (!vertices) {
+          continue;
+        }
+        for (std::size_t i = 0; i < mesh.instances.size(); ++i) {
+          const auto& instance = mesh.instance_descriptors[i];
+          if (instance.visible) {
+            display.draws.push_back({vertices, instance.transform,
+                static_cast<std::uint32_t>(mesh.mesh.value()),
+                static_cast<std::uint32_t>(mesh.instances[i].value())});
+          }
+        }
+      }
+    }
     if (!dome_lights_.empty()) {
       const auto& dome = dome_lights_.begin()->second;
       auto view_to_world = view_matrix.GetInverse();
@@ -2772,6 +2860,7 @@ private:
   std::map<std::filesystem::path, DomeTexture> dome_textures_;
   std::map<SdfPath, DomeLight> dome_lights_;
   bool dome_background_visible_{true};
+  bool hidden_surface_prepass_{};
   HdMerlinViewportFrame latest_viewport_frame_;
   mutable std::uint64_t diagnostic_cursor_{};
 };
@@ -3168,7 +3257,6 @@ public:
     g_hydra_telemetry.mesh_sync_count.fetch_add(1,
         std::memory_order_relaxed);
     (void)render_param;
-    (void)repr_token;
     _UpdateInstancer(delegate, dirty_bits);
     const auto previous_descriptor = descriptor_;
     const auto dirty_locators =
@@ -3232,6 +3320,12 @@ public:
     }
     if (triangulation_dirty || relevant_primvars_changed) {
       RebuildPackedMesh();
+    }
+    const bool uses_display_geometry = IsWireRepr(repr_token) ||
+        IsWireOnSurfaceRepr(repr_token) || repr_token == HdReprTokens->points;
+    if ((uses_display_geometry && !display_.points) ||
+        (display_.points && (triangulation_dirty || relevant_primvars_changed))) {
+      RebuildDisplayGeometry();
     }
     if ((*dirty_bits & HdChangeTracker::DirtyDoubleSided) != 0) {
       // Gprim doubleSided is surface state rather than a primvar; it travels
@@ -3318,7 +3412,7 @@ public:
       instance_aspects |= merlin::ChangeAspect::Visibility;
     }
     bridge_->SyncMesh(GetId(), descriptor_, material_id_, transforms_, visible_,
-        mesh_aspects, instance_aspects,
+        display_, mesh_aspects, instance_aspects,
         std::move(known_vertex_ranges),
         std::move(known_index_ranges));
     *dirty_bits = HdChangeTracker::Clean;
@@ -3764,6 +3858,55 @@ private:
     }
   }
 
+  void RebuildDisplayGeometry() {
+    auto points = std::make_shared<MeshDisplayVertices>();
+    auto wire = std::make_shared<MeshDisplayVertices>();
+    display_ = {wire, points};
+    if (descriptor_.indices.empty()) {
+      return;
+    }
+
+    const auto position = [&](std::uint32_t index) {
+      const auto& point = points_[index];
+      return merlin::Vec3{static_cast<float>(point[0]),
+          static_cast<float>(point[1]), static_cast<float>(point[2])};
+    };
+    std::vector<bool> seen_points(points_.size());
+    for (std::size_t i = 0; i < packed_corners_.size(); ++i) {
+      const auto index = packed_corners_[i].point;
+      if (!seen_points[index]) {
+        seen_points[index] = true;
+        points->push_back({position(index), descriptor_.colors.empty()
+                ? merlin::Vec4{0.5F, 0.5F, 0.5F, 1.0F}
+                : descriptor_.colors[i]});
+      }
+    }
+
+    const auto& counts = topology_.GetFaceVertexCounts();
+    const auto& indices = topology_.GetFaceVertexIndices();
+    const auto& holes = topology_.GetHoleIndices();
+    const std::unordered_set<int> hole_faces(holes.begin(), holes.end());
+    std::unordered_set<std::uint64_t> edges;
+    std::size_t offset{};
+    for (std::size_t face = 0; face < counts.size(); ++face) {
+      const auto count = static_cast<std::size_t>(counts[face]);
+      if (!hole_faces.contains(static_cast<int>(face))) {
+        for (std::size_t corner = 0; corner < count; ++corner) {
+          const auto a = static_cast<std::uint32_t>(indices[offset + corner]);
+          const auto b = static_cast<std::uint32_t>(
+              indices[offset + (corner + 1) % count]);
+          const auto key = (static_cast<std::uint64_t>(std::min(a, b)) << 32U) |
+              std::max(a, b);
+          if (a != b && edges.insert(key).second) {
+            wire->push_back({position(a), {}});
+            wire->push_back({position(b), {}});
+          }
+        }
+      }
+      offset += count;
+    }
+  }
+
   static std::vector<merlin::ElementRange> FullRange(std::size_t size) {
     if (size == 0U) {
       return {};
@@ -3880,6 +4023,7 @@ private:
   PrimvarInput tangents_;
   std::vector<DiscoveredPrimvar> primvar_descriptors_;
   SdfPath material_id_;
+  MeshDisplayGeometry display_;
   GfMatrix4d hydra_transform_{1.0};
   std::vector<merlin::Mat4> transforms_{merlin::Mat4{}};
   bool visible_{true};

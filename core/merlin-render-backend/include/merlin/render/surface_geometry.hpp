@@ -38,9 +38,47 @@ enum class NdcYDirection { Down,
 //      winding and NDC direction it orients Ng toward the visible side,
 //   y: debug view (0 none, 1 Ng, 2 Ns_base, 3 Ns, 4 front-facing, 5 tangent,
 //      6 bitangent),
-//   zw: reserved zero.
+//   z: use flat surface normals, w: 1 display color, 2 hidden wire fill.
 // A debug view outside the surface context is rejected with InvalidRequest.
 [[nodiscard]] Vec4 PackForwardSurfacePolicy(FrontFaceWinding camera,
     NdcYDirection ndc_y, DebugView view);
+[[nodiscard]] Vec4 PackForwardSurfacePolicy(FrontFaceWinding camera,
+    NdcYDirection ndc_y, DebugView view, MeshDisplayMode mode);
+
+[[nodiscard]] inline bool DrawMeshSurfaces(MeshDisplayMode mode) noexcept {
+  return mode != MeshDisplayMode::Wireframe && mode != MeshDisplayMode::Points;
+}
+
+[[nodiscard]] inline bool OffsetMeshSurfaces(MeshDisplayMode mode) noexcept {
+  return mode == MeshDisplayMode::WireframeOnSurface ||
+         mode == MeshDisplayMode::HiddenSurfaceWireframe;
+}
+
+// Matches the Forward shader's draw-constant feature bit.
+inline constexpr std::uint32_t kForwardGeometryColorFlag = 0x20000000U;
+
+struct MeshDisplayConstants {
+  Mat4 model_view_projection;
+  Vec4 wire_color;
+  Vec2 point_extent;
+  std::uint32_t prim_id{};
+  std::uint32_t instance_id{};
+};
+static_assert(sizeof(MeshDisplayConstants) == 96);
+static_assert(offsetof(MeshDisplayConstants, instance_id) == 92);
+
+struct MeshDisplayBatch {
+  struct Draw {
+    std::size_t first{};
+    std::uint32_t count{};
+    MeshDisplayConstants constants;
+  };
+  std::vector<MeshDisplayVertex> vertices;
+  std::vector<Draw> draws;
+};
+
+[[nodiscard]] MeshDisplayBatch PrepareMeshDisplay(
+    const extraction::FrameSnapshot& snapshot,
+    std::uint32_t width, std::uint32_t height, const MeshDisplaySettings& display);
 
 } // namespace merlin::render

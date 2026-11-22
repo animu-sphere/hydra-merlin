@@ -6,6 +6,7 @@ static const uint kBaseColorTextureFlag = 2u;
 static const uint kDirectionalLightFlag = 4u;
 static const uint kNormalTextureFlag = 8u;
 static const uint kMaskedAlphaFlag = 0x10000000u;
+static const uint kGeometryColorFlag = 0x20000000u;
 static const uint kSamplerIndexShift = 8u;
 static const uint kSamplerIndexMask = 0xffffu;
 
@@ -33,7 +34,7 @@ struct MaterialConstants
     float4 diffuse_environment[9];
     float4 output_transform;
     // x: +/-1 derivative geometric-normal orientation, y: surface debug view,
-    // zw: reserved. See merlin::render::PackForwardSurfacePolicy.
+    // z: flat normals, w: use display color (1) or hidden wire fill (2).
     float4 surface_policy;
     // x: normal-map xy scale, y: green-channel sign (+1 +Y up, -1 flipped),
     // zw: reserved.
@@ -112,6 +113,7 @@ struct ForwardVertexOutput
     [[vk::location(3)]] float3 object_position : TEXCOORD2;
     // World tangent and handedness; zero when the vertex has no frame.
     [[vk::location(4)]] float4 tangent : TEXCOORD3;
+    [[vk::location(5)]] float4 display_color : COLOR1;
 };
 
 struct ForwardFragmentOutput
@@ -167,6 +169,7 @@ ForwardVertexOutput EvaluateForwardVertex(
         draw.model_view_projection,
         float4(input.position, 1.0f));
     output.color = material.base_color;
+    output.display_color = input.display_color;
     if ((draw.feature_mask & kDisplayColorFlag) != 0u)
     {
         output.color *= input.display_color;
@@ -256,6 +259,8 @@ SurfaceGeometry BuildSurfaceGeometry(
         fallback);
     surface.shading_normal_base = SafeNormalize(
         interpolated * facing, surface.geometric_normal);
+    if (material.surface_policy.z != 0.0f)
+        surface.shading_normal_base = surface.geometric_normal;
     surface.shading_normal = surface.shading_normal_base;
 
     // Tangent priority: the interpolated vertex tangent (authored or
@@ -487,6 +492,11 @@ float4 ShadeForward(
     float4 normal_sample,
     DrawConstants draw)
 {
+    if (material.surface_policy.w == 1.0f)
+        return (draw.feature_mask & kGeometryColorFlag) != 0u
+            ? input.display_color : float4(0.5f, 0.5f, 0.5f, 1.0f);
+    if (material.surface_policy.w == 2.0f)
+        return float4(0.3f, 0.3f, 0.3f, 1.0f);
     SurfaceGeometry surface = BuildForwardSurface(
         input, front_facing, material, normal_sample, draw);
     float4 base_color = input.color;

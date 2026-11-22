@@ -261,6 +261,7 @@ public:
     native.shaders = shaders_;
     native.clear_color = request.clear_color;
     native.forward_lighting = request.forward_lighting;
+    native.mesh_display = request.mesh_display;
     native.products.clear();
     native.products.reserve(request.products.size());
     for (const auto& product : request.products) {

@@ -101,6 +101,11 @@ if(NOT EXISTS "${host_trace}")
   message(FATAL_ERROR
     "usdview did not produce the requested host Chrome trace")
 endif()
+if(MERLIN_SHADING_MODES_ONLY)
+  # The shading callback compares every captured frame and reports any failure
+  # through testusdview. It does not exercise presentation timing.
+  return()
+endif()
 file(READ "${marker}" marker_contents)
 set(hgi_metal_gpu_copy FALSE)
 if(marker_contents MATCHES "hgi_metal_transfer_mode=gpu-copy")

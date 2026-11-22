@@ -567,6 +567,28 @@ struct ForwardLightingSettings {
   std::optional<ForwardDomeLight> dome;
 };
 
+enum class MeshDisplayMode { Smooth, Flat, Geometry, Wireframe,
+  WireframeOnSurface, Points, HiddenSurfaceWireframe };
+
+struct MeshDisplayVertex {
+  Vec3 position;
+  Vec4 color;
+};
+
+struct MeshDisplayDraw {
+  std::shared_ptr<const std::vector<MeshDisplayVertex>> vertices;
+  Mat4 transform;
+  std::uint32_t prim_id{};
+  std::uint32_t instance_id{};
+};
+
+struct MeshDisplaySettings {
+  MeshDisplayMode mode{MeshDisplayMode::Smooth};
+  Vec4 wire_color{};
+  float point_size{3.0F};
+  std::vector<MeshDisplayDraw> draws;
+};
+
 struct RenderRequest {
   std::shared_ptr<const extraction::FrameSnapshot> snapshot;
   // Optional packed ABI-v1 table update. A backend accepts this only when it
@@ -590,6 +612,7 @@ struct RenderRequest {
   // rejected.
   DebugView debug_view{DebugView::None};
   ForwardLightingSettings forward_lighting;
+  MeshDisplaySettings mesh_display;
 };
 
 struct ImageRgba8 {

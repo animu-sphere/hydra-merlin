@@ -47,6 +47,12 @@ target_link_libraries(merlin-hydra2-runtime
     Merlin::RenderExtraction
     ${CMAKE_DL_LIBS}
 )
+find_package(OpenGL QUIET)
+if(TARGET OpenGL::GL)
+  target_link_libraries(merlin-hydra2-runtime PRIVATE OpenGL::GL)
+  target_compile_definitions(merlin-hydra2-runtime PRIVATE
+    MERLIN_HYDRA2_HAVE_OPENGL=1)
+endif()
 if(TARGET Merlin::Vulkan)
   target_link_libraries(merlin-hydra2-runtime PRIVATE Merlin::Vulkan)
   target_compile_definitions(merlin-hydra2-runtime PRIVATE
@@ -379,6 +385,25 @@ if(MERLIN_BUILD_TESTS)
       set(_merlin_hydra2_test_backend vulkan)
     else()
       set(_merlin_hydra2_test_backend metal)
+    endif()
+    if(TARGET OpenGL::GL)
+      add_test(NAME merlin-hydra2-usdview-shading-modes
+        COMMAND ${CMAKE_COMMAND}
+          "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+          "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+          "-DMERLIN_CONFIG=$<CONFIG>"
+          "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/usdview-shading-modes-install"
+          "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+          "-DMERLIN_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}"
+          "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+          "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+          "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+          "-DMERLIN_HYDRA2_TEST_BACKEND=${_merlin_hydra2_test_backend}"
+          "-DMERLIN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/shading_modes_usdview_test.py"
+          -DMERLIN_SHADING_MODES_ONLY=ON
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake")
+      set_tests_properties(merlin-hydra2-usdview-shading-modes PROPERTIES
+        LABELS "hydra;host-smoke;gpu" TIMEOUT 60 RUN_SERIAL TRUE)
     endif()
     if(TARGET Merlin::Vulkan)
       add_test(
