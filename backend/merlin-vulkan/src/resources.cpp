@@ -105,17 +105,16 @@ void Renderer::Impl::ResetAbandonedUploads() {
 
 Renderer::Impl::TextureSlot Renderer::Impl::CreateTextureResource(
     std::uint32_t width, std::uint32_t height, std::uint64_t revision,
-    const std::vector<std::uint8_t>& pixels, bool count_upload) {
+    const std::vector<std::uint8_t>& pixels, VkFormat format, bool count_upload) {
   TextureSlot slot;
   slot.revision = revision;
   Buffer staging;
   try {
     slot.image = CreateImage(
-        width, height, kColorFormat,
+        width, height, format,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         slot.memory);
-    slot.view =
-        CreateImageView(slot.image, kColorFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+    slot.view = CreateImageView(slot.image, format, VK_IMAGE_ASPECT_COLOR_BIT);
     slot.pending_upload = true;
     staging = CreateBuffer(
         static_cast<VkDeviceSize>(pixels.size()),
@@ -315,8 +314,12 @@ void Renderer::Impl::SyncTextures(const extraction::FrameSnapshot& snapshot,
     }
     ++frame_counters_.texture_cache_misses;
     RetireTexture(entry->second);
+    const VkFormat format = texture.format == TextureFormat::Rgba8Srgb
+        ? VK_FORMAT_R8G8B8A8_SRGB
+        : VK_FORMAT_R8G8B8A8_UNORM;
     auto replacement = CreateTextureResource(
-        texture.width, texture.height, texture.revision, *texture.pixels);
+        texture.width, texture.height, texture.revision, *texture.pixels,
+        format);
     try {
       if (bindless_texture_table_) {
         replacement.bindless_slot = bindless_texture_table_->Allocate();
@@ -443,7 +446,8 @@ void Renderer::Impl::EnsureFallbackTextureAndSampler() {
     EnsureReservedBindlessTextures();
   } else if (fallback_texture_.image == VK_NULL_HANDLE) {
     const std::vector<std::uint8_t> white{255U, 255U, 255U, 255U};
-    fallback_texture_ = CreateTextureResource(1, 1, 1, white, false);
+    fallback_texture_ = CreateTextureResource(1, 1, 1, white,
+        VK_FORMAT_R8G8B8A8_UNORM, false);
   }
   if (fallback_sampler_.sampler == VK_NULL_HANDLE) {
     fallback_sampler_.revision = 1;
@@ -472,7 +476,7 @@ void Renderer::Impl::EnsureReservedBindlessTextures() {
           1, 1, 1,
           std::vector<std::uint8_t>(pixels[index].begin(),
               pixels[index].end()),
-          false);
+          VK_FORMAT_R8G8B8A8_UNORM, false);
       bindless_texture_views_[index] = texture.view;
       force_reserved_bindless_texture_writes_ = true;
     }

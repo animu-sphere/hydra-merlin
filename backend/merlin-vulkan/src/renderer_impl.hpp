@@ -607,7 +607,8 @@ public:
 
   TextureSlot CreateTextureResource(
       std::uint32_t width, std::uint32_t height, std::uint64_t revision,
-      const std::vector<std::uint8_t>& pixels, bool count_upload = true);
+      const std::vector<std::uint8_t>& pixels, VkFormat format,
+      bool count_upload = true);
 
   void CommitTextureUploads() noexcept;
 

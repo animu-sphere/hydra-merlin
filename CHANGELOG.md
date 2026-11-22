@@ -8,6 +8,20 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Hydra Forward reads the direct MaterialX Standard Surface base-color and
+  tangent-space normal image connections used by Open Chess Set. Vulkan and
+  Metal sample tagged sRGB textures in linear space, and Hydra decodes 8-bit
+  JPEG and PNG channel layouts through Hio.
+- An opt-in usdview test checks authored materials and normal maps on the
+  original Open Chess Set stage in Tier 0 and native Hgi presentation.
+
+### Changed
+
+- Hydra shares resolved textures and equivalent sampler states across materials,
+  reducing scene heap and sampler-slot usage for repeated USD references.
+
 ## [0.16.7] - 2026-11-23
 
 ### Added

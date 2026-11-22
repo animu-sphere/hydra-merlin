@@ -155,15 +155,15 @@ enum class AlphaMode { Opaque,
   Masked,
   Blended };
 
-enum class TextureFormat { Rgba8Unorm };
+enum class TextureFormat { Rgba8Unorm, Rgba8Srgb };
 
 struct TextureDescriptor {
   std::string label;
   std::uint32_t width{};
   std::uint32_t height{};
   TextureFormat format{TextureFormat::Rgba8Unorm};
-  // Tightly packed, top-left RGBA texels. Texture resources are revisioned by
-  // RenderWorld in exactly the same way as meshes and materials.
+  // Tightly packed, top-left RGBA texels. Rgba8Srgb decodes RGB to linear
+  // during sampling and leaves alpha linear.
   std::vector<std::uint8_t> pixels;
 };
 

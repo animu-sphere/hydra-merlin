@@ -332,6 +332,18 @@ int main() {
   assert(after_update.heap_peak_resident_bytes >=
          after_update.heap_resident_bytes);
 
+  // The sampled RGB uses the sRGB transfer function; alpha remains linear.
+  texture.format = merlin::TextureFormat::Rgba8Srgb;
+  texture.pixels = {255, 128, 64, 127};
+  world.UpdateTexture(texture_handle, texture);
+  extractor.Apply(world, world.Commit());
+  const auto srgb = Render(*backend, extractor.snapshot());
+  assert(CenterChannel(srgb, 0) >= 127 && CenterChannel(srgb, 0) <= 128);
+  assert(CenterChannel(srgb, 1) >= 54 && CenterChannel(srgb, 1) <= 56);
+  assert(CenterChannel(srgb, 2) >= 12 && CenterChannel(srgb, 2) <= 14);
+  assert(CenterChannel(srgb, 3) == 127);
+
+  texture.format = merlin::TextureFormat::Rgba8Unorm;
   texture.pixels = {255, 255, 255, 0};
   world.UpdateTexture(texture_handle, texture);
   material.alpha_mode = merlin::AlphaMode::Masked;

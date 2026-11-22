@@ -126,6 +126,27 @@ default frame-all views. Both configurations use the same artifact directories,
 so save the first run's artifacts before running the other if you need both.
 The same camera file can be supplied to a Metal/Hydra build.
 
+### Open Chess Set
+
+Use an OpenUSD runtime with the `usdMtlx` file-format plugin and the complete
+Open Chess Set asset directory. Point the material gate at the original stage.
+
+```sh
+cmake -S . -B build/metal-hydra \
+  -DMERLIN_OPEN_CHESS_SET=/path/to/OpenChessSet/chess_set.usda
+ctest --test-dir build/metal-hydra -R '^merlin-hydra2-forward-chess' --output-on-failure
+```
+
+The gate works with Vulkan/Hydra as well. It checks the board and pieces,
+including the point-instanced pawns, and compares authored color with Geom Only
+and the shading normal with its unmapped reference. It writes the images and
+material counts to `adapters/merlin-hydra2/forward-chess-*-install` under the
+build directory. When a native Hgi bridge is available, the test compares its
+images with Tier 0. For a manual launch on Metal, set
+`MERLIN_METAL_HEAP_MIB=1024` before starting usdview. The test runner uses the
+same heap size by default. For a close view, use **Camera → Free Camera
+Settings... → Override Near** and set it to `0.02` stage units.
+
 ## Metal host gates
 
 Metal/Hydra builds register the lighting, first-frame motion, Qt navigation and

@@ -654,6 +654,12 @@ if(MERLIN_BUILD_TESTS)
       endif()
       list(APPEND _merlin_forward_fixtures scene)
     endif()
+    if(MERLIN_OPEN_CHESS_SET)
+      if(NOT EXISTS "${MERLIN_OPEN_CHESS_SET}" OR IS_DIRECTORY "${MERLIN_OPEN_CHESS_SET}")
+        message(FATAL_ERROR "MERLIN_OPEN_CHESS_SET must name an existing USD stage")
+      endif()
+      list(APPEND _merlin_forward_fixtures chess)
+    endif()
     foreach(_merlin_forward_mode IN LISTS _merlin_forward_modes)
       set(_merlin_forward_force_vulkan OFF)
       set(_merlin_forward_disable_metal OFF)
@@ -669,6 +675,7 @@ if(MERLIN_BUILD_TESTS)
         set(_merlin_forward_motion OFF)
         set(_merlin_forward_navigation OFF)
         set(_merlin_forward_normals OFF)
+        set(_merlin_forward_chess OFF)
         set(_merlin_forward_scene "")
         set(_merlin_forward_scene_views "")
         set(_merlin_forward_script "${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_lighting_usdview_test.py")
@@ -691,6 +698,12 @@ if(MERLIN_BUILD_TESTS)
           set(_merlin_forward_script "${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_scene_usdview_test.py")
           set(_merlin_forward_timeout 600)
         endif()
+        if(_merlin_forward_fixture STREQUAL "chess")
+          set(_merlin_forward_chess ON)
+          set(_merlin_forward_scene "${MERLIN_OPEN_CHESS_SET}")
+          set(_merlin_forward_script "${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_chess_usdview_test.py")
+          set(_merlin_forward_timeout 240)
+        endif()
         add_test(
           NAME merlin-hydra2-forward-${_merlin_forward_fixture}-${_merlin_forward_mode}
           COMMAND ${CMAKE_COMMAND}
@@ -711,6 +724,7 @@ if(MERLIN_BUILD_TESTS)
             "-DMERLIN_FORWARD_MOTION_ONLY=${_merlin_forward_motion}"
             "-DMERLIN_FORWARD_NAVIGATION_ONLY=${_merlin_forward_navigation}"
             "-DMERLIN_FORWARD_NORMALS_ONLY=${_merlin_forward_normals}"
+            "-DMERLIN_FORWARD_CHESS_ONLY=${_merlin_forward_chess}"
             "-DMERLIN_FORWARD_SCENE=${_merlin_forward_scene}"
             "-DMERLIN_FORWARD_SCENE_VIEWS=${_merlin_forward_scene_views}"
             "-DMERLIN_FORWARD_SCENE_VIEW_NAMES=${_merlin_forward_scene_view_names}"
@@ -771,20 +785,27 @@ if(MERLIN_BUILD_TESTS)
       endif()
     endif()
     if(TARGET Merlin::Vulkan AND TARGET hgiVulkan)
-      if(MERLIN_FORWARD_SCENE)
+      foreach(_merlin_forward_fixture IN ITEMS scene chess)
+        if(NOT _merlin_forward_fixture IN_LIST _merlin_forward_fixtures)
+          continue()
+        endif()
+        set(_merlin_forward_comparison_args --forward-${_merlin_forward_fixture}-only)
+        if(_merlin_forward_fixture STREQUAL "scene")
+          set(_merlin_forward_comparison_args ${_merlin_forward_scene_comparison_args})
+        endif()
         add_test(
-          NAME merlin-hydra2-forward-scene-comparison
+          NAME merlin-hydra2-forward-${_merlin_forward_fixture}-comparison
           COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_usdview_smoke.py"
-            "${CMAKE_CURRENT_BINARY_DIR}/forward-scene-tier0-install"
-            "${CMAKE_CURRENT_BINARY_DIR}/forward-scene-hgi-vulkan-install"
-            "${CMAKE_CURRENT_BINARY_DIR}/forward-scene-comparison.json"
-            ${_merlin_forward_scene_comparison_args})
-        set_tests_properties(merlin-hydra2-forward-scene-comparison PROPERTIES
+            "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-tier0-install"
+            "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-hgi-vulkan-install"
+            "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-comparison.json"
+            ${_merlin_forward_comparison_args})
+        set_tests_properties(merlin-hydra2-forward-${_merlin_forward_fixture}-comparison PROPERTIES
           LABELS "host-smoke;gpu;lighting;presentation;comparison"
           TIMEOUT 120 RUN_SERIAL TRUE
-          FIXTURES_REQUIRED "merlin-forward-scene-tier0;merlin-forward-scene-hgi-vulkan")
-      endif()
+          FIXTURES_REQUIRED "merlin-forward-${_merlin_forward_fixture}-tier0;merlin-forward-${_merlin_forward_fixture}-hgi-vulkan")
+      endforeach()
       add_test(
         NAME merlin-hydra2-forward-lighting-comparison
         COMMAND "${Python3_EXECUTABLE}"

@@ -98,6 +98,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -908,18 +909,23 @@ bool ReadColor(const VtValue& value, merlin::Vec4& result) {
   return false;
 }
 
-merlin::AddressMode ReadAddressMode(const HdMaterialNode2& node,
-    const char* name) {
+std::string ReadTokenParameter(const HdMaterialNode2& node, const char* name) {
   const auto* value = FindParameter(node, name);
   if (value == nullptr) {
-    return merlin::AddressMode::Repeat;
+    return {};
   }
-  std::string token;
   if (value->IsHolding<TfToken>()) {
-    token = value->UncheckedGet<TfToken>().GetString();
-  } else if (value->IsHolding<std::string>()) {
-    token = value->UncheckedGet<std::string>();
+    return value->UncheckedGet<TfToken>().GetString();
   }
+  if (value->IsHolding<std::string>()) {
+    return value->UncheckedGet<std::string>();
+  }
+  return {};
+}
+
+merlin::AddressMode ReadAddressMode(const HdMaterialNode2& node,
+    const char* name) {
+  const auto token = ReadTokenParameter(node, name);
   if (token == "clamp") {
     return merlin::AddressMode::ClampToEdge;
   }
@@ -945,7 +951,7 @@ bool ReadPpmUnsigned(std::istream& stream, std::uint32_t& value) {
 }
 
 std::optional<merlin::TextureDescriptor> LoadPpmTexture(
-    const std::string& path, std::string& diagnostic) {
+    const std::string& path, bool flip_vertically, std::string& diagnostic) {
   std::ifstream stream(path, std::ios::binary);
   std::string magic;
   if (!(stream >> magic) || magic != "P3") {
@@ -973,26 +979,30 @@ std::optional<merlin::TextureDescriptor> LoadPpmTexture(
   texture.pixels.resize(static_cast<std::size_t>(width) * height * 4U);
   for (std::size_t pixel = 0;
       pixel < static_cast<std::size_t>(width) * height; ++pixel) {
+    const auto target = flip_vertically
+        ? (height - 1U - pixel / width) * width + pixel % width
+        : pixel;
     for (std::size_t component = 0; component < 3U; ++component) {
       std::uint32_t sample{};
       if (!ReadPpmUnsigned(stream, sample) || sample > maximum) {
         diagnostic = "invalid PPM pixel data in " + path;
         return std::nullopt;
       }
-      texture.pixels[pixel * 4U + component] = static_cast<std::uint8_t>(
+      texture.pixels[target * 4U + component] = static_cast<std::uint8_t>(
           (static_cast<std::uint64_t>(sample) * 255U + maximum / 2U) /
           maximum);
     }
-    texture.pixels[pixel * 4U + 3U] = 255U;
+    texture.pixels[target * 4U + 3U] = 255U;
   }
   return texture;
 }
 
 std::optional<merlin::TextureDescriptor> LoadTexture(
-    const HdMaterialNode2& node, std::string& diagnostic) {
+    const HdMaterialNode2& node, HioImage::SourceColorSpace color_space,
+    bool flip_vertically, std::string& diagnostic) {
   const auto* file = FindParameter(node, "file");
   if (file == nullptr || !file->IsHolding<SdfAssetPath>()) {
-    diagnostic = "UsdUVTexture has no resolved file asset";
+    diagnostic = "texture node has no file asset";
     return std::nullopt;
   }
   const auto& asset = file->UncheckedGet<SdfAssetPath>();
@@ -1004,31 +1014,64 @@ std::optional<merlin::TextureDescriptor> LoadTexture(
         return static_cast<char>(std::tolower(value));
       });
   if (extension == ".ppm") {
-    return LoadPpmTexture(path, diagnostic);
+    auto texture = LoadPpmTexture(path, flip_vertically, diagnostic);
+    if (texture && color_space == HioImage::SRGB) {
+      texture->format = merlin::TextureFormat::Rgba8Srgb;
+    }
+    return texture;
   }
-  const auto image = HioImage::OpenForReading(path, 0, 0,
-      HioImage::SourceColorSpace::Auto,
-      true);
+  const auto image = HioImage::OpenForReading(path, 0, 0, color_space, true);
   if (!image || image->GetWidth() <= 0 || image->GetHeight() <= 0) {
     diagnostic = "could not open texture image " + path;
+    return std::nullopt;
+  }
+  const auto format = image->GetFormat();
+  const auto type = HioGetHioType(format);
+  const auto components = HioGetComponentCount(format);
+  if ((type != HioTypeUnsignedByte && type != HioTypeUnsignedByteSRGB) ||
+      components < 1 || components > 4) {
+    diagnostic = "texture image is not 8-bit grayscale, RGB or RGBA: " + path;
+    return std::nullopt;
+  }
+  const auto pixel_count =
+      static_cast<std::uint64_t>(image->GetWidth()) * image->GetHeight();
+  if (pixel_count > std::numeric_limits<std::size_t>::max() / 4U) {
+    diagnostic = "texture image dimensions overflow the RGBA payload: " + path;
     return std::nullopt;
   }
   merlin::TextureDescriptor texture;
   texture.label = path;
   texture.width = static_cast<std::uint32_t>(image->GetWidth());
   texture.height = static_cast<std::uint32_t>(image->GetHeight());
-  texture.pixels.resize(static_cast<std::size_t>(texture.width) *
-                        texture.height * 4U);
+  if (color_space == HioImage::SRGB ||
+      (color_space == HioImage::Auto && image->IsColorSpaceSRGB())) {
+    texture.format = merlin::TextureFormat::Rgba8Srgb;
+  }
+  texture.pixels.resize(static_cast<std::size_t>(pixel_count) * 4U);
+  std::vector<std::uint8_t> source;
+  if (components != 4) {
+    source.resize(static_cast<std::size_t>(pixel_count) * components);
+  }
   HioImage::StorageSpec storage;
   storage.width = image->GetWidth();
   storage.height = image->GetHeight();
   storage.depth = 1;
-  storage.format = HioFormatUNorm8Vec4;
-  storage.flipped = false;
-  storage.data = texture.pixels.data();
+  storage.format = format;
+  storage.flipped = flip_vertically;
+  storage.data = components == 4 ? texture.pixels.data() : source.data();
   if (!image->Read(storage)) {
     diagnostic = "could not decode texture image " + path;
     return std::nullopt;
+  }
+  if (components != 4) {
+    for (std::size_t pixel = 0; pixel < pixel_count; ++pixel) {
+      const auto* input = source.data() + pixel * components;
+      auto* output = texture.pixels.data() + pixel * 4U;
+      output[0] = input[0];
+      output[1] = components == 3 ? input[1] : input[0];
+      output[2] = components == 3 ? input[2] : input[0];
+      output[3] = components == 2 ? input[1] : 255U;
+    }
   }
   return texture;
 }
@@ -1043,6 +1086,8 @@ struct ParsedMaterial {
   std::optional<merlin::TextureDescriptor> normal_texture;
   merlin::SamplerDescriptor normal_sampler;
   std::string normal_diagnostic;
+  bool flip_texture_rows{};
+  std::vector<std::string> materialx_unsupported_inputs;
 };
 
 bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
@@ -1084,11 +1129,13 @@ bool TextureDescriptorsEqual(const merlin::TextureDescriptor& lhs,
          lhs.pixels == rhs.pixels;
 }
 
-bool SamplerDescriptorsEqual(const merlin::SamplerDescriptor& lhs,
-    const merlin::SamplerDescriptor& rhs) {
-  return lhs.label == rhs.label && lhs.min_filter == rhs.min_filter &&
-         lhs.mag_filter == rhs.mag_filter && lhs.address_u == rhs.address_u &&
-         lhs.address_v == rhs.address_v;
+using MaterialTextureKey = std::tuple<std::string, merlin::TextureFormat, bool>;
+using MaterialSamplerKey = std::tuple<merlin::FilterMode, merlin::FilterMode,
+    merlin::AddressMode, merlin::AddressMode>;
+
+MaterialSamplerKey SamplerKey(const merlin::SamplerDescriptor& descriptor) {
+  return {descriptor.min_filter, descriptor.mag_filter,
+      descriptor.address_u, descriptor.address_v};
 }
 
 bool ReadVec4Parameter(const HdMaterialNode2& node, const char* name,
@@ -1161,15 +1208,13 @@ void ParseNormalMap(const HdMaterialNetwork2& network,
     }
   }
   std::string load_diagnostic;
-  auto texture = LoadTexture(node->second, load_diagnostic);
+  auto texture = LoadTexture(node->second, HioImage::Raw, false, load_diagnostic);
   if (!texture) {
     result.normal_diagnostic =
         load_diagnostic + "; normal mapping is disabled";
     return;
   }
   result.normal_texture = std::move(texture);
-  result.normal_sampler.label =
-      result.material.label + ":normalSampler";
   result.normal_sampler.address_u = ReadAddressMode(node->second, "wrapS");
   result.normal_sampler.address_v = ReadAddressMode(node->second, "wrapT");
   result.material.parameters.normal_scale = normal_scale;
@@ -1177,11 +1222,187 @@ void ParseNormalMap(const HdMaterialNetwork2& network,
   result.material.features |= merlin::MaterialFeature::NormalTexture;
 }
 
+const std::vector<HdMaterialConnection2>& InputConnections(
+    const HdMaterialNode2& node, const char* name) {
+  static const std::vector<HdMaterialConnection2> empty;
+  const auto found = node.inputConnections.find(TfToken(name));
+  return found == node.inputConnections.end() ? empty : found->second;
+}
+
+const HdMaterialNode2* ConnectedNode(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& node, const char* input) {
+  const auto& connections = InputConnections(node, input);
+  if (connections.size() != 1) {
+    return nullptr;
+  }
+  const auto found = network.nodes.find(connections.front().upstreamNode);
+  return found == network.nodes.end() ? nullptr : &found->second;
+}
+
+std::optional<merlin::TextureDescriptor> ReadMaterialXImage(
+    const HdMaterialNetwork2& network, const HdMaterialNode2* image,
+    bool color, merlin::SamplerDescriptor& sampler, std::string& diagnostic) {
+  const TfToken expected(color ? "ND_image_color3" : "ND_image_vector3");
+  if (image == nullptr || image->nodeTypeId != expected) {
+    diagnostic = "expected a direct MaterialX " + expected.GetString() + " connection";
+    return std::nullopt;
+  }
+  if (!InputConnections(*image, "texcoord").empty()) {
+    const auto* uv = ConnectedNode(network, *image, "texcoord");
+    const auto* index = uv ? FindParameter(*uv, "index") : nullptr;
+    if (uv == nullptr || uv->nodeTypeId != TfToken("ND_texcoord_vector2") ||
+        !InputConnections(*uv, "index").empty() ||
+        (index != nullptr && (!index->IsHolding<int>() ||
+            index->UncheckedGet<int>() != 0))) {
+      diagnostic = "MaterialX image requires texture coordinate set 0";
+      return std::nullopt;
+    }
+  } else if (FindParameter(*image, "texcoord") != nullptr) {
+    diagnostic = "constant MaterialX image texture coordinates are unsupported";
+    return std::nullopt;
+  }
+  const auto space = ReadTokenParameter(*image, "colorSpace:file");
+  if (color && !space.empty() && space != "srgb_texture" && space != "srgb" &&
+      space != "lin_rec709" && space != "raw") {
+    diagnostic = "unsupported MaterialX image color space " + space;
+    return std::nullopt;
+  }
+  for (const auto* name : {"uaddressmode", "vaddressmode"}) {
+    const auto mode = ReadTokenParameter(*image, name);
+    if (!InputConnections(*image, name).empty() ||
+        (!mode.empty() && mode != "periodic" && mode != "clamp" &&
+            mode != "mirror")) {
+      diagnostic = "unsupported MaterialX image address mode";
+      return std::nullopt;
+    }
+  }
+  const auto filter = ReadTokenParameter(*image, "filtertype");
+  if (!InputConnections(*image, "filtertype").empty() ||
+      (!filter.empty() && filter != "closest" && filter != "linear")) {
+    diagnostic = "unsupported MaterialX image filter";
+    return std::nullopt;
+  }
+  sampler.address_u = ReadAddressMode(*image, "uaddressmode");
+  sampler.address_v = ReadAddressMode(*image, "vaddressmode");
+  if (filter == "closest") {
+    sampler.min_filter = sampler.mag_filter = merlin::FilterMode::Nearest;
+  }
+  const auto color_space = color && (space == "srgb_texture" || space == "srgb")
+      ? HioImage::SRGB
+      : HioImage::Raw;
+  // MaterialX UV0 has a lower-left origin. Load the bottom source row first
+  // so it is sampled at v=0 on both backends without changing the tangent frame.
+  return LoadTexture(*image, color_space, true, diagnostic);
+}
+
+void ParseMaterialXNormal(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& surface, ParsedMaterial& result) {
+  if (InputConnections(surface, "normal").empty()) {
+    return;
+  }
+  const auto* normal = ConnectedNode(network, surface, "normal");
+  if (normal == nullptr ||
+      (normal->nodeTypeId != TfToken("ND_normalmap_float") &&
+          normal->nodeTypeId != TfToken("ND_normalmap_vector2"))) {
+    result.normal_diagnostic = "expected a MaterialX normalmap connection";
+    return;
+  }
+  for (const auto* input : {"normal", "tangent", "bitangent"}) {
+    if (!InputConnections(*normal, input).empty() ||
+        FindParameter(*normal, input) != nullptr) {
+      result.normal_diagnostic = "custom MaterialX normalmap frame is unsupported";
+      return;
+    }
+  }
+  float scale = 1.0F;
+  bool flip_green = false;
+  bool valid_scale = InputConnections(*normal, "scale").empty();
+  if (const auto* value = FindParameter(*normal, "scale")) {
+    if (value->IsHolding<GfVec2f>()) {
+      const auto& xy = value->UncheckedGet<GfVec2f>();
+      scale = xy[0];
+      flip_green = xy[1] < 0.0F;
+      valid_scale = valid_scale && std::abs(xy[1]) == scale;
+    } else {
+      valid_scale = valid_scale && ReadScalar(*value, scale);
+    }
+  }
+  if (!valid_scale || !std::isfinite(scale) || scale < 0.0F) {
+    result.normal_diagnostic = "unsupported MaterialX normalmap scale";
+    return;
+  }
+  result.normal_texture = ReadMaterialXImage(network,
+      ConnectedNode(network, *normal, "in"), false, result.normal_sampler,
+      result.normal_diagnostic);
+  if (result.normal_texture) {
+    result.material.parameters.normal_scale = scale;
+    result.material.parameters.normal_flip_green = flip_green;
+    result.material.features |= merlin::MaterialFeature::NormalTexture;
+  }
+}
+
+void ParseMaterialXSurface(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& surface, ParsedMaterial& result) {
+  result.flip_texture_rows = true;
+  auto& parameters = result.material.parameters;
+  parameters.base_color = {0.8F, 0.8F, 0.8F, 1.0F};
+  if (const auto* value = FindParameter(surface, "base_color")) {
+    (void)ReadColor(*value, parameters.base_color);
+  }
+  float base = 1.0F;
+  if (const auto* value = FindParameter(surface, "base")) {
+    (void)ReadScalar(*value, base);
+  }
+  if (!InputConnections(surface, "base").empty()) {
+    result.materialx_unsupported_inputs.emplace_back("base");
+  }
+  if (!InputConnections(surface, "base_color").empty()) {
+    result.texture = ReadMaterialXImage(network,
+        ConnectedNode(network, surface, "base_color"), true, result.sampler,
+        result.diagnostic);
+    if (result.texture) {
+      parameters.base_color = {1.0F, 1.0F, 1.0F, 1.0F};
+      result.material.features |= merlin::MaterialFeature::BaseColorTexture;
+    }
+  }
+  parameters.base_color.x *= base;
+  parameters.base_color.y *= base;
+  parameters.base_color.z *= base;
+  merlin::Vec4 opacity{1.0F, 1.0F, 1.0F, 1.0F};
+  if (const auto* value = FindParameter(surface, "opacity")) {
+    (void)ReadColor(*value, opacity);
+  }
+  if (!InputConnections(surface, "opacity").empty() || opacity.x != opacity.y ||
+      opacity.x != opacity.z) {
+    result.materialx_unsupported_inputs.emplace_back("opacity");
+  } else if (opacity.x < 1.0F) {
+    parameters.base_color.w = opacity.x;
+    result.material.alpha_mode = merlin::AlphaMode::Blended;
+  }
+  // The current Forward lighting profile evaluates the diffuse lobe. Surface
+  // inputs beyond that profile may still be present in a renderable material.
+  for (const auto* input : {"metalness", "specular_roughness", "subsurface",
+           "transmission", "coat", "sheen", "emission", "thin_film_thickness"}) {
+    const float default_value = std::string_view(input) == "specular_roughness"
+        ? 0.2F : 0.0F;
+    float value = default_value;
+    if (const auto* parameter = FindParameter(surface, input)) {
+      (void)ReadScalar(*parameter, value);
+    }
+    if (!InputConnections(surface, input).empty() || value != default_value) {
+      result.materialx_unsupported_inputs.emplace_back(input);
+    }
+  }
+  if (network.terminals.contains(HdMaterialTerminalTokens->displacement)) {
+    result.materialx_unsupported_inputs.emplace_back("displacement");
+  }
+  ParseMaterialXNormal(network, surface, result);
+}
+
 ParsedMaterial ParseMaterialResource(const SdfPath& path,
     const VtValue& resource) {
   ParsedMaterial result;
   result.material.label = path.GetString();
-  result.sampler.label = path.GetString() + ":baseColorSampler";
   HdMaterialNetwork2 network;
   if (resource.IsHolding<HdMaterialNetwork2>()) {
     network = resource.UncheckedGet<HdMaterialNetwork2>();
@@ -1210,8 +1431,10 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
       surface = &node->second;
     }
   }
-  if (surface == nullptr ||
-      surface->nodeTypeId != TfToken("UsdPreviewSurface")) {
+  const bool is_materialx = surface != nullptr &&
+      surface->nodeTypeId == TfToken("ND_standard_surface_surfaceshader");
+  if (surface == nullptr || (!is_materialx &&
+      surface->nodeTypeId != TfToken("UsdPreviewSurface"))) {
     result.diagnostic =
         "unsupported surface network; using constant fallback material";
     return result;
@@ -1220,6 +1443,11 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
   result.material.features = static_cast<merlin::MaterialFeature>(
       static_cast<std::uint32_t>(result.material.features) &
       ~static_cast<std::uint32_t>(merlin::MaterialFeature::VertexColor));
+
+  if (is_materialx) {
+    ParseMaterialXSurface(network, *surface, result);
+    return result;
+  }
 
   if (const auto* value = FindParameter(*surface, "diffuseColor")) {
     (void)ReadColor(*value, result.material.parameters.base_color);
@@ -1282,7 +1510,12 @@ ParsedMaterial ParseMaterialResource(const SdfPath& path,
         "diffuseColor connection is unsupported; using constant color";
     return result;
   }
-  result.texture = LoadTexture(texture_node->second, result.diagnostic);
+  const auto source_color_space =
+      ReadTokenParameter(texture_node->second, "sourceColorSpace");
+  const auto color_space = source_color_space == "raw" ? HioImage::Raw
+      : source_color_space == "sRGB" ? HioImage::SRGB : HioImage::Auto;
+  result.texture = LoadTexture(
+      texture_node->second, color_space, false, result.diagnostic);
   if (!result.texture) {
     return result;
   }
@@ -1348,10 +1581,18 @@ struct MaterialEntry {
   std::size_t references{};
   bool authored{};
   merlin::MaterialDescriptor descriptor;
-  std::optional<merlin::TextureHandle> texture;
-  std::optional<merlin::SamplerHandle> sampler;
-  std::optional<merlin::TextureHandle> normal_texture;
-  std::optional<merlin::SamplerHandle> normal_sampler;
+  std::optional<MaterialTextureKey> base_color_image;
+  std::optional<MaterialTextureKey> normal_image;
+};
+
+struct MaterialTextureEntry {
+  merlin::TextureHandle handle;
+  std::size_t references{};
+};
+
+struct MaterialSamplerEntry {
+  merlin::SamplerHandle handle;
+  std::size_t references{};
 };
 
 bool IsInCollection(const SdfPath& path,
@@ -1649,40 +1890,77 @@ public:
     cameras_.erase(found);
   }
 
-  // Creates or updates one material texture/sampler pair and returns its
-  // binding; nothing when the parsed material has no such texture.
+  // Sampler state is immutable and shared by all material slots that use it.
+  // Retire the previous sampler only after updating the material binding.
+  merlin::SamplerHandle AcquireMaterialSamplerLocked(
+      merlin::SamplerDescriptor descriptor,
+      const std::optional<merlin::TextureBinding>& previous) {
+    const auto key = SamplerKey(descriptor);
+    if (previous && SamplerKey(world_.Get(previous->sampler)) == key) {
+      return previous->sampler;
+    }
+    auto found = material_samplers_.find(key);
+    if (found == material_samplers_.end()) {
+      descriptor.label = "hydra:materialSampler";
+      found = material_samplers_.emplace(key,
+          MaterialSamplerEntry{world_.CreateSampler(std::move(descriptor)), 0})
+                       .first;
+    }
+    ++found->second.references;
+    return found->second.handle;
+  }
+
+  void ReleaseMaterialSamplerLocked(
+      const std::optional<merlin::TextureBinding>& previous,
+      const std::optional<merlin::TextureBinding>& current = std::nullopt) {
+    if (!previous || (current && previous->sampler == current->sampler)) {
+      return;
+    }
+    const auto found = material_samplers_.find(
+        SamplerKey(world_.Get(previous->sampler)));
+    if (--found->second.references == 0) {
+      world_.Remove(found->second.handle);
+      material_samplers_.erase(found);
+    }
+  }
+
+  // Image bytes are shared by resolved asset, color encoding and row order.
   std::optional<merlin::TextureBinding> AcquireTextureSlotLocked(
-      std::optional<merlin::TextureHandle>& texture,
-      std::optional<merlin::SamplerHandle>& sampler,
       std::optional<merlin::TextureDescriptor> parsed_texture,
-      merlin::SamplerDescriptor parsed_sampler) {
+      merlin::SamplerDescriptor parsed_sampler, bool flipped,
+      const std::optional<merlin::TextureBinding>& previous,
+      const std::optional<MaterialTextureKey>& previous_key,
+      std::optional<MaterialTextureKey>& current_key) {
     if (!parsed_texture) {
       return std::nullopt;
     }
-    if (!texture) {
-      texture = world_.CreateTexture(std::move(*parsed_texture));
-    } else if (!TextureDescriptorsEqual(world_.Get(*texture), *parsed_texture)) {
-      world_.UpdateTexture(*texture, std::move(*parsed_texture));
+    current_key.emplace(parsed_texture->label, parsed_texture->format, flipped);
+    auto found = material_textures_.find(*current_key);
+    if (found == material_textures_.end()) {
+      found = material_textures_.emplace(*current_key, MaterialTextureEntry{
+          world_.CreateTexture(std::move(*parsed_texture)), 0}).first;
+    } else if (!TextureDescriptorsEqual(
+                   world_.Get(found->second.handle), *parsed_texture)) {
+      world_.UpdateTexture(found->second.handle, std::move(*parsed_texture));
     }
-    if (!sampler) {
-      sampler = world_.CreateSampler(std::move(parsed_sampler));
-    } else if (!SamplerDescriptorsEqual(world_.Get(*sampler), parsed_sampler)) {
-      world_.UpdateSampler(*sampler, std::move(parsed_sampler));
+    if (previous_key != current_key) {
+      ++found->second.references;
     }
-    return merlin::TextureBinding{*texture, *sampler, 0};
+    const auto sampler =
+        AcquireMaterialSamplerLocked(std::move(parsed_sampler), previous);
+    return merlin::TextureBinding{found->second.handle, sampler, 0};
   }
 
-  // Removes a pair the material no longer binds. Called after the material
-  // update so no committed material references a removed resource.
-  void ReleaseTextureSlotLocked(std::optional<merlin::TextureHandle>& texture,
-      std::optional<merlin::SamplerHandle>& sampler) {
-    if (texture) {
-      world_.Remove(*texture);
-      texture.reset();
+  void ReleaseMaterialTextureLocked(
+      const std::optional<MaterialTextureKey>& previous,
+      const std::optional<MaterialTextureKey>& current = std::nullopt) {
+    if (!previous || previous == current) {
+      return;
     }
-    if (sampler) {
-      world_.Remove(*sampler);
-      sampler.reset();
+    const auto found = material_textures_.find(*previous);
+    if (--found->second.references == 0) {
+      world_.Remove(found->second.handle);
+      material_textures_.erase(found);
     }
   }
 
@@ -1697,16 +1975,21 @@ public:
     }
     auto& entry = found->second;
     entry.authored = true;
-    const bool has_texture = parsed.texture.has_value();
-    const bool has_normal_texture = parsed.normal_texture.has_value();
     auto descriptor = std::move(parsed.material);
-    descriptor.base_color_texture = AcquireTextureSlotLocked(entry.texture,
-        entry.sampler, std::move(parsed.texture), std::move(parsed.sampler));
-    descriptor.normal_texture = AcquireTextureSlotLocked(entry.normal_texture,
-        entry.normal_sampler, std::move(parsed.normal_texture),
-        std::move(parsed.normal_sampler));
+    std::optional<MaterialTextureKey> base_color_image;
+    std::optional<MaterialTextureKey> normal_image;
+    descriptor.base_color_texture = AcquireTextureSlotLocked(
+        std::move(parsed.texture), std::move(parsed.sampler),
+        parsed.flip_texture_rows, entry.descriptor.base_color_texture,
+        entry.base_color_image, base_color_image);
+    descriptor.normal_texture = AcquireTextureSlotLocked(
+        std::move(parsed.normal_texture), std::move(parsed.normal_sampler),
+        parsed.flip_texture_rows, entry.descriptor.normal_texture,
+        entry.normal_image, normal_image);
     if (created) {
       entry.handle = world_.CreateMaterial(descriptor);
+      entry.base_color_image = std::move(base_color_image);
+      entry.normal_image = std::move(normal_image);
       entry.descriptor = std::move(descriptor);
       return;
     }
@@ -1721,13 +2004,15 @@ public:
     if (aspects != merlin::ChangeAspect::None) {
       world_.UpdateMaterial(entry.handle, descriptor, aspects);
     }
+    ReleaseMaterialSamplerLocked(
+        entry.descriptor.base_color_texture, descriptor.base_color_texture);
+    ReleaseMaterialSamplerLocked(
+        entry.descriptor.normal_texture, descriptor.normal_texture);
+    ReleaseMaterialTextureLocked(entry.base_color_image, base_color_image);
+    ReleaseMaterialTextureLocked(entry.normal_image, normal_image);
+    entry.base_color_image = std::move(base_color_image);
+    entry.normal_image = std::move(normal_image);
     entry.descriptor = std::move(descriptor);
-    if (!has_texture) {
-      ReleaseTextureSlotLocked(entry.texture, entry.sampler);
-    }
-    if (!has_normal_texture) {
-      ReleaseTextureSlotLocked(entry.normal_texture, entry.normal_sampler);
-    }
   }
 
   void RemoveMaterial(const SdfPath& path) {
@@ -2720,19 +3005,12 @@ private:
 
   void RetireMaterialLocked(
       std::unordered_map<std::string, MaterialEntry>::iterator found) {
-    world_.Remove(found->second.handle);
-    if (found->second.texture) {
-      world_.Remove(*found->second.texture);
-    }
-    if (found->second.sampler) {
-      world_.Remove(*found->second.sampler);
-    }
-    if (found->second.normal_texture) {
-      world_.Remove(*found->second.normal_texture);
-    }
-    if (found->second.normal_sampler) {
-      world_.Remove(*found->second.normal_sampler);
-    }
+    auto& entry = found->second;
+    world_.Remove(entry.handle);
+    ReleaseMaterialTextureLocked(entry.base_color_image);
+    ReleaseMaterialTextureLocked(entry.normal_image);
+    ReleaseMaterialSamplerLocked(entry.descriptor.base_color_texture);
+    ReleaseMaterialSamplerLocked(entry.descriptor.normal_texture);
     materials_.erase(found);
   }
 
@@ -2855,6 +3133,8 @@ private:
   std::unordered_map<std::string, MeshState> meshes_;
   std::unordered_map<std::string, GaussianState> gaussians_;
   std::unordered_map<std::string, MaterialEntry> materials_;
+  std::map<MaterialTextureKey, MaterialTextureEntry> material_textures_;
+  std::map<MaterialSamplerKey, MaterialSamplerEntry> material_samplers_;
   std::unordered_map<std::string, merlin::CameraHandle> cameras_;
   std::unordered_map<std::string, merlin::LightHandle> lights_;
   std::map<std::filesystem::path, DomeTexture> dome_textures_;
@@ -3044,6 +3324,14 @@ public:
         ReportHydraDiagnostic("hydra.material.normal-map", GetId(),
             parsed.normal_diagnostic, merlin::DiagnosticDisposition::Fallback,
             parsed.normal_texture ? "decode-2t-minus-1" : "disable-normal-map");
+      }
+      if (!parsed.materialx_unsupported_inputs.empty()) {
+        std::string message = "MaterialX inputs outside the Forward diffuse profile:";
+        for (const auto& input : parsed.materialx_unsupported_inputs) {
+          message += " " + input;
+        }
+        ReportHydraDiagnostic("hydra.material.materialx-subset", GetId(), message,
+            merlin::DiagnosticDisposition::Fallback, "render-supported-inputs");
       }
       bridge_->SyncMaterial(GetId(), std::move(parsed));
     }
@@ -5279,6 +5567,10 @@ const TfTokenVector& HdMerlinRenderDelegate::GetSupportedRprimTypes() const {
   static const TfTokenVector types{HdPrimTypeTokens->mesh,
       HdPrimTypeTokens->particleField};
   return types;
+}
+
+TfTokenVector HdMerlinRenderDelegate::GetMaterialRenderContexts() const {
+  return {TfToken(), TfToken("mtlx")};
 }
 
 const TfTokenVector& HdMerlinRenderDelegate::GetSupportedSprimTypes() const {

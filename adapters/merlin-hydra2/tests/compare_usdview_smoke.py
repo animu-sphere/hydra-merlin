@@ -104,6 +104,7 @@ def parse_args() -> argparse.Namespace:
     fixture.add_argument("--forward-navigation-only", action="store_true")
     fixture.add_argument("--forward-normals-only", action="store_true")
     fixture.add_argument("--forward-scene-only", action="store_true")
+    fixture.add_argument("--forward-chess-only", action="store_true")
     parser.add_argument("--scene-viewpoints", nargs="+", default=["full", "quarter", "opposite"])
     return parser.parse_args()
 
@@ -227,17 +228,20 @@ def main() -> None:
     args = parse_args()
     forward_only = (args.forward_lighting_only or args.forward_motion_only or
                     args.forward_navigation_only or args.forward_scene_only or
-                    args.forward_normals_only)
+                    args.forward_normals_only or args.forward_chess_only)
     phases = PHASES
     forward_reports = []
     if forward_only:
-        fixture = ("scene" if args.forward_scene_only else
+        fixture = ("chess" if args.forward_chess_only else
+                   "scene" if args.forward_scene_only else
                    "navigation" if args.forward_navigation_only else
                    "normals" if args.forward_normals_only else
                    "motion" if args.forward_motion_only else "lighting")
         fixture_phases = {"lighting": LIGHTING_PHASES, "motion": MOTION_PHASES,
                           "navigation": NAVIGATION_PHASES, "scene": scene_phases(args.scene_viewpoints),
-                          "normals": NORMALS_PHASES}[fixture]
+                          "normals": NORMALS_PHASES,
+                          "chess": ("chess-geometry", "chess-normal-base",
+                                    "chess-normal", "chess-restored")}[fixture]
         phases = ("baseline",) + fixture_phases
         for directory in (args.tier0, args.gpu_copy):
             report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
@@ -274,6 +278,8 @@ def main() -> None:
                 raise ValueError("normals debug views differ between presentation paths")
         if args.forward_scene_only and forward_reports[0]["scene"] != forward_reports[1]["scene"]:
             raise ValueError("external scene inputs differ between presentation paths")
+        if args.forward_chess_only and forward_reports[0]["root_layer_sha256"] != forward_reports[1]["root_layer_sha256"]:
+            raise ValueError("Open Chess Set stages differ between presentation paths")
         if args.forward_lighting_only:
             expected = list(LIGHTING_PHASES)
             for report in forward_reports:
@@ -317,6 +323,7 @@ def main() -> None:
         "forward_navigation": forward_reports if args.forward_navigation_only else [],
         "forward_scene": forward_reports if args.forward_scene_only else [],
         "forward_normals": forward_reports if args.forward_normals_only else [],
+        "forward_chess": forward_reports if args.forward_chess_only else [],
         "summary": {
             "maximum_changed_pixel_fraction": max(
                 image["changed_pixel_fraction"] for image in images
