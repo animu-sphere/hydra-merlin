@@ -12,8 +12,7 @@ procedures are in the [Forward validation guide](../guides/forward-validation.md
 
 ## Directional selection and coordinates
 
-Vulkan and Metal use `ExtractForwardDirectionalLighting` in
-`Merlin::RenderBackend`. The single-light profile selects the directional
+The native diagnostic profile in `Merlin::RenderBackend` selects the directional
 record with the smallest stable light handle. Dense table positions are storage
 locations, so deleting an unrelated light or compacting a table cannot change
 the selected source. Removing the selected light selects the remaining smallest
@@ -155,13 +154,24 @@ zero and clean Sync does not revise the light. The conversion applies equally
 to authored Hydra distant lights; native Core-authored intensity remains a
 directly specified Lambert response.
 
-### Camera Light OFF
+### usdview light controls
 
-Camera Light OFF removes the host source. With no authored directional source,
-Merlin selects its unit-white +Z diagnostic fallback, so OFF is brighter than
-Hdx's converted camera light. It is not an ambient-only mode. An explicit
-zero-energy source is a separate case that retains only the environment term.
-Validation records this distinction instead of equating OFF with zero.
+Hydra requests explicit lighting. **Enable Scene Lights** controls the authored
+lights supplied by Hydra. **Enable Default Camera Light** controls the Hdx
+camera source and contributes alongside supported authored lights.
+**Enable Default Dome Light** controls the Hdx dome, which supplies diffuse SH
+lighting and the OpenUSD Stinson Beach panorama. With all three disabled, lit
+surfaces receive zero lighting. Native diagnostic requests retain the fill and
+fallback defined above.
+
+Both backends draw the dome before geometry, using the inverse projection,
+camera rotation and dome orientation to sample the Radiance HDR. Camera
+translation does not move the panorama. The background is opaque, with clear
+depth and background IDs, and receives the host display encoding. The standard
+`domeLightCameraVisibility` setting hides the panorama while retaining dome
+illumination. The lit-surface exposure and tone-mapping contract applies to
+surface lighting. See the [OpenUSD 26.08 light data source](https://github.com/PixarAnimationStudios/OpenUSD/blob/v26.08/pxr/imaging/hdx/taskControllerSceneIndex.cpp)
+and the [support matrix](../reference/support-matrix.md#forward-lighting-and-output).
 
 ## Validation contract
 
@@ -182,8 +192,8 @@ and presentation path that registers the gate.
 - Camera, light and output edits require zero geometry fetch/upload and zero
   pipeline creation after setup; static frames additionally require zero
   uploads and allocations after all frame contexts are warmed.
-- All focused color/white centers, including white OFF, require headroom in
-  linear and sRGB output.
+- Illuminated color/white centers require headroom in linear and sRGB output.
+  Explicit-light OFF probes with no authored light or dome require black.
 - Renderer validation messages must be zero. Native Metal gates enable API and
   shader validation; Metal host gates enable API validation only, because host
   shader instrumentation fails OpenUSD display pipeline creation.
@@ -284,17 +294,18 @@ resource invariants remain gates.
 ### External scene gate
 
 An opt-in gate opens a local multi-mesh USD stage directly, preserving authored
-geometry, transforms, materials and up axis. Three starting views derive from
-usdview's frame-all free camera: `full` retains it; `quarter` adds yaw +45
-degrees, pitch -15 degrees and distance scale 0.8; `opposite` adds yaw -45
-degrees, pitch +15 degrees and distance scale 0.65. Rotations use the free
-camera's stage-up-axis convention. Each view reuses the Qt navigation routes for
-Camera Light ON/OFF and linear/sRGB output, and starting views must have
-distinct images. Authored scene lights are disabled to isolate the camera
-source. Immediate frames must render once, match their settled reference and
-replayed camera, preserve draw counts, and avoid geometry fetch/upload or
-pipeline creation. Camera-light and output toggles must visibly change the
-starting image at every viewpoint.
+geometry, transforms, materials and up axis. The default starting views derive
+from usdview's frame-all free camera and use the stage-up-axis convention.
+An optional camera recipe supplies a world-space eye, target and vertical field
+of view for each starting pose. The [validation guide](../guides/forward-validation.md#external-scene)
+shows how to select the Kitchen interior recipes. Each view reuses the Qt
+navigation routes for Camera Light ON/OFF and linear/sRGB output, and starting
+views must have distinct images with the camera source enabled. Authored scene
+lights and the default dome are disabled to isolate the camera source.
+Immediate frames must render once, match their settled
+reference and replayed camera, preserve draw counts, and avoid geometry
+fetch/upload or pipeline creation. Camera-light and output toggles must
+visibly change the starting image at every viewpoint with illumination.
 
 The `merlin-usdview-forward-scene/v2` report records the view recipe and
 initial camera matrix, source/root-layer SHA-256, mesh count, coverage,
@@ -310,8 +321,8 @@ The asset is supplied locally; it is neither bundled nor downloaded.
 The motion, navigation and external scene gates edit an authored camera or
 synchronously dispatch Qt events between captures. Framebuffer capture adds
 readback and disk I/O, so these gates are neither timing gates nor evidence for
-the absence of flicker at an unrestricted navigation rate. Three relative
-views do not establish interior scene coverage.
+the absence of flicker at an unrestricted navigation rate. Scene coverage is
+limited to the configured camera routes and the geometry visible along them.
 
 ### Cross-backend comparison
 

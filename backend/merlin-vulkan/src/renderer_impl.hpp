@@ -155,6 +155,7 @@ public:
     std::map<std::pair<std::string, std::uint32_t>, VkPipeline>
         generated_pipelines;
     VkPipeline gaussian_pipeline{};
+    VkPipeline dome_pipeline{};
     VkPipeline gaussian_id_pipeline{};
     // Same shaders reading the 64-byte GPU-prepared records in sorted order.
     VkPipeline gaussian_sorted_pipeline{};
@@ -409,6 +410,8 @@ public:
     FrameCpuTimings cpu_timings;
     FrameCounters counters;
     VkDescriptorPool descriptor_pool{};
+    VkDescriptorPool dome_descriptor_pool{};
+    VkDescriptorSet dome_descriptor_set{};
     std::uint32_t descriptor_capacity{};
     std::vector<VkDescriptorSet> material_descriptor_sets;
     VkDescriptorSet bindless_material_descriptor_set{};
@@ -800,14 +803,14 @@ public:
 
   void EnsureGeneratedDescriptorSetLayouts();
 
-  static render::ForwardDirectionalLighting ExtractDirectionalLighting(
-      const extraction::FrameSnapshot& snapshot);
+  render::ForwardLighting PrepareForwardLighting(
+      const RenderRequest& request) const;
 
   void EnsureEnvironmentLighting(const std::filesystem::path& path);
 
   MaterialUniforms MakeMaterialUniforms(
       const extraction::MaterialRecord& material,
-      const render::ForwardDirectionalLighting& lighting,
+      const render::ForwardLighting& lighting,
       const render::ForwardFramePolicy& frame_policy) const;
 
   void RejectGeneratedMaterial(std::size_t index,
@@ -836,7 +839,7 @@ public:
       const GeneratedMaterialArtifact& artifact) const;
 
   void PrepareBindlessMaterialDescriptors(
-      FrameContext& frame, const extraction::FrameSnapshot& snapshot,
+      FrameContext& frame, const render::ForwardLighting& lighting,
       const render::ForwardFramePolicy& frame_policy);
 
   void PrepareGaussianInstances(FrameContext& frame);
@@ -845,6 +848,7 @@ public:
 
   void PrepareMaterialDescriptors(
       FrameContext& frame, const extraction::FrameSnapshot& snapshot,
+      const render::ForwardLighting& lighting,
       const render::ForwardFramePolicy& frame_policy);
 
   void ReleaseGaussianAttributes(GaussianAttributeSlot& slot);
@@ -926,7 +930,10 @@ public:
   VkPipeline CreatePipeline(
       const ShaderPaths& shaders, std::uint32_t variant_key,
       const GeneratedMaterialArtifact* generated_artifact = nullptr,
-      bool gpu_driven_pipeline = false);
+      bool gpu_driven_pipeline = false, bool dome_pipeline = false);
+
+  void RecordDome(VkCommandBuffer command, FrameContext& frame,
+      const render::ForwardDomeLight& dome);
 
   VkPipeline EnsurePipeline(const ShaderPaths& shaders,
       std::uint32_t variant_key);
@@ -1061,9 +1068,10 @@ public:
       const GpuDrivenIndexedRequest& request);
 
   void RecordFrame(VkCommandBuffer command,
-      const FrameContext& frame,
+      FrameContext& frame,
       const extraction::FrameSnapshot& snapshot,
       const Vec4& clear_color,
+      const std::optional<render::ForwardDomeLight>& dome,
       const std::vector<Aov>& cpu_readback_aovs);
 
   std::uint64_t SubmitTransfers(FrameContext& frame);
@@ -1239,6 +1247,8 @@ public:
   TextureSlot fallback_texture_;
   SamplerSlot fallback_sampler_;
   VkDescriptorSetLayout descriptor_set_layout_{};
+  VkDescriptorSetLayout dome_descriptor_set_layout_{};
+  VkPipelineLayout dome_pipeline_layout_{};
   std::map<std::string, VkDescriptorSetLayout>
       generated_descriptor_set_layouts_;
   std::map<std::string, GeneratedMaterialArtifact>

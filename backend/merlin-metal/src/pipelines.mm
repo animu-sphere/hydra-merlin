@@ -68,6 +68,21 @@ void Backend::Impl::CreateLibraryAndPipeline() {
   if (!float_pipeline_)
     throw render::RendererError(render::RendererErrorCode::BackendFailure,
         "create Metal float Forward pipeline", String(error.localizedDescription));
+  MTLRenderPipelineDescriptor* dome = [MTLRenderPipelineDescriptor new];
+  dome.label = @"hdMerlin dome background";
+  dome.vertexFunction = [library_ newFunctionWithName:@"merlin_dome_vertex"];
+  dome.fragmentFunction = [library_ newFunctionWithName:@"merlin_dome_fragment"];
+  dome.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+  dome.colorAttachments[1].pixelFormat = MTLPixelFormatR32Uint;
+  dome.colorAttachments[2].pixelFormat = MTLPixelFormatR32Uint;
+  dome.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+  dome_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:dome error:&error];
+  dome.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA32Float;
+  float_dome_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:dome error:&error];
+  if (!dome_pipeline_ || !float_dome_pipeline_) {
+    throw render::RendererError(render::RendererErrorCode::BackendFailure,
+        "create Metal dome pipeline", String(error.localizedDescription));
+  }
   descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
   if (bindless_) {
     id<MTLFunction> gpu_scene_vertex =

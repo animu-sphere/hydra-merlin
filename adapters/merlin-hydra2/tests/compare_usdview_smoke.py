@@ -40,6 +40,8 @@ LIGHTING_PHASES = tuple(
     for light in ("off", "on")
     for pose in ("static", "moving", "restored")
 )
+LIGHT_SWITCH_PHASES = tuple(f"light-switches-{i:03b}" for i in range(8)) + (
+    "light-switches-dome-hidden", "light-switches-dome-restored")
 MOTION_PHASES = tuple(
     f"motion-{albedo}-{output}-{light}-{leg}-{index:02d}"
     for albedo in ("color", "white")
@@ -68,16 +70,6 @@ NORMALS_PHASES = tuple(
     for view in ("geometric-normal", "shading-normal-base", "normal",
                  "front-facing", "tangent", "bitangent")
 )
-SCENE_PHASES = tuple(
-    f"scene-{viewpoint}-authored-{output}-{light}-{gesture}-{capture}"
-    for viewpoint in ("full", "quarter", "opposite")
-    for output in ("linear", "srgb")
-    for light in ("off", "on")
-    for gesture in ("tumble", "truck", "zoom")
-    for capture in (("start",) + tuple(
-        f"{kind}-{index:02d}" for kind in ("reference", "immediate")
-        for index in range(8)) + ("restored",))
-)
 OUTPUT_PHASES = tuple(
     f"output-{output}-{tone}-ev{ev}"
     for output in ("linear", "srgb")
@@ -86,6 +78,19 @@ OUTPUT_PHASES = tuple(
 )
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
+
+
+def scene_phases(viewpoints: list[str]) -> tuple[str, ...]:
+    return tuple(
+        f"scene-{viewpoint}-authored-{output}-{light}-{gesture}-{capture}"
+        for viewpoint in viewpoints
+        for output in ("linear", "srgb")
+        for light in ("off", "on")
+        for gesture in ("tumble", "truck", "zoom")
+        for capture in (("start",) + tuple(
+            f"{kind}-{index:02d}" for kind in ("reference", "immediate")
+            for index in range(8)) + ("restored",))
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,6 +104,7 @@ def parse_args() -> argparse.Namespace:
     fixture.add_argument("--forward-navigation-only", action="store_true")
     fixture.add_argument("--forward-normals-only", action="store_true")
     fixture.add_argument("--forward-scene-only", action="store_true")
+    parser.add_argument("--scene-viewpoints", nargs="+", default=["full", "quarter", "opposite"])
     return parser.parse_args()
 
 
@@ -230,18 +236,18 @@ def main() -> None:
                    "normals" if args.forward_normals_only else
                    "motion" if args.forward_motion_only else "lighting")
         fixture_phases = {"lighting": LIGHTING_PHASES, "motion": MOTION_PHASES,
-                          "navigation": NAVIGATION_PHASES, "scene": SCENE_PHASES,
+                          "navigation": NAVIGATION_PHASES, "scene": scene_phases(args.scene_viewpoints),
                           "normals": NORMALS_PHASES}[fixture]
         phases = ("baseline",) + fixture_phases
         for directory in (args.tier0, args.gpu_copy):
             report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
                                 .read_text(encoding="utf-8"))
-            version = 2 if args.forward_scene_only or args.forward_normals_only else 1
+            version = 2 if fixture in ("lighting", "scene", "normals") else 1
             if report["schema"] != f"merlin-usdview-forward-{fixture}/v{version}":
                 raise ValueError(f"unexpected Forward {fixture} schema in {directory}")
             if args.forward_scene_only:
                 names = [view["name"] for view in report["scene"]["viewpoints"]]
-                if names != ["full", "quarter", "opposite"]:
+                if names != args.scene_viewpoints:
                     raise ValueError(f"missing or reordered scene viewpoints in {directory}")
                 if any(not phase["phase"].startswith(f"scene-{phase['viewpoint']}-")
                        for phase in report["phases"]):
@@ -285,7 +291,7 @@ def main() -> None:
             for phase in report["phases"]:
                 if phase["upload_bytes"] or phase["pipeline_creation_count"]:
                     raise ValueError(f"output edit rebuilt resources in {directory}")
-        phases += OUTPUT_PHASES
+        phases += OUTPUT_PHASES + LIGHT_SWITCH_PHASES
 
     images = [
         compare_image(

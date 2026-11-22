@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 13;
+inline constexpr std::uint32_t kVersion = 14;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -47,6 +47,10 @@ struct alignas(16) MaterialConstants {
   Vec4 surface_policy;
   Vec4 normal_map;
   std::array<std::uint32_t, 4> normal_map_resource{};
+  Vec4 light_policy;
+  std::array<Vec4, 7> additional_light_directions;
+  std::array<Vec4, 7> additional_light_colors;
+  Mat4 world_to_environment;
 };
 
 // Table-backed Forward keeps indexed submission on the CPU while selecting a
@@ -409,7 +413,7 @@ static_assert(offsetof(DrawConstants, feature_mask) == 112);
 static_assert(offsetof(DrawConstants, prim_id) == 116);
 static_assert(offsetof(DrawConstants, instance_id) == 120);
 static_assert(offsetof(DrawConstants, texture_index) == 124);
-static_assert(sizeof(MaterialConstants) == 256);
+static_assert(sizeof(MaterialConstants) == 560);
 static_assert(alignof(MaterialConstants) == 16);
 static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);

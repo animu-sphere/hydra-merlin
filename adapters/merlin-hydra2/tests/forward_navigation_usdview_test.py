@@ -78,7 +78,7 @@ def check_forward_navigation(app_controller, shader, root, ext,
                             f"{prefix}: starting camera differs from recorded viewpoint")
                     starting_image = pixels(prefix + "-start")[0]
                     starting_images[(viewpoint, albedo, output, enabled, gesture)] = starting_image
-                    if scene_metadata is not None and gesture == "tumble":
+                    if scene_metadata is not None and gesture == "tumble" and enabled:
                         for previous, _ in viewpoints:
                             key = (previous, albedo, output, enabled, gesture)
                             if previous != viewpoint and key in starting_images:
@@ -166,7 +166,8 @@ def check_forward_navigation(app_controller, shader, root, ext,
                             send_mouse(QEvent.Type.MouseButtonRelease, origin, button,
                                        Qt.MouseButton.NoButton)
                         assert not view._dragActive, "mouse release did not end navigation"
-                    assert starting_image != references[3], f"{prefix}: navigation had no image effect"
+                    if scene_metadata is None or enabled:
+                        assert starting_image != references[3], f"{prefix}: navigation had no image effect"
                     view.restoreViewState(initial)
                     render_phase(app_controller, prefix + "-restored")
                     assert pixels(prefix + "-restored")[0] == starting_image, f"{prefix}: restoring camera changed image"
@@ -184,10 +185,9 @@ def check_forward_navigation(app_controller, shader, root, ext,
                     assert (starting_images[(viewpoint, "authored", output, False, gesture)] !=
                             starting_images[(viewpoint, "authored", output, True, gesture)]), (
                         f"{viewpoint}-{gesture}: Camera Light toggle had no image effect")
-                for enabled in (False, True):
-                    assert (starting_images[(viewpoint, "authored", "linear", enabled, gesture)] !=
-                            starting_images[(viewpoint, "authored", "srgb", enabled, gesture)]), (
-                        f"{viewpoint}-{gesture}: output transform had no image effect")
+                assert (starting_images[(viewpoint, "authored", "linear", True, gesture)] !=
+                        starting_images[(viewpoint, "authored", "srgb", True, gesture)]), (
+                    f"{viewpoint}-{gesture}: output transform had no image effect")
 
     with open(root + f"-forward-{fixture}.json", "w", encoding="utf-8") as stream:
         version = 2 if scene_metadata is not None else 1

@@ -6,10 +6,9 @@ namespace merlin::metal {
 
 MaterialConstants
 Backend::Impl::MakeMaterial(const extraction::MaterialRecord& material,
-    const render::ForwardDirectionalLighting& lighting,
+    const render::ForwardLighting& lighting,
     const render::ForwardFramePolicy& frame_policy) {
-  return render::MakeForwardMaterialConstants<MaterialConstants>(material, lighting,
-      render::PackagedDiffuseEnvironment().coefficients, frame_policy);
+  return render::MakeForwardMaterialConstants<MaterialConstants>(material, lighting, frame_policy);
 }
 
 void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& frame,
@@ -45,8 +44,8 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
       render::PackForwardOutputTransform(request.output_transform),
       render::PackForwardSurfacePolicy(request.snapshot->front_face,
           render::NdcYDirection::Up, request.debug_view)};
-  const auto lighting =
-      render::ExtractForwardDirectionalLighting(*request.snapshot);
+  const auto lighting = render::PrepareForwardLighting(*request.snapshot,
+      render::PackagedDiffuseEnvironment().coefficients, request.forward_lighting);
   id<MTLRenderCommandEncoder> encoder =
       [command renderCommandEncoderWithDescriptor:pass];
   if (encoder == nil) {
@@ -54,8 +53,6 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
         "encode Metal render pass",
         "renderCommandEncoder returned nil");
   }
-  [encoder setRenderPipelineState:float_color ? float_pipeline_ : pipeline_];
-  [encoder setDepthStencilState:depth_state_];
   const MTLViewport viewport{0.0,
       0.0,
       static_cast<double>(request.width),
@@ -65,6 +62,22 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
   const MTLScissorRect scissor{0, 0, request.width, request.height};
   [encoder setViewport:viewport];
   [encoder setScissorRect:scissor];
+  const auto& dome = request.forward_lighting.dome;
+  if (dome && dome->camera_visible) {
+    const auto texture = textures_.find(dome->rgbe_texture.value());
+    if (texture == textures_.end()) {
+      [encoder endEncoding];
+      throw render::RendererError(render::RendererErrorCode::InvalidRequest,
+          "encode Metal dome background", "dome texture is absent from the snapshot");
+    }
+    const auto constants = render::PackDomeDrawConstants(*dome);
+    [encoder setRenderPipelineState:float_color ? float_dome_pipeline_ : dome_pipeline_];
+    [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:0];
+    [encoder setFragmentTexture:texture->second.texture atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+  }
+  [encoder setRenderPipelineState:float_color ? float_pipeline_ : pipeline_];
+  [encoder setDepthStencilState:depth_state_];
   if (bindless_) {
     [encoder setFragmentBuffer:frame.argument_buffer offset:0 atIndex:3];
     for (const auto& [handle, texture] : textures_) {

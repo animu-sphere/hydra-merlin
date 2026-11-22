@@ -2,10 +2,11 @@
 
 namespace merlin::vulkan {
 
-render::ForwardDirectionalLighting Renderer::Impl::ExtractDirectionalLighting(
-    const extraction::FrameSnapshot& snapshot) {
+render::ForwardLighting Renderer::Impl::PrepareForwardLighting(
+    const RenderRequest& request) const {
   try {
-    return render::ExtractForwardDirectionalLighting(snapshot);
+    return render::PrepareForwardLighting(*request.snapshot,
+        environment_lighting_.coefficients, request.forward_lighting);
   } catch (const render::RendererError& error) {
     throw RendererError(RendererErrorCode::InvalidRequest,
         error.operation(), error.what());
@@ -23,10 +24,10 @@ void Renderer::Impl::EnsureEnvironmentLighting(const std::filesystem::path& path
 
 MaterialUniforms Renderer::Impl::MakeMaterialUniforms(
     const extraction::MaterialRecord& material,
-    const render::ForwardDirectionalLighting& lighting,
+    const render::ForwardLighting& lighting,
     const render::ForwardFramePolicy& frame_policy) const {
   auto uniforms = render::MakeForwardMaterialConstants<MaterialUniforms>(
-      material, lighting, environment_lighting_.coefficients, frame_policy);
+      material, lighting, frame_policy);
   // The bindless entry reads the normal texture by table slot from the
   // per-material block; the conventional entry binds it in the set instead.
   if (bindless_texture_table_ && material.normal_texture) {
@@ -331,13 +332,12 @@ void Renderer::Impl::PackGeneratedMaterialParameters(
 }
 
 void Renderer::Impl::PrepareBindlessMaterialDescriptors(
-    FrameContext& frame, const extraction::FrameSnapshot& snapshot,
+    FrameContext& frame, const render::ForwardLighting& lighting,
     const render::ForwardFramePolicy& frame_policy) {
   frame.material_descriptor_sets.clear();
   if (material_records_.empty()) {
     return;
   }
-  const auto lighting = ExtractDirectionalLighting(snapshot);
   const auto material_count =
       static_cast<std::uint32_t>(material_records_.size());
   const auto uniform_stride =
@@ -456,13 +456,13 @@ void Renderer::Impl::ValidateMaterialTextureBindings() const {
 
 void Renderer::Impl::PrepareMaterialDescriptors(
     FrameContext& frame, const extraction::FrameSnapshot& snapshot,
+    const render::ForwardLighting& lighting,
     const render::ForwardFramePolicy& frame_policy) {
   ValidateMaterialTextureBindings();
   if (bindless_texture_table_) {
-    PrepareBindlessMaterialDescriptors(frame, snapshot, frame_policy);
+    PrepareBindlessMaterialDescriptors(frame, lighting, frame_policy);
     return;
   }
-  const auto lighting = ExtractDirectionalLighting(snapshot);
   const auto& cached = frame.material_descriptor_source;
   const bool reuse_descriptors = cached &&
                                  cached->source_id == snapshot.source_id &&
@@ -776,9 +776,10 @@ void Renderer::Impl::PrepareMaterialDescriptors(
 }
 
 void Renderer::Impl::RecordFrame(VkCommandBuffer command,
-    const FrameContext& frame,
+    FrameContext& frame,
     const extraction::FrameSnapshot& snapshot,
     const Vec4& clear_color,
+    const std::optional<render::ForwardDomeLight>& dome,
     const std::vector<Aov>& cpu_readback_aovs) {
   std::array<VkClearValue, 4> clear{};
   clear[0].color = {
@@ -801,6 +802,9 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command,
   const VkRect2D scissor{{0, 0}, {active_target_->width, active_target_->height}};
   vkCmdSetViewport(command, 0, 1, &viewport);
   vkCmdSetScissor(command, 0, 1, &scissor);
+  if (dome && dome->camera_visible) {
+    RecordDome(command, frame, *dome);
+  }
   const auto view_projection = render::MultiplyForwardMatrices(snapshot.projection, snapshot.view);
   const auto gpu_scene_draw_slots =
       gpu_scene_buffers_.pending_update

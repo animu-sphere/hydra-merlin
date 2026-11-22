@@ -41,6 +41,10 @@ struct MaterialConstants
     // x/y: normal texture and sampler indices in the bindless or argument
     // tables of paths that bind them by index; zw: reserved.
     uint4 normal_map_resource;
+    float4 light_policy;
+    float4 additional_light_directions[7];
+    float4 additional_light_colors[7];
+    float4x4 world_to_environment;
 };
 
 static const float kSurfaceDebugGeometricNormal = 1.0f;
@@ -419,9 +423,11 @@ float4 ShadeForwardSurface(
     else if ((draw.feature_mask & kDirectionalLightFlag) != 0u)
     {
         float3 normal = surface.shading_normal;
-        float x = normal.x;
-        float y = normal.y;
-        float z = normal.z;
+        float3 environment_normal = mul(material.world_to_environment,
+            float4(normal, 0.0f)).xyz;
+        float x = environment_normal.x;
+        float y = environment_normal.y;
+        float z = environment_normal.z;
         float3 light_scale =
             material.diffuse_environment[0].rgb * 0.2820947918f +
             material.diffuse_environment[1].rgb * (0.4886025119f * y) +
@@ -437,18 +443,20 @@ float4 ShadeForwardSurface(
                 (1.0925484306f * x * z) +
             material.diffuse_environment[8].rgb *
                 (0.5462742153f * (x * x - y * y));
-        // Treat the packaged environment as ambient fill rather than adding
-        // its full HDR irradiance on top of usdview's camera light. Keeping
-        // the shared 0.15/0.85 split prevents camera-facing
-        // albedo from clipping to white in an UNorm color target.
         light_scale =
-            0.15f * max(light_scale, float3(0.0f, 0.0f, 0.0f));
+            material.light_policy.x * max(light_scale, float3(0.0f, 0.0f, 0.0f));
         float n_dot_l = max(
             dot(normal,
                 normalize(material.light_direction_intensity.xyz)),
             0.0f);
         light_scale += material.light_color_alpha_cutoff.rgb *
-            (0.85f * n_dot_l * material.light_direction_intensity.w);
+            (material.light_policy.y * n_dot_l * material.light_direction_intensity.w);
+        for (uint i = 0; i < uint(material.light_policy.z); ++i)
+        {
+            float4 light = material.additional_light_directions[i];
+            light_scale += material.additional_light_colors[i].rgb *
+                (max(dot(normal, light.xyz), 0.0f) * light.w);
+        }
         shaded.rgb *= light_scale;
         // RGB remains linear. Exposure is 2^EV; Reinhard divides by inverse
         // exposure to avoid overflowing finite HDR inputs at positive EV.

@@ -1,11 +1,12 @@
 """Focused Forward fixture, independent of mesh/picking smoke failures."""
 
+import itertools
 import json
 import math
 import os
 import runpy
 
-from pxr import Gf, Sdf, UsdGeom, UsdShade, Vt
+from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdShade, Vt
 from pxr.Usdviewq.common import ColorCorrectionModes, RenderModes
 from PySide6.QtGui import QImage
 
@@ -17,8 +18,10 @@ _read_events = _helpers["_read_events"]
 
 
 def check_center_headroom(center, albedo, enabled, phase):
-    assert all(0 < channel < 255 for channel in center), (
-        f"{phase}: center lost color headroom: {center}")
+    if enabled:
+        assert all(0 < channel < 255 for channel in center), f"{phase}: lost headroom: {center}"
+    else:
+        assert center == [0, 0, 0], f"{phase}: disabled light contributed energy: {center}"
 
 
 def _check_forward_lighting(app_controller):
@@ -153,33 +156,79 @@ def _check_forward_lighting(app_controller):
             off = centers[(output, False, "static")]
             on = centers[(output, True, "static")]
             moved = centers[(output, True, "moving")]
-            assert all(a > b for a, b in zip(off, on)), "camera-light energy regression"
+            assert all(a < b for a, b in zip(off, on)), "camera-light energy regression"
             assert all(a >= b for a, b in zip(on, moved)), "camera-light direction regression"
-            assert off == centers[(output, False, "moving")], "world-space fallback moved"
+            assert off == centers[(output, False, "moving")], "disabled light contributed energy"
     with open(root + "-forward-lighting.json", "w", encoding="utf-8") as stream:
-        json.dump({"schema": "merlin-usdview-forward-lighting/v1",
+        json.dump({"schema": "merlin-usdview-forward-lighting/v2",
                    "backend": os.environ["MERLIN_HYDRA2_TEST_BACKEND"],
-                   "white_off_policy": "headroom-required",
-                   "lighting_profile": "forward-sh-l2-reinhard/v1",
-                   "off_policy": "unit-white-plus-z-diagnostic-fallback",
+                   "white_off_policy": "black-required",
+                   "lighting_profile": "forward-explicit-lights-reinhard/v1",
+                   "off_policy": "no-light-contribution",
                    "srgb_center_tolerance": 2, "phases": evidence}, stream, indent=2)
         stream.write("\n")
 
     _check_forward_output(app_controller, shader, camera_attr, static, root, ext)
+    _check_host_light_switches(app_controller, stage, shader, root, ext, _render_phase)
+
+
+def _check_host_light_switches(app_controller, stage, shader, root, ext, capture):
+    settings = app_controller._dataModel.viewSettings
+    settings.colorCorrectionMode = ColorCorrectionModes.DISABLED
+    UsdGeom.Camera(stage.GetPrimAtPath("/Camera")).GetFocalLengthAttr().Set(25)
+    shader.GetInput("diffuseColor").Set(Gf.Vec3f(0.5))
+    light = UsdLux.DistantLight.Define(stage, "/ForwardAuthoredLight")
+    light.CreateColorAttr(Gf.Vec3f(1, 0, 0))
+    light.CreateAngleAttr(10)
+    light.CreateIntensityAttr(0.25 / math.sin(math.radians(5)) ** 2)
+
+    def sample(phase):
+        capture(app_controller, phase)
+        image = QImage(f"{root}-{phase}{ext}")
+        assert not image.isNull(), phase
+        center = image.pixelColor(image.width() // 2, image.height() // 2)
+        background = [image.pixelColor(x, 8).getRgb() for x in range(8, image.width() - 8, 16)]
+        return [center.red(), center.green(), center.blue()], background
+
+    samples = {}
+    for scene, camera, dome in itertools.product((0, 1), repeat=3):
+        settings.enableSceneLights = bool(scene)
+        settings.ambientLightOnly = bool(camera)
+        settings.domeLightEnabled = bool(dome)
+        samples[scene, camera, dome] = sample(f"light-switches-{scene}{camera}{dome}")
+
+    off = samples[0, 0, 0][0]
+    scene_only = samples[1, 0, 0][0]
+    camera_only = samples[0, 1, 0][0]
+    both = samples[1, 1, 0][0]
+    dome_only = samples[0, 0, 1][0]
+    assert scene_only[0] > off[0] and scene_only[1:] == off[1:], samples
+    assert all(a > b for a, b in zip(camera_only, off)), samples
+    assert both[0] > camera_only[0] and both[1:] == camera_only[1:], samples
+    assert all(a > b for a, b in zip(dome_only, off)), samples
+    clear = samples[0, 0, 0][1]
+    panorama = samples[0, 0, 1][1]
+    assert len(set(panorama)) > 4 and panorama != clear, samples
+    for (scene, camera, dome), (_, background) in samples.items():
+        assert background == (panorama if dome else clear), (scene, camera, dome)
+    settings.domeLightTexturesVisible = False
+    center, background = sample("light-switches-dome-hidden")
+    assert center == samples[1, 1, 1][0] and background == clear
+    settings.domeLightTexturesVisible = True
+    assert sample("light-switches-dome-restored") == samples[1, 1, 1]
+    with open(root + "-light-switches.json", "w", encoding="utf-8") as stream:
+        json.dump({"".join(map(str, state)): {"center_rgb": data[0], "background": data[1]}
+                   for state, data in samples.items()}, stream, indent=2)
 
 
 def _check_forward_output(app_controller, shader, camera_attr, static, root, ext):
     settings = app_controller._dataModel.viewSettings
     view = app_controller._stageView
     camera_attr.Set(static)
-    settings.ambientLightOnly = False  # no authored source -> unit +Z fallback
+    settings.ambientLightOnly = True
     shader.GetInput("diffuseColor").Set(Gf.Vec3f(0.4, 0.1875, 0.1))
-    environment = [
-        0.947761416 * 0.2820947918 + 0.325469345 * 0.4886025119 - 0.0461782999 * 0.6307831306,
-        1.00647175 * 0.2820947918 + 0.341748059 * 0.4886025119 - 0.0449634455 * 0.6307831306,
-        1.12809479 * 0.2820947918 + 0.369059116 * 0.4886025119 - 0.0430846624 * 0.6307831306]
-    scene = [base * (0.15 * fill + 0.85) for base, fill in
-             zip((0.4, 0.1875, 0.1), environment)]
+    camera_light = 15000 * math.sin(math.radians(0.53 / 2)) ** 2
+    scene = [base * camera_light for base in (0.4, 0.1875, 0.1)]
 
     def image(phase):
         result = QImage(f"{root}-{phase}{ext}").convertToFormat(QImage.Format.Format_RGBA8888)

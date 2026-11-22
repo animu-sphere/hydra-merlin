@@ -513,7 +513,7 @@ VkShaderModule Renderer::Impl::GetShaderModule(const std::filesystem::path& path
 VkPipeline Renderer::Impl::CreatePipeline(
     const ShaderPaths& shaders, std::uint32_t variant_key,
     const GeneratedMaterialArtifact* generated_artifact,
-    bool gpu_driven_pipeline) {
+    bool gpu_driven_pipeline, bool dome_pipeline) {
   ++frame_counters_.pipeline_creation_count;
   const bool gpu_scene_pipeline =
       generated_artifact == nullptr &&
@@ -539,14 +539,16 @@ VkPipeline Renderer::Impl::CreatePipeline(
                 "gpu-driven-forward.frag.spv"
           : shaders.gpu_driven_fragment;
   const auto vertex_shader = GetShaderModule(
-      gpu_driven_pipeline
+      dome_pipeline ? shaders.vertex.parent_path() / "dome.vert.spv"
+      : gpu_driven_pipeline
           ? gpu_driven_vertex
       : gpu_scene_pipeline
           ? gpu_scene_vertex
           : (bindless_texture_table_ ? shaders.bindless_vertex
                                      : shaders.vertex));
   const auto fragment_path =
-      generated_artifact != nullptr
+      dome_pipeline ? shaders.fragment.parent_path() / "dome.frag.spv"
+      : generated_artifact != nullptr
           ? generated_artifact->fragment
           : (gpu_driven_pipeline
                     ? gpu_driven_fragment
@@ -585,6 +587,10 @@ VkPipeline Renderer::Impl::CreatePipeline(
   vertex_input.vertexAttributeDescriptionCount =
       static_cast<std::uint32_t>(attributes.size());
   vertex_input.pVertexAttributeDescriptions = attributes.data();
+  if (dome_pipeline) {
+    vertex_input.vertexBindingDescriptionCount = 0;
+    vertex_input.vertexAttributeDescriptionCount = 0;
+  }
   VkPipelineInputAssemblyStateCreateInfo input_assembly{
       VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
   input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -608,8 +614,8 @@ VkPipeline Renderer::Impl::CreatePipeline(
   multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
   VkPipelineDepthStencilStateCreateInfo depth{
       VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-  depth.depthTestEnable = VK_TRUE;
-  depth.depthWriteEnable = VK_TRUE;
+  depth.depthTestEnable = dome_pipeline ? VK_FALSE : VK_TRUE;
+  depth.depthWriteEnable = dome_pipeline ? VK_FALSE : VK_TRUE;
   depth.depthCompareOp = VK_COMPARE_OP_LESS;
   VkPipelineColorBlendAttachmentState blend_attachment{};
   blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
@@ -642,7 +648,8 @@ VkPipeline Renderer::Impl::CreatePipeline(
   pipeline_info.pDepthStencilState = &depth;
   pipeline_info.pColorBlendState = &blend;
   pipeline_info.pDynamicState = &dynamic;
-  pipeline_info.layout = generated_artifact != nullptr
+  pipeline_info.layout = dome_pipeline ? dome_pipeline_layout_
+                         : generated_artifact != nullptr
                              ? active_target_->generated_pipeline_layouts.at(
                                    generated_artifact->module_key)
                              : active_target_->pipeline_layout;
@@ -652,6 +659,74 @@ VkPipeline Renderer::Impl::CreatePipeline(
             &pipeline_info, nullptr, &pipeline),
       "create scene graphics pipeline");
   return pipeline;
+}
+
+void Renderer::Impl::RecordDome(VkCommandBuffer command, FrameContext& frame,
+    const render::ForwardDomeLight& dome) {
+  const auto texture = texture_slots_.find(dome.rgbe_texture.value());
+  if (texture == texture_slots_.end()) {
+    throw RendererError(RendererErrorCode::InvalidRequest,
+        "record dome background", "dome texture is absent from the snapshot");
+  }
+  constexpr auto type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  if (dome_descriptor_set_layout_ == VK_NULL_HANDLE) {
+    const VkDescriptorSetLayoutBinding binding{0, type, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    info.bindingCount = 1;
+    info.pBindings = &binding;
+    Check(vkCreateDescriptorSetLayout(device_, &info, nullptr, &dome_descriptor_set_layout_),
+        "create dome descriptor layout");
+  }
+  if (dome_pipeline_layout_ == VK_NULL_HANDLE) {
+    const VkPushConstantRange range{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(render::DomeDrawConstants)};
+    VkPipelineLayoutCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    info.setLayoutCount = 1;
+    info.pSetLayouts = &dome_descriptor_set_layout_;
+    info.pushConstantRangeCount = 1;
+    info.pPushConstantRanges = &range;
+    Check(vkCreatePipelineLayout(device_, &info, nullptr, &dome_pipeline_layout_),
+        "create dome pipeline layout");
+  }
+  if (active_target_->dome_pipeline == VK_NULL_HANDLE) {
+    active_target_->dome_pipeline = CreatePipeline(active_target_->shaders,
+        kDoubleSidedFlag, nullptr, false, true);
+  }
+  if (frame.dome_descriptor_pool == VK_NULL_HANDLE) {
+    const VkDescriptorPoolSize size{type, 1};
+    VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    info.maxSets = 1;
+    info.poolSizeCount = 1;
+    info.pPoolSizes = &size;
+    Check(vkCreateDescriptorPool(device_, &info, nullptr, &frame.dome_descriptor_pool),
+        "create dome descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+  }
+  if (frame.dome_descriptor_set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    info.descriptorPool = frame.dome_descriptor_pool;
+    info.descriptorSetCount = 1;
+    info.pSetLayouts = &dome_descriptor_set_layout_;
+    Check(vkAllocateDescriptorSets(device_, &info, &frame.dome_descriptor_set),
+        "allocate dome descriptor set");
+    ++frame_counters_.descriptor_allocation_count;
+  }
+  const VkDescriptorImageInfo image{VK_NULL_HANDLE, texture->second.view,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+  VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  write.dstSet = frame.dome_descriptor_set;
+  write.descriptorCount = 1;
+  write.descriptorType = type;
+  write.pImageInfo = &image;
+  vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+  ++frame_counters_.descriptor_update_count;
+
+  vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, active_target_->dome_pipeline);
+  vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      dome_pipeline_layout_, 0, 1, &frame.dome_descriptor_set, 0, nullptr);
+  const auto constants = render::PackDomeDrawConstants(dome);
+  vkCmdPushConstants(command, dome_pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
+      0, sizeof(constants), &constants);
+  vkCmdDraw(command, 3, 1, 0, 0);
 }
 
 VkPipeline Renderer::Impl::EnsurePipeline(const ShaderPaths& shaders,

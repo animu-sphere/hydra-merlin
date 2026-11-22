@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace merlin::render {
@@ -66,8 +67,12 @@ Vec3 DecodeRgbe(const std::uint8_t* rgbe) {
 
 } // namespace
 
+DiffuseEnvironment LoadDiffuseEnvironment(const std::filesystem::path& path) {
+  return LoadDiffuseEnvironment(path, nullptr);
+}
+
 DiffuseEnvironment LoadDiffuseEnvironment(
-    const std::filesystem::path& path) {
+    const std::filesystem::path& path, std::vector<std::uint8_t>* rgbe_pixels) {
   std::ifstream stream(path, std::ios::binary);
   if (!stream) {
     Fail(path, "file could not be opened");
@@ -99,6 +104,7 @@ DiffuseEnvironment LoadDiffuseEnvironment(
   }
 
   std::array<std::array<double, 3>, 9> projection{};
+  std::vector<std::uint8_t> pixels;
   std::vector<std::uint8_t> scanline(
       static_cast<std::size_t>(result.width) * 4U);
   const auto delta_theta = kPi / static_cast<double>(result.height);
@@ -152,6 +158,9 @@ DiffuseEnvironment LoadDiffuseEnvironment(
           scanline[column], scanline[result.width + column],
           scanline[2U * result.width + column],
           scanline[3U * result.width + column]};
+      if (rgbe_pixels != nullptr) {
+        pixels.insert(pixels.end(), rgbe.begin(), rgbe.end());
+      }
       const auto radiance = DecodeRgbe(rgbe.data());
       const auto basis = ShBasis(x, y, z);
       for (std::size_t coefficient = 0; coefficient < basis.size();
@@ -179,6 +188,9 @@ DiffuseEnvironment LoadDiffuseEnvironment(
         static_cast<float>(projection[coefficient][2] *
                            lambert[coefficient]),
         0.0F};
+  }
+  if (rgbe_pixels != nullptr) {
+    *rgbe_pixels = std::move(pixels);
   }
   return result;
 }

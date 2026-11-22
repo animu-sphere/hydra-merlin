@@ -13,7 +13,9 @@ set(_entries
   "forward-gpu-scene-metal.slang|merlin_fragment_gpu_scene|fragment|forward.gpu-scene-fragment"
   "color-convert-metal.slang|merlin_convert_color|compute|forward.color-convert"
   "presentation-metal.slang|merlin_presentation_vertex|vertex|presentation.vertex"
-  "presentation-metal.slang|merlin_presentation_fragment|fragment|presentation.fragment")
+  "presentation-metal.slang|merlin_presentation_fragment|fragment|presentation.fragment"
+  "dome-metal.slang|merlin_dome_vertex|vertex|dome.vertex"
+  "dome-metal.slang|merlin_dome_fragment|fragment|dome.fragment")
 foreach(_record IN LISTS _entries)
   string(REPLACE "|" ";" _fields "${_record}")
   list(GET _fields 0 _source)

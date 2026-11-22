@@ -15,10 +15,11 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Representative Forward quality (v0.16.7):** interior Kitchen views,
-  bright/dark lighting, textured, rough and metallic materials, Camera Light
-  ON/OFF, linear/display output, sustained camera navigation, Vulkan/Metal and
-  native/Hydra comparisons. Keep analytic, small-fixture, representative-scene
+- **Representative Forward quality (v0.16.7):** extend Kitchen interior
+  coverage to Metal and native execution. Validate bright/dark lighting,
+  textured, rough and metallic materials, Camera Light ON/OFF, linear/display
+  output, and sustained camera navigation across backends and hosts. Keep
+  analytic, small-fixture, representative-scene
   and interactive layers distinct; representative scenes are not pixel-exact
   gates. No supported mode needs the camera light disabled to avoid white
   clipping or flicker, navigation exposes no stale-frame or resource-update

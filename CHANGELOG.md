@@ -12,6 +12,16 @@ after its public API and release process are established.
 
 - An OpenStrata Hydra build intent and a Gaussian PLY host-session smoke test
   for the `gaussian-ply` importer and the Merlin render delegate.
+- Configurable world-space cameras for the external Forward navigation test,
+  with two Kitchen_set interior views.
+
+### Changed
+
+- Hydra Forward responds independently to usdview's Scene Lights, Default
+  Camera Light and Default Dome Light. The default dome uses OpenUSD's
+  Stinson Beach HDR for diffuse lighting and the viewport background.
+- Backend contract 7 and shader ABI 14 carry explicit host lights and the
+  dome background. Rebuild consumers and shader artifacts with the renderer.
 
 ## [0.16.6] - 2026-10-18
 

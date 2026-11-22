@@ -598,6 +598,31 @@ if(MERLIN_BUILD_TESTS)
       list(APPEND _merlin_forward_modes hgi-metal)
     endif()
     set(_merlin_forward_fixtures lighting motion navigation normals)
+    set(_merlin_forward_scene_view_names full quarter opposite)
+    set(_merlin_forward_scene_comparison_args --forward-scene-only)
+    if(MERLIN_FORWARD_SCENE_VIEWS)
+      if(NOT MERLIN_FORWARD_SCENE)
+        message(FATAL_ERROR "MERLIN_FORWARD_SCENE_VIEWS requires MERLIN_FORWARD_SCENE")
+      endif()
+      file(READ "${MERLIN_FORWARD_SCENE_VIEWS}" _merlin_forward_views_json)
+      set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MERLIN_FORWARD_SCENE_VIEWS}")
+      string(JSON _merlin_forward_view_count LENGTH "${_merlin_forward_views_json}")
+      if(_merlin_forward_view_count LESS 1)
+        message(FATAL_ERROR "MERLIN_FORWARD_SCENE_VIEWS must provide at least one viewpoint")
+      endif()
+      set(_merlin_forward_scene_view_names)
+      math(EXPR _merlin_forward_last_view "${_merlin_forward_view_count} - 1")
+      foreach(_merlin_forward_index RANGE ${_merlin_forward_last_view})
+        string(JSON _merlin_forward_view GET "${_merlin_forward_views_json}" ${_merlin_forward_index} name)
+        if(NOT _merlin_forward_view MATCHES "^[a-z][a-z0-9-]*$" OR
+           _merlin_forward_view IN_LIST _merlin_forward_scene_view_names)
+          message(FATAL_ERROR "Invalid or duplicate Forward scene viewpoint name: ${_merlin_forward_view}")
+        endif()
+        list(APPEND _merlin_forward_scene_view_names "${_merlin_forward_view}")
+      endforeach()
+      list(APPEND _merlin_forward_scene_comparison_args
+        --scene-viewpoints ${_merlin_forward_scene_view_names})
+    endif()
     if(MERLIN_FORWARD_SCENE)
       if(NOT EXISTS "${MERLIN_FORWARD_SCENE}" OR IS_DIRECTORY "${MERLIN_FORWARD_SCENE}")
         message(FATAL_ERROR "MERLIN_FORWARD_SCENE must name an existing USD stage")
@@ -620,6 +645,7 @@ if(MERLIN_BUILD_TESTS)
         set(_merlin_forward_navigation OFF)
         set(_merlin_forward_normals OFF)
         set(_merlin_forward_scene "")
+        set(_merlin_forward_scene_views "")
         set(_merlin_forward_script "${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_lighting_usdview_test.py")
         set(_merlin_forward_timeout 90)
         if(_merlin_forward_fixture STREQUAL "motion")
@@ -636,6 +662,7 @@ if(MERLIN_BUILD_TESTS)
         endif()
         if(_merlin_forward_fixture STREQUAL "scene")
           set(_merlin_forward_scene "${MERLIN_FORWARD_SCENE}")
+          set(_merlin_forward_scene_views "${MERLIN_FORWARD_SCENE_VIEWS}")
           set(_merlin_forward_script "${CMAKE_CURRENT_SOURCE_DIR}/tests/forward_scene_usdview_test.py")
           set(_merlin_forward_timeout 600)
         endif()
@@ -660,6 +687,8 @@ if(MERLIN_BUILD_TESTS)
             "-DMERLIN_FORWARD_NAVIGATION_ONLY=${_merlin_forward_navigation}"
             "-DMERLIN_FORWARD_NORMALS_ONLY=${_merlin_forward_normals}"
             "-DMERLIN_FORWARD_SCENE=${_merlin_forward_scene}"
+            "-DMERLIN_FORWARD_SCENE_VIEWS=${_merlin_forward_scene_views}"
+            "-DMERLIN_FORWARD_SCENE_VIEW_NAMES=${_merlin_forward_scene_view_names}"
             "-DMERLIN_USDVIEW_TEST_SCRIPT=${_merlin_forward_script}"
             "-DMERLIN_HYDRA_REPORT_SCRIPT=${PROJECT_SOURCE_DIR}/scripts/hydra-performance-report.py"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake")
@@ -697,6 +726,10 @@ if(MERLIN_BUILD_TESTS)
         FIXTURES_REQUIRED "merlin-forward-lighting-metal-native;merlin-forward-lighting-tier0")
       if(TARGET hgiMetal AND MERLIN_ENABLE_HGI_METAL_BRIDGE)
         foreach(_merlin_forward_fixture IN LISTS _merlin_forward_fixtures)
+          set(_merlin_forward_comparison_args --forward-${_merlin_forward_fixture}-only)
+          if(_merlin_forward_fixture STREQUAL "scene")
+            set(_merlin_forward_comparison_args ${_merlin_forward_scene_comparison_args})
+          endif()
           add_test(
             NAME merlin-hydra2-forward-${_merlin_forward_fixture}-comparison
             COMMAND "${Python3_EXECUTABLE}"
@@ -704,7 +737,7 @@ if(MERLIN_BUILD_TESTS)
               "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-tier0-install"
               "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-hgi-metal-install"
               "${CMAKE_CURRENT_BINARY_DIR}/forward-${_merlin_forward_fixture}-comparison.json"
-              --forward-${_merlin_forward_fixture}-only)
+              ${_merlin_forward_comparison_args})
           set_tests_properties(merlin-hydra2-forward-${_merlin_forward_fixture}-comparison PROPERTIES
             LABELS "host-smoke;gpu;metal;lighting;presentation;comparison"
             TIMEOUT 120 RUN_SERIAL TRUE
@@ -721,7 +754,7 @@ if(MERLIN_BUILD_TESTS)
             "${CMAKE_CURRENT_BINARY_DIR}/forward-scene-tier0-install"
             "${CMAKE_CURRENT_BINARY_DIR}/forward-scene-hgi-vulkan-install"
             "${CMAKE_CURRENT_BINARY_DIR}/forward-scene-comparison.json"
-            --forward-scene-only)
+            ${_merlin_forward_scene_comparison_args})
         set_tests_properties(merlin-hydra2-forward-scene-comparison PROPERTIES
           LABELS "host-smoke;gpu;lighting;presentation;comparison"
           TIMEOUT 120 RUN_SERIAL TRUE

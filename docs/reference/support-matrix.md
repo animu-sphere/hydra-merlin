@@ -111,7 +111,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Basic Vulkan material shading | Validated | Base/vertex color, display opacity, normals, UV RGBA8 textures, directional light, opaque/alpha-mask, and double-sided state are available. Vulkan/Metal share stable-handle single-directional selection and normalization. Hydra distant radiance is converted using angle, normalize, exposure and diffuse. Focused local RTX A5000/OpenUSD 26.08 color/white fixtures cover Camera Light ON/OFF, rotated/returned cameras, native/Tier 0 center values, Tier 0/HgiVulkan images and host linear/sRGB output; native Vulkan handwritten/generated prototype images agree. A bounded 30-degree camera sweep also checks 256 immediate frames per host against settled poses and compares 393 Tier 0/HgiVulkan images. Opt-in Kitchen_set Qt navigation covers 1,788 meshes, three relative starting viewpoints and 288 immediate frames per path, with 649 Tier 0/HgiVulkan images within existing tolerances; stored-PNG saturation is recorded separately from displayed-color clipping. See [known limitations](#known-limitations) and the [Forward lighting design](../design/forward-lighting.md) |
 | Lit Forward output transform | Validated | Per-frame EV and None/Reinhard share Core packing and Slang policy. RTX A5000 native conventional/bindless/GPU Scene/GPU-driven oracle, repeat/restore and rejection gates pass in Debug and Release, including MaterialX-generated Forward builds; Apple M3 native Metal Debug/Release execute the same shared oracle. OpenUSD 26.08 Tier 0/HgiVulkan and Tier 0/HgiMetal captures cover both modes, EV edits and host linear/sRGB encoding; all 41 default/output comparison images match exactly per backend, and independent Vulkan/Metal comparisons agree exactly on all 16 output centers in each presentation mode. Defaults preserve 0 EV/Reinhard. See the [v0.16.4 release record](../releases/v0.16.4.md) and the [output contract](../design/forward-lighting.md#output-transform) for scope and color-management limits. |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Supported | Available for Mesh and the CPU-sorted Gaussian MVP; Gaussian `primId` is the resource handle and `instanceId` is the zero-based particle index of the nearest contributing splat in front of opaque depth |
-| Metal Forward lighting evidence | Validated | Focused Apple M3/OpenUSD 26.08 fixtures compare native/Tier 0 linear centers and Tier 0/HgiMetal lighting, first-frame camera sweeps and Qt navigation images. API validation covers host runs; native Metal gates separately enable shader validation because host shader instrumentation fails OpenUSD display pipeline creation. Refreshed SH/Reinhard captures retain white OFF headroom in linear/sRGB output; all 12 native/Tier 0 centers and all 851 Tier 0/HgiMetal lighting/sweep/navigation images match exactly. The bridge-enabled selection passes 16/16, and a separate bridge-disabled native/Tier 0 selection passes 3/3 without skips. Independent Vulkan/Metal default-output host comparisons pass all 24 centers in each Tier 0/Hgi mode with zero observed error. See [known limitations](#known-limitations). |
+| Metal Forward lighting evidence | Validated (diagnostic profile) | Apple M3/OpenUSD 26.08 evidence predates explicit host lights. The diagnostic SH/Reinhard profile passed native/Tier 0 center comparisons and Tier 0/HgiMetal lighting, first-frame motion and Qt navigation. Explicit host lighting and the dome background have Metal shader reflection coverage. Apple GPU execution of that profile remains unvalidated. See [known limitations](#known-limitations). |
 | Explicit submit/completion/timeout-aware resolve | Supported | Backend-neutral contract implemented by Vulkan and Metal |
 | Per-request AOV request and CPU readback selection | Supported | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Supported | Exact comparison is available for color, depth, primId, and instanceId |
@@ -159,10 +159,12 @@ they are not implied to work by the availability of the surrounding adapter.
 
 ### Forward lighting and output
 
-- Lighting is a single unshadowed directional source plus the packaged diffuse
-  SH environment. Point, Spot, Dome and multiple directional lights are not
-  evaluated; shadows are unsupported. Extended emitters are evaluated at their
-  center direction.
+- The native diagnostic profile uses one unshadowed directional source and
+  the packaged diffuse SH environment. Hydra uses up to eight unshadowed
+  directional sources in stable handle order and one Radiance HDR dome in
+  scene-path order. Point and spot lighting, shadows, specular IBL, and
+  multiple-dome lighting remain unsupported. Extended emitters are evaluated
+  at their center direction.
 - Lit Forward exposes EV in `[-32, 32]` and None/Reinhard, with default 0 EV
   and Reinhard. Output evidence is from RTX A5000 Vulkan and Apple M3 Metal
   analytic fixtures and host center/image comparisons; representative-scene
@@ -172,15 +174,20 @@ they are not implied to work by the availability of the surrounding adapter.
   presentation path (SDR sRGB, and Display P3 on native Metal). There is no
   OCIO/ICC working-space conversion, gamut mapping or complete color management.
   See the [output contract](../design/forward-lighting.md#output-transform).
-- Camera Light OFF without an authored directional source selects the unit
-  white diagnostic light rather than an environment-only image.
+- usdview's Scene Lights, Default Camera Light, and Default Dome Light feed
+  independent inputs to the Hydra renderer. The default dome supplies diffuse
+  lighting and the OpenUSD Stinson Beach HDR background. Camera visibility
+  controls the background independently of illumination. Windows Vulkan
+  Tier 0 and HgiVulkan exercise these controls in OpenUSD 26.08. See the
+  [Storm comparison](../reports/delivery-history.md#usdview-light-switches-and-kitchen-interior-views--2026-11-23)
+  for the measured surface and background differences.
 - Custom Vulkan HDR environments have no Metal parity claim.
 - Cross-backend evidence compares center samples; full-image Vulkan/Metal
   rasterization parity is not yet validated.
-- Interior Kitchen views, broader representative scenes and materials,
-  unrestricted interactive navigation, Metal Kitchen quality and generated
-  Metal materials are not yet validated. Motion and navigation gates are not
-  timing or flicker evidence.
+- The Vulkan/Hydra external gate covers two Kitchen interior views with bounded
+  camera motion. Broader representative scenes and materials, unrestricted
+  interactive navigation, Metal Kitchen quality and generated Metal materials
+  remain unvalidated. Motion and navigation gates measure first-frame correctness.
 - Forward evidence is from RTX A5000 and Apple M3 with OpenUSD 26.08 host
   runtimes; other hardware and OpenUSD 26.05 device-host execution are not yet
   validated.

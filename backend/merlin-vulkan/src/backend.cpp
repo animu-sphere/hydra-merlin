@@ -260,6 +260,7 @@ public:
     native.height = request.height;
     native.shaders = shaders_;
     native.clear_color = request.clear_color;
+    native.forward_lighting = request.forward_lighting;
     native.products.clear();
     native.products.reserve(request.products.size());
     for (const auto& product : request.products) {

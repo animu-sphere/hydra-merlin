@@ -1205,6 +1205,9 @@ void Renderer::Impl::Destroy(bool wait_for_submissions) noexcept {
       if (frame.descriptor_pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device_, frame.descriptor_pool, nullptr);
       }
+      if (frame.dome_descriptor_pool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device_, frame.dome_descriptor_pool, nullptr);
+      }
       if (frame.fence != VK_NULL_HANDLE) {
         vkDestroyFence(device_, frame.fence, nullptr);
       }
@@ -1225,6 +1228,12 @@ void Renderer::Impl::Destroy(bool wait_for_submissions) noexcept {
     shader_modules_.clear();
     if (descriptor_set_layout_ != VK_NULL_HANDLE) {
       vkDestroyDescriptorSetLayout(device_, descriptor_set_layout_, nullptr);
+    }
+    if (dome_pipeline_layout_ != VK_NULL_HANDLE) {
+      vkDestroyPipelineLayout(device_, dome_pipeline_layout_, nullptr);
+    }
+    if (dome_descriptor_set_layout_ != VK_NULL_HANDLE) {
+      vkDestroyDescriptorSetLayout(device_, dome_descriptor_set_layout_, nullptr);
     }
     for (const auto& [key, layout] : generated_descriptor_set_layouts_) {
       (void)key;
