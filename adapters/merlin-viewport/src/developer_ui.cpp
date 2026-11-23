@@ -1238,12 +1238,17 @@ private:
                 ? "GPU sorted stream"
                 : "CPU sorted stream");
         LabelValue("GPU sorted", telemetry.gaussian_gpu_sorted_count);
+        LabelValue("GPU records culled before sort",
+            telemetry.gaussian_gpu_pre_sort_culled_count);
         LabelValue("GPU tile pairs requested",
             telemetry.gaussian_gpu_tile_requested_pair_count);
         LabelValue("GPU tile pairs rejected",
             telemetry.gaussian_gpu_tile_rejected_pair_count);
         LabelValue("GPU tile records culled",
             telemetry.gaussian_gpu_tile_culled_record_count);
+        LabelValue("GPU saturated tiles", telemetry.gaussian_gpu_tile_saturated_count);
+        LabelValue("GPU early-terminated tiles",
+            telemetry.gaussian_gpu_tile_early_terminated_count);
         LabelValue("GPU tile overflow fallbacks",
             telemetry.gaussian_gpu_tile_raster_overflow_fallback_count);
         LabelValue("GPU stage fallbacks",

@@ -401,16 +401,11 @@ int RunTileOverflow() {
     auto backend = factory.Create(info);
     RenderWorld world;
     extraction::SceneExtractor extractor;
-    GaussianDescriptor gaussian;
-    gaussian.positions.assign(300, {0, 0, 0.5F});
-    gaussian.covariances.assign(300, {0.01F, 0, 0, 0.01F, 0, 0.0001F});
-    gaussian.opacities.assign(300, 0.05F);
-    gaussian.spherical_harmonics_coefficients.assign(300, {0, 0, 0});
-    world.CreateGaussian(gaussian);
+    world.CreateGaussian(test::SaturatingGaussianFixture(300));
     extractor.Apply(world, world.Commit());
     render::RenderRequest request;
     request.snapshot = extractor.snapshot();
-    request.width = request.height = 64;
+    request.width = request.height = 17;
     request.products = {{Aov::Color, true}, {Aov::Depth, true},
         {Aov::PrimId, true}, {Aov::InstanceId, true}};
     request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Require;
@@ -418,8 +413,10 @@ int RunTileOverflow() {
     const auto sorted = backend->Resolve(backend->Submit(request));
     request.gpu_driven_gaussian.raster = render::GaussianRasterPath::Tiled;
     const auto tiled = backend->Resolve(backend->Submit(request));
-    Require(tiled.telemetry.gaussian_gpu_tile_raster_frame_count == 1,
-        "large tile frame did not select compute raster");
+    Require(tiled.telemetry.gaussian_gpu_tile_raster_frame_count == 1 &&
+                tiled.telemetry.gaussian_gpu_tile_saturated_count == 4 &&
+                tiled.telemetry.gaussian_gpu_tile_early_terminated_count == 4,
+        "tile raster did not saturate and skip batches, including at viewport edges");
     request.gpu_driven_gaussian.tile_pair_capacity = 256;
     for (const bool adaptive : {false, true}) {
       request.gpu_driven_gaussian.adaptive_tile_bounds = adaptive;
@@ -428,8 +425,11 @@ int RunTileOverflow() {
                   overflow.telemetry.gaussian_gpu_tile_raster_overflow_fallback_count == 1 &&
                   overflow.telemetry.gaussian_gpu_tile_requested_pair_count >
                       overflow.telemetry.gaussian_gpu_tile_pair_capacity &&
-                  overflow.telemetry.gaussian_gpu_raster_instance_count == 300,
-          "tile overflow did not keep the complete sorted draw");
+                  overflow.telemetry.gaussian_gpu_tile_saturated_count == 0 &&
+                  overflow.telemetry.gaussian_gpu_tile_early_terminated_count == 0 &&
+                  overflow.telemetry.gaussian_gpu_pre_sort_culled_count == (adaptive ? 1 : 0) &&
+                  overflow.telemetry.gaussian_gpu_raster_instance_count == (adaptive ? 299 : 300),
+          "tile overflow did not draw the sorted contributors or clear raster counters");
       Require(overflow.color.pixels == sorted.color.pixels &&
                   overflow.depth.pixels == sorted.depth.pixels &&
                   overflow.prim_id.pixels == sorted.prim_id.pixels &&
@@ -492,14 +492,17 @@ int RunAdaptiveTileBounds() {
       const auto adaptive = backend->Resolve(backend->Submit(request));
       const auto& counters = adaptive.telemetry;
       Require(exact.telemetry.gaussian_gpu_tile_raster_frame_count == 1 &&
+                  exact.telemetry.gaussian_gpu_pre_sort_culled_count == 0 &&
                   exact.telemetry.gaussian_gpu_tile_rejected_pair_count == 0 &&
                   counters.gaussian_gpu_tile_raster_frame_count == 1 &&
                   counters.gaussian_gpu_tile_rejected_pair_count > 0 &&
-                  counters.gaussian_gpu_tile_culled_record_count == 1 &&
+                  counters.gaussian_gpu_tile_culled_record_count == 0 &&
+                  counters.gaussian_gpu_pre_sort_culled_count == 1 &&
+                  counters.gaussian_gpu_sorted_count + 1 == exact.telemetry.gaussian_gpu_sorted_count &&
                   counters.gaussian_gpu_tile_requested_pair_count +
-                          counters.gaussian_gpu_tile_rejected_pair_count ==
+                          counters.gaussian_gpu_tile_rejected_pair_count <
                       exact.telemetry.gaussian_gpu_tile_requested_pair_count,
-          "adaptive tile bins did not reject the expected pairs and record");
+          "adaptive preparation and binning did not reject the expected record and pairs");
       Require(exact.color.pixels == adaptive.color.pixels &&
                   exact.depth.pixels == adaptive.depth.pixels &&
                   exact.prim_id.pixels == adaptive.prim_id.pixels &&
@@ -519,7 +522,9 @@ int RunAdaptiveTileScale() {
   metal::BackendFactory factory;
   if (!factory.availability().available) return 77;
   try {
-    std::cout << "particles,phase,frame,path,wall_ns,gpu_ns,prepare_ns,sort_ns,tile_ns,raster_ns,requested_pairs,rejected_pairs,culled_records\n";
+    std::cout << "particles,phase,frame,path,wall_ns,gpu_ns,prepare_ns,sort_ns,tile_ns,raster_ns,"
+                 "requested_pairs,rejected_pairs,culled_records,pre_sort_culled,"
+                 "saturated_tiles,early_terminated_tiles\n";
     for (const std::uint32_t count : {65536U, 1048576U}) {
       auto backend = factory.Create({});
       RenderWorld world;
@@ -577,8 +582,12 @@ int RunAdaptiveTileScale() {
                       adaptive.telemetry.gaussian_gpu_tile_raster_frame_count == 1,
               "adaptive tile scale comparison changed the image or fell back");
           Require(adaptive.telemetry.gaussian_gpu_tile_rejected_pair_count > 0 &&
+                      adaptive.telemetry.gaussian_gpu_pre_sort_culled_count > 0 &&
+                      adaptive.telemetry.gaussian_gpu_sorted_count +
+                              adaptive.telemetry.gaussian_gpu_pre_sort_culled_count ==
+                          exact.telemetry.gaussian_gpu_sorted_count &&
                       adaptive.telemetry.gaussian_gpu_tile_requested_pair_count +
-                              adaptive.telemetry.gaussian_gpu_tile_rejected_pair_count ==
+                              adaptive.telemetry.gaussian_gpu_tile_rejected_pair_count <
                           exact.telemetry.gaussian_gpu_tile_requested_pair_count,
               "adaptive tile scale comparison did not reduce pair counts");
           if (i < warmup) continue;
@@ -597,7 +606,10 @@ int RunAdaptiveTileScale() {
                       << ',' << frame.timings.gaussian_raster_ns
                       << ',' << counters.gaussian_gpu_tile_requested_pair_count
                       << ',' << counters.gaussian_gpu_tile_rejected_pair_count
-                      << ',' << counters.gaussian_gpu_tile_culled_record_count << '\n';
+                      << ',' << counters.gaussian_gpu_tile_culled_record_count
+                      << ',' << counters.gaussian_gpu_pre_sort_culled_count
+                      << ',' << counters.gaussian_gpu_tile_saturated_count
+                      << ',' << counters.gaussian_gpu_tile_early_terminated_count << '\n';
           }
         }
       }

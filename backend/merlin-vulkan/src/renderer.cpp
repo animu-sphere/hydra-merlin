@@ -297,7 +297,8 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   gaussian_preparation_ns =
       PrepareGaussianCpuReference(request, frame.gaussian_cpu_reference);
   if (frame.gaussian_cpu_reference) {
-    ComputeGaussianSortReference(frame.gaussian_gpu_sort);
+    ComputeGaussianSortReference(frame.gaussian_gpu_sort,
+        request.gaussian_adaptive_tile_bounds);
     ComputeGaussianTileReference(frame.gaussian_gpu_tiles);
   }
   const auto gaussian_prepared_upload_start = CpuClock::now();

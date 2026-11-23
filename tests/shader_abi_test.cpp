@@ -357,6 +357,7 @@ int main(int argc, char** argv) {
     RequireField(gaussian_prepare_compute, "spherical_harmonics_degree", 160,
         4);
     RequireField(gaussian_prepare_compute, "sorting_mode", 168, 4);
+    RequireField(gaussian_prepare_compute, "adaptive_bounds", 172, 4);
     RequireContains(gaussian_prepare_compute,
         "\"name\":\"GaussianPreparedRecord\"",
         "Gaussian prepared record is absent from reflection");
@@ -369,6 +370,7 @@ int main(int argc, char** argv) {
         "\"name\":\"GaussianPrepareDispatchCounters\"",
         "Gaussian prepare counters are absent from reflection");
     RequireField(gaussian_prepare_compute, "invalid_culled_count", 16, 4);
+    RequireField(gaussian_prepare_compute, "contribution_culled_count", 20, 4);
     RequireBinding(gaussian_prepare_compute, "gaussian_positions",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":3,\"index\":0}");
     RequireBinding(gaussian_prepare_compute, "gaussian_covariances",
@@ -599,7 +601,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 16);
+    static_assert(kVersion == 17);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -670,7 +672,7 @@ int main(int argc, char** argv) {
                   kGaussianTileRasterDepth.resource_class ==
                       ResourceClass::SampledImage);
     static_assert(kGaussianTileRasterWorkgroupSize == 256);
-    static_assert(offsetof(GaussianTileVerification, culled_record_count) +
+    static_assert(offsetof(GaussianTileVerification, early_terminated_tile_count) +
                       sizeof(std::uint32_t) ==
                   kGaussianTileControlWordCount * sizeof(std::uint32_t));
     static_assert(GaussianTileGridSize(0) == 0);

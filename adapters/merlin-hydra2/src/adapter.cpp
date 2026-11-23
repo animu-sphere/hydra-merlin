@@ -2850,6 +2850,8 @@ public:
                       request.gpu_driven_gaussian.raster)
                << " gaussian_adaptive_tile_bounds="
                << request.gpu_driven_gaussian.adaptive_tile_bounds
+               << " gaussian_gpu_pre_sort_culled_count="
+               << result.telemetry.gaussian_gpu_pre_sort_culled_count
                << " gaussian_gpu_sorted_count="
                << result.telemetry.gaussian_gpu_sorted_count
                << " gaussian_gpu_raster_instance_count="
@@ -2866,6 +2868,10 @@ public:
                << result.telemetry.gaussian_gpu_tile_clamped_record_count
                << " gaussian_gpu_tile_raster_frame_count="
                << result.telemetry.gaussian_gpu_tile_raster_frame_count
+               << " gaussian_gpu_tile_saturated_count="
+               << result.telemetry.gaussian_gpu_tile_saturated_count
+               << " gaussian_gpu_tile_early_terminated_count="
+               << result.telemetry.gaussian_gpu_tile_early_terminated_count
                << " gaussian_float_color_frame_count="
                << result.telemetry.gaussian_float_color_frame_count
                << " gaussian_gpu_tile_raster_overflow_fallback_count="

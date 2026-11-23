@@ -62,33 +62,6 @@ void Backend::Impl::PrepareGaussianExecution(const render::RenderRequest& reques
       frame.gaussian_telemetry = buffer;
       ++build.telemetry.allocation_count;
     }
-    auto blit = [command blitCommandEncoder];
-    if (!blit)
-      throw render::RendererError(render::RendererErrorCode::BackendFailure,
-          "copy Metal Gaussian telemetry", "blitCommandEncoder returned nil");
-    [blit copyFromBuffer:execution->scratch->draw
-             sourceOffset:0
-                 toBuffer:frame.gaussian_telemetry
-        destinationOffset:0
-                     size:16];
-    [blit copyFromBuffer:execution->scratch->control
-             sourceOffset:0
-                 toBuffer:frame.gaussian_telemetry
-        destinationOffset:16
-                     size:16];
-    if (execution->tiled)
-      [blit copyFromBuffer:execution->scratch->tile_control
-               sourceOffset:0
-                   toBuffer:frame.gaussian_telemetry
-          destinationOffset:32
-                       size:tile_bytes];
-    if (execution->resource_count)
-      [blit copyFromBuffer:execution->scratch->counters
-               sourceOffset:0
-                   toBuffer:frame.gaussian_telemetry
-          destinationOffset:32 + tile_bytes
-                       size:bytes - 32 - tile_bytes];
-    [blit endEncoding];
     build.telemetry.readback_bytes += bytes;
     build.telemetry.allocation_count += attributes->allocation_count + execution->allocation_count;
     build.telemetry.gaussian_attribute_upload_bytes = attributes->upload_bytes;
@@ -123,6 +96,43 @@ void Backend::Impl::PrepareGaussianExecution(const render::RenderRequest& reques
   }
 }
 
+void Backend::Impl::EncodeGaussianTelemetry(id<MTLCommandBuffer> command,
+    const FrameContext& frame) {
+  if (!frame.gaussian_execution)
+    return;
+  const auto& execution = *frame.gaussian_execution;
+  const auto tile_bytes = execution.tiled
+                              ? gaussian_compute::kTileControlWordCount * sizeof(std::uint32_t)
+                              : 0;
+  auto blit = [command blitCommandEncoder];
+  if (!blit)
+    throw render::RendererError(render::RendererErrorCode::BackendFailure,
+        "copy Metal Gaussian telemetry", "blitCommandEncoder returned nil");
+  [blit copyFromBuffer:execution.scratch->draw
+           sourceOffset:0
+               toBuffer:frame.gaussian_telemetry
+      destinationOffset:0
+                   size:16];
+  [blit copyFromBuffer:execution.scratch->control
+           sourceOffset:0
+               toBuffer:frame.gaussian_telemetry
+      destinationOffset:16
+                   size:16];
+  if (execution.tiled)
+    [blit copyFromBuffer:execution.scratch->tile_control
+             sourceOffset:0
+                 toBuffer:frame.gaussian_telemetry
+        destinationOffset:32
+                     size:tile_bytes];
+  if (execution.resource_count)
+    [blit copyFromBuffer:execution.scratch->counters
+             sourceOffset:0
+                 toBuffer:frame.gaussian_telemetry
+        destinationOffset:32 + tile_bytes
+                     size:execution.resource_count * sizeof(gaussian_compute::PrepareCounters)];
+  [blit endEncoding];
+}
+
 void Backend::Impl::ResolveGaussianTelemetry(const FrameContext& frame, render::RenderResult& result) {
   if (!frame.gaussian_execution)
     return;
@@ -134,16 +144,28 @@ void Backend::Impl::ResolveGaussianTelemetry(const FrameContext& frame, render::
       words + 8 + (execution.tiled ? gaussian_compute::kTileControlWordCount : 0));
   for (std::uint32_t i = 0; i < execution.resource_count; ++i) {
     telemetry.gaussian_visible_count += counters[i].visible_count;
-    telemetry.gaussian_opacity_culled_count += counters[i].opacity_culled_count;
+    telemetry.gaussian_opacity_culled_count += std::uint64_t{counters[i].opacity_culled_count} +
+        counters[i].contribution_culled_count;
+    telemetry.gaussian_gpu_pre_sort_culled_count += counters[i].contribution_culled_count;
     telemetry.gaussian_frustum_culled_count += counters[i].frustum_culled_count;
     telemetry.gaussian_invalid_culled_count += counters[i].invalid_culled_count;
   }
   const bool selected = tile && tile[10] != 0;
+  const auto saturated_tiles = tile ? tile[gaussian_compute::kTileSaturatedCountWord] : 0;
+  const auto early_terminated_tiles = tile ? tile[gaussian_compute::kTileEarlyTerminatedCountWord] : 0;
+  const auto tile_count = std::uint64_t{execution.tile_raster.tile_count_x} *
+      execution.tile_raster.tile_count_y;
+  const auto classified = telemetry.gaussian_visible_count + telemetry.gaussian_opacity_culled_count +
+      telemetry.gaussian_frustum_culled_count + telemetry.gaussian_invalid_culled_count +
+      telemetry.gaussian_hidden_count;
   if (words[0] != 6 || words[1] != (selected ? 0 : telemetry.gaussian_visible_count) ||
-      words[1] > execution.particle_count || words[2] || words[3] ||
+      classified != execution.particle_count || words[2] || words[3] ||
       (tile && (tile[0] != telemetry.gaussian_visible_count || tile[10] > 1 ||
+                   saturated_tiles > tile_count || early_terminated_tiles > saturated_tiles ||
+                   (!selected && saturated_tiles != 0) ||
                    (selected && (tile[1] > execution.tile_raster.pair_capacity || tile[2])) ||
-                   (capabilities_.validation_enabled && (tile[3] != std::min(tile[1], execution.tile_raster.pair_capacity) ||
+                   (capabilities_.validation_enabled && (saturated_tiles > tile[7] ||
+                                                            tile[3] != std::min(tile[1], execution.tile_raster.pair_capacity) ||
                                                             tile[4] || tile[5] || tile[6])))) ||
       (capabilities_.validation_enabled &&
           (words[4] != telemetry.gaussian_visible_count || words[5] || words[6]))) {
@@ -163,6 +185,8 @@ void Backend::Impl::ResolveGaussianTelemetry(const FrameContext& frame, render::
         tile[gaussian_compute::kTileCulledRecordCountWord];
     telemetry.gaussian_gpu_tile_clamped_record_count = tile[2];
     telemetry.gaussian_gpu_tile_raster_frame_count = selected ? 1 : 0;
+    telemetry.gaussian_gpu_tile_saturated_count = saturated_tiles;
+    telemetry.gaussian_gpu_tile_early_terminated_count = early_terminated_tiles;
     telemetry.gaussian_gpu_tile_raster_overflow_fallback_count =
         !selected && (tile[1] > execution.tile_raster.pair_capacity || tile[2]) ? 1 : 0;
   }

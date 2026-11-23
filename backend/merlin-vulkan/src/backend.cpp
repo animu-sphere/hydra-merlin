@@ -389,6 +389,8 @@ public:
         native.counters.gaussian_attribute_generation_count;
     result.telemetry.gaussian_upload_bytes =
         native.counters.gaussian_upload_bytes;
+    result.telemetry.gaussian_gpu_pre_sort_culled_count =
+        native.counters.gaussian_gpu_pre_sort_culled_count;
     result.telemetry.gaussian_gpu_sorted_count =
         native.counters.gaussian_gpu_sorted_count;
     result.telemetry.gaussian_gpu_raster_instance_count =
@@ -405,6 +407,10 @@ public:
         native.counters.gaussian_gpu_tile_culled_record_count;
     result.telemetry.gaussian_gpu_tile_raster_frame_count =
         native.counters.gaussian_gpu_tile_raster_frame_count;
+    result.telemetry.gaussian_gpu_tile_saturated_count =
+        native.counters.gaussian_gpu_tile_saturated_count;
+    result.telemetry.gaussian_gpu_tile_early_terminated_count =
+        native.counters.gaussian_gpu_tile_early_terminated_count;
     result.telemetry.gaussian_float_color_frame_count =
         native.counters.gaussian_float_color_frame_count;
     result.telemetry.gaussian_gpu_tile_raster_overflow_fallback_count =

@@ -255,7 +255,7 @@ allocation/upload checks. The host report uses the HgiMetal copy counters and
 checks zero renderer image readback and zero bridge downloads on unselected
 GPU-copy frames. GPU Gaussian
 frames add 32 bytes of control plus 32 bytes per resource to readback telemetry;
-tiled frames add another 52 bytes of pair and selection counters.
+tiled frames add another 60 bytes of binning and raster counters.
 
 For a deterministic Apple GPU offscreen image and timing comparison at 65K and
 1M particles, run `merlin-metal-gaussian-tests --tile-scale`. It prints CSV for
@@ -272,7 +272,8 @@ samples per phase and mode at 512×512 for 65,536 and 1,048,576 anisotropic
 splats with mixed opacities. The two modes alternate submission order and use
 the same scene and camera each frame. The check requires identical RGBA8,
 depth and IDs, tile raster selection and fewer requested pairs. The CSV records
-rejections, preparation, sort, tile, raster, total GPU and wall times.
+preparation rejections, pair savings, saturated and early-terminated tiles,
+and preparation, sort, tile, raster, total GPU and wall times.
 
 ```sh
 sdk=/path/to/openusd-2608-prefix

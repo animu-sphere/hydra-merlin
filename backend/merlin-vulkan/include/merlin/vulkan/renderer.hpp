@@ -364,6 +364,8 @@ struct FrameCounters {
   std::uint64_t gaussian_gpu_preparation_frustum_culled_count{};
   std::uint64_t gaussian_gpu_preparation_invalid_culled_count{};
   std::uint64_t gaussian_gpu_preparation_fallback_count{};
+  // Contribution rejection in GPU preparation, included in opacity culls.
+  std::uint64_t gaussian_gpu_pre_sort_culled_count{};
   // The GPU sort orders every prepared record of the frame by one 64-bit key.
   // key_count includes the sentinel padding to whole 256-key workgroups;
   // sorted_count is the verified number of real records. A reference
@@ -399,7 +401,7 @@ struct FrameCounters {
   std::uint64_t gaussian_gpu_tile_max_pair_count{};
   std::uint64_t gaussian_gpu_tile_pair_capacity{};
   std::uint64_t gaussian_gpu_tile_requested_pair_count{};
-  // Difference from Exact before buffer truncation, with the same per-record limit.
+  // Pairs saved by adaptive binning over the records that reached this stage.
   std::uint64_t gaussian_gpu_tile_rejected_pair_count{};
   std::uint64_t gaussian_gpu_tile_culled_record_count{};
   std::uint64_t gaussian_gpu_tile_pair_count{};
@@ -415,6 +417,8 @@ struct FrameCounters {
   // selected.
   std::uint64_t gaussian_gpu_tile_raster_dispatch_count{};
   std::uint64_t gaussian_gpu_tile_raster_frame_count{};
+  std::uint64_t gaussian_gpu_tile_saturated_count{};
+  std::uint64_t gaussian_gpu_tile_early_terminated_count{};
   // Gaussian color is blended in RGBA32F and converted once to the RGBA8 AOV.
   std::uint64_t gaussian_float_color_frame_count{};
   std::uint64_t gaussian_gpu_tile_raster_overflow_fallback_count{};

@@ -6,15 +6,14 @@ Active and immediately next work only. Shipped changes are in the
 
 ## v0.17.0 — Gaussian contribution and adaptive bounds
 
-- Validate adaptive tile bounds against Exact on representative assets and
+- Extend Exact/adaptive comparisons to more representative assets and to
   additional Metal and Vulkan GPUs. Compare image sequences and GPU stage
   costs under the same device, resolution and camera conditions.
-- Move safe whole-Gaussian rejection ahead of sorting, and add early
-  termination and saturation counters. Use image and temporal evidence before
-  selecting quality thresholds or changing the default.
+- Use image sequences and temporal error measurements to evaluate candidate
+  quality thresholds and any change to the Exact default.
 
 See the [milestone scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds)
-and [Apple M3 results](../reports/delivery-history.md#v0170-adaptive-gaussian-tile-bounds--2026-11-23).
+and [Apple M3 results](../reports/delivery-history.md#v0170-gaussian-pre-sort-rejection-and-raster-telemetry--2026-11-23).
 
 ## v0.16.x — Forward renderer stabilization
 

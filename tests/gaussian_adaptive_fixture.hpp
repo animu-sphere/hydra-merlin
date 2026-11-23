@@ -31,6 +31,18 @@ inline GaussianDescriptor AdaptiveGaussianFixture() {
   return gaussian;
 }
 
+inline GaussianDescriptor SaturatingGaussianFixture(std::uint32_t count) {
+  GaussianDescriptor gaussian;
+  gaussian.label = "saturating-tile-raster";
+  gaussian.positions.assign(count, {0, 0, 0.5F});
+  gaussian.positions.back().z = 0.25F;
+  gaussian.covariances.assign(count, {1.0F, 0, 0, 1.0F, 0, 0.0001F});
+  gaussian.opacities.assign(count, 0.5F);
+  gaussian.opacities.back() = 0.003F;
+  gaussian.spherical_harmonics_coefficients.assign(count, {0, 0, 0});
+  return gaussian;
+}
+
 inline std::shared_ptr<const extraction::FrameSnapshot> AdaptiveCameraFrame(
     const extraction::FrameSnapshot& snapshot, int step) {
   auto frame = std::make_shared<extraction::FrameSnapshot>(snapshot);

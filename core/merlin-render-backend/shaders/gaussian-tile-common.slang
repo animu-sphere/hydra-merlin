@@ -1,10 +1,6 @@
 // Resource declarations and packed-record loading belong to the backend.
 
-[ForceInline]
-bool IsFiniteValue(float value)
-{
-    return !isnan(value) && !isinf(value);
-}
+#include "gaussian-contribution-common.slang"
 
 // Compute an outer bound of the ellipse whose alpha can pass the raster floor.
 // Lower the diagonal coefficients and raise the magnitude of the cross term
@@ -18,29 +14,20 @@ bool GaussianContributionExtent(GaussianPreparedRecord record, float2 center,
 {
     float3 conic = record.inverse_conic;
     float radius = record.radius_pixels;
-    if (!(conic.x >= 1.0e-20f && conic.z >= 1.0e-20f) ||
-        !IsFiniteValue(conic.y) || !IsFiniteValue(record.opacity) ||
+    float2 lower;
+    if (!IsFiniteValue(record.opacity) ||
         max(abs(center.x), abs(center.y)) + radius > 1048576.0f ||
-        !(max(max(conic.x, conic.z), abs(conic.y)) * max(1.0f, radius * radius) < 1.0e30f))
+        !GaussianContributionLowerBound(conic, radius, lower))
     {
         return true;
     }
 
-    static const float guard = 1.0e-4f;
-    float2 diagonal = conic.xz * (1.0f - guard);
-    float cross_term = abs(conic.y) * (1.0f + guard);
-    float2 quotient = cross_term / diagonal.yx;
-    float2 lower = (diagonal - cross_term * quotient) * (1.0f - guard);
-    if (!(lower.x > 0.0f && lower.y > 0.0f) || any(isinf(lower)))
-    {
-        return true;
-    }
-    float alpha_floor = (1.0f / 255.0f) * (1.0f - guard);
-    if (record.opacity < alpha_floor)
+    if (record.opacity < kGaussianGuardedAlphaFloor)
     {
         return false;
     }
-    float power = min(9.0f, 2.0f * log(record.opacity / alpha_floor)) + guard;
+    float power = min(9.0f, 2.0f * log(record.opacity / kGaussianGuardedAlphaFloor)) +
+        kGaussianContributionGuard;
     extent = min(extent, sqrt(power / lower) + float2(1.0f));
     return true;
 }

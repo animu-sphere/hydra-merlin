@@ -135,6 +135,8 @@ passes when it creates the delegate go through the same path, and the
 development viewport's `SetGpuDrivenGaussianSettings` shares it too.
 
 The validator requires schema v4. Schema v2 added GPU-driven indexed
-submission, and v3 added GPU-driven Gaussian execution. Schema v4 and backend
-contract 9 add adaptive bounds. Adapters translating their own configuration
-into v4 preserve a rejected or fallback result for values they cannot execute.
+submission, v3 added GPU-driven Gaussian execution, and v4 adds adaptive
+bounds. Backend contract 10 reports contribution rejection before sorting,
+tile saturation, and early termination. Adapters translating their own
+configuration into v4 preserve a rejected or fallback result for values they
+cannot execute.

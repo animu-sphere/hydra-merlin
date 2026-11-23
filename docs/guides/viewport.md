@@ -143,7 +143,7 @@ optional GPU execution.
 | Adaptive tile bounds | off (Exact), on | Bounds the tile footprint using the projected conic and raster alpha floor. Applies to tiled execution. |
 
 Pass `--gaussian-gpu` and `--gaussian-raster` to the native viewport. Add
-`--gaussian-adaptive-bounds` to enable adaptive binning.
+`--gaussian-adaptive-bounds` to enable adaptive preparation and binning.
 
 ```powershell
 ost renderer viewport --intent viewport-usd --profile usd -- `

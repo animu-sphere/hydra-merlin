@@ -186,6 +186,7 @@ Renderer::Impl::GaussianGpuStageSelection Renderer::Impl::PrepareGaussianGpuPrep
             ? 1U
             : 0U;
     value.sorting_mode = sorting_mode;
+    value.adaptive_bounds = request.gaussian_adaptive_tile_bounds;
   }
   void* mapped{};
   Check(vkMapMemory(device_, resources.constants.memory, 0,
@@ -404,6 +405,7 @@ void Renderer::Impl::ResolveGaussianGpuPreparationCounters(FrameContext& frame) 
   std::uint64_t opacity_culled_count{};
   std::uint64_t frustum_culled_count{};
   std::uint64_t invalid_culled_count{};
+  std::uint64_t contribution_culled_count{};
   void* mapped{};
   Check(vkMapMemory(device_, resources.counter_readback.memory, 0,
             resources.counter_readback.size, 0, &mapped),
@@ -418,7 +420,8 @@ void Renderer::Impl::ResolveGaussianGpuPreparationCounters(FrameContext& frame) 
         static_cast<std::uint64_t>(counters.visible_count) +
                 counters.opacity_culled_count +
                 counters.frustum_culled_count +
-                counters.invalid_culled_count !=
+                counters.invalid_culled_count +
+                counters.contribution_culled_count !=
             counters.candidate_count) {
       vkUnmapMemory(device_, resources.counter_readback.memory);
       throw RendererError(
@@ -431,6 +434,7 @@ void Renderer::Impl::ResolveGaussianGpuPreparationCounters(FrameContext& frame) 
     opacity_culled_count += counters.opacity_culled_count;
     frustum_culled_count += counters.frustum_culled_count;
     invalid_culled_count += counters.invalid_culled_count;
+    contribution_culled_count += counters.contribution_culled_count;
   }
   vkUnmapMemory(device_, resources.counter_readback.memory);
   if (candidate_count !=
@@ -441,7 +445,9 @@ void Renderer::Impl::ResolveGaussianGpuPreparationCounters(FrameContext& frame) 
   }
   frame_counters_.gaussian_gpu_preparation_visible_count = visible_count;
   frame_counters_.gaussian_gpu_preparation_opacity_culled_count =
-      opacity_culled_count;
+      opacity_culled_count + contribution_culled_count;
+  frame_counters_.gaussian_gpu_pre_sort_culled_count =
+      contribution_culled_count;
   frame_counters_.gaussian_gpu_preparation_frustum_culled_count =
       frustum_culled_count;
   frame_counters_.gaussian_gpu_preparation_invalid_culled_count =
@@ -453,7 +459,8 @@ void Renderer::Impl::ResolveGaussianGpuPreparationCounters(FrameContext& frame) 
     frame_counters_.gaussian_candidate_count =
         candidate_count + frame_counters_.gaussian_hidden_count;
     frame_counters_.gaussian_visible_count = visible_count;
-    frame_counters_.gaussian_opacity_culled_count = opacity_culled_count;
+    frame_counters_.gaussian_opacity_culled_count =
+        opacity_culled_count + contribution_culled_count;
     frame_counters_.gaussian_frustum_culled_count = frustum_culled_count;
     frame_counters_.gaussian_invalid_culled_count = invalid_culled_count;
   }

@@ -175,19 +175,51 @@ void CheckAdaptiveTileBounds(merlin::vulkan::Renderer& renderer,
     RequireVerifiedTiles(adaptive, "adaptive tile bins diverged from the CPU replay");
     const auto& counters = adaptive.counters;
     Require(exact.counters.gaussian_gpu_tile_raster_frame_count == 1 &&
+                exact.counters.gaussian_gpu_pre_sort_culled_count == 0 &&
                 exact.counters.gaussian_gpu_tile_rejected_pair_count == 0 &&
                 counters.gaussian_gpu_tile_raster_frame_count == 1 &&
                 counters.gaussian_gpu_tile_rejected_pair_count > 0 &&
-                counters.gaussian_gpu_tile_culled_record_count == 1 &&
+                counters.gaussian_gpu_tile_culled_record_count == 0 &&
+                counters.gaussian_gpu_pre_sort_culled_count == 1 &&
+                counters.gaussian_gpu_sorted_count + 1 == exact.counters.gaussian_gpu_sorted_count &&
+                counters.gaussian_gpu_sort_reference_divergence_count == 0 &&
                 counters.gaussian_gpu_tile_requested_pair_count +
-                        counters.gaussian_gpu_tile_rejected_pair_count ==
+                        counters.gaussian_gpu_tile_rejected_pair_count <
                     exact.counters.gaussian_gpu_tile_requested_pair_count,
-        "adaptive tile bins did not reject the expected pairs and record");
+        "adaptive preparation and binning did not reject the expected record and pairs");
     const auto difference = Compare(exact, adaptive);
     Require(difference.color_pixels == 0 && difference.depth_pixels == 0 &&
                 difference.prim_id_pixels == 0 && difference.instance_id_pixels == 0,
         "adaptive tile bounds changed a camera frame");
   }
+
+  RenderWorld dense_world;
+  extraction::SceneExtractor dense_extractor;
+  dense_world.CreateGaussian(test::SaturatingGaussianFixture(300));
+  dense_extractor.Apply(dense_world, dense_world.Commit());
+  request.snapshot = dense_extractor.snapshot();
+  request.width = request.height = 17;
+  const auto dense = renderer.Resolve(renderer.Submit(request));
+  RequireVerifiedTiles(dense, "saturating tile bins diverged from the CPU replay");
+  Require(dense.counters.gaussian_gpu_tile_raster_frame_count == 1 &&
+              dense.counters.gaussian_gpu_tile_saturated_count == 4 &&
+              dense.counters.gaussian_gpu_tile_early_terminated_count == 4,
+      "tile raster did not saturate and skip batches, including at viewport edges");
+
+  request.gaussian_tile_pair_capacity = 256;
+  request.gaussian_adaptive_tile_bounds = false;
+  const auto overflow_exact = renderer.Resolve(renderer.Submit(request));
+  request.gaussian_adaptive_tile_bounds = true;
+  const auto overflow_adaptive = renderer.Resolve(renderer.Submit(request));
+  Require(overflow_adaptive.counters.gaussian_gpu_tile_raster_overflow_fallback_count == 1 &&
+              overflow_adaptive.counters.gaussian_gpu_raster_instance_count == 299 &&
+              overflow_adaptive.counters.gaussian_gpu_tile_saturated_count == 0 &&
+              overflow_adaptive.counters.gaussian_gpu_tile_early_terminated_count == 0,
+      "tile overflow did not draw the sorted contributors or clear raster counters");
+  const auto overflow_difference = Compare(overflow_exact, overflow_adaptive);
+  Require(overflow_difference.color_pixels == 0 && overflow_difference.depth_pixels == 0 &&
+              overflow_difference.prim_id_pixels == 0 && overflow_difference.instance_id_pixels == 0,
+      "adaptive culling changed the GPU sorted overflow image");
 }
 
 void CheckLowOpacityTiles(merlin::vulkan::Renderer& renderer,

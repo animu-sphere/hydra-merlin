@@ -130,6 +130,12 @@ to [0, 1] before blending, and the LESS_OR_EQUAL Mesh depth test with
 clipping to [0, 1]. The color and ID targets become storage images and
 depth a sampled image only for requests that may select tile raster.
 
+`gaussian_gpu_tile_saturated_count` counts occupied tiles where every
+in-viewport pixel reached the transmittance floor. Its subset
+`gaussian_gpu_tile_early_terminated_count` counts tiles that also skipped
+at least one remaining batch. Both counters are zero when tile raster
+falls back to the sorted stream.
+
 A lost pair would drop a splat from the image, so a single-thread selection
 kernel decides on the device after binning: when every requested pair was
 stored and no record was clamped, it zeroes the sorted-stream draw's
@@ -175,7 +181,7 @@ status lives in the [support matrix](../reference/support-matrix.md).
 
 ### Contribution-aware culling and adaptive bounds
 
-GPU tile binning offers an opt-in adaptive bound. `Exact` uses the original
+GPU tiled execution offers an opt-in contribution bound. `Exact` uses the original
 three-sigma square for each sorted record. Adaptive binning uses the raster
 cutoffs to bound the contributing ellipse. For center opacity `o`, alpha
 floor `f = 1/255` and inverse covariance `Q = [[a, b], [b, c]]`, the maximum
@@ -187,17 +193,24 @@ one-pixel margin covers coordinate arithmetic. Coefficients or footprints
 outside the numeric guard use the original square. A record below the guarded
 alpha floor emits no pairs when its guarded conic is positive definite.
 
+Adaptive preparation uses the same conic guard with an extra pixel of radius
+to cover sorted-raster precision. Projected records that satisfy the guard
+and fall below the guarded alpha floor skip radiance evaluation and
+compaction. `gaussian_gpu_pre_sort_culled_count` reports these records. They
+contribute nothing to either raster path, including the sorted-stream
+overflow fallback. Radix dispatches still use candidate-based padding.
+
 Count, emit and verification share the bounds on both GPU backends. Vulkan
 also replays the bounds on the CPU when reference validation is requested.
 `gaussian_gpu_tile_rejected_pair_count` compares adaptive and Exact requested
-pairs with the same per-record limit, before capacity truncation.
+pairs over records that reached binning, with the same per-record limit and
+before capacity truncation.
 `gaussian_gpu_tile_culled_record_count` counts records that would have emitted
 pairs in Exact and emit none in adaptive mode. The tile raster evaluates the
-same alpha, depth and picking rules in both modes. The full sorted stream
-remains available for overflow fallback.
+same alpha, depth and picking rules in both modes. The sorted stream retains
+every potential contributor for overflow fallback.
 
-Further work includes rejecting records before sorting and measuring processed
-pairs per pixel, early-termination depth, saturated tiles and threshold hits.
+Further measurements can track processed pairs per pixel and early-termination depth.
 Selectable quality thresholds require declared image, alpha/transmittance,
 PSNR, SSIM, maximum error and temporal-flicker tolerances.
 

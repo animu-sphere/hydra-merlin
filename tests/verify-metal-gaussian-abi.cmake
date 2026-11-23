@@ -94,7 +94,7 @@ check_compute(gaussian.prepare gaussian_prepare_compact 64
   gaussian_prepared_records:5 gaussian_prepare_counters:6)
 require_json("${_compute_json}" 176 parameters 0 type elementVarLayout binding size)
 check_fields("${_compute_json}" 0
-  "local_to_camera;projection;viewport_size;sigma_extent;minimum_variance_pixels;resource_id_low;resource_id_high;particle_count;coefficients_per_particle;spherical_harmonics_degree;projection_mode;sorting_mode;padding"
+  "local_to_camera;projection;viewport_size;sigma_extent;minimum_variance_pixels;resource_id_low;resource_id_high;particle_count;coefficients_per_particle;spherical_harmonics_degree;projection_mode;sorting_mode;adaptive_bounds"
   "0;64;128;136;140;144;148;152;156;160;164;168;172")
 foreach(_matrix 0 1)
   require_json("${_compute_json}" matrix parameters 0 type elementType fields ${_matrix} type kind)
@@ -103,6 +103,7 @@ foreach(_matrix 0 1)
 endforeach()
 require_json("${_compute_json}" byteAddressBuffer parameters 6 type baseShape)
 # The native counter struct consists entirely of 32-bit words.
+require_json("${_compute_json}" contribution_culled_count parameters 7 type resultType fields 5 name)
 foreach(_field RANGE 0 7)
   math(EXPR _offset "${_field} * 4")
   require_json("${_compute_json}" "${_offset}" parameters 7 type resultType fields ${_field} binding offset)

@@ -708,7 +708,8 @@ public:
 
   // The GPU checksum weights each sorted record by its position, so it
   // matches only when both streams hold the same records in the same order.
-  void ComputeGaussianSortReference(GaussianGpuSortFrameResources& resources);
+  void ComputeGaussianSortReference(GaussianGpuSortFrameResources& resources,
+      bool adaptive_bounds);
 
   // Prepares and sorts the CPU reference stream, reusing it while the
   // Gaussian table, camera, and viewport are unchanged. A frame drawn from
@@ -1060,6 +1061,8 @@ public:
   // access and depth to read-only for sampling; all return to the transfer-
   // source layout that readback, presentation, and AOV export expect.
   void RecordGaussianGpuTileRaster(VkCommandBuffer command,
+      const FrameContext& frame);
+  void RecordGaussianGpuTileReadback(VkCommandBuffer command,
       const FrameContext& frame);
 
   // Native export, host copies, readback, and presentation all consume the

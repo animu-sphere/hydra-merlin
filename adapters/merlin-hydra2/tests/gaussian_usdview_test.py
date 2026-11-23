@@ -15,6 +15,7 @@ GAUSSIAN_MODE_SETTING = "merlin:gpuDrivenGaussian:mode"
 GAUSSIAN_RASTER_SETTING = "merlin:gpuDrivenGaussian:raster"
 GAUSSIAN_ENABLED_SETTING = "merlin:gpuDrivenGaussian:enabled"
 GAUSSIAN_TILED_SETTING = "merlin:gpuDrivenGaussian:tiled"
+GAUSSIAN_ADAPTIVE_SETTING = "merlin:gpuDrivenGaussian:adaptiveBounds"
 CPU_PHASE = "cpu-sorted-stream"
 
 
@@ -24,13 +25,12 @@ def check_gaussian_settings(stage_view):
         str(setting.key): setting
         for setting in stage_view.GetRendererSettingsList()
     }
-    # Gaussian names stay unlisted so the More... dialog cannot replay a stale
-    # alias over an edited flag. Output settings are independent listed fields.
+    # The mode and raster names are aliases for the listed Gaussian flags.
     assert set(settings) == {
-        GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING,
+        GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING, GAUSSIAN_ADAPTIVE_SETTING,
         "merlin:exposureEv", "merlin:toneMapping"
     }, f"usdview lists unexpected Merlin settings: {sorted(settings)}"
-    for key in (GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING):
+    for key in (GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING, GAUSSIAN_ADAPTIVE_SETTING):
         assert (
             settings[key].type == UsdImagingGL.RendererSettingType.FLAG
         ), f"{key} is not a menu flag"
