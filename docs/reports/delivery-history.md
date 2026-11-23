@@ -11,6 +11,73 @@ Legend: ✅ done
 
 ---
 
+## v0.17.0 paired Gaussian sequences and quality thresholds — 2026-11-23
+
+Release renderer `3ed3440` ran with OpenUSD 26.08 usdview on Apple M3 with
+macOS 15.7.9, Xcode 16.4 and Slang 2026.8. The HgiMetal GPU-copy captures used
+512×512 targets, 40 warmed static and 40 warmed moving samples per policy,
+alternating submission order. API and shader validation were disabled for
+timing. Clocks and power were unpinned. Garden and Horned Lizard used 4 GiB
+each for the Metal residency and scratch budgets. All 120 paired moving
+viewport images were byte-identical. All timed frames selected tiled raster.
+
+| M3 camera phase | Particles | Median requested pairs, Exact → adaptive | Median GPU ms | p95 GPU ms | p99 GPU ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Leica | 8,192 | 13,888 → 12,404 | 1.94 → 2.27 | 4.66 → 4.12 | 4.81 → 4.24 |
+| Horned Lizard | 786,233 | 2,464,372 → 2,464,327 | 94.64 → 94.55 | 97.45 → 98.30 | 98.23 → 99.89 |
+| Garden | 5,834,784 | 7,308,685 → 6,897,508 | 333.57 → 317.60 | 339.97 → 331.94 | 348.80 → 352.21 |
+
+Garden's median preparation, sort, binning and raster times were 28.15 →
+27.16, 75.88 → 75.07, 58.36 → 57.08 and 170.09 → 157.13 ms. Adaptive
+culled 308,600 records before sorting. The median numbers of saturated tiles
+and tiles that skipped at least one batch were both five in each mode. Static
+and moving stage distributions are retained in `build/v017-quality`.
+
+The [Vulkan sequence run](https://github.com/animu-sphere/hydra-merlin/actions/runs/45166288166)
+used the same 512×512 camera sweep and sample counts on the Windows RTX A5000
+runner, through OpenUSD 26.08 usdview and HgiVulkan GPU copy. All 80 paired
+moving viewport images were byte-identical, and all timed frames selected
+tiled raster. The same runner's [PR #155 capability run](https://github.com/animu-sphere/hydra-merlin/actions/runs/45139478922)
+recorded driver 597.16 and executed the Vulkan Gaussian raster regression,
+including the offscreen adaptive and overflow checks. Clock and power settings
+were unpinned for the sequence timings.
+
+| RTX A5000 camera phase | Particles | Median requested pairs, Exact → adaptive | Median GPU ms | p95 GPU ms | p99 GPU ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Leica | 8,192 | 13,888 → 12,404 | 0.554 → 0.541 | 0.596 → 0.589 | 0.598 → 1.013 |
+| Synthetic grid | 1,000,000 | 1,086,692 → 1,086,692 | 5.474 → 5.459 | 6.155 → 6.481 | 6.362 → 6.992 |
+
+The moving synthetic grid's median preparation, sort, binning and raster
+times were 0.212 → 0.213, 1.995 → 2.023, 1.847 → 1.854 and 1.083 →
+1.079 ms. Both policies had median counts of 387 saturated tiles and 114
+tiles that skipped at least one batch. The thin, uniform-opacity grid
+yielded zero contribution rejections. The run retains raw stage and counter
+data for both phases.
+
+Isolated Metal shader builds raised the adaptive contribution floor to `2/255`
+and `4/255`. Both experiments kept the renderer's per-pixel alpha test at
+`1/255`. Each compared 17 distinct camera poses per scene against `Exact`
+in the same build.
+
+| Candidate | Scene with changed frames | Identical frames | Max RGB error (8-bit steps) | Min RGB PSNR (dB) | Min 8×8 luminance SSIM | Max temporal RGB error (8-bit steps) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `2/255` | Garden | 0/17 | 9 | 84.78 | 0.99999944 | 9 |
+| `4/255` | Leica | 0/17 | 15 | 76.43 | 0.99998131 | 15 |
+| `4/255` | Garden | 0/17 | 11 | 67.44 | 0.99997176 | 11 |
+
+The other candidate/scene combinations matched all 17 frames. With a
+transparent offscreen clear and 32 overlapping low-opacity particles, the
+`2/255` candidate changed composited alpha by up to 43/255 and picking IDs
+at 52 pixels. The `4/255` candidate reached 80/255 and 148 pixels. The
+conservative floor matched alpha, depth and IDs. Both Metal validators were
+enabled for this probe. The candidate builds and probe remain under
+`build/v017-quality`.
+
+Keep `Exact` as the default and conservative Adaptive as opt-in. The tested
+higher floors changed transmittance and picking. Conservative Adaptive
+reduced Garden's median cost, and its effect on total GPU time depends on
+the scene and the portion of the frame spent in Gaussian raster.
+
 ## v0.17.0 Gaussian pre-sort rejection and raster telemetry — 2026-11-23
 
 Local Release validation used commit `70a2c56` with the pre-sort and raster

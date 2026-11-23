@@ -6,14 +6,14 @@ Active and immediately next work only. Shipped changes are in the
 
 ## v0.17.0 — Gaussian contribution and adaptive bounds
 
-- Extend Exact/adaptive comparisons to more representative assets and to
-  additional Metal and Vulkan GPUs. Compare image sequences and GPU stage
-  costs under the same device, resolution and camera conditions.
-- Use image sequences and temporal error measurements to evaluate candidate
-  quality thresholds and any change to the Exact default.
+- Extend paired Exact/adaptive sequences to another Metal GPU and additional
+  Vulkan profiles as hardware becomes available. Repeat timing comparisons
+  with controlled clocks and power before establishing hardware timing gates.
 
-See the [milestone scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds)
-and [Apple M3 results](../reports/delivery-history.md#v0170-gaussian-pre-sort-rejection-and-raster-telemetry--2026-11-23).
+Keep `Exact` as the default and conservative Adaptive as opt-in. The tested
+`2/255` and `4/255` floors exceeded the image and picking contract. See the
+[milestone scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds)
+and [paired sequence evidence](../reports/delivery-history.md#v0170-paired-gaussian-sequences-and-quality-thresholds--2026-11-23).
 
 ## v0.16.x — Forward renderer stabilization
 

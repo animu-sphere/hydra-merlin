@@ -319,6 +319,34 @@ actual sorted/tiled, overflow, CPU fallback and float-color frame counts.
 `merlin-viewport-metal-gaussian-no-readback` requires eight presented tiled
 frames, no image readback/fallback/overflow, and 8 * 116 bytes of counters.
 
+### Paired Exact and adaptive host sequences
+
+Add `-DMERLIN_GAUSSIAN_ADAPTIVE_SEQUENCE=ON` to the host runner to compare
+the two tiled policies. Use the same scene and resolution for both policies.
+The runner alternates policy order for each timed sample and records warmed
+static and camera-motion samples. It replays a 30-degree yaw sweep with a
+10-degree pitch range and captures both images at every pose in a separate
+pass. Set `MERLIN_GAUSSIAN_BENCHMARK_WIDTH` and
+`MERLIN_GAUSSIAN_BENCHMARK_HEIGHT` in the environment to match the renderer
+extent across devices. The Windows Vulkan capability workflow's `gaussian`
+suite runs this comparison through HgiVulkan on the bundled Leica fixture and
+the generated one-million-particle scene.
+
+The `gaussian-adaptive-sequence.json` report includes median, p95 and p99 GPU
+stages, rejection, pair, saturation and early-termination counters, and actual
+tiled or overflow frame counts. It compares viewport RGBA8 byte for byte and
+reports maximum RGB and alpha error, RGB PSNR (`null` for identical RGB), mean
+8×8 luminance SSIM, and the peak and RMS change in signed RGB error between
+adjacent poses. Viewport alpha is after host composition. Measure Gaussian
+transmittance and picking separately with offscreen AOV readback and a
+transparent clear. Conservative Adaptive must match `Exact`. For isolated
+shader experiments that raise the adaptive culling floor, set
+`MERLIN_GAUSSIAN_ALLOW_IMAGE_DIFFERENCES=1` to record the image differences.
+
+Leave validation off for timings and record the GPU, driver, resolution and
+clock/power configuration with the report. Store local captures and logs under
+the [report policy](../reports/README.md).
+
 ### Reference baselines
 
 The reference fixture emits, in order:
