@@ -14,6 +14,7 @@ static const uint kGaussianCandidateVisible = 0u;
 static const uint kGaussianCandidateOpacityCulled = 1u;
 static const uint kGaussianCandidateFrustumCulled = 2u;
 static const uint kGaussianCandidateInvalidCulled = 3u;
+static const uint kGaussianCandidateContributionCulled = 4u;
 
 static const float kProjectionEpsilon = 1.0e-6f;
 // Matches the CPU reference: the 3DGS guard band bounds the perspective
@@ -34,7 +35,7 @@ struct GaussianPrepareConstants
     uint spherical_harmonics_degree;
     uint projection_mode;
     uint sorting_mode;
-    uint padding;
+    uint adaptive_bounds;
 };
 
 #include "gaussian-prepared-record.slang"
@@ -46,7 +47,7 @@ struct GaussianPrepareDispatchCounters
     uint opacity_culled_count;
     uint frustum_culled_count;
     uint invalid_culled_count;
-    uint padding0;
+    uint contribution_culled_count;
     uint padding1;
     uint padding2;
 };

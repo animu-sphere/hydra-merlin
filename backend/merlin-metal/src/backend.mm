@@ -339,6 +339,7 @@ render::CompletionToken Backend::Impl::SubmitFrame(const render::RenderRequest& 
   PrepareGaussianExecution(request, command, frame, build);
   EncodeGpuSceneUpdate(command, build);
   EncodeRender(command, frame, request, build);
+  EncodeGaussianTelemetry(command, frame);
   id<CAMetalDrawable> drawable;
   if (request.presentation) {
     const auto presentation_begin = Clock::now();

@@ -22,7 +22,7 @@ struct alignas(16) PrepareConstants {
   std::uint32_t spherical_harmonics_degree{};
   std::uint32_t projection_mode{};
   std::uint32_t sorting_mode{};
-  std::uint32_t padding{};
+  std::uint32_t adaptive_bounds{};
 };
 
 struct alignas(16) PreparedRecord {
@@ -45,7 +45,8 @@ struct PrepareCounters {
   std::uint32_t opacity_culled_count{};
   std::uint32_t frustum_culled_count{};
   std::uint32_t invalid_culled_count{};
-  std::uint32_t padding[3]{};
+  std::uint32_t contribution_culled_count{};
+  std::uint32_t padding[2]{};
 };
 
 struct GatherConstants {
@@ -78,7 +79,9 @@ struct SortConstants {
 
 inline constexpr std::uint32_t kTileRejectedPairCountWord = 11;
 inline constexpr std::uint32_t kTileCulledRecordCountWord = 12;
-inline constexpr std::uint32_t kTileControlWordCount = 13;
+inline constexpr std::uint32_t kTileSaturatedCountWord = 13;
+inline constexpr std::uint32_t kTileEarlyTerminatedCountWord = 14;
+inline constexpr std::uint32_t kTileControlWordCount = 15;
 
 struct alignas(16) TileConstants {
   std::uint32_t record_bound{}, pair_capacity{}, tile_count_x{}, tile_count_y{};
@@ -96,6 +99,7 @@ static_assert(offsetof(PrepareConstants, projection) == 64);
 static_assert(offsetof(PrepareConstants, viewport_size) == 128);
 static_assert(offsetof(PrepareConstants, particle_count) == 152);
 static_assert(offsetof(PrepareConstants, sorting_mode) == 168);
+static_assert(offsetof(PrepareConstants, adaptive_bounds) == 172);
 static_assert(sizeof(PreparedRecord) == 64);
 static_assert(offsetof(PreparedRecord, inverse_conic) == 16);
 static_assert(offsetof(PreparedRecord, opacity) == 28);
@@ -104,6 +108,7 @@ static_assert(offsetof(PreparedRecord, sort_key) == 44);
 static_assert(offsetof(PreparedRecord, resource_id_low) == 48);
 static_assert(offsetof(PreparedRecord, particle_id) == 56);
 static_assert(sizeof(PrepareCounters) == 32);
+static_assert(offsetof(PrepareCounters, contribution_culled_count) == 20);
 static_assert(sizeof(GatherConstants) == 16);
 static_assert(offsetof(GatherConstants, count_word) == 4);
 static_assert(offsetof(GatherConstants, flags) == 8);

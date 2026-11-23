@@ -11,6 +11,45 @@ Legend: ✅ done
 
 ---
 
+## v0.17.0 Gaussian pre-sort rejection and raster telemetry — 2026-11-23
+
+Local Release validation used commit `70a2c56` with the pre-sort and raster
+counter changes on Apple M3, macOS 15.7.9, Xcode 16.4 and Slang 2026.8.
+Core passed 25/25 and the Metal/Hydra configuration with the native viewport
+passed 67/67. The Metal offscreen test ran with API and shader validation.
+Exact and adaptive matched RGBA8, depth, primId and instanceId at 17 camera
+poses. The dense stack verified saturation and early termination on partial
+edge tiles. Its forced-overflow frame used the GPU sorted stream and matched
+the Exact image and IDs. Vulkan compiled with 1.4.350 headers and passed
+shader ABI reflection. This host lacked a Vulkan 1.4 loader for device tests.
+
+The synthetic `merlin-metal-gaussian-tests --adaptive-tile-scale` capture
+compared 40 warmed frames per mode, phase and size at 512×512. All 160 paired
+frames selected tile raster and matched the four AOVs. The times are measured
+on the same GPU with unpinned clocks and power.
+
+| Particles | Phase | Median records culled before sort, adaptive | Median pairs, Exact → adaptive | Median GPU ms | p95 GPU ms |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 65,536 | Static | 16,384 | 272,426 → 116,384 | 6.74 → 4.40 | 6.97 → 4.55 |
+| 65,536 | Camera | 16,384 | 320,487 → 127,670 | 7.22 → 4.67 | 7.41 → 4.82 |
+| 1,048,576 | Static | 262,144 | 4,986,289 → 2,040,816 | 59.74 → 40.32 | 60.60 → 41.16 |
+| 1,048,576 | Camera | 262,016 | 5,089,472 → 2,013,746 | 59.63 → 40.10 | 61.80 → 41.09 |
+
+For the 1M camera phase, the median preparation, sort, binning and raster
+times were 3.18 → 2.78, 13.54 → 12.88, 19.40 → 12.13 and 23.34 → 12.16 ms,
+respectively. The median number of saturated tiles was 961 in both modes.
+The median number skipping at least one batch changed from 961 to 871.
+The local CSV is `build/v017-metal-contribution-scale.csv`.
+
+The public Leica fixture was tested in OpenUSD 26.08 usdview with HgiMetal
+GPU copy, Metal API validation and a 512×512 renderer target. All 17 distinct
+camera poses produced byte-identical RGBA8 viewport images. The 51 measured
+camera frames per mode selected tile raster with zero overflow, GPU fallback
+or validation messages. Median requested pairs changed from 14,153 to 12,609.
+This fixture yielded no pre-sort rejections or saturated tiles. Median GPU
+time was 2.00 → 2.13 ms and p95 was 4.50 → 4.27 ms. The local capture
+script, screenshots and frame log are under `build/v017-contribution-leica`.
+
 ## v0.17.0 adaptive Gaussian tile bounds — 2026-11-23
 
 Local Release validation used Apple M3, macOS 15.7.9, Xcode 16.4 and Slang

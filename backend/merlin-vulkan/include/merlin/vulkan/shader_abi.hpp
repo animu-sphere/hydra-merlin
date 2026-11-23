@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 16;
+inline constexpr std::uint32_t kVersion = 17;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -137,7 +137,7 @@ struct alignas(16) GaussianPrepareConstants {
   std::uint32_t spherical_harmonics_degree{};
   std::uint32_t projection_mode{};
   std::uint32_t sorting_mode{};
-  std::uint32_t padding{};
+  std::uint32_t adaptive_bounds{};
 };
 
 struct alignas(16) GaussianPreparedRecord {
@@ -160,7 +160,8 @@ struct alignas(16) GaussianPrepareDispatchCounters {
   std::uint32_t opacity_culled_count{};
   std::uint32_t frustum_culled_count{};
   std::uint32_t invalid_culled_count{};
-  std::uint32_t padding[3]{};
+  std::uint32_t contribution_culled_count{};
+  std::uint32_t padding[2]{};
 };
 
 // The global Gaussian sort runs an LSD radix sort over 8-bit digits of a
@@ -292,7 +293,7 @@ inline constexpr std::uint32_t kGaussianTileDefaultPairsPerRecord = 8U;
 inline constexpr std::uint32_t kGaussianTileMinimumPairCapacity = 65536U;
 // Control words at the start of the tile control buffer; the per-record pair
 // offsets, the pair histogram levels, and the tile ranges follow.
-inline constexpr std::uint32_t kGaussianTileControlWordCount = 13U;
+inline constexpr std::uint32_t kGaussianTileControlWordCount = 15U;
 inline constexpr std::uint32_t kGaussianTileRecordCountWord = 0U;
 inline constexpr std::uint32_t kGaussianTileRequestedPairCountWord = 1U;
 inline constexpr std::uint32_t kGaussianTileRasterSelectedWord = 10U;
@@ -345,33 +346,53 @@ struct GaussianTileRect {
   return GaussianTileBounds(center, Vec2{radius, radius}, width, height, rect);
 }
 
-// Mirrors GaussianContributionExtent in gaussian-tile-common.slang.
-// A zero extent here represents a record below the guarded raster alpha floor.
+inline constexpr float kGaussianContributionGuard = 1.0e-4F;
+inline constexpr float kGaussianGuardedAlphaFloor =
+    (1.0F / 255.0F) * (1.0F - kGaussianContributionGuard);
+
+// Mirrors the shared Slang conic guard used in preparation and tile binning.
+[[nodiscard]] inline bool GaussianContributionLowerBound(Vec3 conic,
+    float radius, Vec2& lower) noexcept {
+  if (!(conic.x >= 1.0e-20F && conic.z >= 1.0e-20F) ||
+      !std::isfinite(conic.y) ||
+      !(std::max({conic.x, conic.z, std::abs(conic.y)}) *
+          std::max(1.0F, radius * radius) < 1.0e30F)) {
+    return false;
+  }
+  constexpr float guard = kGaussianContributionGuard;
+  const Vec2 diagonal{conic.x * (1.0F - guard), conic.z * (1.0F - guard)};
+  const float cross_term = std::abs(conic.y) * (1.0F + guard);
+  lower = {
+      (diagonal.x - cross_term * (cross_term / diagonal.y)) * (1.0F - guard),
+      (diagonal.y - cross_term * (cross_term / diagonal.x)) * (1.0F - guard)};
+  return lower.x > 0.0F && lower.y > 0.0F &&
+      std::isfinite(lower.x) && std::isfinite(lower.y);
+}
+
+[[nodiscard]] inline bool GaussianContributionCulledBeforeSort(Vec2 center,
+    float radius, Vec3 conic, float opacity) noexcept {
+  Vec2 lower;
+  return opacity < kGaussianGuardedAlphaFloor &&
+      std::max(std::abs(center.x), std::abs(center.y)) + radius <= 1048576.0F &&
+      GaussianContributionLowerBound(conic, radius + 1.0F, lower);
+}
+
+// A zero extent represents a record below the guarded raster alpha floor.
 [[nodiscard]] inline Vec2 GaussianContributionExtent(Vec2 center, float radius,
     Vec3 conic, float opacity) noexcept {
   const Vec2 exact{radius, radius};
-  if (!(conic.x >= 1.0e-20F && conic.z >= 1.0e-20F) ||
-      !std::isfinite(conic.y) || !std::isfinite(opacity) ||
+  Vec2 lower;
+  if (!std::isfinite(opacity) ||
       std::max(std::abs(center.x), std::abs(center.y)) + radius > 1048576.0F ||
-      !(std::max({conic.x, conic.z, std::abs(conic.y)}) *
-          std::max(1.0F, radius * radius) < 1.0e30F)) {
+      !GaussianContributionLowerBound(conic, radius, lower)) {
     return exact;
   }
-  constexpr float guard = 1.0e-4F;
-  const Vec2 diagonal{conic.x * (1.0F - guard), conic.z * (1.0F - guard)};
-  const float cross_term = std::abs(conic.y) * (1.0F + guard);
-  const Vec2 lower{
-      (diagonal.x - cross_term * (cross_term / diagonal.y)) * (1.0F - guard),
-      (diagonal.y - cross_term * (cross_term / diagonal.x)) * (1.0F - guard)};
-  if (!(lower.x > 0.0F && lower.y > 0.0F) ||
-      !std::isfinite(lower.x) || !std::isfinite(lower.y)) {
-    return exact;
-  }
-  constexpr float alpha_floor = (1.0F / 255.0F) * (1.0F - guard);
-  if (opacity < alpha_floor) {
+  if (opacity < kGaussianGuardedAlphaFloor) {
     return {};
   }
-  const float power = std::min(9.0F, 2.0F * std::log(opacity / alpha_floor)) + guard;
+  const float power = std::min(9.0F,
+      2.0F * std::log(opacity / kGaussianGuardedAlphaFloor)) +
+      kGaussianContributionGuard;
   return {std::min(radius, std::sqrt(power / lower.x) + 1.0F),
       std::min(radius, std::sqrt(power / lower.y) + 1.0F)};
 }
@@ -424,6 +445,8 @@ struct GaussianTileVerification {
   std::uint32_t raster_selected{};
   std::uint32_t rejected_pair_count{};
   std::uint32_t culled_record_count{};
+  std::uint32_t saturated_tile_count{};
+  std::uint32_t early_terminated_tile_count{};
 };
 
 // Tile raster composites each tile's pairs front to back in compute, one
@@ -503,6 +526,7 @@ static_assert(offsetof(GaussianPrepareConstants, particle_count) == 152);
 static_assert(offsetof(GaussianPrepareConstants,
                   spherical_harmonics_degree) == 160);
 static_assert(offsetof(GaussianPrepareConstants, sorting_mode) == 168);
+static_assert(offsetof(GaussianPrepareConstants, adaptive_bounds) == 172);
 static_assert(sizeof(GaussianPreparedRecord) == 64);
 static_assert(alignof(GaussianPreparedRecord) == 16);
 static_assert(offsetof(GaussianPreparedRecord, center_pixels) == 0);
@@ -513,6 +537,7 @@ static_assert(offsetof(GaussianPreparedRecord, particle_id) == 56);
 static_assert(sizeof(GaussianPrepareDispatchCounters) == 32);
 static_assert(alignof(GaussianPrepareDispatchCounters) == 16);
 static_assert(offsetof(GaussianPrepareDispatchCounters, candidate_count) == 0);
+static_assert(offsetof(GaussianPrepareDispatchCounters, contribution_culled_count) == 20);
 static_assert(offsetof(GaussianPrepareDispatchCounters, invalid_culled_count) ==
               16);
 static_assert(sizeof(GaussianSortElement) == 12);
@@ -546,6 +571,8 @@ static_assert(offsetof(GaussianTileVerification, requested_pair_count) ==
               kGaussianTileRequestedPairCountWord * sizeof(std::uint32_t));
 static_assert(offsetof(GaussianTileVerification, raster_selected) ==
               kGaussianTileRasterSelectedWord * sizeof(std::uint32_t));
+static_assert(offsetof(GaussianTileVerification, saturated_tile_count) == 13U * sizeof(std::uint32_t));
+static_assert(offsetof(GaussianTileVerification, early_terminated_tile_count) == 14U * sizeof(std::uint32_t));
 static_assert(kGaussianTileWorkgroupSize == kGaussianSortWorkgroupSize);
 static_assert(sizeof(GaussianTileRasterConstants) == 32);
 static_assert(alignof(GaussianTileRasterConstants) == 16);

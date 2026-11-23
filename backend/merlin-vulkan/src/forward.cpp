@@ -1056,6 +1056,8 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
     }
   }
 
+  RecordGaussianGpuTileReadback(command, frame);
+
   if (frame.gpu_driven.selected) {
     for (const auto& batch : frame.gpu_driven.batches) {
       const VkBufferCopy batch_copy{

@@ -310,6 +310,7 @@ private:
   void PrepareGaussianExecution(const render::RenderRequest& request,
       id<MTLCommandBuffer> __strong& command, FrameContext& frame, FrameBuild& build);
 
+  void EncodeGaussianTelemetry(id<MTLCommandBuffer> command, const FrameContext& frame);
   void ResolveGaussianTelemetry(const FrameContext& frame, render::RenderResult& result);
 
   void ResolveGaussianTimestamps(const FrameContext& frame,

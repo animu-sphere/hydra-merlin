@@ -832,6 +832,8 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       count.gaussian_gpu_sort_pass_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_sort_key_count",
       count.gaussian_gpu_sort_key_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_pre_sort_culled_count",
+      count.gaussian_gpu_pre_sort_culled_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_sorted_count",
       count.gaussian_gpu_sorted_count);
   WriteCounter(stream, counter_indent,
@@ -884,6 +886,10 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       count.gaussian_gpu_tile_raster_dispatch_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_raster_frame_count",
       count.gaussian_gpu_tile_raster_frame_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_saturated_count",
+      count.gaussian_gpu_tile_saturated_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_early_terminated_count",
+      count.gaussian_gpu_tile_early_terminated_count);
   WriteCounter(stream, counter_indent, "gaussian_float_color_frame_count",
       count.gaussian_float_color_frame_count);
   WriteCounter(stream, counter_indent,

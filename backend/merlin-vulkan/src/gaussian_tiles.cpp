@@ -130,9 +130,14 @@ void Renderer::Impl::ComputeGaussianTileReference(GaussianGpuTileFrameResources&
   const auto& constants = resources.constants;
   std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs;
   std::uint64_t requested{};
-  const auto& gaussians = prepared_gaussians_.gaussians;
-  for (std::size_t record = 0; record < gaussians.size(); ++record) {
-    const auto& gaussian = gaussians[record];
+  std::uint32_t next_record{};
+  for (const auto& gaussian : prepared_gaussians_.gaussians) {
+    if (constants.adaptive_bounds && shader_abi::GaussianContributionCulledBeforeSort(
+            gaussian.center_pixels, gaussian.radius_pixels,
+            gaussian.inverse_conic, gaussian.opacity)) {
+      continue;
+    }
+    const auto record = next_record++;
     const auto extent = constants.adaptive_bounds
                             ? shader_abi::GaussianContributionExtent(
                                   gaussian.center_pixels, gaussian.radius_pixels,
@@ -149,8 +154,7 @@ void Renderer::Impl::ComputeGaussianTileReference(GaussianGpuTileFrameResources&
         --remaining;
         ++requested;
         if (pairs.size() < constants.pair_capacity) {
-          pairs.emplace_back(y * constants.tile_count_x + x,
-              static_cast<std::uint32_t>(record));
+          pairs.emplace_back(y * constants.tile_count_x + x, record);
         }
       }
     }
@@ -659,8 +663,6 @@ void Renderer::Impl::RecordGaussianGpuTiles(VkCommandBuffer command,
   // whether it replaces the sorted-stream draws; its later raster dispatch
   // reads the decision, the ranges, and the grouped pairs.
   const auto& tile_raster = frame.gaussian_gpu_tile_raster;
-  VkPipelineStageFlags output_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-  VkAccessFlags output_access = VK_ACCESS_TRANSFER_READ_BIT;
   if (tile_raster.selected) {
     compute_barrier();
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -673,19 +675,35 @@ void Renderer::Impl::RecordGaussianGpuTiles(VkCommandBuffer command,
         &tile_raster.constants);
     vkCmdDispatch(command, 1, 1, 1);
     ++frame_counters_.gaussian_gpu_tile_raster_dispatch_count;
-    output_stages |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
-                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-    output_access |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
-                     VK_ACCESS_SHADER_READ_BIT;
+    VkMemoryBarrier output_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    output_barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0, 1, &output_barrier, 0, nullptr, 0, nullptr);
   }
+}
 
-  VkMemoryBarrier output_barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-  output_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-  output_barrier.dstAccessMask = output_access;
-  vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-      output_stages, 0, 1, &output_barrier, 0, nullptr, 0, nullptr);
+void Renderer::Impl::RecordGaussianGpuTileReadback(VkCommandBuffer command,
+    const FrameContext& frame) {
+  const auto& resources = frame.gaussian_gpu_tiles;
+  if (!resources.selected) {
+    return;
+  }
   const VkBufferCopy copy{0, 0,
       sizeof(shader_abi::GaussianTileVerification)};
+  VkBufferMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+  barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.buffer = resources.control.handle;
+  barrier.size = copy.size;
+  vkCmdPipelineBarrier(command,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
   vkCmdCopyBuffer(command, resources.control.handle,
       resources.verification_readback.handle, 1, &copy);
 }
@@ -807,11 +825,13 @@ void Renderer::Impl::ResolveGaussianGpuTiles(FrameContext& frame) {
       resources.constants.pair_capacity);
   if (verification.record_count !=
           frame_counters_.gaussian_gpu_raster_instance_count ||
-      verification.verified_pair_count != stored) {
+      verification.verified_pair_count != stored ||
+      verification.saturated_tile_count > verification.occupied_tile_count ||
+      verification.early_terminated_tile_count > verification.saturated_tile_count ||
+      (!verification.raster_selected && verification.saturated_tile_count != 0U)) {
     throw RendererError(RendererErrorCode::BackendFailure,
         "resolve Gaussian tile verification",
-        "tile binning did not retain every stored pair of the sorted "
-        "stream exactly once");
+        "tile pair or raster counts are inconsistent with the sorted stream");
   }
   frame_counters_.gaussian_gpu_tile_requested_pair_count =
       verification.requested_pair_count;
@@ -821,6 +841,10 @@ void Renderer::Impl::ResolveGaussianGpuTiles(FrameContext& frame) {
       verification.rejected_pair_count;
   frame_counters_.gaussian_gpu_tile_culled_record_count =
       verification.culled_record_count;
+  frame_counters_.gaussian_gpu_tile_saturated_count =
+      verification.saturated_tile_count;
+  frame_counters_.gaussian_gpu_tile_early_terminated_count =
+      verification.early_terminated_tile_count;
   frame_counters_.gaussian_gpu_tile_pair_overflow_count =
       verification.requested_pair_count - stored;
   frame_counters_.gaussian_gpu_tile_clamped_record_count =

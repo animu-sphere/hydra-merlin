@@ -293,14 +293,20 @@ Renderer::Impl::GaussianGpuStageSelection Renderer::Impl::PrepareGaussianGpuSort
 
 // The GPU checksum weights each sorted record by its position, so it
 // matches only when both streams hold the same records in the same order.
-void Renderer::Impl::ComputeGaussianSortReference(GaussianGpuSortFrameResources& resources) {
+void Renderer::Impl::ComputeGaussianSortReference(
+    GaussianGpuSortFrameResources& resources, bool adaptive_bounds) {
   if (!resources.selected) {
     return;
   }
   std::uint32_t checksum{};
-  for (std::size_t i = 0; i < prepared_gaussians_.gaussians.size(); ++i) {
-    const auto& gaussian = prepared_gaussians_.gaussians[i];
-    checksum += static_cast<std::uint32_t>(i + 1U) *
+  std::uint32_t position{};
+  for (const auto& gaussian : prepared_gaussians_.gaussians) {
+    if (adaptive_bounds && shader_abi::GaussianContributionCulledBeforeSort(
+            gaussian.center_pixels, gaussian.radius_pixels,
+            gaussian.inverse_conic, gaussian.opacity)) {
+      continue;
+    }
+    checksum += ++position *
                 shader_abi::GaussianSortIdentityHash(
                     static_cast<std::uint32_t>(gaussian.resource),
                     static_cast<std::uint32_t>(gaussian.resource >> 32U),

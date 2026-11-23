@@ -19,7 +19,7 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 9;
+inline constexpr std::uint32_t kBackendContractVersion = 10;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 4;
 
 enum class BackendKind { Vulkan,
@@ -428,6 +428,8 @@ struct FrameTelemetry {
   std::uint64_t gaussian_attribute_copy_range_count{};
   std::uint64_t gaussian_attribute_generation_count{};
   std::uint64_t gaussian_upload_bytes{};
+  // Contribution rejection in GPU preparation, included in GPU opacity culls.
+  std::uint64_t gaussian_gpu_pre_sort_culled_count{};
   // GPU-driven Gaussian execution. sorted_count is the verified GPU sort
   // output and raster_instance_count the records the GPU-sorted draws
   // consumed; tile_raster_frame_count is one when compute tile raster
@@ -438,11 +440,15 @@ struct FrameTelemetry {
   std::uint64_t gaussian_gpu_raster_instance_count{};
   std::uint64_t gaussian_gpu_tile_pair_capacity{};
   std::uint64_t gaussian_gpu_tile_requested_pair_count{};
-  // Difference from Exact before buffer truncation, with the same per-record limit.
+  // Pairs saved by adaptive binning over the records that reached this stage.
   std::uint64_t gaussian_gpu_tile_rejected_pair_count{};
   std::uint64_t gaussian_gpu_tile_culled_record_count{};
   std::uint64_t gaussian_gpu_tile_clamped_record_count{};
   std::uint64_t gaussian_gpu_tile_raster_frame_count{};
+  // Saturated tiles reached the existing transmittance floor at every
+  // in-viewport pixel. Early-terminated tiles also skipped later batches.
+  std::uint64_t gaussian_gpu_tile_saturated_count{};
+  std::uint64_t gaussian_gpu_tile_early_terminated_count{};
   // One when a backend uses floating-point Gaussian color accumulation.
   std::uint64_t gaussian_float_color_frame_count{};
   std::uint64_t gaussian_gpu_tile_raster_overflow_fallback_count{};

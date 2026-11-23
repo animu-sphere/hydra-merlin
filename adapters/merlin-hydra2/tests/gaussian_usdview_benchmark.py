@@ -109,8 +109,8 @@ def testUsdviewInputFunction(appController):
             expected = int(event["width"]) * int(event["height"]) * 4 * cpu_aovs
             if event["gaussian_gpu_mode"] != "disabled":
                 expected += 32 + 32 * int(event["gaussian_resources"])
-                if backend == "metal" and event["gaussian_raster_path"] == "tiled":
-                    expected += 44
+                if event["gaussian_raster_path"] == "tiled":
+                    expected += 60
             assert int(event["readback_bytes"]) == expected
         expected_maps = cpu_aovs
         if backend == "metal":

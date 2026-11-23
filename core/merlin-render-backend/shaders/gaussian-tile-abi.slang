@@ -13,9 +13,11 @@ static const uint kGaussianTileRangeViolationCount = 6u;
 static const uint kGaussianTileOccupiedTileCount = 7u;
 static const uint kGaussianTileMaxTilePairCount = 8u;
 static const uint kGaussianTileIdentityChecksum = 9u;
-// Word 10 is written by the tile raster selection kernel.
+static const uint kGaussianTileRasterSelected = 10u;
 static const uint kGaussianTileRejectedPairCount = 11u;
 static const uint kGaussianTileCulledRecordCount = 12u;
+static const uint kGaussianTileSaturatedCount = 13u;
+static const uint kGaussianTileEarlyTerminatedCount = 14u;
 
 struct GaussianTileConstants
 {

@@ -251,6 +251,7 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
                                             (record.spherical_harmonics_degree + 1U);
       constants.projection_mode = static_cast<std::uint32_t>(record.projection_mode);
       constants.sorting_mode = static_cast<std::uint32_t>(frame->sorting_policy.mode);
+      constants.adaptive_bounds = tiled && adaptive_tile_bounds;
       auto encoder = [command computeCommandEncoder];
       if (!encoder)
         Fail(render::RendererErrorCode::BackendFailure, "Metal preparation encoder allocation failed");

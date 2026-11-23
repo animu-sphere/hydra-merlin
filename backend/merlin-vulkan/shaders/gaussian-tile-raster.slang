@@ -20,13 +20,9 @@
 // images, and one sampled image, each within the Vulkan guaranteed per-stage
 // minimum.
 
-static const uint kGaussianTileSize = 16u;
-static const uint kGaussianTileRasterBatch = kGaussianTileSize * kGaussianTileSize;
+#include "../../../core/merlin-render-backend/shaders/gaussian-tile-abi.slang"
 
-// Control words; must match shader_abi::GaussianTileVerification.
-static const uint kGaussianTileRequestedPairCount = 1u;
-static const uint kGaussianTileClampedRecordCount = 2u;
-static const uint kGaussianTileRasterSelected = 10u;
+static const uint kGaussianTileRasterBatch = kGaussianTileSize * kGaussianTileSize;
 
 // VkDrawIndirectCommand words of the sorted-stream draw.
 static const uint kGaussianRasterDrawInstanceCount = 1u;
@@ -46,30 +42,6 @@ struct GaussianTileRasterConstants
     uint pair_capacity;
     uint padding0;
     uint padding1;
-};
-
-// Must match gaussian-sort.slang; reflection checks both layouts.
-struct GaussianSortElement
-{
-    uint key_low;
-    uint key_high;
-    uint value;
-};
-
-// Must match gaussian-prepare.slang; reflection checks both layouts.
-struct GaussianPreparedRecord
-{
-    float2 center_pixels;
-    float radius_pixels;
-    float depth;
-    float3 inverse_conic;
-    float opacity;
-    float3 radiance;
-    float sort_key;
-    uint resource_id_low;
-    uint resource_id_high;
-    uint particle_id;
-    uint padding;
 };
 
 [[vk::push_constant]]
@@ -218,11 +190,19 @@ void gaussian_tile_raster(uint3 group_id : SV_GroupID,
             InterlockedAdd(gs_tile_raster_done_count, 1u, ignored);
         }
         GroupMemoryBarrierWithGroupSync();
+        cursor -= count;
         if (gs_tile_raster_done_count == kGaussianTileRasterBatch)
         {
+            if (group_index == 0u)
+            {
+                InterlockedAdd(gaussian_tile_raster_control[kGaussianTileSaturatedCount], 1u);
+                if (cursor > begin)
+                {
+                    InterlockedAdd(gaussian_tile_raster_control[kGaussianTileEarlyTerminatedCount], 1u);
+                }
+            }
             break;
         }
-        cursor -= count;
     }
 
     if (identified)

@@ -1,5 +1,7 @@
 // Resource declarations belong to the backend wrapper.
 
+#include "gaussian-contribution-common.slang"
+
 bool IsFinite1(float value)
 {
     return !isnan(value) && !isinf(value);
@@ -280,6 +282,19 @@ void gaussian_prepare_compact(uint3 dispatch_thread_id : SV_DispatchThreadID)
     {
         RecordRejection(particle, kGaussianCandidateFrustumCulled,
                         gaussian_prepare_counters[0].frustum_culled_count);
+        return;
+    }
+
+    // The same stream backs sorted raster on tile overflow. Guard its
+    // subpixel snapping and interpolation as well as the compute raster.
+    float2 lower;
+    if (gaussian_prepare_constants.adaptive_bounds != 0u &&
+        opacity < kGaussianGuardedAlphaFloor &&
+        max(abs(center_pixels.x), abs(center_pixels.y)) + radius_pixels <= 1048576.0f &&
+        GaussianContributionLowerBound(inverse_conic, radius_pixels + 1.0f, lower))
+    {
+        RecordRejection(particle, kGaussianCandidateContributionCulled,
+                        gaussian_prepare_counters[0].contribution_culled_count);
         return;
     }
 
