@@ -63,6 +63,12 @@ cmake_path(CONVERT "${MERLIN_PXR_ROOT}/bin;${MERLIN_PXR_ROOT}/lib;$ENV{PATH}"
   TO_NATIVE_PATH_LIST runtime_path NORMALIZE)
 set(marker "${MERLIN_STAGE_DIR}/gaussian-regression.log")
 set(trace "${MERLIN_STAGE_DIR}/gaussian-usdview-trace.json")
+set(benchmark_script gaussian_usdview_benchmark.py)
+set(verification gaussian-host-verification.json)
+if(MERLIN_GAUSSIAN_ADAPTIVE_SEQUENCE)
+  set(benchmark_script gaussian_usdview_adaptive.py)
+  set(verification gaussian-adaptive-sequence.json)
+endif()
 set(host_environment)
 if(MERLIN_GAUSSIAN_HOST_BACKEND STREQUAL "metal")
   if(MERLIN_FORCE_HGI_VULKAN)
@@ -88,7 +94,7 @@ else()
     "MERLIN_GAUSSIAN_EXPECT_TRANSFER_MODE=cpu-readback")
   set(merlin_test_backend vulkan)
 endif()
-file(REMOVE "${marker}" "${trace}" "${MERLIN_STAGE_DIR}/gaussian-host-verification.json")
+file(REMOVE "${marker}" "${trace}" "${MERLIN_STAGE_DIR}/${verification}")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E env
   ${host_environment}
   "PXR_PLUGINPATH_NAME=${MERLIN_STAGE_DIR}/lib/usd/hdMerlin/resources"
@@ -102,11 +108,11 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E env
   "MERLIN_GAUSSIAN_BENCHMARK_FRAMES=${MERLIN_GAUSSIAN_FRAMES}"
   "${MERLIN_PYTHON}" "${MERLIN_TESTUSDVIEW}" "${MERLIN_GAUSSIAN_SAMPLE}"
   --renderer Merlin --traceToFile "${trace}" --traceFormat chrome
-  --testScript "${source}/adapters/merlin-hydra2/tests/gaussian_usdview_benchmark.py"
+  --testScript "${source}/adapters/merlin-hydra2/tests/${benchmark_script}"
   WORKING_DIRECTORY "${MERLIN_STAGE_DIR}"
   RESULT_VARIABLE result OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr TIMEOUT 600)
 file(WRITE "${MERLIN_STAGE_DIR}/usdview.log" "${stdout}\n${stderr}")
-if(NOT result EQUAL 0 OR NOT EXISTS "${MERLIN_STAGE_DIR}/gaussian-host-verification.json")
+if(NOT result EQUAL 0 OR NOT EXISTS "${MERLIN_STAGE_DIR}/${verification}")
   message(FATAL_ERROR "Gaussian host comparison failed (${result}): ${stdout}\n${stderr}")
 endif()
 execute_process(COMMAND "${MERLIN_PYTHON}" "${source}/scripts/hydra-performance-report.py"
