@@ -49,6 +49,8 @@ GAUSSIAN_COUNTERS = (
     "gaussian_gpu_tile_max_pair_count",
     "gaussian_gpu_tile_pair_capacity",
     "gaussian_gpu_tile_requested_pair_count",
+    "gaussian_gpu_tile_rejected_pair_count",
+    "gaussian_gpu_tile_culled_record_count",
     "gaussian_gpu_tile_pair_count",
     "gaussian_gpu_tile_pair_overflow_count",
     "gaussian_gpu_tile_clamped_record_count",

@@ -40,6 +40,7 @@ struct Arguments {
   std::uint32_t steady_frames{30};
   bool resolution_overridden{};
   bool validation{};
+  bool gaussian_adaptive_bounds{};
   std::uint32_t arena_blocks{4};
 };
 
@@ -133,6 +134,7 @@ enum class GaussianExecution {
   Cpu,
   GpuSortedStream,
   GpuTiled,
+  GpuTiledAdaptive,
 };
 
 std::string_view GaussianExecutionName(GaussianExecution execution) {
@@ -143,8 +145,15 @@ std::string_view GaussianExecutionName(GaussianExecution execution) {
     return "gpu-sorted-stream";
   case GaussianExecution::GpuTiled:
     return "gpu-tiled";
+  case GaussianExecution::GpuTiledAdaptive:
+    return "gpu-tiled-adaptive";
   }
   return "unknown";
+}
+
+bool UsesGaussianTiles(GaussianExecution execution) {
+  return execution == GaussianExecution::GpuTiled ||
+         execution == GaussianExecution::GpuTiledAdaptive;
 }
 
 std::uint64_t ElapsedNanoseconds(CpuClock::time_point start) {
@@ -211,6 +220,8 @@ Arguments ParseArguments(int argc, char** argv) {
       result.steady_frames = ParseUnsigned(value(argument), argument);
     } else if (argument == "--validate") {
       result.validation = true;
+    } else if (argument == "--gaussian-adaptive-bounds") {
+      result.gaussian_adaptive_bounds = true;
     } else if (argument == "--arena-blocks") {
       result.arena_blocks = ParseUnsigned(value(argument), argument);
       if (result.arena_blocks != 2 && result.arena_blocks != 4 &&
@@ -221,7 +232,7 @@ Arguments ParseArguments(int argc, char** argv) {
       std::cout
           << "Usage: merlin-benchmark [--output FILE] [--fixture NAME] "
              "[--width N] [--height N] [--steady-frames N] [--validate] "
-             "[--arena-blocks 2|4|8|16]\n"
+             "[--arena-blocks 2|4|8|16] [--gaussian-adaptive-bounds]\n"
              "Fixtures: reference, million-triangles, ten-thousand-meshes, "
              "thousand-instances, gpu-driven-small-objects, "
              "gpu-driven-diverse-objects, gpu-driven-textured-objects, "
@@ -851,6 +862,10 @@ void WriteBaseline(std::ostream& stream, const Baseline& baseline,
       count.gaussian_gpu_tile_pair_capacity);
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_requested_pair_count",
       count.gaussian_gpu_tile_requested_pair_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_rejected_pair_count",
+      count.gaussian_gpu_tile_rejected_pair_count);
+  WriteCounter(stream, counter_indent, "gaussian_gpu_tile_culled_record_count",
+      count.gaussian_gpu_tile_culled_record_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_pair_count",
       count.gaussian_gpu_tile_pair_count);
   WriteCounter(stream, counter_indent, "gaussian_gpu_tile_pair_overflow_count",
@@ -1280,7 +1295,9 @@ merlin::vulkan::RenderResult Render(
     request.gpu_driven_gaussian_raster =
         merlin::vulkan::GpuDrivenGaussianRasterMode::Require;
   }
-  if (gaussian_execution == GaussianExecution::GpuTiled) {
+  if (UsesGaussianTiles(gaussian_execution)) {
+    request.gaussian_adaptive_tile_bounds =
+        gaussian_execution == GaussianExecution::GpuTiledAdaptive;
     request.gpu_driven_gaussian_tiles =
         merlin::vulkan::GpuDrivenGaussianTileMode::Require;
     request.gpu_driven_gaussian_tile_raster =
@@ -1390,10 +1407,11 @@ GaussianComparison CompareGaussianOutput(std::string name,
   }
   // Preserve the existing six-step tiled bound. Both paths now accumulate in
   // float; rare depth-tied particle IDs can change at the raster cutoff rim.
-  const auto tolerance = execution == GaussianExecution::GpuTiled ? 6U : 2U;
+  const bool exact_tiles_comparison = execution == GaussianExecution::GpuTiledAdaptive;
+  const auto tolerance = exact_tiles_comparison ? 0U : UsesGaussianTiles(execution) ? 6U : 2U;
+  const bool exact_ids = exact_tiles_comparison || execution == GaussianExecution::GpuSortedStream;
   result.passed = !(result.max_color_channel_error > tolerance || result.depth_pixels != 0 ||
-      result.prim_id_pixels != 0 ||
-      (execution == GaussianExecution::GpuSortedStream && result.instance_id_pixels != 0) ||
+      result.prim_id_pixels != 0 || (exact_ids && result.instance_id_pixels != 0) ||
       result.instance_id_pixels * 100U > reference.depth.pixels.size());
   // Keep the full capture for diagnosing a failure. The executable returns
   // failure after writing the report, so this cannot silently pass a gate.
@@ -1415,7 +1433,7 @@ void RequireGaussianGpuFrame(const merlin::vulkan::RenderResult& result,
       c.gaussian_gpu_tile_raster_overflow_fallback_count != 0 ||
       c.gaussian_gpu_sort_reference_divergence_count != 0 ||
       c.gaussian_gpu_tile_reference_divergence_count != 0 ||
-      (execution == GaussianExecution::GpuTiled && c.gaussian_gpu_tile_raster_frame_count != 1) ||
+      (UsesGaussianTiles(execution) && c.gaussian_gpu_tile_raster_frame_count != 1) ||
       (execution == GaussianExecution::GpuSortedStream && c.gaussian_gpu_raster_indirect_draw_count != 2)) {
     throw std::runtime_error("Gaussian GPU sample uploaded, traversed, allocated, or fell back");
   }
@@ -1918,8 +1936,15 @@ int main(int argc, char** argv) {
         };
         merlin::vulkan::RenderResult static_reference;
         merlin::vulkan::RenderResult motion_reference;
+        merlin::vulkan::RenderResult static_tiled_reference;
+        merlin::vulkan::RenderResult motion_tiled_reference;
         for (const auto execution : {GaussianExecution::Cpu,
-                 GaussianExecution::GpuSortedStream, GaussianExecution::GpuTiled}) {
+                 GaussianExecution::GpuSortedStream, GaussianExecution::GpuTiled,
+                 GaussianExecution::GpuTiledAdaptive}) {
+          const bool adaptive = execution == GaussianExecution::GpuTiledAdaptive;
+          if (adaptive && !arguments.gaussian_adaptive_bounds) {
+            continue;
+          }
           gaussian_execution = execution;
           const auto path = std::string(GaussianExecutionName(execution));
           move_camera(0);
@@ -1933,7 +1958,12 @@ int main(int argc, char** argv) {
           } else {
             RequireGaussianGpuFrame(static_result, execution);
             gaussian_comparisons.push_back(CompareGaussianOutput(
-                "static-" + path, static_reference, static_result, execution));
+                "static-" + path, adaptive ? static_tiled_reference : static_reference,
+                static_result, execution));
+            if (execution == GaussianExecution::GpuTiled &&
+                arguments.gaussian_adaptive_bounds) {
+              static_tiled_reference = std::move(static_result);
+            }
           }
           move_camera(1);
           (void)render();
@@ -1961,7 +1991,12 @@ int main(int argc, char** argv) {
             motion_reference = std::move(last_result);
           } else {
             gaussian_comparisons.push_back(CompareGaussianOutput(
-                "camera-motion-" + path, motion_reference, last_result, execution));
+                "camera-motion-" + path, adaptive ? motion_tiled_reference : motion_reference,
+                last_result, execution));
+            if (execution == GaussianExecution::GpuTiled &&
+                arguments.gaussian_adaptive_bounds) {
+              motion_tiled_reference = std::move(last_result);
+            }
           }
         }
         gaussian_execution = GaussianExecution::Cpu;

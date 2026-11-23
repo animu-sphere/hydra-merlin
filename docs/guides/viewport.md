@@ -133,25 +133,28 @@ final attribute size.
 
 ## Gaussian execution
 
-The CPU-sorted path is the default and the reference. Two policies select
-optional GPU execution:
+The CPU-sorted path is the default and the reference. These settings select
+optional GPU execution.
 
 | Policy | Values | Meaning |
 | --- | --- | --- |
 | GPU execution | `disabled` (default), `prefer`, `require` | `prefer` falls back per stage when a GPU stage is unavailable; `require` reports unsupported capabilities instead of falling back. |
 | Raster | `sorted-stream`, `tiled` | `tiled` selects the compute tile raster. A tiled frame that exceeds its pair capacity keeps the complete GPU sorted-stream draw. |
+| Adaptive tile bounds | off (Exact), on | Bounds the tile footprint using the projected conic and raster alpha floor. Applies to tiled execution. |
 
-In the native viewport, pass `--gaussian-gpu` and `--gaussian-raster`:
+Pass `--gaussian-gpu` and `--gaussian-raster` to the native viewport. Add
+`--gaussian-adaptive-bounds` to enable adaptive binning.
 
 ```powershell
 ost renderer viewport --intent viewport-usd --profile usd -- `
-  --usd C:/path/to/gaussians.usd --gaussian-gpu prefer --gaussian-raster tiled
+  --usd C:/path/to/gaussians.usd --gaussian-gpu prefer --gaussian-raster tiled --gaussian-adaptive-bounds
 ```
 
 In usdview, the **Hydra Settings** menu has **GPU Gaussian execution**
-(`prefer` when checked) and **Gaussian tile raster** checkboxes. Other Hydra
-hosts see the same two flags, `merlin:gpuDrivenGaussian:enabled` and
-`merlin:gpuDrivenGaussian:tiled`, and can also set
+(`prefer` when checked), **Gaussian tile raster** and **Gaussian adaptive tile
+bounds** checkboxes. Hydra hosts can set `merlin:gpuDrivenGaussian:enabled`,
+`merlin:gpuDrivenGaussian:tiled`, `merlin:gpuDrivenGaussian:adaptiveBounds`,
+and
 `merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster` to the
 names above, for example to select `require`. A rejected value is reported as
 a `renderer-settings.*` warning and the previous policy stays applied. The

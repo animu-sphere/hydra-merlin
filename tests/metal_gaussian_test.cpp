@@ -1,3 +1,5 @@
+#include "gaussian_adaptive_fixture.hpp"
+
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/metal/backend.hpp>
@@ -419,18 +421,21 @@ int RunTileOverflow() {
     Require(tiled.telemetry.gaussian_gpu_tile_raster_frame_count == 1,
         "large tile frame did not select compute raster");
     request.gpu_driven_gaussian.tile_pair_capacity = 256;
-    const auto overflow = backend->Resolve(backend->Submit(request));
-    Require(overflow.telemetry.gaussian_gpu_tile_raster_frame_count == 0 &&
-                overflow.telemetry.gaussian_gpu_tile_raster_overflow_fallback_count == 1 &&
-                overflow.telemetry.gaussian_gpu_tile_requested_pair_count >
-                    overflow.telemetry.gaussian_gpu_tile_pair_capacity &&
-                overflow.telemetry.gaussian_gpu_raster_instance_count == 300,
-        "tile overflow did not keep the complete sorted draw");
-    Require(overflow.color.pixels == sorted.color.pixels &&
-                overflow.depth.pixels == sorted.depth.pixels &&
-                overflow.prim_id.pixels == sorted.prim_id.pixels &&
-                overflow.instance_id.pixels == sorted.instance_id.pixels,
-        "tile overflow changed the sorted image");
+    for (const bool adaptive : {false, true}) {
+      request.gpu_driven_gaussian.adaptive_tile_bounds = adaptive;
+      const auto overflow = backend->Resolve(backend->Submit(request));
+      Require(overflow.telemetry.gaussian_gpu_tile_raster_frame_count == 0 &&
+                  overflow.telemetry.gaussian_gpu_tile_raster_overflow_fallback_count == 1 &&
+                  overflow.telemetry.gaussian_gpu_tile_requested_pair_count >
+                      overflow.telemetry.gaussian_gpu_tile_pair_capacity &&
+                  overflow.telemetry.gaussian_gpu_raster_instance_count == 300,
+          "tile overflow did not keep the complete sorted draw");
+      Require(overflow.color.pixels == sorted.color.pixels &&
+                  overflow.depth.pixels == sorted.depth.pixels &&
+                  overflow.prim_id.pixels == sorted.prim_id.pixels &&
+                  overflow.instance_id.pixels == sorted.instance_id.pixels,
+          "tile overflow changed the sorted image");
+    }
     request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Prefer;
     request.gpu_driven_gaussian.tile_pair_capacity =
         std::numeric_limits<std::uint32_t>::max();
@@ -453,6 +458,150 @@ int RunTileOverflow() {
     }
     Require(rejected, "required unsupported tile capacity was accepted");
     std::cout << "Metal tile selection and overflow image passed\n";
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}
+
+int RunAdaptiveTileBounds() {
+  using namespace merlin;
+  metal::BackendFactory factory;
+  if (!factory.availability().available) return 77;
+  try {
+    render::BackendCreateInfo info;
+    info.enable_validation = true;
+    auto backend = factory.Create(info);
+    RenderWorld world;
+    extraction::SceneExtractor extractor;
+    world.CreateGaussian(test::AdaptiveGaussianFixture());
+    extractor.Apply(world, world.Commit());
+    render::RenderRequest request;
+    request.width = test::kAdaptiveWidth;
+    request.height = test::kAdaptiveHeight;
+    request.products = {{Aov::Color, true}, {Aov::Depth, true},
+        {Aov::PrimId, true}, {Aov::InstanceId, true}};
+    request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Require;
+    request.gpu_driven_gaussian.raster = render::GaussianRasterPath::Tiled;
+    for (int step = -test::kAdaptiveCameraSteps; step <= test::kAdaptiveCameraSteps; ++step) {
+      request.snapshot = test::AdaptiveCameraFrame(*extractor.snapshot(), step);
+      request.gpu_driven_gaussian.adaptive_tile_bounds = false;
+      const auto exact = backend->Resolve(backend->Submit(request));
+      request.gpu_driven_gaussian.adaptive_tile_bounds = true;
+      const auto adaptive = backend->Resolve(backend->Submit(request));
+      const auto& counters = adaptive.telemetry;
+      Require(exact.telemetry.gaussian_gpu_tile_raster_frame_count == 1 &&
+                  exact.telemetry.gaussian_gpu_tile_rejected_pair_count == 0 &&
+                  counters.gaussian_gpu_tile_raster_frame_count == 1 &&
+                  counters.gaussian_gpu_tile_rejected_pair_count > 0 &&
+                  counters.gaussian_gpu_tile_culled_record_count == 1 &&
+                  counters.gaussian_gpu_tile_requested_pair_count +
+                          counters.gaussian_gpu_tile_rejected_pair_count ==
+                      exact.telemetry.gaussian_gpu_tile_requested_pair_count,
+          "adaptive tile bins did not reject the expected pairs and record");
+      Require(exact.color.pixels == adaptive.color.pixels &&
+                  exact.depth.pixels == adaptive.depth.pixels &&
+                  exact.prim_id.pixels == adaptive.prim_id.pixels &&
+                  exact.instance_id.pixels == adaptive.instance_id.pixels,
+          "adaptive tile bounds changed a camera frame");
+    }
+    std::cout << "Metal adaptive tile bounds matched Exact for 17 camera poses\n";
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}
+
+int RunAdaptiveTileScale() {
+  using namespace merlin;
+  metal::BackendFactory factory;
+  if (!factory.availability().available) return 77;
+  try {
+    std::cout << "particles,phase,frame,path,wall_ns,gpu_ns,prepare_ns,sort_ns,tile_ns,raster_ns,requested_pairs,rejected_pairs,culled_records\n";
+    for (const std::uint32_t count : {65536U, 1048576U}) {
+      auto backend = factory.Create({});
+      RenderWorld world;
+      extraction::SceneExtractor extractor;
+      GaussianDescriptor gaussian;
+      gaussian.positions.reserve(count);
+      gaussian.covariances.reserve(count);
+      gaussian.opacities.reserve(count);
+      gaussian.spherical_harmonics_coefficients.assign(count, {0.2F, 0.5F, 0.1F});
+      constexpr float opacities[]{0.003F, 0.012F, 0.085F, 0.6F};
+      for (std::uint32_t i = 0; i < count; ++i) {
+        gaussian.positions.push_back({static_cast<float>(i % 1024) / 512.0F - 1.0F,
+            static_cast<float>((i / 1024) % 1024) / 512.0F - 1.0F,
+            0.25F + static_cast<float>(i % 256) / 512.0F});
+        gaussian.covariances.push_back((i & 4U) == 0U
+            ? Covariance3{0.00018F, 0.00002F, 0, 0.000009F, 0, 0.000001F}
+            : Covariance3{0.000009F, -0.00002F, 0, 0.00018F, 0, 0.000001F});
+        gaussian.opacities.push_back(opacities[i % 4]);
+      }
+      world.CreateGaussian(std::move(gaussian));
+      extractor.Apply(world, world.Commit());
+      render::RenderRequest request;
+      request.width = request.height = 512;
+      request.products = {{Aov::Color, true}, {Aov::Depth, true},
+          {Aov::PrimId, true}, {Aov::InstanceId, true}};
+      request.gpu_driven_gaussian.mode = render::GpuDrivenGaussianMode::Require;
+      request.gpu_driven_gaussian.raster = render::GaussianRasterPath::Tiled;
+      constexpr unsigned warmup = 5;
+      constexpr unsigned samples = 40;
+      for (const bool motion : {false, true}) {
+        for (unsigned i = 0; i < warmup + samples; ++i) {
+          auto scene = std::make_shared<extraction::FrameSnapshot>(*extractor.snapshot());
+          if (motion) {
+            scene->view.values[12] = 0.05F * std::sin(static_cast<float>(i) * 0.1F);
+            scene->view.values[13] = 0.05F * std::sin(static_cast<float>(i) * 0.07F);
+          }
+          request.snapshot = std::move(scene);
+          render::RenderResult frames[2];
+          std::int64_t wall[2]{};
+          // Alternate submission order so neither mode always follows the other.
+          for (const bool adaptive : {i % 2 != 0, i % 2 == 0}) {
+            request.gpu_driven_gaussian.adaptive_tile_bounds = adaptive;
+            const auto begin = std::chrono::steady_clock::now();
+            frames[adaptive] = backend->Resolve(backend->Submit(request));
+            wall[adaptive] = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - begin).count();
+          }
+          const auto& exact = frames[0];
+          const auto& adaptive = frames[1];
+          Require(exact.color.pixels == adaptive.color.pixels &&
+                      exact.depth.pixels == adaptive.depth.pixels &&
+                      exact.prim_id.pixels == adaptive.prim_id.pixels &&
+                      exact.instance_id.pixels == adaptive.instance_id.pixels &&
+                      exact.telemetry.gaussian_gpu_tile_raster_frame_count == 1 &&
+                      adaptive.telemetry.gaussian_gpu_tile_raster_frame_count == 1,
+              "adaptive tile scale comparison changed the image or fell back");
+          Require(adaptive.telemetry.gaussian_gpu_tile_rejected_pair_count > 0 &&
+                      adaptive.telemetry.gaussian_gpu_tile_requested_pair_count +
+                              adaptive.telemetry.gaussian_gpu_tile_rejected_pair_count ==
+                          exact.telemetry.gaussian_gpu_tile_requested_pair_count,
+              "adaptive tile scale comparison did not reduce pair counts");
+          if (i < warmup) continue;
+          for (const bool is_adaptive : {false, true}) {
+            const auto& frame = frames[is_adaptive];
+            const auto& counters = frame.telemetry;
+            if (counters.gaussian_attribute_upload_bytes != 0 ||
+                counters.gaussian_upload_bytes != 0)
+              throw std::runtime_error("measured Gaussian frame uploaded particles");
+            std::cout << count << ',' << (motion ? "camera" : "static")
+                      << ',' << i - warmup << ',' << (is_adaptive ? "adaptive" : "exact")
+                      << ',' << wall[is_adaptive] << ',' << frame.timings.gpu_execution_ns
+                      << ',' << frame.timings.gaussian_gpu_preparation_ns
+                      << ',' << frame.timings.gaussian_gpu_sort_ns
+                      << ',' << frame.timings.gaussian_gpu_tile_ns
+                      << ',' << frame.timings.gaussian_raster_ns
+                      << ',' << counters.gaussian_gpu_tile_requested_pair_count
+                      << ',' << counters.gaussian_gpu_tile_rejected_pair_count
+                      << ',' << counters.gaussian_gpu_tile_culled_record_count << '\n';
+          }
+        }
+      }
+    }
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
@@ -691,12 +840,16 @@ int RunDenseComposite() try {
 int main(int argc, char** argv) {
   if (argc == 2 && std::string_view(argv[1]) == "--benchmark") return Benchmark();
   if (argc == 2 && std::string_view(argv[1]) == "--tile-scale") return RunTileScale();
+  if (argc == 2 && std::string_view(argv[1]) == "--adaptive-tile-scale")
+    return RunAdaptiveTileScale();
   const int cpu = RunImages(false);
   if (cpu) return cpu;
   const int gpu = RunImages(true);
   if (gpu) return gpu;
   const int overflow = RunTileOverflow();
   if (overflow) return overflow;
+  const int adaptive = RunAdaptiveTileBounds();
+  if (adaptive) return adaptive;
   const int dense = RunDenseComposite();
   if (dense)
     return dense;

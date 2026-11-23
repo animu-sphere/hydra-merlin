@@ -163,7 +163,10 @@ then static and camera-motion phases for `cpu`, `gpu-sorted-stream`, and
 translation sequence. All reusable contexts are warmed before static sampling.
 GPU samples individually require zero source/prepared uploads, allocations,
 CPU preparation and stage/overflow fallback. Gaussian compute descriptor writes
-still occur and are reported; they are not a zero-work gate.
+still occur and are reported. Add `--gaussian-adaptive-bounds` to measure
+`gpu-tiled-adaptive` on a Gaussian fixture. Its static and final moving AOVs
+must match the Exact GPU tile phase byte for byte. Compare requested and
+rejected pairs, binning and raster timestamps, and total GPU and frame time.
 
 `gaussian_verification` compares static and final moving images outside the
 timed samples. Sorted-stream permits two RGBA8 steps and requires exact
@@ -252,7 +255,7 @@ allocation/upload checks. The host report uses the HgiMetal copy counters and
 checks zero renderer image readback and zero bridge downloads on unselected
 GPU-copy frames. GPU Gaussian
 frames add 32 bytes of control plus 32 bytes per resource to readback telemetry;
-tiled frames add another 44 bytes of pair/selection counters.
+tiled frames add another 52 bytes of pair and selection counters.
 
 For a deterministic Apple GPU offscreen image and timing comparison at 65K and
 1M particles, run `merlin-metal-gaussian-tests --tile-scale`. It prints CSV for
@@ -262,6 +265,14 @@ bytes and maximum RGBA8
 channel difference. The command fails on a color difference above 2/255 or
 any depth/ID mismatch. GPU timing is device-local; wall time includes the
 requested four-AOV readback.
+
+For the Exact/adaptive comparison, run
+`merlin-metal-gaussian-tests --adaptive-tile-scale`. It reports 40 warmed
+samples per phase and mode at 512×512 for 65,536 and 1,048,576 anisotropic
+splats with mixed opacities. The two modes alternate submission order and use
+the same scene and camera each frame. The check requires identical RGBA8,
+depth and IDs, tile raster selection and fewer requested pairs. The CSV records
+rejections, preparation, sort, tile, raster, total GPU and wall times.
 
 ```sh
 sdk=/path/to/openusd-2608-prefix
@@ -305,7 +316,7 @@ Native viewport benchmark JSON separates `image_readback_bytes` from total
 `readback_bytes`, which includes GPU control/counter telemetry. It also reports
 actual sorted/tiled, overflow, CPU fallback and float-color frame counts.
 `merlin-viewport-metal-gaussian-no-readback` requires eight presented tiled
-frames, no image readback/fallback/overflow, and 8 * 108 bytes of counters.
+frames, no image readback/fallback/overflow, and 8 * 116 bytes of counters.
 
 ### Reference baselines
 

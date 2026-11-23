@@ -247,6 +247,8 @@ public:
             GpuDrivenGaussianRasterMode::Prefer,
             GpuDrivenGaussianRasterMode::Require);
     if (tiled) {
+      native.gaussian_tile_pair_capacity = gaussian.tile_pair_capacity;
+      native.gaussian_adaptive_tile_bounds = gaussian.adaptive_tile_bounds;
       native.gpu_driven_gaussian_tiles =
           gaussian_stage(GpuDrivenGaussianTileMode::Disabled,
               GpuDrivenGaussianTileMode::Prefer,
@@ -391,6 +393,16 @@ public:
         native.counters.gaussian_gpu_sorted_count;
     result.telemetry.gaussian_gpu_raster_instance_count =
         native.counters.gaussian_gpu_raster_instance_count;
+    result.telemetry.gaussian_gpu_tile_pair_capacity =
+        native.counters.gaussian_gpu_tile_pair_capacity;
+    result.telemetry.gaussian_gpu_tile_requested_pair_count =
+        native.counters.gaussian_gpu_tile_requested_pair_count;
+    result.telemetry.gaussian_gpu_tile_clamped_record_count =
+        native.counters.gaussian_gpu_tile_clamped_record_count;
+    result.telemetry.gaussian_gpu_tile_rejected_pair_count =
+        native.counters.gaussian_gpu_tile_rejected_pair_count;
+    result.telemetry.gaussian_gpu_tile_culled_record_count =
+        native.counters.gaussian_gpu_tile_culled_record_count;
     result.telemetry.gaussian_gpu_tile_raster_frame_count =
         native.counters.gaussian_gpu_tile_raster_frame_count;
     result.telemetry.gaussian_float_color_frame_count =

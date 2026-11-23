@@ -25,7 +25,7 @@ class Backend;
 PXR_NAMESPACE_OPEN_SCOPE
 
 // Hydra keys for Gaussian execution, lit Forward output and the Forward
-// surface debug view. Gaussian names remain unlisted aliases of the two flags.
+// surface debug view. Gaussian execution and raster names remain unlisted.
 // Exposure accepts float/double EV; tone mapping accepts none/reinhard and the
 // debug view none/normal/geometric-normal/shading-normal-base/front-facing,
 // as strings or tokens.
@@ -35,6 +35,7 @@ PXR_NAMESPACE_OPEN_SCOPE
   ((gpuDrivenGaussianRaster, "merlin:gpuDrivenGaussian:raster"))        \
   ((gpuDrivenGaussianEnabled, "merlin:gpuDrivenGaussian:enabled"))      \
   ((gpuDrivenGaussianTiled, "merlin:gpuDrivenGaussian:tiled"))          \
+  ((gpuDrivenGaussianAdaptiveBounds, "merlin:gpuDrivenGaussian:adaptiveBounds")) \
   ((exposureEv, "merlin:exposureEv"))                                   \
   ((toneMapping, "merlin:toneMapping"))                                 \
   ((debugView, "merlin:debugView"))

@@ -449,6 +449,7 @@ int main(int argc, char** argv) {
       RequireField(tile, "offsets_offset", 24, 4);
       RequireField(tile, "ranges_offset", 28, 4);
       RequireField(tile, "record_pair_limit", 32, 4);
+      RequireField(tile, "adaptive_bounds", 36, 4);
       // Tile pairs use the sort element layout, and the records are the
       // gathered copies of the preparation's records.
       RequireContains(tile, "\"name\":\"GaussianSortElement\"",
@@ -598,7 +599,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 15);
+    static_assert(kVersion == 16);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
@@ -669,8 +670,9 @@ int main(int argc, char** argv) {
                   kGaussianTileRasterDepth.resource_class ==
                       ResourceClass::SampledImage);
     static_assert(kGaussianTileRasterWorkgroupSize == 256);
-    static_assert(kGaussianTileRasterSelectedWord + 1U ==
-                  kGaussianTileControlWordCount);
+    static_assert(offsetof(GaussianTileVerification, culled_record_count) +
+                      sizeof(std::uint32_t) ==
+                  kGaussianTileControlWordCount * sizeof(std::uint32_t));
     static_assert(GaussianTileGridSize(0) == 0);
     static_assert(GaussianTileGridSize(1) == 1);
     static_assert(GaussianTileGridSize(16) == 1);
@@ -706,6 +708,20 @@ int main(int argc, char** argv) {
                   !GaussianTileBounds({8.0F, 8.0F},
                       std::numeric_limits<float>::quiet_NaN(), 64, 64, rect),
           "a degenerate radius produced tiles");
+
+      constexpr merlin::Vec2 center{56.5F, 40.5F};
+      constexpr merlin::Vec3 conic{0.01F, -0.02F, 0.2F};
+      const auto extent = GaussianContributionExtent(center, 32.0F, conic, 0.02F);
+      Require(GaussianTileBounds(center, extent, 96, 80, rect) &&
+                  rect.x0 == 2 && rect.x1 == 4 && rect.y0 == 2 && rect.y1 == 2,
+          "adaptive bounds missed the anisotropic footprint");
+      Require(GaussianContributionExtent(center, 32.0F, conic, 0.003F).x == 0.0F &&
+                  GaussianContributionExtent(center, 32.0F, conic, 1.0F / 255.0F).x > 0.0F,
+          "adaptive bounds culled the raster alpha boundary incorrectly");
+      const auto fallback = GaussianContributionExtent(
+          center, 32.0F, {0.1F, 0.1F, 0.1F}, 0.003F);
+      Require(fallback.x == 32.0F && fallback.y == 32.0F,
+          "adaptive bounds did not keep the Exact square for a singular conic");
     }
     static_assert(GaussianSortWorkgroupCount(0) == 0);
     static_assert(GaussianSortWorkgroupCount(256) == 1);

@@ -11,6 +11,38 @@ Legend: ✅ done
 
 ---
 
+## v0.17.0 adaptive Gaussian tile bounds — 2026-11-23
+
+Local Release validation used Apple M3, macOS 15.7.9, Xcode 16.4 and Slang
+2026.8 from the `8444e7f` baseline with the adaptive-bounds changes. The
+Metal SDK suite passed 37/37. The validated offscreen fixture matched the
+Exact RGBA8, depth, primId and instanceId AOVs at 17 camera poses. Vulkan
+compiled with 1.4.350 headers and passed shader ABI reflection. The Vulkan
+runtime case skipped on this host.
+
+The native Metal viewport loaded the public 8,192-particle Leica fixture
+through Hydra at 512×384. Both modes presented six tiled frames with zero
+overflow, fallback or validation messages. The PPM captures were byte
+identical. Adaptive bounds reduced requested pairs from 17,818 to 14,590.
+
+`merlin-metal-gaussian-tests --adaptive-tile-scale` compared 40 warmed
+static and 40 warmed camera frames per mode and size at 512×512, with mixed
+opacity and anisotropic conics. Both modes selected tile raster and every
+compared frame produced identical four-AOV output. The table reports median
+requested pairs and total GPU time. Clock and power settings were unpinned.
+
+| Particles | Phase | Median pairs, Exact → adaptive | Median GPU ms | p95 GPU ms | p99 GPU ms |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 65,536 | Static | 272,426 → 116,384 | 5.83 → 4.02 | 6.30 → 4.50 | 6.50 → 4.57 |
+| 65,536 | Camera | 320,487 → 127,670 | 6.40 → 4.54 | 7.06 → 5.30 | 7.63 → 5.52 |
+| 1,048,576 | Static | 4,986,289 → 2,040,816 | 56.93 → 40.57 | 57.35 → 40.75 | 57.61 → 40.89 |
+| 1,048,576 | Camera | 5,089,472 → 2,013,746 | 56.53 → 40.20 | 57.96 → 41.21 | 58.42 → 41.82 |
+
+For the 1M camera phase, median binning time changed from 18.98 to 12.45 ms
+and median raster time from 20.97 to 11.25 ms. The local CSV is
+`build/v017-metal-adaptive-tile-scale.csv`. The capture uses synthetic scenes
+on one GPU.
+
 ## v0.16.7 Metal Forward validation — 2026-11-23
 
 Local Release verification started from `b2e4ece` on Apple M3, macOS 15.7.9,

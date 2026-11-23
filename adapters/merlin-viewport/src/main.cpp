@@ -171,6 +171,8 @@ Arguments ParseArguments(int argc, char** argv) {
       result.gpu_driven_gaussian.mode = ReadGaussianMode(next());
     } else if (option == "--gaussian-raster") {
       result.gpu_driven_gaussian.raster = ReadGaussianRaster(next());
+    } else if (option == "--gaussian-adaptive-bounds") {
+      result.gpu_driven_gaussian.adaptive_tile_bounds = true;
     } else if (option == "--validate") {
       result.validation = true;
     } else if (option == "--vsync") {
@@ -202,7 +204,7 @@ Arguments ParseArguments(int argc, char** argv) {
              "  --metal-gaussian-residency-mib N (default 1024)\n"
              "  --metal-gaussian-scratch-mib N (default 1024)\n"
              "  --gaussian-gpu disabled|prefer|require\n"
-             "  --gaussian-raster sorted-stream|tiled\n"
+             "  --gaussian-raster sorted-stream|tiled --gaussian-adaptive-bounds\n"
              "  --frames N --benchmark report.json --screenshot image.ppm\n"
              "  --usd scene.usd --hidden --reference-check --resize-test\n"
              "  --allow-unavailable (capability-test skip)\n"

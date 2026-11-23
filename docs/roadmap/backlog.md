@@ -1,8 +1,8 @@
 # Backlog
 
-Deferred work and later milestones, organized by milestone. Active v0.16.x
-work and its exit conditions are in [current](current.md); shipped changes are
-in the [changelog](../../CHANGELOG.md), and pipeline contracts in
+Deferred work and later milestones, organized by milestone. Active work is in
+[current](current.md). Shipped changes are in the [changelog](../../CHANGELOG.md)
+and pipeline contracts are in
 [design](../design/). When an item becomes active, its actionable detail moves
 to `current.md`; when it ships, it is removed here. Version labels may move when
 capability, integration, or benchmark evidence changes the dependency order.

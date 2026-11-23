@@ -76,10 +76,14 @@ struct SortConstants {
   std::uint32_t flags{};
 };
 
+inline constexpr std::uint32_t kTileRejectedPairCountWord = 11;
+inline constexpr std::uint32_t kTileCulledRecordCountWord = 12;
+inline constexpr std::uint32_t kTileControlWordCount = 13;
+
 struct alignas(16) TileConstants {
   std::uint32_t record_bound{}, pair_capacity{}, tile_count_x{}, tile_count_y{};
   std::uint32_t viewport_width{}, viewport_height{}, offsets_offset{}, ranges_offset{};
-  std::uint32_t record_pair_limit{}, padding[3]{};
+  std::uint32_t record_pair_limit{}, adaptive_bounds{}, padding[2]{};
 };
 
 struct alignas(16) TileRasterConstants {
@@ -106,6 +110,7 @@ static_assert(offsetof(GatherConstants, flags) == 8);
 static_assert(sizeof(SortElement) == 12);
 static_assert(sizeof(SortConstants) == 48);
 static_assert(sizeof(TileConstants) == 48);
+static_assert(offsetof(TileConstants, adaptive_bounds) == 36);
 static_assert(sizeof(TileRasterConstants) == 32);
 static_assert(offsetof(SortConstants, scan_offset) == 16);
 static_assert(offsetof(SortConstants, visible_count_offset) == 36);

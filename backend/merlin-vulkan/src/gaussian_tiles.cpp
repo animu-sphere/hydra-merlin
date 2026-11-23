@@ -132,10 +132,15 @@ void Renderer::Impl::ComputeGaussianTileReference(GaussianGpuTileFrameResources&
   std::uint64_t requested{};
   const auto& gaussians = prepared_gaussians_.gaussians;
   for (std::size_t record = 0; record < gaussians.size(); ++record) {
+    const auto& gaussian = gaussians[record];
+    const auto extent = constants.adaptive_bounds
+                            ? shader_abi::GaussianContributionExtent(
+                                  gaussian.center_pixels, gaussian.radius_pixels,
+                                  gaussian.inverse_conic, gaussian.opacity)
+                            : Vec2{gaussian.radius_pixels, gaussian.radius_pixels};
     shader_abi::GaussianTileRect rect;
-    if (!shader_abi::GaussianTileBounds(gaussians[record].center_pixels,
-            gaussians[record].radius_pixels, constants.viewport_width,
-            constants.viewport_height, rect)) {
+    if (!shader_abi::GaussianTileBounds(gaussian.center_pixels, extent,
+            constants.viewport_width, constants.viewport_height, rect)) {
       continue;
     }
     std::uint32_t remaining = constants.record_pair_limit;
@@ -292,6 +297,7 @@ Renderer::Impl::GaussianGpuStageSelection Renderer::Impl::PrepareGaussianGpuTile
   constants.tile_count_y = tile_count_y;
   constants.viewport_width = request.width;
   constants.viewport_height = request.height;
+  constants.adaptive_bounds = request.gaussian_adaptive_tile_bounds;
   constants.offsets_offset = shader_abi::kGaussianTileControlWordCount;
   constants.ranges_offset = static_cast<std::uint32_t>(*ranges_offset);
   // Every per-record count stays within this limit, so the padded prefix
@@ -811,6 +817,10 @@ void Renderer::Impl::ResolveGaussianGpuTiles(FrameContext& frame) {
       verification.requested_pair_count;
   frame_counters_.gaussian_gpu_tile_pair_count =
       verification.verified_pair_count;
+  frame_counters_.gaussian_gpu_tile_rejected_pair_count =
+      verification.rejected_pair_count;
+  frame_counters_.gaussian_gpu_tile_culled_record_count =
+      verification.culled_record_count;
   frame_counters_.gaussian_gpu_tile_pair_overflow_count =
       verification.requested_pair_count - stored;
   frame_counters_.gaussian_gpu_tile_clamped_record_count =

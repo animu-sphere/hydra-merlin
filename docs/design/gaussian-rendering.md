@@ -175,12 +175,31 @@ status lives in the [support matrix](../reference/support-matrix.md).
 
 ### Contribution-aware culling and adaptive bounds
 
-Use conservative bounds for Gaussian and Gaussian-tile contribution to reduce
-sorting, pair generation, memory traffic, and blending. `Exact` remains the
-validation path. Record rejection ratios, processed pairs per pixel,
-early-termination depth, saturated tiles, and threshold hits. Versioned
-thresholds must meet declared image, alpha/transmittance, PSNR, SSIM, maximum
-error, and temporal-flicker tolerances without view-dependent popping.
+GPU tile binning offers an opt-in adaptive bound. `Exact` uses the original
+three-sigma square for each sorted record. Adaptive binning uses the raster
+cutoffs to bound the contributing ellipse. For center opacity `o`, alpha
+floor `f = 1/255` and inverse covariance `Q = [[a, b], [b, c]]`, the maximum
+squared Mahalanobis distance is `min(9, 2 log(o/f))`. Minimizing the quadratic
+over the other coordinate gives axis coefficients `a - b²/c` and `c - b²/a`.
+The shader lowers the diagonal coefficients, raises the cross-term magnitude,
+and relaxes the alpha/ellipse cutoffs to bound floating-point rounding. A
+one-pixel margin covers coordinate arithmetic. Coefficients or footprints
+outside the numeric guard use the original square. A record below the guarded
+alpha floor emits no pairs when its guarded conic is positive definite.
+
+Count, emit and verification share the bounds on both GPU backends. Vulkan
+also replays the bounds on the CPU when reference validation is requested.
+`gaussian_gpu_tile_rejected_pair_count` compares adaptive and Exact requested
+pairs with the same per-record limit, before capacity truncation.
+`gaussian_gpu_tile_culled_record_count` counts records that would have emitted
+pairs in Exact and emit none in adaptive mode. The tile raster evaluates the
+same alpha, depth and picking rules in both modes. The full sorted stream
+remains available for overflow fallback.
+
+Further work includes rejecting records before sorting and measuring processed
+pairs per pixel, early-termination depth, saturated tiles and threshold hits.
+Selectable quality thresholds require declared image, alpha/transmittance,
+PSNR, SSIM, maximum error and temporal-flicker tolerances.
 
 ### High-resolution hierarchical tiles
 

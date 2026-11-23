@@ -146,7 +146,7 @@ foreach(_tile count emit ranges verify)
   require_json("${_compute_json}" 48 parameters 0 type elementVarLayout binding size)
   require_json("${_compute_json}" byteAddressBuffer parameters 4 type baseShape)
   check_fields("${_compute_json}" 0
-    "record_bound;pair_capacity;tile_count_x;tile_count_y;viewport_width;viewport_height;offsets_offset;ranges_offset;record_pair_limit;padding0;padding1;padding2"
+    "record_bound;pair_capacity;tile_count_x;tile_count_y;viewport_width;viewport_height;offsets_offset;ranges_offset;record_pair_limit;adaptive_bounds;padding1;padding2"
     "0;4;8;12;16;20;24;28;32;36;40;44")
 endforeach()
 foreach(_tile raster-select raster)

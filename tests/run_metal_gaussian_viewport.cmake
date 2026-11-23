@@ -22,6 +22,6 @@ foreach(key IN ITEMS image_readback_bytes gaussian_gpu_overflow_frames
 endforeach()
 # Tiled control/counters remain readable even when no image AOV is downloaded.
 string(JSON bytes GET "${report}" readback_bytes)
-if(NOT bytes EQUAL 864)
-  message(FATAL_ERROR "Metal viewport expected 8 * 108 telemetry bytes, got ${bytes}")
+if(NOT bytes EQUAL 928)
+  message(FATAL_ERROR "Metal viewport expected 8 * 116 telemetry bytes, got ${bytes}")
 endif()

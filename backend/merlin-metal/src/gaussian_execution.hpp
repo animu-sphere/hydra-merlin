@@ -85,7 +85,7 @@ public:
       const Mat4& view, const Mat4& projection, std::uint32_t width, std::uint32_t height,
       id<MTLCommandBuffer> command, bool device_count = false, bool validate = false,
       id<MTLCounterSampleBuffer> timestamps = nil, bool tiled = false,
-      std::uint32_t requested_pair_capacity = 0);
+      std::uint32_t requested_pair_capacity = 0, bool adaptive_tile_bounds = false);
   void EncodeTileRaster(const Frame& frame, id<MTLCommandBuffer> command,
       id<MTLTexture> color, id<MTLTexture> depth, id<MTLTexture> prim_id,
       id<MTLTexture> instance_id, id<MTLCounterSampleBuffer> timestamps = nil) const;

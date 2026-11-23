@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 15;
+inline constexpr std::uint32_t kVersion = 16;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -292,7 +292,7 @@ inline constexpr std::uint32_t kGaussianTileDefaultPairsPerRecord = 8U;
 inline constexpr std::uint32_t kGaussianTileMinimumPairCapacity = 65536U;
 // Control words at the start of the tile control buffer; the per-record pair
 // offsets, the pair histogram levels, and the tile ranges follow.
-inline constexpr std::uint32_t kGaussianTileControlWordCount = 11U;
+inline constexpr std::uint32_t kGaussianTileControlWordCount = 13U;
 inline constexpr std::uint32_t kGaussianTileRecordCountWord = 0U;
 inline constexpr std::uint32_t kGaussianTileRequestedPairCountWord = 1U;
 inline constexpr std::uint32_t kGaussianTileRasterSelectedWord = 10U;
@@ -312,20 +312,20 @@ struct GaussianTileRect {
   std::uint32_t y1{};
 };
 
-[[nodiscard]] inline bool GaussianTileBounds(Vec2 center, float radius,
+[[nodiscard]] inline bool GaussianTileBounds(Vec2 center, Vec2 extent,
     std::uint32_t width, std::uint32_t height,
     GaussianTileRect& rect) noexcept {
-  if (width == 0U || height == 0U || !(radius > 0.0F) ||
-      !std::isfinite(radius) || !std::isfinite(center.x) ||
-      !std::isfinite(center.y)) {
+  if (width == 0U || height == 0U || !(extent.x > 0.0F && extent.y > 0.0F) ||
+      !std::isfinite(extent.x) || !std::isfinite(extent.y) ||
+      !std::isfinite(center.x) || !std::isfinite(center.y)) {
     return false;
   }
   const auto max_x = static_cast<float>(width - 1U);
   const auto max_y = static_cast<float>(height - 1U);
-  const auto low_x = std::ceil(center.x - radius - 0.5F);
-  const auto low_y = std::ceil(center.y - radius - 0.5F);
-  const auto high_x = std::floor(center.x + radius - 0.5F);
-  const auto high_y = std::floor(center.y + radius - 0.5F);
+  const auto low_x = std::ceil(center.x - extent.x - 0.5F);
+  const auto low_y = std::ceil(center.y - extent.y - 0.5F);
+  const auto high_x = std::floor(center.x + extent.x - 0.5F);
+  const auto high_y = std::floor(center.y + extent.y - 0.5F);
   if (!(high_x >= 0.0F) || !(high_y >= 0.0F) || !(low_x <= max_x) ||
       !(low_y <= max_y) || low_x > high_x || low_y > high_y) {
     return false;
@@ -337,6 +337,43 @@ struct GaussianTileRect {
   rect = {first_x / kGaussianTileSize, first_y / kGaussianTileSize,
       last_x / kGaussianTileSize, last_y / kGaussianTileSize};
   return true;
+}
+
+[[nodiscard]] inline bool GaussianTileBounds(Vec2 center, float radius,
+    std::uint32_t width, std::uint32_t height,
+    GaussianTileRect& rect) noexcept {
+  return GaussianTileBounds(center, Vec2{radius, radius}, width, height, rect);
+}
+
+// Mirrors GaussianContributionExtent in gaussian-tile-common.slang.
+// A zero extent here represents a record below the guarded raster alpha floor.
+[[nodiscard]] inline Vec2 GaussianContributionExtent(Vec2 center, float radius,
+    Vec3 conic, float opacity) noexcept {
+  const Vec2 exact{radius, radius};
+  if (!(conic.x >= 1.0e-20F && conic.z >= 1.0e-20F) ||
+      !std::isfinite(conic.y) || !std::isfinite(opacity) ||
+      std::max(std::abs(center.x), std::abs(center.y)) + radius > 1048576.0F ||
+      !(std::max({conic.x, conic.z, std::abs(conic.y)}) *
+          std::max(1.0F, radius * radius) < 1.0e30F)) {
+    return exact;
+  }
+  constexpr float guard = 1.0e-4F;
+  const Vec2 diagonal{conic.x * (1.0F - guard), conic.z * (1.0F - guard)};
+  const float cross_term = std::abs(conic.y) * (1.0F + guard);
+  const Vec2 lower{
+      (diagonal.x - cross_term * (cross_term / diagonal.y)) * (1.0F - guard),
+      (diagonal.y - cross_term * (cross_term / diagonal.x)) * (1.0F - guard)};
+  if (!(lower.x > 0.0F && lower.y > 0.0F) ||
+      !std::isfinite(lower.x) || !std::isfinite(lower.y)) {
+    return exact;
+  }
+  constexpr float alpha_floor = (1.0F / 255.0F) * (1.0F - guard);
+  if (opacity < alpha_floor) {
+    return {};
+  }
+  const float power = std::min(9.0F, 2.0F * std::log(opacity / alpha_floor)) + guard;
+  return {std::min(radius, std::sqrt(power / lower.x) + 1.0F),
+      std::min(radius, std::sqrt(power / lower.y) + 1.0F)};
 }
 
 // Order-sensitive verification: the tile verify kernel adds
@@ -363,7 +400,8 @@ struct alignas(16) GaussianTileConstants {
   // Pairs one record may emit, in row-major tile order; keeps every prefix
   // sum of per-record counts within uint32.
   std::uint32_t record_pair_limit{};
-  std::uint32_t padding[3]{};
+  std::uint32_t adaptive_bounds{};
+  std::uint32_t padding[2]{};
 };
 
 struct GaussianTileVerification {
@@ -384,6 +422,8 @@ struct GaussianTileVerification {
   // pair was stored and no record was clamped, so tile raster replaces the
   // sorted-stream draws; zero keeps the draws.
   std::uint32_t raster_selected{};
+  std::uint32_t rejected_pair_count{};
+  std::uint32_t culled_record_count{};
 };
 
 // Tile raster composites each tile's pairs front to back in compute, one
@@ -497,6 +537,7 @@ static_assert(alignof(GaussianTileConstants) == 16);
 static_assert(offsetof(GaussianTileConstants, tile_count_x) == 8);
 static_assert(offsetof(GaussianTileConstants, offsets_offset) == 24);
 static_assert(offsetof(GaussianTileConstants, record_pair_limit) == 32);
+static_assert(offsetof(GaussianTileConstants, adaptive_bounds) == 36);
 static_assert(sizeof(GaussianTileConstants) <=
               sizeof(GaussianSortConstants));
 static_assert(sizeof(GaussianTileVerification) ==
