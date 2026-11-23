@@ -45,3 +45,7 @@ and out-of-core execution, production meshlets, Hi-Z, Mesh Shader, Visibility
 Buffer productionization, broad new MaterialX graph coverage, a complete shadow
 system, displacement/parallax and other advanced surface detail, and major new
 renderer architecture experiments.
+
+Subdivision work in v0.16.x is limited to requirements and test scene
+preparation. The [independent Geometry track](backlog.md#v0170--cpu-opensubdiv-and-catmullclark--independent-geometry-track)
+starts after the Forward stabilization exit.

@@ -160,11 +160,11 @@ Every milestone defines its release gates in six categories:
   transparent Mesh, Gaussian primitives, and overlays keep specialized passes.
 - **Stabilize before expanding.** The v0.16.x series makes Forward semantics,
   backend/shader architecture, the output transform, representative scene
-  quality and material parity explicit before v0.17.0 resumes Gaussian
-  optimization. Refactors preserve the established rendering contract; broader
-  MaterialX and Visibility shading claims follow fixture-backed Forward
-  quality. Host camera lights remain explicit inputs rather than a hidden or
-  renderer-specific exposure override.
+  quality and material parity explicit before the v0.17.0 Gaussian optimization
+  and CPU subdivision tracks. Refactors preserve the established rendering
+  contract; broader MaterialX and Visibility shading claims follow fixture-backed
+  Forward quality. Host camera lights remain explicit inputs rather than a
+  hidden or renderer-specific exposure override.
 - **Keep the reference path.** Tier 0 CPU readback remains available for
   headless execution, image comparison, debugging, and unsupported-host
   fallback even when a lower-copy path exists.
