@@ -11,8 +11,9 @@ capability, integration, or benchmark evidence changes the dependency order.
 
 ### v0.17.0 — Contribution-aware Gaussian culling and adaptive bounds
 
-**Goal:** Add conservative Gaussian/tile contribution bounds and selectable
-quality thresholds; retain `Exact` as the validation path.
+**Goal:** Add opt-in conservative Gaussian/tile contribution bounds and
+evaluate higher culling floors against image, temporal and picking evidence.
+Retain `Exact` as the default and validation path.
 
 **Depends on:** Image-producing GPU Gaussian tiling from
 [v0.16.0](../releases/v0.16.0.md), the v0.16.x Forward stabilization exit, and

@@ -6,7 +6,7 @@ on:
       suite:
         description: Capability suite to execute
         type: choice
-        options: [all, hydra, generated]
+        options: [all, hydra, generated, gaussian]
         default: all
 
 permissions:
@@ -152,7 +152,7 @@ jobs:
             build-native/Testing/Temporary/LastTest.log
 
   generated-forward:
-    if: inputs.suite != 'hydra'
+    if: inputs.suite == 'all' || inputs.suite == 'generated'
     name: Generated Forward / ${{ matrix.build_type }}
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 30
@@ -238,6 +238,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Check out the reference Open Chess Set
+        if: inputs.suite != 'gaussian'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: usd-wg/assets
@@ -296,14 +297,17 @@ jobs:
 
       - name: Configure Hydra
         shell: pwsh
-        run: >-
-          cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON
-          -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON
-          "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
-          "-DMERLIN_OPEN_CHESS_SET=${{ github.workspace }}/open-chess-assets/full_assets/OpenChessSet/chess_set.usda"
-          "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT"
-          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}"
-          "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib"
+        run: |
+          $chess = if ('${{ inputs.suite }}' -ne 'gaussian') {
+            "${{ github.workspace }}/open-chess-assets/full_assets/OpenChessSet/chess_set.usda"
+          }
+          cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON `
+          -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON `
+          "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT" `
+          "-DMERLIN_OPEN_CHESS_SET=$chess" `
+          "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT" `
+          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}" `
+          "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib" `
           "-DPython3_INCLUDE_DIR=$env:pythonLocation/include"
 
       - name: Build
@@ -312,19 +316,59 @@ jobs:
           --parallel 4 -- /nodeReuse:false
 
       - name: Run discovery, bridge, RenderBuffer, and viewport tests
+        if: inputs.suite != 'gaussian'
         run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer|hgi-vulkan-bridge)|viewport-(vulkan|hydra))$" --output-on-failure
 
       - name: Run Tier 0 and HgiVulkan usdview regressions
+        if: inputs.suite != 'gaussian'
         run: >-
           ctest --test-dir build -C Release
           -R "^merlin-(install-consumer|vulkan-(install-runtime|material-resources)|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation|normals|chess)-(tier0|hgi-vulkan|comparison)))$"
           --output-on-failure --verbose --no-tests=error --output-junit forward-runtime-tests.xml
 
       - name: Require executed native and host Forward coverage
+        if: inputs.suite != 'gaussian'
         run: python scripts/check-forward-runtime-evidence.py --junit build/forward-runtime-tests.xml
 
+      - name: Record paired Exact and adaptive Gaussian sequences
+        if: inputs.suite == 'gaussian'
+        shell: pwsh
+        run: |
+          $python = '${{ steps.python.outputs.python-path }}'
+          $env:PYTHONPATH = "$env:OPENUSD_ROOT/lib/python"
+          $env:PATH = "$env:OPENUSD_ROOT/bin;$env:OPENUSD_ROOT/lib;$env:PATH"
+          $env:MERLIN_GAUSSIAN_BENCHMARK_WIDTH = '512'
+          $env:MERLIN_GAUSSIAN_BENCHMARK_HEIGHT = '512'
+          $fixtures = [ordered]@{
+            leica = 'adapters/merlin-hydra2/tests/fixtures/leica-sofort-top8192.usdc'
+            'one-million' = 'build/gaussian-sequences/one-million.usdc'
+          }
+          & $python scripts/create-gaussian-benchmark.py $fixtures['one-million']
+          if ($LASTEXITCODE -ne 0) { throw 'Gaussian fixture generation failed' }
+          foreach ($name in $fixtures.Keys) {
+            cmake -DMERLIN_BUILD_DIR=build "-DMERLIN_PXR_ROOT=$env:OPENUSD_ROOT" `
+              "-DMERLIN_PYTHON=$python" "-DMERLIN_TESTUSDVIEW=$env:MERLIN_TESTUSDVIEW_SCRIPT" `
+              "-DMERLIN_GAUSSIAN_SAMPLE=$($fixtures[$name])" -DMERLIN_FORCE_HGI_VULKAN=ON `
+              -DMERLIN_GAUSSIAN_ADAPTIVE_SEQUENCE=ON -DMERLIN_GAUSSIAN_FRAMES=40 `
+              "-DMERLIN_STAGE_DIR=build/gaussian-sequences/$name" `
+              -P tests/run_gaussian_host_benchmark.cmake
+            if ($LASTEXITCODE -ne 0) { throw "Gaussian sequence failed for $name" }
+          }
+
+      - name: Upload Gaussian sequence evidence
+        if: always() && inputs.suite == 'gaussian'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gaussian-vulkan-sequences-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            build/gaussian-sequences/*/capture-provenance.json
+            build/gaussian-sequences/*/gaussian-*.json
+            build/gaussian-sequences/*/gaussian-regression.log
+            build/gaussian-sequences/*/usdview.log
+
       - name: Upload usdview evidence
-        if: always()
+        if: always() && inputs.suite != 'gaussian'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hydra-usdview-${{ matrix.openusd }}-evidence-${{ github.run_id }}
