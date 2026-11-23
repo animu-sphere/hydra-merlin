@@ -574,7 +574,8 @@ int main(int argc, char** argv) {
 
     RequireContains(manifest, "\"schema_version\":2",
         "shader artifact manifest schema mismatch");
-    RequireContains(manifest, "\"shader_abi_version\":14",
+    RequireContains(manifest,
+        "\"shader_abi_version\":" + std::to_string(merlin::vulkan::shader_abi::kVersion),
         "shader ABI manifest version mismatch");
     RequireContains(manifest, "\"required_series\":\"2026.8\"",
         "Slang toolchain series is not pinned");
