@@ -309,7 +309,8 @@ The Vulkan loader-only compilation environment has no Vulkan device. It cannot
 establish new Vulkan image, validation-layer or host execution coverage, and
 this evidence does not close v0.16.3. Independent Vulkan Debug/Release device and
 Hydra runs, followed by refreshed cross-backend comparisons, remain in the
-[current roadmap](../roadmap/current.md#active). Existing support claims and
+[Forward stabilization roadmap](../roadmap/current.md#v016x--forward-renderer-stabilization).
+Existing support claims and
 rendering semantics are unchanged; generated Metal materials and broader
 Forward quality remain separate work.
 
