@@ -44,6 +44,17 @@ ForwardFragmentOutput forward_bindless_fragment(
                     material_constants.normal_map_resource.y)],
                 input.texture_coordinate);
     }
+    float2 scalar_factors = material_constants.surface_factors.xy;
+    if ((draw_constants.feature_mask & kMetallicTextureFlag) != 0u)
+        scalar_factors.x = bindless_textures[NonUniformResourceIndex(
+            material_constants.scalar_texture_resources.x)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    material_constants.scalar_texture_resources.y)], input.texture_coordinate).r;
+    if ((draw_constants.feature_mask & kRoughnessTextureFlag) != 0u)
+        scalar_factors.y = bindless_textures[NonUniformResourceIndex(
+            material_constants.scalar_texture_resources.z)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    material_constants.scalar_texture_resources.w)], input.texture_coordinate).r;
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
-        material_constants, texture_sample, normal_sample));
+        material_constants, texture_sample, normal_sample, scalar_factors));
 }

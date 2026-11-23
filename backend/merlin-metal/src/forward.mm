@@ -233,10 +233,16 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     // for the draw and reported through render::ForwardNormalMapDisabled.
     if (!geometry_record.has_texcoords) {
       constants.feature_mask &=
-          ~static_cast<std::uint32_t>(MaterialFeature::NormalTexture);
+          ~static_cast<std::uint32_t>(MaterialFeature::NormalTexture |
+                                      MaterialFeature::MetallicTexture |
+                                      MaterialFeature::RoughnessTexture);
     }
     const auto normal_map = resolve_texture(
         material.normal_texture, MaterialFeature::NormalTexture);
+    const auto metallic_map = resolve_texture(
+        material.metallic_texture, MaterialFeature::MetallicTexture);
+    const auto roughness_map = resolve_texture(
+        material.roughness_texture, MaterialFeature::RoughnessTexture);
 
     if (material.module) {
       ++build.telemetry.generated_material_fallback_count;
@@ -258,6 +264,9 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     auto material_constants = MakeMaterial(material, lighting, frame_policy);
     material_constants.normal_map_resource = {
         normal_map.texture_index, normal_map.sampler_index, 0U, 0U};
+    material_constants.scalar_texture_resources = {metallic_map.texture_index,
+        metallic_map.sampler_index, roughness_map.texture_index,
+        roughness_map.sampler_index};
     [encoder setRenderPipelineState:use_gpu_scene
                                         ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
                                         : (float_color ? float_pipeline_ : pipeline_)];
@@ -307,6 +316,10 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
       [encoder setFragmentSamplerState:base_color.sampler atIndex:0];
       [encoder setFragmentTexture:normal_map.texture atIndex:1];
       [encoder setFragmentSamplerState:normal_map.sampler atIndex:1];
+      [encoder setFragmentTexture:metallic_map.texture atIndex:2];
+      [encoder setFragmentSamplerState:metallic_map.sampler atIndex:2];
+      [encoder setFragmentTexture:roughness_map.texture atIndex:3];
+      [encoder setFragmentSamplerState:roughness_map.sampler atIndex:3];
     }
     [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                         indexCount:geometry->second.index_count

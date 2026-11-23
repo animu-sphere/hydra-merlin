@@ -414,20 +414,20 @@ void Renderer::Impl::EnsureDescriptorSetLayout() {
     return;
   }
   ++frame_counters_.descriptor_layout_cache_misses;
-  std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
-  bindings[0].binding = shader_abi::kConventionalBaseColorTexture.binding;
-  bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  bindings[0].descriptorCount = 1;
-  bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  bindings[1].binding = shader_abi::kConventionalNormalTexture.binding;
-  bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  bindings[1].descriptorCount = 1;
-  bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  bindings[2].binding = shader_abi::kConventionalMaterialConstants.binding;
-  bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  bindings[2].descriptorCount = 1;
-  bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
-                           VK_SHADER_STAGE_FRAGMENT_BIT;
+  const auto texture_binding = [](shader_abi::ResourceBinding resource) {
+    return VkDescriptorSetLayoutBinding{resource.binding,
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+        VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+  };
+  const std::array bindings{
+      texture_binding(shader_abi::kConventionalBaseColorTexture),
+      texture_binding(shader_abi::kConventionalNormalTexture),
+      texture_binding(shader_abi::kConventionalMetallicTexture),
+      texture_binding(shader_abi::kConventionalRoughnessTexture),
+      VkDescriptorSetLayoutBinding{shader_abi::kConventionalMaterialConstants.binding,
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+  };
   VkDescriptorSetLayoutCreateInfo info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   info.bindingCount = static_cast<std::uint32_t>(bindings.size());
@@ -983,7 +983,9 @@ Renderer::Impl::DrawPipelineVariant Renderer::Impl::MakeDrawPipelineVariant(
     // and reported through render::ForwardNormalMapDisabled.
     feature_mask &=
         ~static_cast<std::uint32_t>(MaterialFeature::BaseColorTexture |
-                                    MaterialFeature::NormalTexture);
+                                    MaterialFeature::NormalTexture |
+                                    MaterialFeature::MetallicTexture |
+                                    MaterialFeature::RoughnessTexture);
   }
   auto variant_key = feature_mask;
   if (material.alpha_mode == AlphaMode::Masked) {

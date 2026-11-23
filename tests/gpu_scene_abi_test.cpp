@@ -160,7 +160,8 @@ void RequireAbi(std::string_view json) {
           FieldExpectation{"normal_texture_index", 64, 4},
           FieldExpectation{"normal_sampler_index", 68, 4},
           FieldExpectation{"normal_texcoord_set", 72, 4},
-          FieldExpectation{"reserved", 76, 4}});
+          FieldExpectation{"reserved", 76, 4},
+          FieldExpectation{"scalar_texture_resources", 80, 16}});
   RequireLayout(json, "GpuDraw",
       std::array{FieldExpectation{"geometry_index", 0, 4},
           FieldExpectation{"material_index", 4, 4},
@@ -184,7 +185,7 @@ int main(int argc, char** argv) {
     RequireAbi(CompactJson(Read(argv[2])));
 
     using namespace merlin::render;
-    static_assert(kGpuSceneAbiVersion == 2);
+    static_assert(kGpuSceneAbiVersion == 3);
     if (GpuGeometry{}.meshlet_offset != kInvalidGpuSceneTableIndex ||
         GpuMaterial{}.base_color_texture_index !=
             kInvalidGpuSceneTableIndex ||

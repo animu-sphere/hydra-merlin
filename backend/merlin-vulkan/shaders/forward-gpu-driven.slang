@@ -29,6 +29,7 @@ struct GpuDrivenForwardVertexOutput
     [[vk::location(3)]] float3 object_position : TEXCOORD2;
     [[vk::location(4)]] float4 tangent : TEXCOORD3;
     [[vk::location(5)]] nointerpolation uint draw_slot : TEXCOORD4;
+    [[vk::location(6)]] float3 clip_xyw : TEXCOORD5;
 };
 
 [[vk::push_constant]]
@@ -80,6 +81,7 @@ GpuDrivenForwardVertexOutput forward_gpu_driven_vertex(
     output.object_position = evaluated.object_position;
     output.tangent = evaluated.tangent;
     output.draw_slot = draw_slot;
+    output.clip_xyw = evaluated.clip_xyw;
     return output;
 }
 
@@ -96,6 +98,7 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
     conventional_input.texture_coordinate = input.texture_coordinate;
     conventional_input.object_position = input.object_position;
     conventional_input.tangent = input.tangent;
+    conventional_input.clip_xyw = input.clip_xyw;
     GpuMaterial gpu_material =
         gpu_materials[gpu_draws[input.draw_slot].material_index];
     float4 texture_sample = float4(1.0f);
@@ -116,7 +119,18 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
                     gpu_material.normal_sampler_index)],
                 input.texture_coordinate);
     }
+    float2 scalar_factors = material.surface_factors.xy;
+    if ((draw.feature_mask & kMetallicTextureFlag) != 0u)
+        scalar_factors.x = bindless_textures[NonUniformResourceIndex(
+            material.scalar_texture_resources.x)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    material.scalar_texture_resources.y)], input.texture_coordinate).r;
+    if ((draw.feature_mask & kRoughnessTextureFlag) != 0u)
+        scalar_factors.y = bindless_textures[NonUniformResourceIndex(
+            material.scalar_texture_resources.z)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    material.scalar_texture_resources.w)], input.texture_coordinate).r;
     return MakeForwardFragmentOutput(
         ShadeForward(conventional_input, front_facing, material,
-            texture_sample, normal_sample, draw), draw);
+            texture_sample, normal_sample, scalar_factors, draw), draw);
 }

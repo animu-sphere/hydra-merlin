@@ -68,6 +68,10 @@ struct GpuMaterialBinding {
   std::uint32_t sampler_index{kInvalidGpuSceneTableIndex};
   std::uint32_t normal_texture_index{kInvalidGpuSceneTableIndex};
   std::uint32_t normal_sampler_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t metallic_texture_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t metallic_sampler_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t roughness_texture_index{kInvalidGpuSceneTableIndex};
+  std::uint32_t roughness_sampler_index{kInvalidGpuSceneTableIndex};
 };
 
 template <typename Record>

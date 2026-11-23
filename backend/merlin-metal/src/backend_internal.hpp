@@ -95,6 +95,9 @@ struct alignas(16) MaterialConstants {
   std::array<Vec4, render::kForwardAdditionalLightCount> additional_light_directions;
   std::array<Vec4, render::kForwardAdditionalLightCount> additional_light_colors;
   Mat4 world_to_environment;
+  Vec4 surface_factors;
+  std::array<std::uint32_t, 4> scalar_texture_resources{};
+  std::array<Vec4, 3> clip_to_view_direction;
 };
 
 struct alignas(16) GpuSceneDrawConstants {
@@ -110,12 +113,15 @@ static_assert(offsetof(extraction::DrawVertex, texcoord) == 40);
 static_assert(offsetof(extraction::DrawVertex, tangent) == 48);
 static_assert(sizeof(extraction::DrawVertex) == 64);
 static_assert(sizeof(DrawConstants) == 144);
-static_assert(sizeof(MaterialConstants) == 560);
+static_assert(sizeof(MaterialConstants) == 640);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 static_assert(offsetof(MaterialConstants, output_transform) == 192);
 static_assert(offsetof(MaterialConstants, surface_policy) == 208);
 static_assert(offsetof(MaterialConstants, normal_map) == 224);
 static_assert(offsetof(MaterialConstants, normal_map_resource) == 240);
+static_assert(offsetof(MaterialConstants, surface_factors) == 560);
+static_assert(offsetof(MaterialConstants, scalar_texture_resources) == 576);
+static_assert(offsetof(MaterialConstants, clip_to_view_direction) == 592);
 static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);

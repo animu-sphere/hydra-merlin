@@ -12,6 +12,7 @@ work in the [roadmap](../roadmap/). Not every patch needs a separate file here.
 
 | Version | Record | Theme |
 | --- | --- | --- |
+| v0.16.8 | [v0.16.8](v0.16.8.md) | Open Chess Set opaque materials |
 | v0.16.7 | [v0.16.7](v0.16.7.md) | Forward interior validation and usdview controls |
 | v0.16.6 | [v0.16.6](v0.16.6.md) | Tangent frame and normal mapping |
 | v0.16.5 | [v0.16.5](v0.16.5.md) | Mesh surface normal contract |

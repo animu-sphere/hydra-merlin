@@ -76,6 +76,17 @@ OUTPUT_PHASES = tuple(
     for tone in ("none", "reinhard")
     for ev in (-2, 0, 1, 4)
 )
+CHESS_PHASES = ("chess-dome", "chess-geometry", "chess-normal-base",
+                "chess-normal", "chess-restored") + tuple(
+    f"chess-{group}-{material_input}"
+    for group in ("chessboard", "black", "white")
+    for material_input in ("base_color", "normal", "metalness", "specular_roughness")
+) + ("chess-inputs-restored",) + tuple(
+    f"specular-{source}-{lighting}-{surface}"
+    for source in ("camera", "distant")
+    for lighting in ("direct", "dome")
+    for surface in ("dielectric", "narrow", "broad")
+)
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
 
@@ -240,13 +251,12 @@ def main() -> None:
         fixture_phases = {"lighting": LIGHTING_PHASES, "motion": MOTION_PHASES,
                           "navigation": NAVIGATION_PHASES, "scene": scene_phases(args.scene_viewpoints),
                           "normals": NORMALS_PHASES,
-                          "chess": ("chess-geometry", "chess-normal-base",
-                                    "chess-normal", "chess-restored")}[fixture]
+                          "chess": CHESS_PHASES}[fixture]
         phases = ("baseline",) + fixture_phases
         for directory in (args.tier0, args.gpu_copy):
             report = json.loads((directory / f"usdview-first-frame-forward-{fixture}.json")
                                 .read_text(encoding="utf-8"))
-            version = 2 if fixture in ("lighting", "scene", "normals") else 1
+            version = 2 if fixture in ("lighting", "scene", "normals", "chess") else 1
             if report["schema"] != f"merlin-usdview-forward-{fixture}/v{version}":
                 raise ValueError(f"unexpected Forward {fixture} schema in {directory}")
             if args.forward_scene_only:

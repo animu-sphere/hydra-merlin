@@ -35,5 +35,6 @@ ForwardFragmentOutput merlin_fragment_gpu_scene(
         texture_sample = resources.textures[constants.texture_index].Sample(
             resources.samplers[constants.sampler_index], input.texture_coordinate);
     return ShadeMetalForward(input, front_facing, constants, effective_material,
-        texture_sample, SampleMetalNormalTexture(input, constants, effective_material));
+        texture_sample, SampleMetalNormalTexture(input, constants, effective_material),
+        SampleMetalScalarTextures(input, constants, effective_material));
 }

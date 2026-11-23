@@ -245,7 +245,7 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   const auto feature_flags = static_cast<std::uint32_t>(source.features);
   if ((feature_flags & ~kGpuMaterialFeatureMask) != 0U) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-        "material feature flags exceed the ABI v1 class mask");
+        "material feature flags exceed the GPU Scene class mask");
   }
   const bool has_texture = source.base_color_texture.has_value();
   const bool has_packed_texture =
@@ -265,6 +265,19 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
     Throw(GpuScenePackingErrorCode::MissingResidency,
         "material normal texture and sampler residency is incomplete");
   }
+
+  const auto validate_scalar = [](bool present, std::uint32_t texture,
+                                   std::uint32_t sampler) {
+    if (present != (texture != kInvalidGpuSceneTableIndex) ||
+        present != (sampler != kInvalidGpuSceneTableIndex)) {
+      Throw(GpuScenePackingErrorCode::MissingResidency,
+          "material scalar texture and sampler residency is incomplete");
+    }
+  };
+  validate_scalar(source.metallic_texture.has_value(),
+      binding.metallic_texture_index, binding.metallic_sampler_index);
+  validate_scalar(source.roughness_texture.has_value(),
+      binding.roughness_texture_index, binding.roughness_sampler_index);
 
   GpuMaterial result;
   result.base_color = source.parameters.base_color;
@@ -292,6 +305,9 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   if (source.normal_texture) {
     result.normal_texcoord_set = source.normal_texture->texcoord_set;
   }
+  result.scalar_texture_resources = {binding.metallic_texture_index,
+      binding.metallic_sampler_index, binding.roughness_texture_index,
+      binding.roughness_sampler_index};
   return result;
 }
 

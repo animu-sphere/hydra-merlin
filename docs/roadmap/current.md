@@ -15,23 +15,10 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Open Chess Set materials and backend parity (v0.16.8):** use the
-  unmodified Open Chess Set stage as the Forward material acceptance scene.
-  Validate the chessboard and both sets of pieces with their authored
-  MaterialX base-color and tangent-space normal textures in usdview.
-  Run the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
-  on Vulkan and Metal. Continue parity hardening for base color, roughness,
-  metallic, textures, vertex color, opacity/alpha mask, double-sided state,
-  generated material ingestion, the generated Metal material path and
-  material ABI reflection behave consistently across supported paths, on top
-  of the shared surface context. MaterialX `normalmap` consumes the shared
-  tangent frame and normal-map decode rather than its own. Unsupported
-  MaterialX capabilities remain explicitly unsupported. Cover texture
-  decoding and extend representative material comparisons beyond the
-  [v0.16.7 Forward profile](../releases/v0.16.7.md).
-
-Patch numbers are labels for the phases above and may change; the phase
-responsibilities do not.
+- **v0.17.0 Gaussian optimization.** Start with contribution-aware culling and
+  adaptive bounds. Keep the exact path as the reference and collect quality
+  and GPU cost evidence against it. See the
+  [v0.17.0 scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds).
 
 ### Exit
 

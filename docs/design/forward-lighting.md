@@ -1,6 +1,6 @@
 # Forward lighting
 
-**Last reviewed:** 2026-10-13
+**Last reviewed:** 2026-11-23
 
 Forward is the image reference for optional shading paths. This document
 defines the Forward lighting contract: directional-light selection, Hydra light
@@ -73,6 +73,31 @@ the nine vectors gives Metal SDK consumers the same default without a runtime
 asset-path dependency. Vulkan additionally accepts a configurable HDR
 environment through its native error boundary; custom environments are outside
 the shared profile and carry no cross-backend parity claim.
+
+## Metallic-roughness surfaces
+
+The handwritten Forward profile enables direct specular for the opaque
+MaterialX Standard Surface subset. Metalness and perceptual roughness come
+from constants or the red channel of a direct linear UV0 float image. A
+missing resource or missing UV0 uses the constant. Lighting uses the shared
+surface shading normal after tangent-space normal mapping and the hemisphere
+rule.
+
+Each supported directional source contributes an isotropic GGX lobe with
+correlated Smith visibility and Schlick Fresnel. The view direction comes
+from the world-space viewing ray through the fragment for perspective and
+orthographic cameras. Roughness is bounded to `[0.045, 1]` in the lobe.
+Reflectance at normal incidence interpolates between 0.04 and base color
+with metalness. Metalness also scales the existing diffuse term by
+`1 - metalness`. The dome continues to supply diffuse illumination and a
+background. The lighting profile uses the existing directional light
+amplitudes and the default dielectric specular weight, color and IOR.
+
+The material bindings travel through the conventional, bindless and GPU Scene
+paths. Alpha mask, color conversion and ID output use the same shared policy.
+Generated shaders that use the diffuse wrapper keep their existing lighting
+contract. The [support matrix](../reference/support-matrix.md#forward-lighting-and-output)
+lists the validated host configurations and remaining limits.
 
 ## Output transform
 
