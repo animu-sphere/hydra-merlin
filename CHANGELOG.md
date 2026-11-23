@@ -8,19 +8,28 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.16.8] - 2026-11-23
+
 ### Added
 
 - Hydra Forward reads the direct MaterialX Standard Surface base-color and
   tangent-space normal image connections used by Open Chess Set. Vulkan and
   Metal sample tagged sRGB textures in linear space, and Hydra decodes 8-bit
   JPEG and PNG channel layouts through Hio.
-- An opt-in usdview test checks authored materials and normal maps on the
-  original Open Chess Set stage in Tier 0 and native Hgi presentation.
+- Hydra Forward evaluates MaterialX Standard Surface metalness and specular
+  roughness from constants or direct linear UV0 images. Camera and distant
+  lights use shared GGX highlights with diffuse dome lighting available.
+- The Open Chess Set usdview gate checks all four material inputs on the board
+  and both sets of pieces. Controlled probes measure reflection and highlight
+  width with camera and distant lights, each with the dome on and off.
 
 ### Changed
 
 - Hydra shares resolved textures and equivalent sampler states across materials,
   reducing scene heap and sampler-slot usage for repeated USD references.
+- Backend contract 8, shader ABI 15 and GPU Scene ABI 3 carry the new scalar
+  texture bindings and view-direction constants. Rebuild SDK consumers and
+  shader artifacts.
 
 ## [0.16.7] - 2026-11-23
 
@@ -1391,7 +1400,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.7...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.8...main
+[0.16.8]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.7...v0.16.8
 [0.16.7]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.6...v0.16.7
 [0.16.6]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.5...v0.16.6
 [0.16.5]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.4...v0.16.5

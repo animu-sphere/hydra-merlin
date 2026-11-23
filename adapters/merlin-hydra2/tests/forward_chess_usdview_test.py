@@ -1,4 +1,4 @@
-"""Open Chess Set material and normal-map checks through usdview."""
+"""Open Chess Set and controlled Forward material checks through usdview."""
 
 import hashlib
 import json
@@ -99,6 +99,8 @@ def testUsdviewInputFunction(appController):
     assert restored["pipeline_creation_count"] == 0, restored
 
     with Usd.EditContext(stage, stage.GetSessionLayer()):
+        material_differences = _check_chess_inputs(
+            stage, pixels(material_pixels), capture, pixels)
         probe = _check_specular(stage, settings, view, scene_camera, capture)
 
     evidence = {
@@ -117,18 +119,51 @@ def testUsdviewInputFunction(appController):
         "material_changed_pixels": changed_material,
         "normal_changed_pixels": changed_normal,
         "dome_changed_pixels": changed_dome,
+        "authored_input_changed_pixels": material_differences,
         "specular_probe": probe,
     }
     Path(f"{root}-forward-chess.json").write_text(
         json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
 
 
+def _check_chess_inputs(stage, baseline, capture, pixels):
+    # Make temporary overrides in usdview's session layer. Each image changes
+    # one input on the board, the black pieces, or the white pieces.
+    inputs = (("base_color", Gf.Vec3f(0.18)), ("normal", None),
+              ("metalness", 0.75), ("specular_roughness", 0.8))
+    differences = {}
+    for group in ("Chessboard", "Black", "White"):
+        prims = Usd.PrimRange(stage.GetPrimAtPath(f"/ChessSet/{group}"))
+        shaders = [UsdShade.Shader(prim) for prim in prims
+                   if prim.IsA(UsdShade.Shader) and UsdShade.Shader(prim).GetIdAttr().Get()
+                   == "ND_standard_surface_surfaceshader"]
+        assert shaders, group
+        for name, value in inputs:
+            connected = [shader.GetInput(name) for shader in shaders
+                         if shader.GetInput(name).HasConnectedSource()]
+            assert connected, (group, name)
+            for shader_input in connected:
+                shader_input.DisconnectSource()
+                if value is not None:
+                    shader_input.Set(value)
+            phase = f"chess-{group.lower()}-{name}"
+            _, image = capture(phase)
+            differences[phase] = _changed_pixels(baseline, pixels(image))
+            assert differences[phase] > 8, (phase, differences[phase])
+            for shader_input in connected:
+                shader_input.ClearSources()
+                if value is not None:
+                    shader_input.GetAttr().Clear()
+    _, restored = capture("chess-inputs-restored")
+    assert pixels(restored) == baseline, "authored inputs did not restore"
+    return differences
+
+
 def _check_specular(stage, settings, view, scene_camera, capture):
     stage.GetDefaultPrim().SetActive(False)
     mesh = UsdGeom.Mesh.Define(stage, "/SpecularProbe")
     mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
-    mesh.CreatePointsAttr([(-1.2, -1.2, 0), (1.2, -1.2, 0),
-                           (1.2, 1.2, 0), (-1.2, 1.2, 0)])
+    mesh.CreatePointsAttr([(-8, -8, 0), (8, -8, 0), (8, 8, 0), (-8, 8, 0)])
     mesh.CreateFaceVertexCountsAttr([4])
     mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
     mesh.CreateNormalsAttr([(0, 0, 1)] * 4)
@@ -144,8 +179,8 @@ def _check_specular(stage, settings, view, scene_camera, capture):
     light = UsdLux.DistantLight.Define(stage, "/SpecularLight")
     light.CreateAngleAttr(10)
     light.CreateIntensityAttr(0.32 / math.sin(math.radians(5)) ** 2)
-    settings.freeCamera = scene_camera({"eye": [0, 0, 3], "target": [0, 0, 0],
-        "vertical_fov_degrees": 42, "near": 0.02, "far": 5.0}, False)
+    settings.freeCamera = scene_camera({"name": "specular probe", "eye": [0, 0, 3],
+        "target": [0, 0, 0], "vertical_fov_degrees": 85}, False)
     settings.colorCorrectionMode = ColorCorrectionModes.DISABLED
     settings.domeLightTexturesVisible = False
     view.SetRendererSetting("merlin:exposureEv", -1.0)
@@ -160,7 +195,8 @@ def _check_specular(stage, settings, view, scene_camera, capture):
         center = image.pixelColor(x, y).red()
         half_width = sum(image.pixelColor(column, y).red() * 2 >= center
                          for column in range(image.width()))
-        return {"center_red": center, "width_at_half_peak": half_width}
+        return {"center_red": center, "width_at_half_peak": half_width,
+                "image_width": image.width()}
 
     result = {}
     for source in ("camera", "distant"):
@@ -173,7 +209,8 @@ def _check_specular(stage, settings, view, scene_camera, capture):
             broad = sample(f"{prefix}-broad", 1.0, 0.6, dome)
             assert narrow["center_red"] > broad["center_red"] > 0, (narrow, broad)
             assert narrow["center_red"] > dielectric["center_red"], (narrow, dielectric)
-            assert broad["width_at_half_peak"] > narrow["width_at_half_peak"], (narrow, broad)
+            assert (0 < narrow["width_at_half_peak"] < broad["width_at_half_peak"] <
+                    broad["image_width"]), (narrow, broad)
             result[prefix] = {"dielectric": dielectric, "narrow": narrow, "broad": broad}
         direct, with_dome = (result[f"specular-{source}-{state}"] for state in ("direct", "dome"))
         assert with_dome["dielectric"]["center_red"] > direct["dielectric"]["center_red"]

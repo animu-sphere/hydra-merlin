@@ -15,29 +15,10 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Open Chess Set opaque materials and backend parity (v0.16.8).** Use the
-  unmodified Open Chess Set stage as the Forward material acceptance scene.
-  - Support authored MaterialX Standard Surface `metalness` and
-    `specular_roughness` constants and direct linear UV0 image textures.
-    Evaluate both through shared Forward specular lighting for the camera
-    light and distant scene lights. Test the result with the diffuse dome
-    enabled and disabled.
-  - Run the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
-    on Vulkan and Metal. Verify authored base color, tangent-space normals,
-    metalness and roughness on the board and pieces. Use controlled probes to
-    verify that metalness changes the reflection response and roughness changes
-    the highlight width. Exercise Tier 0 and native Hgi presentation.
-  - Run regression checks for vertex color, alpha masks, double-sided shading,
-    depth and picking, and the existing generated-material ABI and reflection
-    contracts.
-
-Track alpha blending and Standard Surface transmission as separate follow-up
-work. Alpha blending needs a compositing order, depth and picking policy.
-The pawn tops use tinted transmission, which needs its own lighting and
-refraction contract.
-
-Patch numbers are labels for the phases above and may change; the phase
-responsibilities do not.
+- **v0.17.0 Gaussian optimization.** Start with contribution-aware culling and
+  adaptive bounds. Keep the exact path as the reference and collect quality
+  and GPU cost evidence against it. See the
+  [v0.17.0 scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds).
 
 ### Exit
 

@@ -138,10 +138,12 @@ ctest --test-dir build/metal-hydra -R '^merlin-hydra2-forward-chess' --output-on
 ```
 
 The gate works with Vulkan/Hydra as well. It checks the board and pieces,
-including the point-instanced pawns, and compares authored color with Geom Only
-and the shading normal with its unmapped reference. It writes the images and
-material counts to `adapters/merlin-hydra2/forward-chess-*-install` under the
-build directory. When a native Hgi bridge is available, the test compares its
+including the point-instanced pawns. Session-layer overrides isolate authored
+base color, normal mapping, metalness and roughness on the board and each set
+of pieces. A separate surface measures reflection and highlight width under
+the camera light and a distant light, with and without the diffuse dome.
+Images, input counts and probe measurements are written to
+`adapters/merlin-hydra2/forward-chess-*-install` under the build directory. When a native Hgi bridge is available, the test compares its
 images with Tier 0. For a manual launch on Metal, set
 `MERLIN_METAL_HEAP_MIB=1024` before starting usdview. The test runner uses the
 same heap size by default. For a close view, use **Camera → Free Camera
