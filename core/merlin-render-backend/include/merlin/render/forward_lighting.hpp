@@ -38,6 +38,7 @@ struct ForwardLighting {
   std::array<Vec4, kForwardAdditionalLightCount> additional_colors{};
   std::array<Vec4, 9> environment{};
   Mat4 world_to_environment;
+  std::array<Vec4, 3> clip_to_view_direction{};
   Vec4 policy{0.15F, 0.85F, 0.0F, 0.0F};
 };
 
@@ -80,6 +81,9 @@ template <typename Constants>
   result.additional_light_directions = lighting.additional_directions;
   result.additional_light_colors = lighting.additional_colors;
   result.world_to_environment = lighting.world_to_environment;
+  result.surface_factors = {material.parameters.metallic,
+      material.parameters.roughness, 0.0F, 0.0F};
+  result.clip_to_view_direction = lighting.clip_to_view_direction;
   return result;
 }
 

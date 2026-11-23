@@ -195,7 +195,10 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
   constexpr auto supported = MaterialFeature::VertexColor |
                              MaterialFeature::BaseColorTexture |
                              MaterialFeature::DirectionalLight |
-                             MaterialFeature::NormalTexture;
+                             MaterialFeature::NormalTexture |
+                             MaterialFeature::ForwardSpecular |
+                             MaterialFeature::MetallicTexture |
+                             MaterialFeature::RoughnessTexture;
   const auto unsupported = static_cast<std::uint32_t>(descriptor.features) &
                            ~static_cast<std::uint32_t>(supported);
   if (unsupported != 0U) {
@@ -213,12 +216,20 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
     throw std::invalid_argument(
         "normal texture feature requires a texture binding");
   }
-  if ((descriptor.base_color_texture &&
-          descriptor.base_color_texture->texcoord_set != 0U) ||
-      (descriptor.normal_texture &&
-          descriptor.normal_texture->texcoord_set != 0U)) {
+  if ((HasMaterialFeature(descriptor.features, MaterialFeature::MetallicTexture) &&
+          !descriptor.metallic_texture) ||
+      (HasMaterialFeature(descriptor.features, MaterialFeature::RoughnessTexture) &&
+          !descriptor.roughness_texture)) {
     throw std::invalid_argument(
-        "only texture coordinate set 0 is currently supported");
+        "metallic and roughness texture features require texture bindings");
+  }
+  for (const auto& binding : {descriptor.base_color_texture,
+           descriptor.normal_texture, descriptor.metallic_texture,
+           descriptor.roughness_texture}) {
+    if (binding && binding->texcoord_set != 0U) {
+      throw std::invalid_argument(
+          "only texture coordinate set 0 is currently supported");
+    }
   }
   if (!descriptor.module) {
     if (!descriptor.generated_parameters.key.empty() ||
@@ -544,7 +555,8 @@ public:
   void ValidateMaterialResourceHandles(
       const MaterialDescriptor& descriptor) const {
     for (const auto& binding :
-        {descriptor.base_color_texture, descriptor.normal_texture}) {
+        {descriptor.base_color_texture, descriptor.normal_texture,
+            descriptor.metallic_texture, descriptor.roughness_texture}) {
       if (binding) {
         (void)textures.Get(binding->texture);
         (void)samplers.Get(binding->sampler);

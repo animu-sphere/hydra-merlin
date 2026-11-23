@@ -4,6 +4,10 @@
 [[vk::binding(9, 0)]] Texture2D<float4> normal_texture : register(t1);
 [[vk::binding(10, 0)]] SamplerState base_color_sampler : register(s0);
 [[vk::binding(11, 0)]] SamplerState normal_sampler : register(s1);
+[[vk::binding(12, 0)]] Texture2D<float4> metallic_texture : register(t2);
+[[vk::binding(13, 0)]] Texture2D<float4> roughness_texture : register(t3);
+[[vk::binding(14, 0)]] SamplerState metallic_sampler : register(s2);
+[[vk::binding(15, 0)]] SamplerState roughness_sampler : register(s3);
 
 [shader("vertex")]
 ForwardVertexOutput merlin_vertex(ForwardVertexInput input)
@@ -20,7 +24,8 @@ ForwardFragmentOutput merlin_fragment_argument_buffer(
         texture_sample = resources.textures[draw_constants.texture_index].Sample(
             resources.samplers[draw_constants.sampler_index], input.texture_coordinate);
     return ShadeMetalForward(input, front_facing, draw_constants, material_constants, texture_sample,
-        SampleMetalNormalTexture(input, draw_constants, material_constants));
+        SampleMetalNormalTexture(input, draw_constants, material_constants),
+        SampleMetalScalarTextures(input, draw_constants, material_constants));
 }
 
 [shader("fragment")]
@@ -33,6 +38,11 @@ ForwardFragmentOutput merlin_fragment_conventional(
     float4 normal_sample = float4(0.5f, 0.5f, 1.0f, 1.0f);
     if (HasNormalTexture(draw_constants))
         normal_sample = normal_texture.Sample(normal_sampler, input.texture_coordinate);
+    float2 scalar_factors = material_constants.surface_factors.xy;
+    if ((draw_constants.feature_mask & kMetallicTextureFlag) != 0u)
+        scalar_factors.x = metallic_texture.Sample(metallic_sampler, input.texture_coordinate).r;
+    if ((draw_constants.feature_mask & kRoughnessTextureFlag) != 0u)
+        scalar_factors.y = roughness_texture.Sample(roughness_sampler, input.texture_coordinate).r;
     return ShadeMetalForward(input, front_facing, draw_constants, material_constants, texture_sample,
-        normal_sample);
+        normal_sample, scalar_factors);
 }

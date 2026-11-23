@@ -15,20 +15,26 @@ rendering semantics; backends own execution.
 
 ### Active
 
-- **Open Chess Set materials and backend parity (v0.16.8):** use the
+- **Open Chess Set opaque materials and backend parity (v0.16.8).** Use the
   unmodified Open Chess Set stage as the Forward material acceptance scene.
-  Validate the chessboard and both sets of pieces with their authored
-  MaterialX base-color and tangent-space normal textures in usdview.
-  Run the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
-  on Vulkan and Metal. Continue parity hardening for base color, roughness,
-  metallic, textures, vertex color, opacity/alpha mask, double-sided state,
-  generated material ingestion, the generated Metal material path and
-  material ABI reflection behave consistently across supported paths, on top
-  of the shared surface context. MaterialX `normalmap` consumes the shared
-  tangent frame and normal-map decode rather than its own. Unsupported
-  MaterialX capabilities remain explicitly unsupported. Cover texture
-  decoding and extend representative material comparisons beyond the
-  [v0.16.7 Forward profile](../releases/v0.16.7.md).
+  - Support authored MaterialX Standard Surface `metalness` and
+    `specular_roughness` constants and direct linear UV0 image textures.
+    Evaluate both through shared Forward specular lighting for the camera
+    light and distant scene lights. Test the result with the diffuse dome
+    enabled and disabled.
+  - Run the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
+    on Vulkan and Metal. Verify authored base color, tangent-space normals,
+    metalness and roughness on the board and pieces. Use controlled probes to
+    verify that metalness changes the reflection response and roughness changes
+    the highlight width. Exercise Tier 0 and native Hgi presentation.
+  - Run regression checks for vertex color, alpha masks, double-sided shading,
+    depth and picking, and the existing generated-material ABI and reflection
+    contracts.
+
+Track alpha blending and Standard Surface transmission as separate follow-up
+work. Alpha blending needs a compositing order, depth and picking policy.
+The pawn tops use tinted transmission, which needs its own lighting and
+refraction contract.
 
 Patch numbers are labels for the phases above and may change; the phase
 responsibilities do not.

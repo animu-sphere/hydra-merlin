@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 14;
+inline constexpr std::uint32_t kVersion = 15;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -51,6 +51,9 @@ struct alignas(16) MaterialConstants {
   std::array<Vec4, 7> additional_light_directions;
   std::array<Vec4, 7> additional_light_colors;
   Mat4 world_to_environment;
+  Vec4 surface_factors;
+  std::array<std::uint32_t, 4> scalar_texture_resources{};
+  std::array<Vec4, 3> clip_to_view_direction;
 };
 
 // Table-backed Forward keeps indexed submission on the CPU while selecting a
@@ -413,7 +416,7 @@ static_assert(offsetof(DrawConstants, feature_mask) == 112);
 static_assert(offsetof(DrawConstants, prim_id) == 116);
 static_assert(offsetof(DrawConstants, instance_id) == 120);
 static_assert(offsetof(DrawConstants, texture_index) == 124);
-static_assert(sizeof(MaterialConstants) == 560);
+static_assert(sizeof(MaterialConstants) == 640);
 static_assert(alignof(MaterialConstants) == 16);
 static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);
@@ -423,6 +426,9 @@ static_assert(offsetof(MaterialConstants, output_transform) == 192);
 static_assert(offsetof(MaterialConstants, surface_policy) == 208);
 static_assert(offsetof(MaterialConstants, normal_map) == 224);
 static_assert(offsetof(MaterialConstants, normal_map_resource) == 240);
+static_assert(offsetof(MaterialConstants, surface_factors) == 560);
+static_assert(offsetof(MaterialConstants, scalar_texture_resources) == 576);
+static_assert(offsetof(MaterialConstants, clip_to_view_direction) == 592);
 static_assert(sizeof(GpuSceneDrawConstants) == 80);
 static_assert(alignof(GpuSceneDrawConstants) == 16);
 static_assert(offsetof(GpuSceneDrawConstants, view_projection) == 0);
@@ -528,6 +534,10 @@ inline constexpr ResourceBinding kConventionalBaseColorTexture{
     0, 0, ResourceClass::CombinedImageSampler};
 inline constexpr ResourceBinding kConventionalNormalTexture{
     0, 1, ResourceClass::CombinedImageSampler};
+inline constexpr ResourceBinding kConventionalMetallicTexture{
+    0, 2, ResourceClass::CombinedImageSampler};
+inline constexpr ResourceBinding kConventionalRoughnessTexture{
+    0, 3, ResourceClass::CombinedImageSampler};
 inline constexpr ResourceBinding kConventionalMaterialConstants{
     0, 31, ResourceClass::UniformBuffer};
 inline constexpr ResourceBinding kBindlessSamplers{

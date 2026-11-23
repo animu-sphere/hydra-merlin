@@ -41,6 +41,7 @@ struct GpuMaterial
     uint normal_sampler_index;
     uint normal_texcoord_set;
     uint reserved;
+    uint4 scalar_texture_resources;
 };
 
 struct GpuDraw

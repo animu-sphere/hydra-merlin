@@ -63,10 +63,14 @@ void DrawPolicies() {
     std::array<merlin::Vec4, merlin::render::kForwardAdditionalLightCount> additional_light_directions;
     std::array<merlin::Vec4, merlin::render::kForwardAdditionalLightCount> additional_light_colors;
     merlin::Mat4 world_to_environment;
+    merlin::Vec4 surface_factors;
+    std::array<merlin::Vec4, 3> clip_to_view_direction;
   };
   merlin::extraction::MaterialRecord material;
   material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
   material.parameters.alpha_cutoff = 0.25F;
+  material.parameters.metallic = 0.4F;
+  material.parameters.roughness = 0.3F;
   material.parameters.normal_scale = 0.5F;
   material.parameters.normal_flip_green = true;
   merlin::render::ForwardLighting lighting;
@@ -86,13 +90,35 @@ void DrawPolicies() {
   assert(upload.light_color_alpha_cutoff.z == 0.7F);
   assert(upload.light_color_alpha_cutoff.w == 0.25F);
   assert(upload.diffuse_environment[8].z == 3.0F);
+  assert(upload.surface_factors.x == 0.4F && upload.surface_factors.y == 0.3F);
   assert(upload.normal_map.x == 0.5F && upload.normal_map.y == -1.0F);
+}
+
+void ViewDirections() {
+  merlin::extraction::FrameSnapshot snapshot;
+  // A right-handed perspective projection looks toward -Z. A Y flip changes
+  // the effect of clip Y without changing the direction at the image center.
+  snapshot.projection.values = {2, 0, 0, 0, 0, -3, 0, 0,
+      0, 0, -1, -1, 0, 0, -0.1F, 0};
+  snapshot.view.values[12] = 10.0F;
+  auto rays = merlin::render::PrepareForwardLighting(snapshot, {}, {})
+                  .clip_to_view_direction;
+  assert(rays[0].x < 0 && rays[1].y > 0 && rays[2].z > 0);
+  assert(rays[0].x / rays[2].z == -0.5F);
+  assert(rays[1].y / rays[2].z == 1.0F / 3.0F);
+  // In orthographic projection the ray is parallel across the image.
+  snapshot.projection.values[11] = 0.0F;
+  snapshot.projection.values[15] = 1.0F;
+  rays = merlin::render::PrepareForwardLighting(snapshot, {}, {})
+             .clip_to_view_direction;
+  assert(rays[0].x == 0 && rays[1].y == 0 && rays[2].z > 0);
 }
 
 } // namespace
 
 int main() {
   DrawPolicies();
+  ViewDirections();
   using merlin::render::ExtractForwardDirectionalLighting;
   merlin::RenderWorld world;
   merlin::extraction::SceneExtractor extractor;

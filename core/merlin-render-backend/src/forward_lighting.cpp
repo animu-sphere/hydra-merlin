@@ -44,6 +44,34 @@ ForwardDirectionalLighting PackDirectionalLight(
   return result;
 }
 
+// At a given NDC position, the viewing ray is the intersection of the
+// two planes rowX - ndcX * rowW and rowY - ndcY * rowW. Expanding their
+// cross product gives three coefficients linear in clip X, Y and W.
+std::array<Vec4, 3> ClipToViewDirection(const Mat4& view_projection) {
+  const auto row = [&](std::size_t i) {
+    return Vec3{view_projection.values[i], view_projection.values[4 + i],
+        view_projection.values[8 + i]};
+  };
+  const auto cross = [](const Vec3& a, const Vec3& b) {
+    return Vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x};
+  };
+  const auto x = row(0);
+  const auto y = row(1);
+  const auto z = row(2);
+  const auto w = row(3);
+  const auto center = cross(x, y);
+  const auto depth = (w.x != 0.0F || w.y != 0.0F || w.z != 0.0F) ? w : z;
+  const auto alignment = center.x * depth.x + center.y * depth.y +
+                         center.z * depth.z;
+  const auto sign = alignment > 0.0F ? -1.0F : 1.0F;
+  const auto pack = [sign](const Vec3& coefficient) {
+    return Vec4{sign * coefficient.x, sign * coefficient.y,
+        sign * coefficient.z, 0.0F};
+  };
+  return {pack(cross(y, w)), pack(cross(w, x)), pack(center)};
+}
+
 } // namespace
 
 DomeDrawConstants PackDomeDrawConstants(const ForwardDomeLight& dome) {
@@ -67,6 +95,8 @@ ForwardLighting PrepareForwardLighting(const extraction::FrameSnapshot& snapshot
     const std::array<Vec4, 9>& default_environment,
     const ForwardLightingSettings& settings) {
   ForwardLighting result;
+  result.clip_to_view_direction =
+      ClipToViewDirection(MultiplyForwardMatrices(snapshot.projection, snapshot.view));
   if (!settings.explicit_lights && !settings.dome) {
     result.primary = ExtractForwardDirectionalLighting(snapshot);
     result.environment = default_environment;

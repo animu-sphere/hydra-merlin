@@ -514,6 +514,35 @@ public:
             material.normal_texture->texcoord_set};
       }
     }
+    const auto resolve_scalar_texture = [&](const auto& binding,
+                                            MaterialFeature feature,
+                                            const char* input)
+        -> std::optional<TextureBindingRecord> {
+      if (!binding || !HasMaterialFeature(record.features, feature)) {
+        return std::nullopt;
+      }
+      const auto texture = texture_indices.find(binding->texture.value());
+      const auto sampler = sampler_indices.find(binding->sampler.value());
+      const bool missing_texture = texture == texture_indices.end();
+      if (missing_texture || sampler == sampler_indices.end()) {
+        record.features = static_cast<MaterialFeature>(
+            static_cast<std::uint32_t>(record.features) &
+            ~static_cast<std::uint32_t>(feature));
+        fallbacks.push_back({handle,
+            missing_texture ? MaterialFallbackCode::MissingTexture
+                            : MaterialFallbackCode::MissingSampler,
+            std::string(input) +
+                (missing_texture ? " texture" : " sampler") +
+                " is unavailable; using the constant"});
+        return std::nullopt;
+      }
+      return TextureBindingRecord{static_cast<std::uint32_t>(texture->second),
+          static_cast<std::uint32_t>(sampler->second), binding->texcoord_set};
+    };
+    record.metallic_texture = resolve_scalar_texture(material.metallic_texture,
+        MaterialFeature::MetallicTexture, "metallic");
+    record.roughness_texture = resolve_scalar_texture(material.roughness_texture,
+        MaterialFeature::RoughnessTexture, "roughness");
     return record;
   }
 
@@ -826,7 +855,8 @@ public:
   void AddMaterialDependencies(std::uint64_t handle,
       const MaterialDescriptor& descriptor) {
     for (const auto& binding :
-        {descriptor.base_color_texture, descriptor.normal_texture}) {
+        {descriptor.base_color_texture, descriptor.normal_texture,
+            descriptor.metallic_texture, descriptor.roughness_texture}) {
       if (binding) {
         AddDependency(texture_materials, binding->texture.value(), handle);
         AddDependency(sampler_materials, binding->sampler.value(), handle);
@@ -847,7 +877,8 @@ public:
   void RemoveMaterialDependencies(std::uint64_t handle,
       const MaterialDescriptor& descriptor) {
     for (const auto& binding :
-        {descriptor.base_color_texture, descriptor.normal_texture}) {
+        {descriptor.base_color_texture, descriptor.normal_texture,
+            descriptor.metallic_texture, descriptor.roughness_texture}) {
       if (binding) {
         RemoveDependency(texture_materials, binding->texture.value(), handle);
         RemoveDependency(sampler_materials, binding->sampler.value(), handle);

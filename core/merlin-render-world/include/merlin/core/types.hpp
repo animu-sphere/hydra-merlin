@@ -188,6 +188,9 @@ enum class MaterialFeature : std::uint32_t {
   DirectionalLight = 1U << 2U,
   // Tangent-space normal map; requires MaterialIR::normal_texture.
   NormalTexture = 1U << 3U,
+  ForwardSpecular = 1U << 4U,
+  MetallicTexture = 1U << 5U,
+  RoughnessTexture = 1U << 6U,
 };
 
 [[nodiscard]] constexpr MaterialFeature operator|(MaterialFeature lhs,
@@ -401,6 +404,10 @@ struct MaterialIR {
   std::optional<MaterialModule> module;
   MaterialParameterState generated_parameters;
   MaterialResourceState generated_resources;
+  // Linear scalar images on UV0. Their red channel replaces the corresponding
+  // constant while a draw has usable texture coordinates and resources.
+  std::optional<TextureBinding> metallic_texture;
+  std::optional<TextureBinding> roughness_texture;
 };
 
 using MaterialDescriptor = MaterialIR;

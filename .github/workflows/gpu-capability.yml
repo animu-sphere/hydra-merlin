@@ -237,6 +237,15 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
+      - name: Check out the reference Open Chess Set
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: usd-wg/assets
+          ref: 1b91f3c464891af259d51d9ee9ee9e6c357f7079
+          path: open-chess-assets
+          sparse-checkout: full_assets/OpenChessSet
+          persist-credentials: false
+
       - name: Select the SDK's Python ABI
         id: python
         shell: pwsh
@@ -291,6 +300,7 @@ jobs:
           cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON
           -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON
           "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
+          "-DMERLIN_OPEN_CHESS_SET=${{ github.workspace }}/open-chess-assets/full_assets/OpenChessSet/chess_set.usda"
           "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT"
           "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}"
           "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib"
@@ -307,7 +317,7 @@ jobs:
       - name: Run Tier 0 and HgiVulkan usdview regressions
         run: >-
           ctest --test-dir build -C Release
-          -R "^merlin-(install-consumer|vulkan-install-runtime|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation|normals)-(tier0|hgi-vulkan|comparison)))$"
+          -R "^merlin-(install-consumer|vulkan-(install-runtime|material-resources)|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation|normals|chess)-(tier0|hgi-vulkan|comparison)))$"
           --output-on-failure --verbose --no-tests=error --output-junit forward-runtime-tests.xml
 
       - name: Require executed native and host Forward coverage
@@ -346,6 +356,10 @@ jobs:
             build/adapters/merlin-hydra2/forward-normals-*-install/*.json
             build/adapters/merlin-hydra2/forward-normals-*-install/*.png
             build/adapters/merlin-hydra2/forward-normals-comparison.json
+            build/adapters/merlin-hydra2/forward-chess-*-install/*.log
+            build/adapters/merlin-hydra2/forward-chess-*-install/*.json
+            build/adapters/merlin-hydra2/forward-chess-*-install/*.png
+            build/adapters/merlin-hydra2/forward-chess-comparison.json
             build/tests/forward-images-handwritten/**
             build/adapters/merlin-viewport/viewport*.json
             build/Testing/Temporary/LastTest.log

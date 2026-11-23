@@ -30,17 +30,17 @@ MaterialUniforms Renderer::Impl::MakeMaterialUniforms(
     const render::ForwardFramePolicy& frame_policy) const {
   auto uniforms = render::MakeForwardMaterialConstants<MaterialUniforms>(
       material, lighting, frame_policy);
-  // The bindless entry reads the normal texture by table slot from the
-  // per-material block; the conventional entry binds it in the set instead.
-  if (bindless_texture_table_ && material.normal_texture) {
-    const auto texture_handle =
-        texture_records_[material.normal_texture->texture_index].texture;
-    const auto sampler_handle =
-        sampler_records_[material.normal_texture->sampler_index].sampler;
-    uniforms.normal_map_resource = {
-        texture_slots_.at(texture_handle).bindless_slot.index,
-        sampler_slots_.at(sampler_handle).bindless_slot.index, 0U, 0U};
-  }
+  const auto pack_binding = [&](const auto& binding, auto out) {
+    if (bindless_texture_table_ && binding) {
+      const auto texture = texture_records_[binding->texture_index].texture;
+      const auto sampler = sampler_records_[binding->sampler_index].sampler;
+      out[0] = texture_slots_.at(texture).bindless_slot.index;
+      out[1] = sampler_slots_.at(sampler).bindless_slot.index;
+    }
+  };
+  pack_binding(material.normal_texture, uniforms.normal_map_resource.data());
+  pack_binding(material.metallic_texture, uniforms.scalar_texture_resources.data());
+  pack_binding(material.roughness_texture, uniforms.scalar_texture_resources.data() + 2);
   return uniforms;
 }
 
@@ -445,7 +445,8 @@ void Renderer::Impl::ValidateMaterialTextureBindings() const {
   for (std::size_t i = 0; i < material_records_.size(); ++i) {
     const auto& material = material_records_[i];
     for (const auto& binding :
-        {material.base_color_texture, material.normal_texture}) {
+        {material.base_color_texture, material.normal_texture,
+            material.metallic_texture, material.roughness_texture}) {
       if (binding && (binding->texture_index >= texture_records_.size() ||
                          binding->sampler_index >= sampler_records_.size())) {
         throw RendererError(RendererErrorCode::InvalidRequest,
@@ -513,7 +514,7 @@ void Renderer::Impl::PrepareMaterialDescriptors(
       maximum_samplers = std::max(maximum_samplers, artifact_samplers);
     }
     std::vector<VkDescriptorPoolSize> sizes{
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count * 2U},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count * 4U},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, material_count * 2U},
     };
     if (maximum_sampled_images != 0U) {
@@ -621,9 +622,8 @@ void Renderer::Impl::PrepareMaterialDescriptors(
       "allocate material descriptor sets");
   frame_counters_.descriptor_allocation_count += material_count;
 
-  // Conventional sets hold the base-color and normal combined samplers.
   // Writes point into image_infos, so its reservation must never grow.
-  std::size_t maximum_image_infos = material_count * 2U;
+  std::size_t maximum_image_infos = material_count * 4U;
   for (const auto* artifact : selected_material_artifacts_) {
     if (artifact == nullptr) {
       continue;
@@ -759,6 +759,10 @@ void Renderer::Impl::PrepareMaterialDescriptors(
         shader_abi::kConventionalBaseColorTexture.binding);
     write_texture(material.normal_texture,
         shader_abi::kConventionalNormalTexture.binding);
+    write_texture(material.metallic_texture,
+        shader_abi::kConventionalMetallicTexture.binding);
+    write_texture(material.roughness_texture,
+        shader_abi::kConventionalRoughnessTexture.binding);
     VkWriteDescriptorSet buffer_write{
         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     buffer_write.dstSet = frame.material_descriptor_sets[i];

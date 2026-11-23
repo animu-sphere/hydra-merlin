@@ -1086,6 +1086,12 @@ struct ParsedMaterial {
   std::optional<merlin::TextureDescriptor> normal_texture;
   merlin::SamplerDescriptor normal_sampler;
   std::string normal_diagnostic;
+  struct ScalarImage {
+    std::optional<merlin::TextureDescriptor> texture;
+    merlin::SamplerDescriptor sampler;
+  };
+  ScalarImage metallic;
+  ScalarImage roughness;
   bool flip_texture_rows{};
   std::vector<std::string> materialx_unsupported_inputs;
 };
@@ -1115,7 +1121,9 @@ bool TextureBindingsEqual(const std::optional<merlin::TextureBinding>& lhs,
 bool MaterialFeaturesEqual(const merlin::MaterialDescriptor& lhs,
     const merlin::MaterialDescriptor& rhs) {
   if (!TextureBindingsEqual(lhs.base_color_texture, rhs.base_color_texture) ||
-      !TextureBindingsEqual(lhs.normal_texture, rhs.normal_texture)) {
+      !TextureBindingsEqual(lhs.normal_texture, rhs.normal_texture) ||
+      !TextureBindingsEqual(lhs.metallic_texture, rhs.metallic_texture) ||
+      !TextureBindingsEqual(lhs.roughness_texture, rhs.roughness_texture)) {
     return false;
   }
   return lhs.alpha_mode == rhs.alpha_mode &&
@@ -1241,8 +1249,11 @@ const HdMaterialNode2* ConnectedNode(const HdMaterialNetwork2& network,
 
 std::optional<merlin::TextureDescriptor> ReadMaterialXImage(
     const HdMaterialNetwork2& network, const HdMaterialNode2* image,
-    bool color, merlin::SamplerDescriptor& sampler, std::string& diagnostic) {
-  const TfToken expected(color ? "ND_image_color3" : "ND_image_vector3");
+    const char* node_type, merlin::SamplerDescriptor& sampler,
+    std::string& diagnostic) {
+  const TfToken expected(node_type);
+  const bool color = expected == TfToken("ND_image_color3");
+  const bool scalar = expected == TfToken("ND_image_float");
   if (image == nullptr || image->nodeTypeId != expected) {
     diagnostic = "expected a direct MaterialX " + expected.GetString() + " connection";
     return std::nullopt;
@@ -1265,6 +1276,10 @@ std::optional<merlin::TextureDescriptor> ReadMaterialXImage(
   if (color && !space.empty() && space != "srgb_texture" && space != "srgb" &&
       space != "lin_rec709" && space != "raw") {
     diagnostic = "unsupported MaterialX image color space " + space;
+    return std::nullopt;
+  }
+  if (scalar && !space.empty() && space != "lin_rec709" && space != "raw") {
+    diagnostic = "scalar MaterialX image color space must be linear";
     return std::nullopt;
   }
   for (const auto* name : {"uaddressmode", "vaddressmode"}) {
@@ -1332,7 +1347,7 @@ void ParseMaterialXNormal(const HdMaterialNetwork2& network,
     return;
   }
   result.normal_texture = ReadMaterialXImage(network,
-      ConnectedNode(network, *normal, "in"), false, result.normal_sampler,
+      ConnectedNode(network, *normal, "in"), "ND_image_vector3", result.normal_sampler,
       result.normal_diagnostic);
   if (result.normal_texture) {
     result.material.parameters.normal_scale = scale;
@@ -1358,7 +1373,7 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
   }
   if (!InputConnections(surface, "base_color").empty()) {
     result.texture = ReadMaterialXImage(network,
-        ConnectedNode(network, surface, "base_color"), true, result.sampler,
+        ConnectedNode(network, surface, "base_color"), "ND_image_color3", result.sampler,
         result.diagnostic);
     if (result.texture) {
       parameters.base_color = {1.0F, 1.0F, 1.0F, 1.0F};
@@ -1379,12 +1394,41 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
     parameters.base_color.w = opacity.x;
     result.material.alpha_mode = merlin::AlphaMode::Blended;
   }
-  // The current Forward lighting profile evaluates the diffuse lobe. Surface
-  // inputs beyond that profile may still be present in a renderable material.
-  for (const auto* input : {"metalness", "specular_roughness", "subsurface",
-           "transmission", "coat", "sheen", "emission", "thin_film_thickness"}) {
-    const float default_value = std::string_view(input) == "specular_roughness"
-        ? 0.2F : 0.0F;
+  result.material.features |= merlin::MaterialFeature::ForwardSpecular;
+  parameters.roughness = 0.2F;
+  const auto parse_scalar = [&](const char* input, float& parameter,
+                                ParsedMaterial::ScalarImage& image,
+                                merlin::MaterialFeature feature) {
+    if (const auto* authored = FindParameter(surface, input)) {
+      float value{};
+      if (ReadScalar(*authored, value) && std::isfinite(value)) {
+        parameter = std::clamp(value, 0.0F, 1.0F);
+      } else {
+        result.materialx_unsupported_inputs.emplace_back(input);
+      }
+    }
+    if (!InputConnections(surface, input).empty()) {
+      std::string diagnostic;
+      image.texture = ReadMaterialXImage(network,
+          ConnectedNode(network, surface, input), "ND_image_float",
+          image.sampler, diagnostic);
+      if (image.texture) {
+        result.material.features |= feature;
+      } else {
+        result.materialx_unsupported_inputs.emplace_back(
+            std::string(input) + " (" + diagnostic + ")");
+      }
+    }
+  };
+  parse_scalar("metalness", parameters.metallic, result.metallic,
+      merlin::MaterialFeature::MetallicTexture);
+  parse_scalar("specular_roughness", parameters.roughness, result.roughness,
+      merlin::MaterialFeature::RoughnessTexture);
+  for (const auto& [input, default_value] :
+      {std::pair{"specular", 1.0F}, {"specular_IOR", 1.5F},
+          {"specular_anisotropy", 0.0F}, {"specular_rotation", 0.0F},
+          {"subsurface", 0.0F}, {"transmission", 0.0F}, {"coat", 0.0F},
+          {"sheen", 0.0F}, {"emission", 0.0F}, {"thin_film_thickness", 0.0F}}) {
     float value = default_value;
     if (const auto* parameter = FindParameter(surface, input)) {
       (void)ReadScalar(*parameter, value);
@@ -1392,6 +1436,15 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
     if (!InputConnections(surface, input).empty() || value != default_value) {
       result.materialx_unsupported_inputs.emplace_back(input);
     }
+  }
+  merlin::Vec4 specular_color{1.0F, 1.0F, 1.0F, 1.0F};
+  if (const auto* value = FindParameter(surface, "specular_color")) {
+    (void)ReadColor(*value, specular_color);
+  }
+  if (!InputConnections(surface, "specular_color").empty() ||
+      specular_color.x != 1.0F || specular_color.y != 1.0F ||
+      specular_color.z != 1.0F) {
+    result.materialx_unsupported_inputs.emplace_back("specular_color");
   }
   if (network.terminals.contains(HdMaterialTerminalTokens->displacement)) {
     result.materialx_unsupported_inputs.emplace_back("displacement");
@@ -1583,6 +1636,8 @@ struct MaterialEntry {
   merlin::MaterialDescriptor descriptor;
   std::optional<MaterialTextureKey> base_color_image;
   std::optional<MaterialTextureKey> normal_image;
+  std::optional<MaterialTextureKey> metallic_image;
+  std::optional<MaterialTextureKey> roughness_image;
 };
 
 struct MaterialTextureEntry {
@@ -1978,6 +2033,8 @@ public:
     auto descriptor = std::move(parsed.material);
     std::optional<MaterialTextureKey> base_color_image;
     std::optional<MaterialTextureKey> normal_image;
+    std::optional<MaterialTextureKey> metallic_image;
+    std::optional<MaterialTextureKey> roughness_image;
     descriptor.base_color_texture = AcquireTextureSlotLocked(
         std::move(parsed.texture), std::move(parsed.sampler),
         parsed.flip_texture_rows, entry.descriptor.base_color_texture,
@@ -1986,10 +2043,20 @@ public:
         std::move(parsed.normal_texture), std::move(parsed.normal_sampler),
         parsed.flip_texture_rows, entry.descriptor.normal_texture,
         entry.normal_image, normal_image);
+    descriptor.metallic_texture = AcquireTextureSlotLocked(
+        std::move(parsed.metallic.texture), std::move(parsed.metallic.sampler),
+        parsed.flip_texture_rows, entry.descriptor.metallic_texture,
+        entry.metallic_image, metallic_image);
+    descriptor.roughness_texture = AcquireTextureSlotLocked(
+        std::move(parsed.roughness.texture), std::move(parsed.roughness.sampler),
+        parsed.flip_texture_rows, entry.descriptor.roughness_texture,
+        entry.roughness_image, roughness_image);
     if (created) {
       entry.handle = world_.CreateMaterial(descriptor);
       entry.base_color_image = std::move(base_color_image);
       entry.normal_image = std::move(normal_image);
+      entry.metallic_image = std::move(metallic_image);
+      entry.roughness_image = std::move(roughness_image);
       entry.descriptor = std::move(descriptor);
       return;
     }
@@ -2009,9 +2076,17 @@ public:
     ReleaseMaterialSamplerLocked(
         entry.descriptor.normal_texture, descriptor.normal_texture);
     ReleaseMaterialTextureLocked(entry.base_color_image, base_color_image);
+    ReleaseMaterialSamplerLocked(
+        entry.descriptor.metallic_texture, descriptor.metallic_texture);
+    ReleaseMaterialSamplerLocked(
+        entry.descriptor.roughness_texture, descriptor.roughness_texture);
     ReleaseMaterialTextureLocked(entry.normal_image, normal_image);
+    ReleaseMaterialTextureLocked(entry.metallic_image, metallic_image);
+    ReleaseMaterialTextureLocked(entry.roughness_image, roughness_image);
     entry.base_color_image = std::move(base_color_image);
     entry.normal_image = std::move(normal_image);
+    entry.metallic_image = std::move(metallic_image);
+    entry.roughness_image = std::move(roughness_image);
     entry.descriptor = std::move(descriptor);
   }
 
@@ -2670,6 +2745,16 @@ public:
                 snapshot->materials.end(), [](const auto& material) {
                   return material.normal_texture.has_value();
                 }));
+        const auto count_scalar_images = [&](auto binding) {
+          return std::count_if(snapshot->materials.begin(),
+              snapshot->materials.end(), [&](const auto& material) {
+                return (material.*binding).has_value();
+              });
+        };
+        const auto metallic_map_materials = count_scalar_images(
+            &merlin::extraction::MaterialRecord::metallic_texture);
+        const auto roughness_map_materials = count_scalar_images(
+            &merlin::extraction::MaterialRecord::roughness_texture);
         const auto normal_map_disabled_draws =
             merlin::render::CountForwardNormalMapDisabledDraws(*snapshot);
         const auto hgi_vulkan_telemetry =
@@ -2782,6 +2867,8 @@ public:
                << " missing_texcoord_geometries="
                << missing_texcoord_geometries
                << " normal_map_materials=" << normal_map_materials
+               << " metallic_map_materials=" << metallic_map_materials
+               << " roughness_map_materials=" << roughness_map_materials
                << " normal_map_disabled_draws=" << normal_map_disabled_draws
                << " material_fallbacks=" << snapshot->material_fallbacks.size()
                << " generated_material_draw_count="
@@ -3011,6 +3098,10 @@ private:
     ReleaseMaterialTextureLocked(entry.normal_image);
     ReleaseMaterialSamplerLocked(entry.descriptor.base_color_texture);
     ReleaseMaterialSamplerLocked(entry.descriptor.normal_texture);
+    ReleaseMaterialTextureLocked(entry.metallic_image);
+    ReleaseMaterialTextureLocked(entry.roughness_image);
+    ReleaseMaterialSamplerLocked(entry.descriptor.metallic_texture);
+    ReleaseMaterialSamplerLocked(entry.descriptor.roughness_texture);
     materials_.erase(found);
   }
 
@@ -3326,7 +3417,7 @@ public:
             parsed.normal_texture ? "decode-2t-minus-1" : "disable-normal-map");
       }
       if (!parsed.materialx_unsupported_inputs.empty()) {
-        std::string message = "MaterialX inputs outside the Forward diffuse profile:";
+        std::string message = "MaterialX inputs outside the Forward subset:";
         for (const auto& input : parsed.materialx_unsupported_inputs) {
           message += " " + input;
         }

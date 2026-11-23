@@ -80,8 +80,19 @@ ForwardFragmentOutput forward_gpu_scene_fragment(
                     material.normal_sampler_index)],
                 input.texture_coordinate);
     }
+    float2 scalar_factors = effective_material.surface_factors.xy;
+    if ((constants.feature_mask & kMetallicTextureFlag) != 0u)
+        scalar_factors.x = bindless_textures[NonUniformResourceIndex(
+            effective_material.scalar_texture_resources.x)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    effective_material.scalar_texture_resources.y)], input.texture_coordinate).r;
+    if ((constants.feature_mask & kRoughnessTextureFlag) != 0u)
+        scalar_factors.y = bindless_textures[NonUniformResourceIndex(
+            effective_material.scalar_texture_resources.z)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    effective_material.scalar_texture_resources.w)], input.texture_coordinate).r;
     return MakeForwardFragmentOutput(
         ShadeForward(input, front_facing, effective_material, texture_sample,
-            normal_sample, constants),
+            normal_sample, scalar_factors, constants),
         constants);
 }

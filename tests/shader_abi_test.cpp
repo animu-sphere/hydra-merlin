@@ -102,6 +102,9 @@ void RequireCommonAbi(std::string_view json) {
   RequireField(json, "surface_policy", 208, 16);
   RequireField(json, "normal_map", 224, 16);
   RequireField(json, "normal_map_resource", 240, 16);
+  RequireField(json, "surface_factors", 560, 16);
+  RequireField(json, "scalar_texture_resources", 576, 16);
+  RequireField(json, "clip_to_view_direction", 592, 48);
   RequireField(json, "light_policy", 256, 16);
   RequireField(json, "additional_light_directions", 272, 112);
   RequireField(json, "additional_light_colors", 384, 112);
@@ -241,6 +244,10 @@ int main(int argc, char** argv) {
         "base color texture is not a combined image sampler");
     RequireBinding(conventional_fragment, "normal_texture",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":1}");
+    RequireBinding(conventional_fragment, "metallic_texture",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":2}");
+    RequireBinding(conventional_fragment, "roughness_texture",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
     RequireBinding(conventional_fragment, "material_constants",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":31}");
     RequireBinding(bindless_fragment, "bindless_samplers",
@@ -590,7 +597,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 14);
+    static_assert(kVersion == 15);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);
