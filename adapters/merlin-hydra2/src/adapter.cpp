@@ -273,7 +273,8 @@ std::string GaussianSettingsName(
   return std::string(
              merlin::render::GpuDrivenGaussianModeName(settings.mode)) +
          "/" +
-         std::string(merlin::render::GaussianRasterPathName(settings.raster));
+         std::string(merlin::render::GaussianRasterPathName(settings.raster)) +
+         (settings.adaptive_tile_bounds ? "/adaptive-bounds" : "");
 }
 
 // The source is the render setting key rather than a scene path.
@@ -328,6 +329,15 @@ ReadGaussianRenderSetting(const TfToken& key, const VtValue& value,
                           : merlin::render::GaussianRasterPath::SortedStream;
     return std::nullopt;
   }
+  if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianAdaptiveBounds) {
+    if (!value.IsHolding<bool>()) {
+      return merlin::render::RendererSettingsValidationError{
+          "renderer-settings.invalid-gaussian-adaptive-bounds",
+          "Gaussian adaptive tile bounds must be on or off."};
+    }
+    settings.adaptive_tile_bounds = value.UncheckedGet<bool>();
+    return std::nullopt;
+  }
   const auto name = ReadRenderSettingString(value);
   if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode) {
     for (const auto mode : {merlin::render::GpuDrivenGaussianMode::Disabled,
@@ -357,12 +367,13 @@ ReadGaussianRenderSetting(const TfToken& key, const VtValue& value,
 
 // The policy names come before the flags, so a host that passes both at
 // creation has the flags refine the names.
-const std::array<TfToken, 4>& GaussianRenderSettingKeys() {
-  static const std::array<TfToken, 4> keys{
+const std::array<TfToken, 5>& GaussianRenderSettingKeys() {
+  static const std::array<TfToken, 5> keys{
       HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode,
       HdMerlinRenderSettingsTokens->gpuDrivenGaussianRaster,
       HdMerlinRenderSettingsTokens->gpuDrivenGaussianEnabled,
-      HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled};
+      HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled,
+      HdMerlinRenderSettingsTokens->gpuDrivenGaussianAdaptiveBounds};
   return keys;
 }
 
@@ -380,6 +391,9 @@ VtValue GaussianRenderSettingValue(const TfToken& key,
   if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled) {
     return VtValue(
         settings.raster == merlin::render::GaussianRasterPath::Tiled);
+  }
+  if (key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianAdaptiveBounds) {
+    return VtValue(settings.adaptive_tile_bounds);
   }
   return VtValue(std::string(
       key == HdMerlinRenderSettingsTokens->gpuDrivenGaussianMode
@@ -2834,6 +2848,8 @@ public:
                << " gaussian_raster_path="
                << merlin::render::GaussianRasterPathName(
                       request.gpu_driven_gaussian.raster)
+               << " gaussian_adaptive_tile_bounds="
+               << request.gpu_driven_gaussian.adaptive_tile_bounds
                << " gaussian_gpu_sorted_count="
                << result.telemetry.gaussian_gpu_sorted_count
                << " gaussian_gpu_raster_instance_count="
@@ -2842,6 +2858,10 @@ public:
                << result.telemetry.gaussian_gpu_tile_pair_capacity
                << " gaussian_gpu_tile_requested_pair_count="
                << result.telemetry.gaussian_gpu_tile_requested_pair_count
+               << " gaussian_gpu_tile_rejected_pair_count="
+               << result.telemetry.gaussian_gpu_tile_rejected_pair_count
+               << " gaussian_gpu_tile_culled_record_count="
+               << result.telemetry.gaussian_gpu_tile_culled_record_count
                << " gaussian_gpu_tile_clamped_record_count="
                << result.telemetry.gaussian_gpu_tile_clamped_record_count
                << " gaussian_gpu_tile_raster_frame_count="
@@ -5414,6 +5434,9 @@ HdMerlinRenderDelegate::GetRenderSettingDescriptors() const {
               VtValue(false)},
       {"Gaussian tile raster",
           HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled,
+          VtValue(false)},
+      {"Gaussian adaptive tile bounds",
+          HdMerlinRenderSettingsTokens->gpuDrivenGaussianAdaptiveBounds,
           VtValue(false)},
       {"Forward exposure (EV)", HdMerlinRenderSettingsTokens->exposureEv, VtValue(0.0F)},
       {"Forward tone mapping", HdMerlinRenderSettingsTokens->toneMapping,

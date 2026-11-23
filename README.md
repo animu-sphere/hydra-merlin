@@ -101,8 +101,8 @@ data and defines no renderer-specific USD schema.
 
 ## Roadmap
 
-The v0.16.x series stabilizes the Forward renderer before v0.17.0 resumes
-Gaussian optimization; see the [current work](docs/roadmap/current.md) and the
+v0.17.0 focuses on contribution-aware Gaussian culling and adaptive tile
+bounds. See the [current work](docs/roadmap/current.md) and the
 [backlog](docs/roadmap/backlog.md).
 
 ## License

@@ -8,6 +8,19 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in contribution-aware Gaussian tile bounds for Metal and Vulkan. Adaptive
+  bounds reduce Gaussian-tile pairs using projected conics and the raster
+  alpha floor. Exact remains the default. The viewport, Hydra settings and
+  native benchmarks expose the mode, rejected pairs and culled records.
+
+### Changed
+
+- Renderer settings schema 4, backend contract 9 and shader ABI 16 carry the
+  adaptive bounds setting and counters. Rebuild SDK consumers and shader
+  artifacts.
+
 ## [0.16.8] - 2026-11-23
 
 ### Added

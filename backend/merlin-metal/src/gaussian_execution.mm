@@ -103,7 +103,7 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
     const Mat4& view, const Mat4& projection, std::uint32_t width, std::uint32_t height,
     id<MTLCommandBuffer> command, bool device_count, bool validate,
     id<MTLCounterSampleBuffer> timestamps, bool tiled,
-    std::uint32_t requested_pair_capacity) {
+    std::uint32_t requested_pair_capacity, bool adaptive_tile_bounds) {
   if (!attributes || !width || !height || !command || command.device != device_ ||
       command.status != MTLCommandBufferStatusNotEnqueued || !command.retainedReferences ||
       (device_count && attributes->resources.size() != 1))
@@ -149,7 +149,8 @@ std::shared_ptr<const GaussianExecution::Frame> GaussianExecution::Encode(
     tile.pair_capacity = static_cast<std::uint32_t>(capacity);
     tile.viewport_width = width;
     tile.viewport_height = height;
-    tile.offsets_offset = 11;
+    tile.offsets_offset = kTileControlWordCount;
+    tile.adaptive_bounds = adaptive_tile_bounds;
     const auto scan_end = [](std::uint64_t offset, std::uint64_t count) {
       for (;;) {
         offset += count;

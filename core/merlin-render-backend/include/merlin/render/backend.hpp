@@ -19,8 +19,8 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 8;
-inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 3;
+inline constexpr std::uint32_t kBackendContractVersion = 9;
+inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 4;
 
 enum class BackendKind { Vulkan,
   Metal };
@@ -172,6 +172,8 @@ struct GpuDrivenGaussianSettings {
   // Zero selects the backend's bounded default. A small explicit capacity can
   // exercise the GPU overflow fallback without changing the scene.
   std::uint32_t tile_pair_capacity{};
+  // Use alpha-aware ellipse bounds in GPU tile binning. False selects Exact.
+  bool adaptive_tile_bounds{};
 
   friend constexpr bool operator==(const GpuDrivenGaussianSettings&,
       const GpuDrivenGaussianSettings&) = default;
@@ -436,6 +438,9 @@ struct FrameTelemetry {
   std::uint64_t gaussian_gpu_raster_instance_count{};
   std::uint64_t gaussian_gpu_tile_pair_capacity{};
   std::uint64_t gaussian_gpu_tile_requested_pair_count{};
+  // Difference from Exact before buffer truncation, with the same per-record limit.
+  std::uint64_t gaussian_gpu_tile_rejected_pair_count{};
+  std::uint64_t gaussian_gpu_tile_culled_record_count{};
   std::uint64_t gaussian_gpu_tile_clamped_record_count{};
   std::uint64_t gaussian_gpu_tile_raster_frame_count{};
   // One when a backend uses floating-point Gaussian color accumulation.

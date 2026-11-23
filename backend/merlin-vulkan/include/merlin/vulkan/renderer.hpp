@@ -399,6 +399,9 @@ struct FrameCounters {
   std::uint64_t gaussian_gpu_tile_max_pair_count{};
   std::uint64_t gaussian_gpu_tile_pair_capacity{};
   std::uint64_t gaussian_gpu_tile_requested_pair_count{};
+  // Difference from Exact before buffer truncation, with the same per-record limit.
+  std::uint64_t gaussian_gpu_tile_rejected_pair_count{};
+  std::uint64_t gaussian_gpu_tile_culled_record_count{};
   std::uint64_t gaussian_gpu_tile_pair_count{};
   std::uint64_t gaussian_gpu_tile_pair_overflow_count{};
   std::uint64_t gaussian_gpu_tile_clamped_record_count{};
@@ -674,6 +677,7 @@ struct RenderRequest {
   // kGaussianTileMinimumPairCapacity. Pairs past the capacity are dropped and
   // reported as overflow; the frame still succeeds.
   std::uint32_t gaussian_tile_pair_capacity{};
+  bool gaussian_adaptive_tile_bounds{};
   // Tile raster composites the binned pairs of every tile front to back in
   // compute, with early termination, instead of the sorted-stream draws. It
   // consumes the tile ranges, so it requires tile binning for the same frame.

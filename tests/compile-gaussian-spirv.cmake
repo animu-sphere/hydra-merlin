@@ -17,14 +17,12 @@ foreach(_entry gaussian_vertex gaussian_id_vertex gaussian_fragment gaussian_id_
 endforeach()
 
 # Metal-only builders also compile the production Vulkan wrappers of shared
-# preparation and sorting, so changes cannot silently break the other target.
+# preparation, sorting and tiling to catch target-specific compile failures.
 get_filename_component(_source_dir "${MERLIN_GAUSSIAN_SOURCE}" DIRECTORY)
-foreach(_kernel prepare_compact sort_keys sort_histogram sort_scan_blocks sort_scan_add sort_scatter sort_verify)
-  if(_kernel MATCHES "^prepare")
-    set(_source gaussian-prepare.slang)
-  else()
-    set(_source gaussian-sort.slang)
-  endif()
+foreach(_kernel prepare_compact sort_keys sort_histogram sort_scan_blocks
+    sort_scan_add sort_scatter sort_verify tile_count tile_emit tile_ranges tile_verify)
+  string(REGEX MATCH "^[^_]+" _module "${_kernel}")
+  set(_source "gaussian-${_module}.slang")
   execute_process(
     COMMAND "${MERLIN_SLANGC_EXECUTABLE}" "${_source_dir}/${_source}"
       -entry "gaussian_${_kernel}" -stage compute -target spirv -profile sm_6_6

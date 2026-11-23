@@ -114,6 +114,8 @@ int main() {
   const auto& enabled =
       HdMerlinRenderSettingsTokens->gpuDrivenGaussianEnabled;
   const auto& tiled = HdMerlinRenderSettingsTokens->gpuDrivenGaussianTiled;
+  const auto& adaptive =
+      HdMerlinRenderSettingsTokens->gpuDrivenGaussianAdaptiveBounds;
 
   // Without a backend, vocabulary errors reject immediately and a valid
   // request stays pending until the first frame validates it.
@@ -139,14 +141,23 @@ int main() {
           "exposure descriptor must use the host-supported float UI type"))
     return 1;
   (void)NoDiagnostics(pending);
-  if (!Check(descriptors.size() == 5 && described_flag(enabled) &&
-                 described_flag(tiled),
-          "Gaussian render setting descriptors are not the two flags") ||
+  if (!Check(descriptors.size() == 6 && described_flag(enabled) &&
+                 described_flag(tiled) && described_flag(adaptive),
+          "Gaussian render setting descriptors are incorrect") ||
       !Check(Policy(pending, "disabled", "sorted-stream") &&
-                 !Flag(pending, enabled) && !Flag(pending, tiled),
+                 !Flag(pending, enabled) && !Flag(pending, tiled) &&
+                 !Flag(pending, adaptive),
           "default Gaussian render settings are incorrect")) {
     return 1;
   }
+  pending.SetRenderSetting(adaptive, VtValue(true));
+  pending.SetRenderSetting(adaptive, VtValue(std::string("invalid")));
+  if (!Check(Flag(pending, adaptive) &&
+                 Rejected(pending, "renderer-settings.invalid-gaussian-adaptive-bounds",
+                     adaptive, "keep disabled/sorted-stream/adaptive-bounds"),
+          "invalid adaptive tile bounds changed the effective value"))
+    return 1;
+  pending.SetRenderSetting(adaptive, VtValue(false));
   const auto& exposure = HdMerlinRenderSettingsTokens->exposureEv;
   const auto& tone = HdMerlinRenderSettingsTokens->toneMapping;
   if (!Check(pending.GetRenderSetting(exposure) == VtValue(0.0) &&

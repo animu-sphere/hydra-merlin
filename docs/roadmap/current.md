@@ -4,6 +4,18 @@ Active and immediately next work only. Shipped changes are in the
 [changelog](../../CHANGELOG.md); current support is in the
 [support matrix](../reference/support-matrix.md).
 
+## v0.17.0 — Gaussian contribution and adaptive bounds
+
+- Validate adaptive tile bounds against Exact on representative assets and
+  additional Metal and Vulkan GPUs. Compare image sequences and GPU stage
+  costs under the same device, resolution and camera conditions.
+- Move safe whole-Gaussian rejection ahead of sorting, and add early
+  termination and saturation counters. Use image and temporal evidence before
+  selecting quality thresholds or changing the default.
+
+See the [milestone scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds)
+and [Apple M3 results](../reports/delivery-history.md#v0170-adaptive-gaussian-tile-bounds--2026-11-23).
+
 ## v0.16.x — Forward renderer stabilization
 
 v0.16.x establishes a stable architectural, semantic and quality baseline
@@ -12,13 +24,6 @@ before v0.17.0 begins the next Gaussian optimization cycle. The
 later v0.16.x refactors preserve its rendered meaning unless a change is
 explicitly part of an output-transform or quality milestone. Core owns
 rendering semantics; backends own execution.
-
-### Active
-
-- **v0.17.0 Gaussian optimization.** Start with contribution-aware culling and
-  adaptive bounds. Keep the exact path as the reference and collect quality
-  and GPU cost evidence against it. See the
-  [v0.17.0 scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds).
 
 ### Exit
 

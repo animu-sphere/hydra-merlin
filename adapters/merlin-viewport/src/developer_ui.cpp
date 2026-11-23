@@ -925,6 +925,11 @@ private:
         }
         ImGui::EndCombo();
       }
+      ImGui::BeginDisabled(settings_contract_.gpu_driven_gaussian.raster !=
+                           render::GaussianRasterPath::Tiled);
+      ImGui::Checkbox("Gaussian adaptive tile bounds",
+          &settings_contract_.gpu_driven_gaussian.adaptive_tile_bounds);
+      ImGui::EndDisabled();
       ImGui::EndDisabled();
       ImGui::TextDisabled(
           "GPU execution prepares, sorts, and rasterizes Gaussians on the "
@@ -1233,6 +1238,12 @@ private:
                 ? "GPU sorted stream"
                 : "CPU sorted stream");
         LabelValue("GPU sorted", telemetry.gaussian_gpu_sorted_count);
+        LabelValue("GPU tile pairs requested",
+            telemetry.gaussian_gpu_tile_requested_pair_count);
+        LabelValue("GPU tile pairs rejected",
+            telemetry.gaussian_gpu_tile_rejected_pair_count);
+        LabelValue("GPU tile records culled",
+            telemetry.gaussian_gpu_tile_culled_record_count);
         LabelValue("GPU tile overflow fallbacks",
             telemetry.gaussian_gpu_tile_raster_overflow_fallback_count);
         LabelValue("GPU stage fallbacks",

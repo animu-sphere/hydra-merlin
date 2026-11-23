@@ -1,3 +1,5 @@
+#include "gaussian_adaptive_fixture.hpp"
+
 // Exercises the Vulkan Gaussian path end to end: GPU projection/culling
 // dispatch, the verified GPU radix sort, sorted-stream indirect raster and its
 // image parity with the CPU-sorted reference raster, verified tile binning
@@ -145,6 +147,49 @@ void Report(const char* label, const ImageDifference& difference) {
             << difference.instance_id_pixels << " differing pixels\n";
 }
 
+void CheckAdaptiveTileBounds(merlin::vulkan::Renderer& renderer,
+    const merlin::vulkan::ShaderPaths& shaders) {
+  using namespace merlin;
+  RenderWorld world;
+  extraction::SceneExtractor extractor;
+  world.CreateGaussian(test::AdaptiveGaussianFixture());
+  extractor.Apply(world, world.Commit());
+  vulkan::RenderRequest request;
+  request.width = test::kAdaptiveWidth;
+  request.height = test::kAdaptiveHeight;
+  request.shaders = shaders;
+  request.products = {{Aov::Color, true}, {Aov::Depth, true},
+      {Aov::PrimId, true}, {Aov::InstanceId, true}};
+  request.gpu_driven_gaussian_preparation = vulkan::GpuDrivenGaussianPreparationMode::Require;
+  request.gpu_driven_gaussian_sort = vulkan::GpuDrivenGaussianSortMode::Require;
+  request.gpu_driven_gaussian_raster = vulkan::GpuDrivenGaussianRasterMode::Require;
+  request.gpu_driven_gaussian_tiles = vulkan::GpuDrivenGaussianTileMode::Require;
+  request.gpu_driven_gaussian_tile_raster = vulkan::GpuDrivenGaussianTileRasterMode::Require;
+  request.gaussian_cpu_reference_validation = true;
+  for (int step = -test::kAdaptiveCameraSteps; step <= test::kAdaptiveCameraSteps; ++step) {
+    request.snapshot = test::AdaptiveCameraFrame(*extractor.snapshot(), step);
+    request.gaussian_adaptive_tile_bounds = false;
+    const auto exact = renderer.Resolve(renderer.Submit(request));
+    request.gaussian_adaptive_tile_bounds = true;
+    const auto adaptive = renderer.Resolve(renderer.Submit(request));
+    RequireVerifiedTiles(adaptive, "adaptive tile bins diverged from the CPU replay");
+    const auto& counters = adaptive.counters;
+    Require(exact.counters.gaussian_gpu_tile_raster_frame_count == 1 &&
+                exact.counters.gaussian_gpu_tile_rejected_pair_count == 0 &&
+                counters.gaussian_gpu_tile_raster_frame_count == 1 &&
+                counters.gaussian_gpu_tile_rejected_pair_count > 0 &&
+                counters.gaussian_gpu_tile_culled_record_count == 1 &&
+                counters.gaussian_gpu_tile_requested_pair_count +
+                        counters.gaussian_gpu_tile_rejected_pair_count ==
+                    exact.counters.gaussian_gpu_tile_requested_pair_count,
+        "adaptive tile bins did not reject the expected pairs and record");
+    const auto difference = Compare(exact, adaptive);
+    Require(difference.color_pixels == 0 && difference.depth_pixels == 0 &&
+                difference.prim_id_pixels == 0 && difference.instance_id_pixels == 0,
+        "adaptive tile bounds changed a camera frame");
+  }
+}
+
 void CheckLowOpacityTiles(merlin::vulkan::Renderer& renderer,
     const merlin::vulkan::ShaderPaths& shaders) {
   // A dense stack with weak contributions reproduces the 10M color defect
@@ -258,6 +303,7 @@ int main(int argc, char** argv) {
 
   try {
     CheckLowOpacityTiles(*renderer, shaders);
+    CheckAdaptiveTileBounds(*renderer, shaders);
     merlin::RenderWorld world;
     merlin::MeshDescriptor mesh;
     mesh.label = "background-quad";

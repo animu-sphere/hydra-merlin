@@ -26,7 +26,8 @@ void Backend::Impl::PrepareGaussianExecution(const render::RenderRequest& reques
           request.snapshot->view, request.snapshot->projection,
           request.width, request.height, command, false, capabilities_.validation_enabled,
           frame.gaussian_timestamps, wants_tiles,
-          request.gpu_driven_gaussian.tile_pair_capacity);
+          request.gpu_driven_gaussian.tile_pair_capacity,
+          request.gpu_driven_gaussian.adaptive_tile_bounds);
     } catch (const render::RendererError& error) {
       if (!wants_tiles || mode != render::GpuDrivenGaussianMode::Prefer ||
           (error.code() != render::RendererErrorCode::Unsupported &&
@@ -49,7 +50,9 @@ void Backend::Impl::PrepareGaussianExecution(const render::RenderRequest& reques
     }
     // Read only bounded per-resource counters and draw arguments after all
     // compute stages. They never schedule GPU work from a CPU visible count.
-    const auto tile_bytes = execution->tiled ? 44ULL : 0ULL;
+    const auto tile_bytes = execution->tiled
+                                ? gaussian_compute::kTileControlWordCount * sizeof(std::uint32_t)
+                                : 0;
     const auto bytes = 32ULL + tile_bytes + execution->resource_count * sizeof(gaussian_compute::PrepareCounters);
     if (!frame.gaussian_telemetry || frame.gaussian_telemetry.length < bytes) {
       auto buffer = [device_ newBufferWithLength:bytes options:MTLResourceStorageModeShared];
@@ -128,7 +131,7 @@ void Backend::Impl::ResolveGaussianTelemetry(const FrameContext& frame, render::
   auto& telemetry = result.telemetry;
   const auto* tile = execution.tiled ? words + 8 : nullptr;
   const auto* counters = reinterpret_cast<const gaussian_compute::PrepareCounters*>(
-      words + 8 + (execution.tiled ? 11 : 0));
+      words + 8 + (execution.tiled ? gaussian_compute::kTileControlWordCount : 0));
   for (std::uint32_t i = 0; i < execution.resource_count; ++i) {
     telemetry.gaussian_visible_count += counters[i].visible_count;
     telemetry.gaussian_opacity_culled_count += counters[i].opacity_culled_count;
@@ -154,6 +157,10 @@ void Backend::Impl::ResolveGaussianTelemetry(const FrameContext& frame, render::
   if (tile) {
     telemetry.gaussian_gpu_tile_pair_capacity = execution.tile_raster.pair_capacity;
     telemetry.gaussian_gpu_tile_requested_pair_count = tile[1];
+    telemetry.gaussian_gpu_tile_rejected_pair_count =
+        tile[gaussian_compute::kTileRejectedPairCountWord];
+    telemetry.gaussian_gpu_tile_culled_record_count =
+        tile[gaussian_compute::kTileCulledRecordCountWord];
     telemetry.gaussian_gpu_tile_clamped_record_count = tile[2];
     telemetry.gaussian_gpu_tile_raster_frame_count = selected ? 1 : 0;
     telemetry.gaussian_gpu_tile_raster_overflow_fallback_count =
