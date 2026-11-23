@@ -297,14 +297,17 @@ jobs:
 
       - name: Configure Hydra
         shell: pwsh
-        run: >-
-          cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON
-          -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON
-          "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT"
-          "-DMERLIN_OPEN_CHESS_SET=${{ github.workspace }}/open-chess-assets/full_assets/OpenChessSet/chess_set.usda"
-          "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT"
-          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}"
-          "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib"
+        run: |
+          $chess = if ('${{ inputs.suite }}' -ne 'gaussian') {
+            "${{ github.workspace }}/open-chess-assets/full_assets/OpenChessSet/chess_set.usda"
+          }
+          cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON `
+          -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON `
+          "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT" `
+          "-DMERLIN_OPEN_CHESS_SET=$chess" `
+          "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT" `
+          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}" `
+          "-DPython3_LIBRARY=$env:pythonLocation/libs/python313.lib" `
           "-DPython3_INCLUDE_DIR=$env:pythonLocation/include"
 
       - name: Build
