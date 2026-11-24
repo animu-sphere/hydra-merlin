@@ -1,4 +1,6 @@
-# Gaussian test fixtures
+# Hydra test fixtures
+
+## Gaussian
 
 `leica-sofort-top8192.usdc` is a flattened OpenUSD crate containing one
 standard `ParticleField3DGaussianSplat` with 8,192 particles and degree-3
@@ -27,3 +29,28 @@ color copy produced the same PNG bytes. Its SHA-256 digest is
 `dec8deec02136c53ab0e89624bb31ba89cd6ce234bd1263c204a953731f8eb73`.
 It is the Vulkan float-composite host baseline. The earlier reference remains
 available for the legacy UNorm path and Metal; host tolerances are unchanged.
+
+## Subdivision
+
+`subdivision-cages.usda` is a self-contained stage for Storm and CPU
+OpenSubdiv comparisons. All Mesh prims are under `/Subdivision`.
+
+| Mesh | Comparison |
+| --- | --- |
+| `DefaultCage` | Closed quad cage with an unauthored scheme. The UsdGeomMesh schema resolves it to `catmullClark`. |
+| `SharpCage` | The same cage with explicit `catmullClark`, a semi-sharp crease and a fully sharp corner. |
+| `PolygonCage` | The same cage with `subdivisionScheme = "none"` as a polygon regression control. |
+| `OpenEdgeAndCorner`, `OpenEdgeOnly` | Identical three-quad strips with different boundary rules. Indexed `primvars:st` splits the first shared edge and stays continuous across the second. |
+
+Compare cage geometry in object space to account for the display translations.
+For subdivision updates, edit `points`, topology and sharpness independently
+in a session layer. Use the host complexity control to exercise level changes
+with the authored topology held fixed. Compare refined positions and UVs at
+matching uniform levels against OpenSubdiv. Use Storm for boundary, crease,
+corner and seam behavior in usdview. Inspect `primvars:st` directly or bind a
+UV-debug material in a session layer to visualize the seam.
+
+Merlin currently triangulates the authored cage. This stage provides source
+inputs for future refinement tests. The
+[UsdGeomMesh schema](https://openusd.org/release/api/class_usd_geom_mesh.html)
+defines the authored subdivision attributes.

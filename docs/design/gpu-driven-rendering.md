@@ -408,9 +408,11 @@ and fallbacks on broad hardware. A Mesh Shader backend is enabled only after
 `VK_EXT_mesh_shader`, limits, subgroup behavior, driver stability, and a measured
 win are confirmed. Supporting the extension does not automatically select it.
 
-Subdivision initially consumes a correctly triangulated/refined result from the
-existing Hydra path. Independent GPU micropolygon or cluster generation is not
-part of static meshlet delivery.
+Static meshlets consume triangles from upstream mesh preparation, including
+refined triangles when available. The
+[surface geometry contract](surface-geometry.md#responsibilities) defines the
+boundary between refinement and surface attribute preparation. Independent GPU
+micropolygon or cluster generation is outside static meshlet delivery.
 
 ## Capability selection and fallbacks
 

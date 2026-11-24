@@ -1,0 +1,75 @@
+#usda 1.0
+(
+    defaultPrim = "Subdivision"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "Subdivision"
+{
+    def Mesh "DefaultCage"
+    {
+        float3[] extent = [(-0.6, 0, -0.6), (0.6, 1.2, 0.6)]
+        int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+        int[] faceVertexIndices = [0, 1, 2, 3, 4, 7, 6, 5, 0, 4, 5, 1,
+                                   1, 5, 6, 2, 2, 6, 7, 3, 3, 7, 4, 0]
+        point3f[] points = [(-0.6, 0, -0.6), (0.6, 0, -0.6),
+                            (0.6, 0, 0.6), (-0.6, 0, 0.6),
+                            (-0.6, 1.2, -0.6), (0.6, 1.2, -0.6),
+                            (0.6, 1.2, 0.6), (-0.6, 1.2, 0.6)]
+        double3 xformOp:translate = (-1.7, 0, -1.25)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Mesh "SharpCage" (
+        prepend references = </Subdivision/DefaultCage>
+    )
+    {
+        uniform token subdivisionScheme = "catmullClark"
+        int[] creaseIndices = [0, 1, 5]
+        int[] creaseLengths = [3]
+        float[] creaseSharpnesses = [2.5]
+        int[] cornerIndices = [6]
+        float[] cornerSharpnesses = [10]
+        double3 xformOp:translate = (0, 0, -1.25)
+    }
+
+    def Mesh "PolygonCage" (
+        prepend references = </Subdivision/DefaultCage>
+    )
+    {
+        uniform token subdivisionScheme = "none"
+        double3 xformOp:translate = (1.7, 0, -1.25)
+    }
+
+    def Mesh "OpenEdgeAndCorner"
+    {
+        uniform token subdivisionScheme = "catmullClark"
+        token interpolateBoundary = "edgeAndCorner"
+        token faceVaryingLinearInterpolation = "cornersPlus1"
+        uniform bool doubleSided = true
+        float3[] extent = [(-1.2, 0, -0.5), (1.2, 0.6, 0.5)]
+        int[] faceVertexCounts = [4, 4, 4]
+        int[] faceVertexIndices = [0, 4, 5, 1, 1, 5, 6, 2, 2, 6, 7, 3]
+        point3f[] points = [(-1.2, 0, -0.5), (-0.4, 0, -0.5),
+                            (0.4, 0.15, -0.5), (1.2, 0, -0.5),
+                            (-1.2, 0, 0.5), (-0.4, 0.6, 0.5),
+                            (0.4, 0.2, 0.5), (1.2, 0, 0.5)]
+        texCoord2f[] primvars:st = [(0, 0), (0, 1), (0.25, 1), (0.25, 0),
+                                    (0.5, 0), (0.5, 1), (0.75, 1), (0.75, 0),
+                                    (1, 1), (1, 0)] (
+            interpolation = "faceVarying"
+        )
+        int[] primvars:st:indices = [0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 8, 9]
+        double3 xformOp:translate = (-1.55, 0, 1.1)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Mesh "OpenEdgeOnly" (
+        prepend references = </Subdivision/OpenEdgeAndCorner>
+    )
+    {
+        token interpolateBoundary = "edgeOnly"
+        double3 xformOp:translate = (1.55, 0, 1.1)
+    }
+}
