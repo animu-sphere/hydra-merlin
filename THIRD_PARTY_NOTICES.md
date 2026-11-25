@@ -52,3 +52,14 @@ environment image.
 - License: Tomorrow Open Source Technology License 1.0, reproduced in
   `third_party/openusd/LICENSE.txt`
 - Upstream notice: `third_party/openusd/NOTICE.txt`
+
+## OpenSubdiv
+
+`Merlin::RenderWorld` embeds the CPU refinement code from OpenSubdiv 3.6.1
+when built with `MERLIN_ENABLE_OPENSUBDIV`.
+
+- Upstream repository: PixarAnimationStudios/OpenSubdiv
+- Upstream tag: `v3_6_1`
+- Copyright: Copyright 2013 Pixar. All rights reserved.
+- License and attribution: `third_party/opensubdiv/upstream/LICENSE.txt` and
+  `NOTICE.txt`, installed under `share/merlin/licenses/opensubdiv`

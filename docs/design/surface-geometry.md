@@ -28,7 +28,8 @@ but it does not build the geometric normal, tangent frame, transforms or facing
 state. UsdPreviewSurface uses the same surface context; there is no separate
 PreviewSurface normal path.
 
-For subdivided meshes, refinement precedes surface attribute preparation.
+For subdivided meshes, [CPU refinement](subdivision-refinement.md) precedes
+surface attribute preparation.
 Shading normal and tangent preparation uses the final triangle topology and
 UVs, with corner data that preserves geometric creases and face-varying seams.
 The same surface contract applies to refined and polygonal meshes on Vulkan

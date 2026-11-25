@@ -49,6 +49,11 @@ endif()
 
 set(usdview_timeout 50)
 set(forward_motion_environment)
+if(MERLIN_SUBDIVISION_FIXTURE)
+  set(usdview_timeout 110)
+  list(APPEND forward_motion_environment
+    "MERLIN_SUBDIVISION_FIXTURE=${MERLIN_SUBDIVISION_FIXTURE}")
+endif()
 if(MERLIN_FORWARD_LIGHTING_ONLY)
   set(usdview_timeout 120)
 endif()
@@ -103,7 +108,7 @@ if(NOT EXISTS "${host_trace}")
   message(FATAL_ERROR
     "usdview did not produce the requested host Chrome trace")
 endif()
-if(MERLIN_SHADING_MODES_ONLY)
+if(MERLIN_SHADING_MODES_ONLY OR MERLIN_SUBDIVISION_FIXTURE)
   # The shading callback compares every captured frame and reports any failure
   # through testusdview. It does not exercise presentation timing.
   return()

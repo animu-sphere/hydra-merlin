@@ -25,6 +25,9 @@ foreach(_core IN ITEMS RenderWorld RenderExtraction RenderBackend)
 endforeach()
 
 add_executable(merlin-install-consumer main.cpp)
+if(Merlin_WITH_OPENSUBDIV)
+  target_compile_definitions(merlin-install-consumer PRIVATE MERLIN_WITH_OPENSUBDIV)
+endif()
 target_link_libraries(merlin-install-consumer PRIVATE
   Merlin::RenderExtraction
   Merlin::RenderBackend

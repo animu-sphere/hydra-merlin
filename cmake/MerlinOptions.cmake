@@ -17,6 +17,7 @@ set(MERLIN_GAUSSIAN_REFERENCE_IMAGE "" CACHE FILEPATH
 option(MERLIN_ENABLE_VULKAN "Build the Vulkan backend" ON)
 option(MERLIN_ENABLE_METAL "Build the native Metal backend" ${APPLE})
 option(MERLIN_ENABLE_HYDRA2 "Build the OpenUSD Hydra 2 adapter" OFF)
+option(MERLIN_ENABLE_OPENSUBDIV "Enable CPU Catmull-Clark mesh refinement" OFF)
 # Hydra 2 is also satisfied by Metal alone, so this cannot be a plain option
 # defaulting to MERLIN_ENABLE_HYDRA2: a Metal-only Hydra build would then turn
 # the bridge on implicitly and fail its own dependency rule. A dependent option
