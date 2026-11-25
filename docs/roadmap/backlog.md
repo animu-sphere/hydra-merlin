@@ -9,34 +9,12 @@ capability, integration, or benchmark evidence changes the dependency order.
 
 ## Phase D — GPU scalability and shading quality
 
-### v0.17.0 — Contribution-aware Gaussian culling and adaptive bounds
+### CPU subdivision follow-ups — independent Geometry track
 
-**Goal:** Add opt-in conservative Gaussian/tile contribution bounds and
-evaluate higher culling floors against image, temporal and picking evidence.
-Retain `Exact` as the default and validation path.
-
-**Depends on:** Image-producing GPU Gaussian tiling from
-[v0.16.0](../releases/v0.16.0.md), the v0.16.x Forward stabilization exit, and
-the Metal evidence below before expanding Metal claims. See the
-[Gaussian rendering design](../design/gaussian-rendering.md) and
-[Metal execution plan](../design/metal-gaussian-execution.md).
-
-- Broaden Metal Gaussian execution evidence beyond Apple M3 and tune tile work
-  on representative scenes. Record total GPU cost as well as raster savings;
-  65K/1M binning and sorting can outweigh the raster improvement.
-- Extend same-device/host measurements to other GPUs with controlled
-  clocks/power before establishing hardware timing gates.
-
-**Exit:** Rejection, pair, saturation, and early-termination counters accompany
-image and temporal-tolerance evidence without unexplained view-dependent
-popping.
-
-### v0.17.0 — CPU OpenSubdiv and Catmull–Clark — independent Geometry track
-
-The uniform CPU implementation is on the [current Geometry track](current.md#v0170--cpu-catmullclark--independent-geometry-track).
-`loop`, `bilinear`, broader primvar coverage and further deforming-Mesh
-tuning remain follow-ups. GPU refinement, tessellation, adaptive patches,
-displacement and integration with meshlets, Visibility or LOD are deferred.
+Evaluate `loop`, `bilinear`, broader primvar coverage and further
+deforming-Mesh tuning after uniform Catmull–Clark. GPU refinement,
+tessellation, adaptive patches, displacement and integration with meshlets,
+Visibility or LOD are deferred.
 
 ### Experimental opaque Visibility Buffer — independent Mesh track
 

@@ -28,7 +28,7 @@ def check_gaussian_settings(stage_view):
     # The mode and raster names are aliases for the listed Gaussian flags.
     assert set(settings) == {
         GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING, GAUSSIAN_ADAPTIVE_SETTING,
-        "merlin:exposureEv", "merlin:toneMapping"
+        "merlin:exposureEv", "merlin:toneMapping", "merlin:debugView",
     }, f"usdview lists unexpected Merlin settings: {sorted(settings)}"
     for key in (GAUSSIAN_ENABLED_SETTING, GAUSSIAN_TILED_SETTING, GAUSSIAN_ADAPTIVE_SETTING):
         assert (
@@ -40,6 +40,7 @@ def check_gaussian_settings(stage_view):
         )
     assert stage_view.GetRendererSetting("merlin:exposureEv") == 0.0
     assert stage_view.GetRendererSetting("merlin:toneMapping") == "reinhard"
+    assert stage_view.GetRendererSetting("merlin:debugView") == "none"
     assert stage_view.GetRendererSetting(GAUSSIAN_MODE_SETTING) == "disabled"
     assert (
         stage_view.GetRendererSetting(GAUSSIAN_RASTER_SETTING)

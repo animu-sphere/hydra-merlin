@@ -11,6 +11,44 @@ Legend: ✅ done
 
 ---
 
+## CPU Catmull–Clark scene verification — 2026-11-25
+
+Windows Release testing used renderer `5bfad2d`, OpenUSD 26.08, Vulkan SDK
+1.4.350.0 and an RTX A5000 with driver 597.16. usdview used HgiVulkan GPU
+copy, a 513×385 target and Vulkan validation. The two policies ran in
+separate usdview processes. Both started on the polygon cage at Low and
+switched to Medium, with a session-layer `none` override for the control.
+Each run sampled one transition, one points-only edit and 24 warm static
+frames. The timing summaries use unpinned clocks and power.
+
+| usdview scene | Initial CPU refinement, ms | Medium transition upload, MB | Points edit CPU refinement, ms | Points edit upload, bytes | Warm median render-pass time, ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Teapot, polygon → level 1 | 0 → 5.85 | 0 → 2.02 | 0 → 3.43 | 1,344 → 9,024 | 0.661 → 0.617 |
+| Kitchen_set, polygon → level 1 | 0 → 2,870 | 0 → 420.74 | 0 → 2.07 | 1,600 → 18,048 | 25.05 → 26.50 |
+
+During the same Low-to-Medium transition, process working set grew by
+7.45 → 19.16 MiB for Teapot and 54.48 → 2,419 MiB for Kitchen_set. Those
+samples include the USD host, driver and geometry allocations. Initial
+polygon uploads occurred at Low before the measured transition. The 1,788
+Kitchen_set cages included 1,787 successful refinements and one diagnosed
+fallback for non-manifold stool geometry. Each refined asset reused its
+plan for the points-only edit. Warm frames performed zero subdivision
+evaluations and zero uploads. The three Teapot surface debug modes for
+shading normals, tangents and bitangents produced distinct captures.
+
+An installed native Vulkan consumer rendered the same Teapot cage and the
+fixture's `OpenEdgeAndCorner` cage with indexed UVs. Level 1 increased the
+triangle count from 2,472 to 9,888 for Teapot and from 6 to 24 for the
+fixture. Both rendered distinct normal, tangent and bitangent views and
+repeated identical color readbacks for 24 unchanged frames after a
+points-only edit. Teapot's native median GPU time was 0.075 → 0.076 ms.
+The native probe submitted full mesh updates. usdview used the adapter's
+partial geometry uploads measured above.
+
+The local captures, probes and summaries are in `build/v017-release-evidence`.
+
+---
+
 ## CPU Catmull–Clark fixture verification — 2026-11-25
 
 The vendored OpenSubdiv 3.6.1 build compared expanded positions and indexed
@@ -471,7 +509,7 @@ The Vulkan loader-only compilation environment has no Vulkan device. It cannot
 establish new Vulkan image, validation-layer or host execution coverage, and
 this evidence does not close v0.16.3. Independent Vulkan Debug/Release device and
 Hydra runs, followed by refreshed cross-backend comparisons, remain in the
-[Forward stabilization roadmap](../roadmap/current.md#v016x--forward-renderer-stabilization).
+[Forward stabilization baseline](../releases/v0.16.2.md).
 Existing support claims and
 rendering semantics are unchanged; generated Metal materials and broader
 Forward quality remain separate work.

@@ -332,10 +332,13 @@ implemented:
 - **Evidence.** Core positions and UVs pass comparison with OpenSubdiv Far at
   matching levels. Windows Vulkan usdview exercises the authored fixture,
   points, topology and sharpness edits, complexity changes and zero-work
-  static frames. The installed native Vulkan consumer renders a refined
-  quad and repeats its depth image exactly. The native USD viewport keeps
-  its level-zero policy. Metal subdivision output and representative-scene
-  performance remain unverified. See the [design](../design/subdivision-refinement.md).
+  static frames. The installed native Vulkan consumer renders Teapot and
+  the indexed-UV seam fixture. Teapot and Kitchen_set compare level 1
+  with the polygon cage in Windows Vulkan usdview. Both reuse the plan
+  for a points-only edit. See the
+  [scene measurements](../reports/delivery-history.md#cpu-catmullclark-scene-verification--2026-11-25).
+  The native USD viewport keeps its level-zero policy. Metal subdivision
+  output and timing remain unverified.
 
 ### Other
 
