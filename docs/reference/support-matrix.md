@@ -189,7 +189,10 @@ they are not implied to work by the availability of the surrounding adapter.
   under the camera light and distant lights. It uses the diffuse dome and the
   default dielectric specular weight, color and IOR. The
   [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
-  checks authored inputs and controlled highlight measurements.
+  checks authored inputs and controlled highlight measurements on Windows
+  Vulkan and Apple M3 Metal with OpenUSD 26.08. See the
+  [Vulkan verification](../reports/delivery-history.md#vulkan-open-chess-set-and-forward-host-verification--2026-11-24)
+  and [Metal verification](../releases/v0.16.8.md#verification-evidence).
 - Custom Vulkan HDR environments have no Metal parity claim.
 - Cross-backend evidence compares center samples; full-image Vulkan/Metal
   rasterization parity is not yet validated.
@@ -308,10 +311,11 @@ implemented:
   repeated runs. Pixels without a tangent frame lie on faces with zero UV
   area (82,792 of 275,656).
 - The Open Chess Set gate validates direct MaterialX `normalmap` image
-  connections on OpenUSD 26.08 and Apple M3 with Tier 0 and HgiMetal. They use
-  the shared Forward tangent frame and texture decode. Generated MaterialX
-  `normal` accepts a world-space normal, with the same facing and hemisphere
-  rules. See the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set).
+  connections on OpenUSD 26.08 with Tier 0 and HgiVulkan on Windows and
+  Tier 0 and HgiMetal on Apple M3. They use the shared Forward tangent frame
+  and texture decode. Generated MaterialX `normal` accepts a world-space
+  normal, with the same facing and hemisphere rules. See the
+  [Open Chess Set gate](../guides/forward-validation.md#open-chess-set).
 
 ### Subdivision
 

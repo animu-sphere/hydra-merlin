@@ -11,6 +11,31 @@ Legend: ✅ done
 
 ---
 
+## Vulkan Open Chess Set and Forward host verification — 2026-11-24
+
+The Release build of `fa3fde9` ran on Windows with NVIDIA RTX A5000 driver
+597.16, Vulkan SDK 1.4.350.0, Slang 2026.8 and OpenUSD 26.08 usdview.
+The focused CTest run passed all 11 cases without skips, including the
+native Vulkan lighting reference and its Tier 0 host comparison. Vulkan
+validation was enabled for the host captures and reported zero messages.
+The installed CMake consumer and Vulkan runtime tests also passed.
+
+Tier 0 CPU readback and HgiVulkan GPU copy agreed pixel-for-pixel on all
+31 Open Chess Set, 51 lighting/output and 61 surface-normal image pairs.
+The Open Chess Set gate used the original stage. All 12 session-layer
+input edits changed the rendered image, covering base color, normal maps,
+metalness and specular roughness on the board and both sets of pieces.
+In the controlled fully metallic probe, raising roughness from 0.4 to 0.6
+expanded the half-maximum highlight from 159 to 485 pixels under the
+camera light and from 159 to 483 under the distant light. Turning the
+diffuse dome on or off left those widths unchanged.
+
+JUnit and the three presentation comparison JSON files are retained under
+`build/forward-local-verification`. See the
+[Forward validation guide](../guides/forward-validation.md#open-chess-set)
+for the gate and the [v0.16.8 release record](../releases/v0.16.8.md) for the
+independent Metal measurements.
+
 ## v0.17.0 paired Gaussian sequences and quality thresholds — 2026-11-23
 
 Release renderer `3ed3440` ran with OpenUSD 26.08 usdview on Apple M3 with
