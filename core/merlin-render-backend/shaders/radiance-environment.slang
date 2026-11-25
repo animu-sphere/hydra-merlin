@@ -1,5 +1,8 @@
 #pragma once
 
+// Metal links the dome and Forward entry points from separate AIR modules.
+// Inline shared helpers so they do not define the same linkable symbol.
+[ForceInline]
 float2 RadianceUv(float3 direction)
 {
     float azimuth = any(direction.xz != float2(0.0f)) ? atan2(direction.z, direction.x) : 0.0f;
@@ -7,6 +10,7 @@ float2 RadianceUv(float3 direction)
         acos(clamp(direction.y, -1.0f, 1.0f)) / 3.1415926536f);
 }
 
+[ForceInline]
 float3 LoadRadiance(Texture2D<float4> environment, int2 texel, int2 size, int row_offset)
 {
     texel.x = (texel.x + size.x) % size.x;
@@ -15,6 +19,7 @@ float3 LoadRadiance(Texture2D<float4> environment, int2 texel, int2 size, int ro
     return rgbe.a == 0.0f ? float3(0.0f) : rgbe.rgb * exp2(rgbe.a - 136.0f);
 }
 
+[ForceInline]
 float3 SampleRadiance(Texture2D<float4> environment, float2 uv, int2 size, int row_offset)
 {
     float2 pixel = uv * float2(size) - 0.5f;

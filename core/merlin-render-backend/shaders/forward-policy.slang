@@ -581,7 +581,7 @@ float4 ShadeForward(
             input.clip_xyw.y * material.clip_to_view_direction[1].xyz +
             input.clip_xyw.z * material.clip_to_view_direction[2].xyz, normal);
         glossy.metallic = saturate(scalar_factors.x);
-        glossy.roughness = clamp(scalar_factors.y, kSpecularRoughness[0], 1.0f);
+        glossy.roughness = clamp(scalar_factors.y, kMinSpecularRoughness, 1.0f);
         glossy.reflectance = lerp(float3(0.04f), saturate(base_color.rgb), glossy.metallic);
         float n_dot_v = saturate(dot(normal, glossy.view));
         if (material.specular_environment_scale.w != 0.0f && n_dot_v > 0.0f)
