@@ -4,6 +4,7 @@ add_library(merlin-render-world STATIC
   src/material_abi.cpp
   src/material_diagnostic.cpp
   src/mesh_attributes.cpp
+  src/mesh_subdivision.cpp
   src/render_world.cpp
   src/shader_artifact.cpp
 )
@@ -22,3 +23,13 @@ target_include_directories(merlin-render-world
 )
 
 target_compile_features(merlin-render-world PUBLIC cxx_std_20)
+
+if(MERLIN_HAS_OPENSUBDIV)
+  target_sources(merlin-render-world PRIVATE $<TARGET_OBJECTS:merlin-opensubdiv>)
+  target_include_directories(merlin-render-world SYSTEM PRIVATE
+    "${MERLIN_OPENSUBDIV_SOURCE_DIR}")
+  target_compile_definitions(merlin-render-world PRIVATE MERLIN_HAS_OPENSUBDIV)
+  if(MSVC)
+    target_compile_definitions(merlin-render-world PRIVATE _USE_MATH_DEFINES)
+  endif()
+endif()

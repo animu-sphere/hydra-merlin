@@ -27,6 +27,7 @@
 #include <pxr/imaging/hd/dataSourceLocator.h>
 #include <pxr/imaging/hd/driver.h>
 #include <pxr/imaging/hd/instancer.h>
+#include <pxr/imaging/hd/legacyDisplayStyleSchema.h>
 #include <pxr/imaging/hd/light.h>
 #include <pxr/imaging/hd/material.h>
 #include <pxr/imaging/hd/mesh.h>
@@ -47,12 +48,14 @@
 #include <pxr/imaging/hgi/tokens.h>
 #include <pxr/imaging/hgi/types.h>
 #include <pxr/imaging/hio/image.h>
+#include <pxr/imaging/pxOsd/tokens.h>
 #include <pxr/usd/sdf/assetPath.h>
 
 #include <merlin/core/render_world.hpp>
 #include <merlin/core/diagnostic.hpp>
 #include <merlin/core/gaussian.hpp>
 #include <merlin/core/mesh_attributes.hpp>
+#include <merlin/core/mesh_subdivision.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
 #include <merlin/render/diffuse_environment.hpp>
@@ -91,6 +94,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
@@ -149,6 +153,9 @@ struct HydraTelemetrySnapshot {
   std::uint64_t changed_vertex_count{};
   std::uint64_t diagnostic_count{};
   std::uint64_t coarse_primvar_invalidation_count{};
+  std::uint64_t subdivision_plan_count{};
+  std::uint64_t subdivision_eval_count{};
+  std::uint64_t subdivision_eval_ns{};
 };
 
 struct HydraTelemetry {
@@ -171,6 +178,9 @@ struct HydraTelemetry {
   std::atomic<std::uint64_t> changed_vertex_count{};
   std::atomic<std::uint64_t> diagnostic_count{};
   std::atomic<std::uint64_t> coarse_primvar_invalidation_count{};
+  std::atomic<std::uint64_t> subdivision_plan_count{};
+  std::atomic<std::uint64_t> subdivision_eval_count{};
+  std::atomic<std::uint64_t> subdivision_eval_ns{};
 
   HydraTelemetrySnapshot Consume() {
     const auto take = [](std::atomic<std::uint64_t>& value) {
@@ -194,7 +204,10 @@ struct HydraTelemetry {
         take(packed_mesh_rebuild_count),
         take(changed_vertex_count),
         take(diagnostic_count),
-        take(coarse_primvar_invalidation_count)};
+        take(coarse_primvar_invalidation_count),
+        take(subdivision_plan_count),
+        take(subdivision_eval_count),
+        take(subdivision_eval_ns)};
   }
 };
 
@@ -626,6 +639,78 @@ std::optional<merlin::PrimvarInterpolation> ToPrimvarInterpolation(
     break;
   }
   return std::nullopt;
+}
+
+template <typename Rule, std::size_t N>
+Rule SubdivisionRule(const TfToken& token,
+    const std::array<std::string_view, N>& names, Rule default_rule) {
+  if (token.IsEmpty()) {
+    return default_rule;
+  }
+  const auto found = std::ranges::find(names, token.GetString());
+  return found == names.end() ? Rule::Unsupported
+                              : static_cast<Rule>(found - names.begin());
+}
+
+merlin::SubdivisionTopology ToSubdivisionTopology(
+    const HdMeshTopology& topology, const PxOsdSubdivTags& tags) {
+  using namespace merlin;
+  using namespace std::literals;
+  SubdivisionTopology result;
+  result.scheme = SubdivisionRule(topology.GetScheme(),
+      std::array{"none"sv, "catmullClark"sv}, SubdivisionScheme::None);
+  result.boundary = SubdivisionRule(tags.GetVertexInterpolationRule(),
+      std::array{"none"sv, "edgeOnly"sv, "edgeAndCorner"sv}, result.boundary);
+  result.face_varying = SubdivisionRule(tags.GetFaceVaryingInterpolationRule(),
+      std::array{"none"sv, "cornersOnly"sv, "cornersPlus1"sv,
+          "cornersPlus2"sv, "boundaries"sv, "all"sv},
+      result.face_varying);
+  result.triangle_rule = SubdivisionRule(tags.GetTriangleSubdivision(),
+      std::array{"catmullClark"sv, "smooth"sv}, result.triangle_rule);
+  result.crease_method = SubdivisionRule(tags.GetCreaseMethod(),
+      std::array{"uniform"sv, "chaikin"sv}, result.crease_method);
+  result.left_handed = topology.GetOrientation() == HdTokens->leftHanded;
+  result.face_counts.assign(topology.GetFaceVertexCounts().begin(),
+      topology.GetFaceVertexCounts().end());
+  result.point_indices.assign(topology.GetFaceVertexIndices().begin(),
+      topology.GetFaceVertexIndices().end());
+  result.holes.assign(topology.GetHoleIndices().begin(),
+      topology.GetHoleIndices().end());
+  result.crease_lengths.assign(tags.GetCreaseLengths().begin(),
+      tags.GetCreaseLengths().end());
+  result.crease_indices.assign(tags.GetCreaseIndices().begin(),
+      tags.GetCreaseIndices().end());
+  result.crease_sharpness.assign(tags.GetCreaseWeights().begin(),
+      tags.GetCreaseWeights().end());
+  result.corner_indices.assign(tags.GetCornerIndices().begin(),
+      tags.GetCornerIndices().end());
+  result.corner_sharpness.assign(tags.GetCornerWeights().begin(),
+      tags.GetCornerWeights().end());
+  return result;
+}
+
+template <typename FloatArray, typename DoubleArray, typename Convert>
+std::optional<merlin::SubdivisionPrimvar> ToSubdivisionPrimvar(
+    const PrimvarInput& input, Convert convert) {
+  if (!input.present) {
+    return std::nullopt;
+  }
+  merlin::SubdivisionPrimvar result;
+  const auto interpolation = ToPrimvarInterpolation(input.interpolation);
+  if (interpolation) {
+    result.interpolation = *interpolation;
+    const auto copy = [&](const auto& values) {
+      result.values.reserve(values.size());
+      std::ranges::transform(values, std::back_inserter(result.values), convert);
+    };
+    if (input.value.IsHolding<FloatArray>()) {
+      copy(input.value.UncheckedGet<FloatArray>());
+    } else if (input.value.IsHolding<DoubleArray>()) {
+      copy(input.value.UncheckedGet<DoubleArray>());
+    }
+    result.indices.assign(input.indices.begin(), input.indices.end());
+  }
+  return result;
 }
 
 // Resolves Hydra storage into the host-neutral primvar consumed by shared
@@ -2970,6 +3055,9 @@ public:
                << frame_telemetry.diagnostic_count
                << " coarse_primvar_invalidation_count="
                << frame_telemetry.coarse_primvar_invalidation_count
+               << " subdivision_plan_count=" << frame_telemetry.subdivision_plan_count
+               << " subdivision_eval_count=" << frame_telemetry.subdivision_eval_count
+               << " subdivision_eval_ns=" << frame_telemetry.subdivision_eval_ns
                // Resolve, Map, and CPU-to-Hgi upload happen after this render
                // pass returns. Their current-frame scopes are therefore
                // sourced exclusively from the enclosing OpenUSD host trace.
@@ -3649,6 +3737,7 @@ public:
   HdDirtyBits GetInitialDirtyBitsMask() const override {
     return HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology |
            HdChangeTracker::DirtyPrimvar |
+           HdChangeTracker::DirtySubdivTags | HdChangeTracker::DirtyDisplayStyle |
            HdChangeTracker::DirtyMaterialId |
            HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyVisibility |
            HdChangeTracker::DirtyRenderTag |
@@ -3667,11 +3756,17 @@ public:
     const auto dirty_locators =
         dirty_tracker_ == nullptr ? std::nullopt
                                   : dirty_tracker_->Consume(GetId());
-    const bool topology_dirty = dirty_locators
-                                    ? dirty_locators->Intersects(
-                                          HdMeshSchema::GetTopologyLocator())
-                                    : (*dirty_bits &
-                                          HdChangeTracker::DirtyTopology) != 0;
+    const bool topology_dirty = !geometry_initialized_ ||
+        (dirty_locators
+                ? (dirty_locators->Intersects(HdMeshSchema::GetTopologyLocator()) ||
+                      dirty_locators->Intersects(HdMeshSchema::GetSubdivisionSchemeLocator()))
+                : (*dirty_bits & HdChangeTracker::DirtyTopology) != 0);
+    const bool subdivision_tags_dirty = dirty_locators
+        ? dirty_locators->Intersects(HdMeshSchema::GetSubdivisionTagsLocator())
+        : (*dirty_bits & HdChangeTracker::DirtySubdivTags) != 0;
+    const bool display_style_dirty = dirty_locators
+        ? dirty_locators->Intersects(HdLegacyDisplayStyleSchema::GetRefineLevelLocator())
+        : (*dirty_bits & HdChangeTracker::DirtyDisplayStyle) != 0;
     const bool primvar_bit =
         (*dirty_bits & HdChangeTracker::DirtyPrimvar) != 0;
     auto& change_tracker =
@@ -3702,6 +3797,12 @@ public:
           1, std::memory_order_relaxed);
       topology_ = GetMeshTopology(delegate);
     }
+    if (topology_dirty || subdivision_tags_dirty) {
+      subdivision_topology_.reset();
+    }
+    if (topology_dirty || display_style_dirty) {
+      display_refine_level_ = GetDisplayStyle(delegate).refineLevel;
+    }
     const bool primvars_dirty =
         dirty_locators
             ? HasNonPointPrimvarDirtiness(*dirty_locators)
@@ -3717,19 +3818,49 @@ public:
         primvars_dirty && RefreshPrimvars(delegate, dirty_locators);
     if (relevant_primvars_changed) {
       mesh_aspects |= merlin::ChangeAspect::Primvars;
+      subdivision_primvars_initialized_ = false;
     }
-    const bool triangulation_dirty =
-        points_changed || topology_dirty || !triangulation_initialized_;
-    if (triangulation_dirty) {
-      RebuildTriangulation();
+    const bool refined_repr = repr_token == HdReprTokens->refined ||
+        repr_token == HdReprTokens->refinedWire ||
+        repr_token == HdReprTokens->refinedWireOnSurf;
+    const int level = refined_repr && !topology_.GetScheme().IsEmpty() &&
+            topology_.GetScheme() != PxOsdOpenSubdivTokens->none
+        ? display_refine_level_ : 0;
+    const bool level_changed = level != active_refine_level_;
+    const bool geometry_dirty = points_changed || topology_dirty ||
+        level_changed || !geometry_initialized_ ||
+        (level != 0 && (subdivision_tags_dirty || relevant_primvars_changed));
+    if (geometry_dirty) {
+      active_refine_level_ = level;
+      geometry_initialized_ = true;
+      if (level != 0) {
+        RebuildSubdivision(delegate);
+      } else {
+        subdivision_.Reset();
+        subdivision_status_ = merlin::SubdivisionStatus::Polygon;
+      }
+      if (subdivision_status_ == merlin::SubdivisionStatus::Polygon ||
+          subdivision_status_ == merlin::SubdivisionStatus::Fallback) {
+        RebuildTriangulation();
+      }
+      if (level_changed || (level != 0 && subdivision_tags_dirty)) {
+        mesh_aspects |= merlin::ChangeAspect::Points |
+            merlin::ChangeAspect::Primvars;
+      }
     }
-    if (triangulation_dirty || relevant_primvars_changed) {
+    if ((geometry_dirty || relevant_primvars_changed) &&
+        (subdivision_status_ == merlin::SubdivisionStatus::Polygon ||
+            subdivision_status_ == merlin::SubdivisionStatus::Fallback)) {
       RebuildPackedMesh();
+    }
+    if (previous_descriptor.indices.size() != descriptor_.indices.size()) {
+      mesh_aspects |= merlin::ChangeAspect::Topology |
+          merlin::ChangeAspect::VertexLayout;
     }
     const bool uses_display_geometry = IsWireRepr(repr_token) ||
         IsWireOnSurfaceRepr(repr_token) || repr_token == HdReprTokens->points;
     if ((uses_display_geometry && !display_.points) ||
-        (display_.points && (triangulation_dirty || relevant_primvars_changed))) {
+        (display_.points && (geometry_dirty || relevant_primvars_changed))) {
       RebuildDisplayGeometry();
     }
     if ((*dirty_bits & HdChangeTracker::DirtyDoubleSided) != 0) {
@@ -4042,10 +4173,56 @@ private:
     return false;
   }
 
+  std::vector<merlin::Vec3> MeshPositions() const {
+    std::vector<merlin::Vec3> positions;
+    positions.reserve(points_.size());
+    for (const auto& point : points_) {
+      positions.push_back({static_cast<float>(point[0]),
+          static_cast<float>(point[1]), static_cast<float>(point[2])});
+    }
+    return positions;
+  }
+
+  void RebuildSubdivision(HdSceneDelegate* delegate) {
+    if (!subdivision_topology_) {
+      subdivision_topology_ = ToSubdivisionTopology(topology_, GetSubdivTags(delegate));
+    }
+    if (!subdivision_primvars_initialized_) {
+      subdivision_texcoords_ = ToSubdivisionPrimvar<VtVec2fArray, VtVec2dArray>(
+          texcoords_, [](const auto& value) {
+            return merlin::Vec4{static_cast<float>(value[0]), static_cast<float>(value[1]), 0, 0};
+          });
+      subdivision_colors_ = ToSubdivisionPrimvar<VtVec3fArray, VtVec3dArray>(
+          colors_, [](const auto& value) {
+            return merlin::Vec4{static_cast<float>(value[0]), static_cast<float>(value[1]),
+                static_cast<float>(value[2]), 0};
+          });
+      subdivision_opacities_ = ToSubdivisionPrimvar<VtFloatArray, VtDoubleArray>(
+          opacities_, [](auto value) { return merlin::Vec4{static_cast<float>(value), 0, 0, 0}; });
+      subdivision_primvars_initialized_ = true;
+    }
+    ScopedAtomicTimer refine_timer(g_hydra_telemetry.subdivision_eval_ns);
+    auto result = subdivision_.Refine(*subdivision_topology_, MeshPositions(),
+        {subdivision_texcoords_ ? &*subdivision_texcoords_ : nullptr,
+            subdivision_colors_ ? &*subdivision_colors_ : nullptr,
+            subdivision_opacities_ ? &*subdivision_opacities_ : nullptr},
+        active_refine_level_, GetId().GetString(), &g_diagnostic_sink);
+    subdivision_status_ = result.status;
+    if (subdivision_status_ == merlin::SubdivisionStatus::Refined) {
+      g_hydra_telemetry.subdivision_eval_count.fetch_add(1, std::memory_order_relaxed);
+      if (result.rebuilt_plan) {
+        g_hydra_telemetry.subdivision_plan_count.fetch_add(1, std::memory_order_relaxed);
+      }
+      result.mesh.double_sided = descriptor_.double_sided;
+      descriptor_ = std::move(result.mesh);
+    } else if (subdivision_status_ == merlin::SubdivisionStatus::Rejected) {
+      ResetPackedMesh();
+    }
+  }
+
   void RebuildTriangulation() {
     g_hydra_telemetry.triangulation_rebuild_count.fetch_add(
         1, std::memory_order_relaxed);
-    triangulation_initialized_ = true;
     packed_corners_.clear();
     if (points_.empty()) {
       return;
@@ -4153,12 +4330,7 @@ private:
     // Shared Mesh attribute preparation owns the authored -> flat -> Ng
     // priority, renormalization and degenerate fallback. Missing normals
     // stay flat per triangle, matching the established Hydra baseline.
-    std::vector<merlin::Vec3> positions;
-    positions.reserve(points_.size());
-    for (const auto& point : points_) {
-      positions.push_back({static_cast<float>(point[0]),
-          static_cast<float>(point[1]), static_cast<float>(point[2])});
-    }
+    const auto positions = MeshPositions();
     std::optional<merlin::NormalPrimvar> authored_normals;
     if (normals_.present) {
       authored_normals = ToNormalPrimvar(normals_);
@@ -4268,6 +4440,13 @@ private:
     auto wire = std::make_shared<MeshDisplayVertices>();
     display_ = {wire, points};
     if (descriptor_.indices.empty()) {
+      return;
+    }
+    if (subdivision_status_ == merlin::SubdivisionStatus::Refined) {
+      for (const auto& edge : subdivision_.WireEdges()) {
+        wire->push_back({descriptor_.positions[edge[0]], {}});
+        wire->push_back({descriptor_.positions[edge[1]], {}});
+      }
       return;
     }
 
@@ -4426,6 +4605,14 @@ private:
   PrimvarInput opacities_;
   PrimvarInput texcoords_;
   PrimvarInput tangents_;
+  merlin::MeshSubdivision subdivision_;
+  std::optional<merlin::SubdivisionTopology> subdivision_topology_;
+  std::optional<merlin::SubdivisionPrimvar> subdivision_texcoords_;
+  std::optional<merlin::SubdivisionPrimvar> subdivision_colors_;
+  std::optional<merlin::SubdivisionPrimvar> subdivision_opacities_;
+  merlin::SubdivisionStatus subdivision_status_{merlin::SubdivisionStatus::Polygon};
+  int display_refine_level_{};
+  int active_refine_level_{};
   std::vector<DiscoveredPrimvar> primvar_descriptors_;
   SdfPath material_id_;
   MeshDisplayGeometry display_;
@@ -4433,7 +4620,8 @@ private:
   std::vector<merlin::Mat4> transforms_{merlin::Mat4{}};
   bool visible_{true};
   bool primvar_cache_initialized_{};
-  bool triangulation_initialized_{};
+  bool geometry_initialized_{};
+  bool subdivision_primvars_initialized_{};
 };
 
 class HdMerlinGaussian final : public HdRprim {

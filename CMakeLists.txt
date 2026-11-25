@@ -22,6 +22,17 @@ endif()
 
 include(MerlinDependencies)
 
+set(MERLIN_OPENSUBDIV_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/opensubdiv/upstream")
+set(MERLIN_HAS_OPENSUBDIV OFF)
+if(MERLIN_ENABLE_OPENSUBDIV)
+  if(EXISTS "${MERLIN_OPENSUBDIV_SOURCE_DIR}/opensubdiv/version.h")
+    add_subdirectory(third_party/opensubdiv)
+    set(MERLIN_HAS_OPENSUBDIV ON)
+  else()
+    message(WARNING "Vendored OpenSubdiv source is missing. Subdivision meshes use the polygon cage.")
+  endif()
+endif()
+
 add_subdirectory(core/merlin-render-world)
 add_subdirectory(core/merlin-render-extraction)
 add_subdirectory(core/merlin-render-backend)

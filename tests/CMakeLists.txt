@@ -20,6 +20,20 @@ target_link_libraries(merlin-surface-geometry-tests PRIVATE Merlin::RenderBacken
 add_test(NAME merlin-surface-geometry COMMAND merlin-surface-geometry-tests)
 set_tests_properties(merlin-surface-geometry PROPERTIES LABELS "core;surface;normals")
 
+add_executable(merlin-mesh-subdivision-tests mesh_subdivision_test.cpp)
+merlin_target_defaults(merlin-mesh-subdivision-tests)
+target_link_libraries(merlin-mesh-subdivision-tests PRIVATE Merlin::RenderWorld)
+if(MERLIN_HAS_OPENSUBDIV)
+  target_include_directories(merlin-mesh-subdivision-tests SYSTEM PRIVATE
+    "${MERLIN_OPENSUBDIV_SOURCE_DIR}")
+  target_compile_definitions(merlin-mesh-subdivision-tests PRIVATE MERLIN_HAS_OPENSUBDIV)
+  if(MSVC)
+    target_compile_definitions(merlin-mesh-subdivision-tests PRIVATE _USE_MATH_DEFINES)
+  endif()
+endif()
+add_test(NAME merlin-mesh-subdivision COMMAND merlin-mesh-subdivision-tests)
+set_tests_properties(merlin-mesh-subdivision PROPERTIES LABELS "core;surface;subdivision")
+
 add_executable(merlin-forward-lighting-tests forward_lighting_test.cpp)
 merlin_target_defaults(merlin-forward-lighting-tests)
 target_link_libraries(merlin-forward-lighting-tests PRIVATE Merlin::RenderBackend)

@@ -404,6 +404,25 @@ if(MERLIN_BUILD_TESTS)
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake")
       set_tests_properties(merlin-hydra2-usdview-shading-modes PROPERTIES
         LABELS "hydra;host-smoke;gpu" TIMEOUT 60 RUN_SERIAL TRUE)
+      if(MERLIN_HAS_OPENSUBDIV)
+        add_test(NAME merlin-hydra2-usdview-subdivision
+          COMMAND ${CMAKE_COMMAND}
+            "-DMERLIN_CMAKE_COMMAND=${CMAKE_COMMAND}"
+            "-DMERLIN_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "-DMERLIN_CONFIG=$<CONFIG>"
+            "-DMERLIN_STAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/usdview-subdivision-install"
+            "-DMERLIN_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+            "-DMERLIN_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}"
+            "-DMERLIN_PXR_ROOT=${_merlin_pxr_root}"
+            "-DMERLIN_PYTHON=${Python3_EXECUTABLE}"
+            "-DMERLIN_TESTUSDVIEW=${MERLIN_TESTUSDVIEW_SCRIPT}"
+            "-DMERLIN_HYDRA2_TEST_BACKEND=${_merlin_hydra2_test_backend}"
+            "-DMERLIN_USDVIEW_TEST_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/subdivision_usdview_test.py"
+            "-DMERLIN_SUBDIVISION_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/subdivision-cages.usda"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_usdview_smoke.cmake")
+        set_tests_properties(merlin-hydra2-usdview-subdivision PROPERTIES
+          LABELS "hydra;host-smoke;gpu;subdivision" TIMEOUT 130 RUN_SERIAL TRUE)
+      endif()
     endif()
     if(TARGET Merlin::Vulkan)
       add_test(

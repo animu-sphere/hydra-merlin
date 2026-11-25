@@ -112,7 +112,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Lit Forward output transform | Validated | Per-frame EV and None/Reinhard share Core packing and Slang policy. RTX A5000 native conventional/bindless/GPU Scene/GPU-driven oracle, repeat/restore and rejection gates pass in Debug and Release, including MaterialX-generated Forward builds; Apple M3 native Metal Debug/Release execute the same shared oracle. OpenUSD 26.08 Tier 0/HgiVulkan and Tier 0/HgiMetal captures cover both modes, EV edits and host linear/sRGB encoding; all 41 default/output comparison images match exactly per backend, and independent Vulkan/Metal comparisons agree exactly on all 16 output centers in each presentation mode. Defaults preserve 0 EV/Reinhard. See the [v0.16.4 release record](../releases/v0.16.4.md) and the [output contract](../design/forward-lighting.md#output-transform) for scope and color-management limits. |
 | Vulkan color/depth/primId/instanceId rendering and CPU readback | Supported | Available for Mesh and the CPU-sorted Gaussian MVP; Gaussian `primId` is the resource handle and `instanceId` is the zero-based particle index of the nearest contributing splat in front of opaque depth |
 | Metal Forward lighting evidence | Validated | Apple M3/OpenUSD 26.08 execution covers all eight combinations of the usdview light switches and independent dome camera visibility. Tier 0 and HgiMetal match all 51 focused lighting/output pairs; all 12 compared native/Tier 0 centers agree. Kitchen_set interior coverage and its limits are recorded below. |
-| usdview Mesh display modes | Validated | OpenUSD 26.08 exercises smooth, flat, geometry, wireframe (including overlay and hidden-surface), and points representations on Windows Vulkan and Apple M3 Metal. The probe covers material toggles, display colors, authored edges and rear-edge occlusion. Subdivision refinement remains unsupported. |
+| usdview Mesh display modes | Validated | OpenUSD 26.08 exercises smooth, flat, geometry, wireframe (including overlay and hidden-surface), and points representations on Windows Vulkan and Apple M3 Metal. The polygon probe covers material toggles, display colors, authored edges and rear-edge occlusion. See [Subdivision](#subdivision) for the separate refinement probe. |
 | Explicit submit/completion/timeout-aware resolve | Supported | Backend-neutral contract implemented by Vulkan and Metal |
 | Per-request AOV request and CPU readback selection | Supported | CPU transfer is selectable for color, depth, primId, and instanceId; the current fixed pass may still write unrequested attachments |
 | PNG/EXR expected/actual/diff regression artifacts | Supported | Exact comparison is available for color, depth, primId, and instanceId |
@@ -145,7 +145,8 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Material diagnostic and fallback contract | Supported | `merlin.material-diagnostic/v1` is available in Core with stable per-category codes, material/element/node/input/document/target and generator/compiler context, the declared simplification, basic-material, and error-material ladder under host policy, and an evidence aggregate reporting the worst fallback reached. Records flatten onto `merlin-diagnostic/v1`, and Vulkan Forward exposes the aggregate through frame telemetry and the renderer capability report. |
 | Standard OpenUSD Gaussian ingestion and rendering | Validated (CPU reference); Experimental (opt-in GPU) | Available on Vulkan: OpenUSD 26.05/26.08 `ParticleField3DGaussianSplat` through Hydra `particleField`, deterministic CPU preparation and sorting, procedural ellipse rasterization, mixed Mesh composition, IDs/picking, generation-checked persistent device-local position/covariance/opacity/SH ranges, zero-work static reuse, and range-only edits. Opt-in GPU preparation, frame-wide radix sorting, and sorted-stream indirect raster produce the image without a CPU-prepared upload and match the CPU-sorted reference image. Opt-in GPU tile binning produces verified per-tile pair ranges with bounded overflow, and opt-in compute tile raster composites them front to back with early termination, matching the CPU-sorted reference's depth and primId exactly and its color within a few rounding steps; an overflowing frame keeps the sorted-stream draws on the device. GPU-sorted frames skip the CPU preparation and sort unless validation against the CPU reference is requested; the CPU-sorted raster path remains the reference and fallback. Hosts select GPU execution through renderer settings v4 `gpu_driven_gaussian`; Hydra hosts such as usdview use the `merlin:gpuDrivenGaussian:enabled` and `merlin:gpuDrivenGaussian:tiled` flag render settings, or the unlisted `merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster` names. Separate GPU preparation/sort/tile/raster timestamps and warmed static/motion 1M/5M/10M comparisons are available. Local RTX A5000 captures have exact sorted-stream four-AOV parity at all tiers. After the v0.16.0 quality fix, Vulkan CPU/GPU sorted-stream and tiled execution use an RGBA32F working attachment and one final RGBA8 conversion, with pixel-center ellipse evaluation. Current RTX A5000 1M/5M/10M static/motion captures pass the unchanged six-step tiled color bound; the prior 10M 8/10-step failing captures are retained as historical evidence. Float blend/blit support is negotiated and reported by `gaussian_float_color_frame_count`; tiled additionally requires float storage-image support, with required rejection/preferred sorted-stream fallback when unavailable. Gaussian reference images remove legacy per-splat quantization error. Depth/primId remain exact; depth-tied instanceId differences stay within the established 1% allowance. These local timings have unpinned clocks/power and are not universal gates. |
 | Adaptive Gaussian tile bounds | Experimental | Enable per frame with `merlin:gpuDrivenGaussian:adaptiveBounds` or `--gaussian-adaptive-bounds`. Exact is the default. Apple M3 and Vulkan RTX A5000 passed offscreen image, identity and overflow checks. In usdview, Adaptive matched Exact RGBA8 at 120 camera poses across three M3 scenes and 80 poses across two RTX A5000 scenes. Telemetry reports pre-sort rejections, pair savings, saturation and early termination. GPU stage costs and total time vary by scene. [Sequence and offscreen evidence](../reports/delivery-history.md#v0170-paired-gaussian-sequences-and-quality-thresholds--2026-11-23) |
-| CPU Catmull–Clark (OpenSubdiv) and GPU subdivision | Unsupported | See [Subdivision](#subdivision) for host, backend and input limits. |
+| CPU Catmull–Clark (OpenSubdiv) | Experimental | Opt-in uniform CPU refinement, exercised through native Core, native Vulkan and OpenUSD 26.08 usdview on Windows. See [Subdivision](#subdivision). |
+| GPU subdivision | Unsupported | Unavailable on Vulkan and Metal. |
 | Shadows, alpha blending, and production culling | Unsupported | Unavailable; supported Forward light types and limits are below. Basic Mesh and Gaussian ID picking is available |
 | Vulkan/Hgi low-copy host presentation | Validated (GPU copy); Unsupported (direct sharing) | Selected color/depth/ID GPU copy is available with the validated HgiVulkan packages; CPU readback/upload remains the universal fallback. Non-color RenderBuffer Map downloads the current Hgi target only when a CPU consumer requests it. Same-device direct sharing is explicitly rejected as `public-texture-import-unavailable` on OpenUSD 26.05/26.08, and other external interop is unsupported. |
 | Houdini, Husk, Hydra 1, and Maya integration packages | Unsupported | Unavailable |
@@ -319,17 +320,22 @@ implemented:
 
 ### Subdivision
 
-- **Schemes and levels.** Hydra/usdview and the native USD viewport render the
-  authored polygon cage through the Mesh path, including USD Meshes that
-  resolve to the default `catmullClark` scheme. `none` uses the same polygon
-  path by design. `catmullClark`, `loop` and `bilinear` refinement and
-  host refinement-level controls are unsupported.
-- **Surface attributes.** Existing polygon primvar handling applies to the
-  cage. Subdivision interpolation for face-varying UVs, boundary rules,
-  creases and corners is unavailable.
-- **Hosts and backends.** CPU refinement is unavailable for native Mesh
-  inputs and Hydra/usdview, on both Vulkan and Metal. GPU subdivision is
-  also unavailable on both backends.
+- **Schemes and levels.** With `MERLIN_ENABLE_OPENSUBDIV=ON`, explicit and
+  default USD `catmullClark` support uniform levels 1–3 and an estimated
+  128 MiB working-memory limit per mesh. usdview maps Medium through Very High
+  to these levels. Level zero, `none`, hull and points use the polygon cage.
+  Unsupported schemes such as `loop` and `bilinear` fall back to the cage.
+- **Surface attributes.** Boundary and face-varying rules, holes, creases,
+  corners and indexed UV seams are supported. Refined UVs, display color and
+  opacity feed the triangle stream. Refined normals and tangent frames are
+  generated by shared surface preparation.
+- **Evidence.** Core positions and UVs pass comparison with OpenSubdiv Far at
+  matching levels. Windows Vulkan usdview exercises the authored fixture,
+  points, topology and sharpness edits, complexity changes and zero-work
+  static frames. The installed native Vulkan consumer renders a refined
+  quad and repeats its depth image exactly. The native USD viewport keeps
+  its level-zero policy. Metal subdivision output and representative-scene
+  performance remain unverified. See the [design](../design/subdivision-refinement.md).
 
 ### Other
 

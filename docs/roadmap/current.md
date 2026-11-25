@@ -15,6 +15,21 @@ Keep `Exact` as the default and conservative Adaptive as opt-in. The tested
 [milestone scope](backlog.md#v0170--contribution-aware-gaussian-culling-and-adaptive-bounds)
 and [paired sequence evidence](../reports/delivery-history.md#v0170-paired-gaussian-sequences-and-quality-thresholds--2026-11-23).
 
+## v0.17.0 — CPU Catmull–Clark — independent Geometry track
+
+The [CPU refinement design](../design/subdivision-refinement.md) and
+[subdivision fixtures](../../adapters/merlin-hydra2/tests/fixtures/README.md#subdivision)
+define the uniform OpenSubdiv path and its polygon fallback.
+
+- Compare representative refined cages in Hydra/usdview and native Mesh
+  rendering. Include Vulkan and Metal output for normals, tangent frames
+  and indexed UV seams.
+- Measure initial refinement, points-only updates, triangle counts, CPU
+  working memory, upload volume and steady-state frame time on representative
+  scenes. Include the polygon `none` path in the performance comparison.
+- Keep scheme, level, attributes and backend evidence in the
+  [support matrix](../reference/support-matrix.md#subdivision).
+
 ## v0.16.x — Forward renderer stabilization
 
 v0.16.x establishes a stable architectural, semantic and quality baseline
@@ -47,5 +62,5 @@ system, displacement/parallax and other advanced surface detail, and major new
 renderer architecture experiments.
 
 Subdivision work in v0.16.x is limited to requirements and test scene
-preparation. The [independent Geometry track](backlog.md#v0170--cpu-opensubdiv-and-catmullclark--independent-geometry-track)
-starts after the Forward stabilization exit.
+preparation. Implementation proceeds on the independent v0.17.0 Geometry
+track above.

@@ -33,52 +33,10 @@ popping.
 
 ### v0.17.0 — CPU OpenSubdiv and Catmull–Clark — independent Geometry track
 
-Add uniform CPU Catmull–Clark refinement after the v0.16.x Forward
-stabilization exit. The Geometry and Gaussian tracks have independent exit
-criteria. If the Geometry scope needs to shrink, preserve the Forward exit
-and the Gaussian quality gates.
-
-- Resolve explicit and default USD `catmullClark` and define how Hydra display
-  style and usdview refinement levels select uniform refinement. Preserve the
-  existing polygon path for `subdivisionScheme = "none"`.
-- Put optional OpenSubdiv in host-neutral geometry processing. Hydra and native
-  inputs use one contract for topology, subdivision settings, primvars, level
-  and revisions. Pass the resulting triangle mesh to the existing Vulkan and
-  Metal draw/upload paths through shared Mesh preparation.
-- Preserve face-varying UV seams, including an indexed UV seam fixture. Map
-  boundary and face-varying interpolation rules and crease/corner sharpness.
-  Prepare normals and tangent frames after establishing the refined topology
-  and UVs, following the [surface geometry contract](../design/surface-geometry.md).
-- Cache by topology, scheme, boundary and face-varying rules, crease/corner
-  data, face-varying topology and level. Reuse stencils for points-only edits
-  where possible. Set a level cap and CPU memory budget before refinement.
-- Diagnose a disabled or unavailable dependency, unsupported inputs or rules,
-  invalid data, level limits and budget overruns. Use a deterministic polygon
-  fallback for a renderable cage and reject invalid polygon topology with a
-  diagnostic.
-
-Start with the [subdivision fixtures](../../adapters/merlin-hydra2/tests/fixtures/README.md#subdivision),
-then define the shared input/output contract and wire the optional dependency.
-Write `docs/design/subdivision-refinement.md` at implementation start. `loop`,
-`bilinear`, broader primvar coverage and further deforming-Mesh tuning are
-follow-ups. GPU refinement, tessellation, adaptive patches, displacement and
-integration with meshlets, Visibility or LOD are outside the initial scope.
-
-**Geometry exit criteria**
-
-- Compare representative cages, open boundaries, creases, corners and
-  face-varying UV seams with Storm or an OpenSubdiv reference at comparable
-  levels and declared tolerances. Check polygon Mesh display and performance
-  for `none`.
-- Exercise the shared contract through Hydra/usdview and native Mesh inputs.
-  Compare Vulkan and Metal output, including normals and tangent frames.
-- Check invalidation for points-only, topology, sharpness and level edits.
-  Verify that static frames avoid refinement work and redundant uploads.
-- Document diagnostics and fallback cases and record validated scheme, level,
-  attributes, hosts and backends in the [support matrix](../reference/support-matrix.md#subdivision).
-- Measure first refinement, points-only updates, refined triangle count, CPU
-  memory, upload volume and steady-state frame time separately. Use the results
-  to set performance thresholds and guide v0.18.0 CPU fixes or tuning.
+The uniform CPU implementation is on the [current Geometry track](current.md#v0170--cpu-catmullclark--independent-geometry-track).
+`loop`, `bilinear`, broader primvar coverage and further deforming-Mesh
+tuning remain follow-ups. GPU refinement, tessellation, adaptive patches,
+displacement and integration with meshlets, Visibility or LOD are deferred.
 
 ### Experimental opaque Visibility Buffer — independent Mesh track
 

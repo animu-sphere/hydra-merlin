@@ -5,3 +5,4 @@
 *.hdr binary
 adapters/merlin-hydra2/tests/fixtures/*.usdc binary
 adapters/merlin-hydra2/tests/fixtures/*-reference.png binary
+/third_party/opensubdiv/upstream/** linguist-vendored

@@ -50,7 +50,9 @@ matching uniform levels against OpenSubdiv. Use Storm for boundary, crease,
 corner and seam behavior in usdview. Inspect `primvars:st` directly or bind a
 UV-debug material in a session layer to visualize the seam.
 
-Merlin currently triangulates the authored cage. This stage provides source
-inputs for future refinement tests. The
+With `MERLIN_ENABLE_OPENSUBDIV=ON`, the `merlin-hydra2-usdview-subdivision`
+test references this stage and exercises complexity changes, static frames
+and live cage updates. The [CPU design](../../../../docs/design/subdivision-refinement.md)
+defines the rendering contract and the
 [UsdGeomMesh schema](https://openusd.org/release/api/class_usd_geom_mesh.html)
-defines the authored subdivision attributes.
+defines the authored attributes.

@@ -11,6 +11,37 @@ Legend: ✅ done
 
 ---
 
+## CPU Catmull–Clark fixture verification — 2026-11-25
+
+The vendored OpenSubdiv 3.6.1 build compared expanded positions and indexed
+UVs against OpenSubdiv Far's level-by-level primvar interpolation with a
+`2e-5` object-space and UV tolerance. The cases cover a closed crease and
+corner cage and an open strip with a UV seam, boundary rules, a hole and
+left-handed winding. Native Core submitted the resulting mesh to RenderWorld.
+The installed CMake consumer refined a quad using the installed RenderWorld
+archive. A native Vulkan probe linked against the same install refined an
+open quad at level 2 and submitted its 32 triangles. At 128 × 128, the
+polygon cage covered 8,100 pixels and the refined mesh covered 5,588.
+The repeated refined depth image matched exactly.
+
+On Windows with OpenUSD 26.08, NVIDIA RTX A5000 driver 597.16 and Vulkan SDK
+1.4.350.0, usdview exercised the checked-in fixture from Low through Very
+High. Medium refined four cages and produced 144 triangles. The first
+Medium capture recorded 0.91 ms in CPU subdivision and 29,376 bytes of
+backend upload. A points-only edit evaluated one mesh in 0.020 ms without
+rebuilding its plan and uploaded 8,896 bytes. Sharpness and topology edits
+each rebuilt one plan. The repeated static capture evaluated zero meshes
+and uploaded zero bytes. These single-fixture samples do not establish
+performance thresholds.
+
+The Windows host run also passed the polygon shading and wireframe probe,
+Tier 0 and HgiVulkan smoke and image comparison, and the Vulkan install
+runtime test. The ten subdivision captures were byte-identical under Tier 0
+and HgiVulkan GPU copy. See the [subdivision design](../design/subdivision-refinement.md)
+and [support matrix](../reference/support-matrix.md#subdivision).
+
+---
+
 ## Vulkan Open Chess Set and Forward host verification — 2026-11-24
 
 The Release build of `fa3fde9` ran on Windows with NVIDIA RTX A5000 driver
