@@ -8,6 +8,8 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-25
+
 ### Added
 
 - Opt-in contribution-aware Gaussian tile bounds for Metal and Vulkan. Adaptive
@@ -15,6 +17,10 @@ after its public API and release process are established.
   Gaussians before sorting and reduce Gaussian-tile pairs. Exact remains the
   default. Telemetry reports pre-sort rejections, tile pair savings, saturation
   and tile early termination.
+- Experimental CPU Catmull–Clark refinement for native Mesh and Hydra,
+  enabled with `MERLIN_ENABLE_OPENSUBDIV=ON`. Uniform levels 1–3 preserve
+  authored subdivision tags and indexed UV seams. Points-only edits reuse
+  the refinement plan, and unsupported inputs fall back to the polygon cage.
 
 ### Changed
 
@@ -1414,7 +1420,8 @@ after its public API and release process are established.
 Granular pre-release progress is retained in the
 [delivery history](docs/reports/delivery-history.md).
 
-[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.8...main
+[Unreleased]: https://github.com/animu-sphere/hydra-merlin/compare/v0.17.0...main
+[0.17.0]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.8...v0.17.0
 [0.16.8]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.7...v0.16.8
 [0.16.7]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.6...v0.16.7
 [0.16.6]: https://github.com/animu-sphere/hydra-merlin/compare/v0.16.5...v0.16.6

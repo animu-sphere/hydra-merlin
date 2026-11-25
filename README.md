@@ -101,9 +101,9 @@ data and defines no renderer-specific USD schema.
 
 ## Roadmap
 
-v0.17.0 focuses on contribution-aware Gaussian culling and adaptive tile
-bounds. See the [current work](docs/roadmap/current.md) and the
-[backlog](docs/roadmap/backlog.md).
+[v0.17.0](docs/releases/v0.17.0.md) adds opt-in Gaussian contribution culling
+and experimental CPU Catmull–Clark refinement. See the
+[current work](docs/roadmap/current.md) and the [backlog](docs/roadmap/backlog.md).
 
 ## License
 
