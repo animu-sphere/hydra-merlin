@@ -369,6 +369,7 @@ private:
   id<MTLSamplerState> presentation_sampler_;
   id<MTLRenderPipelineState> pipeline_;
   id<MTLRenderPipelineState> dome_pipeline_;
+  id<MTLTexture> disabled_specular_environment_;
   id<MTLRenderPipelineState> float_dome_pipeline_;
   std::array<id<MTLRenderPipelineState>, 2> mesh_display_pipelines_;
   std::array<id<MTLRenderPipelineState>, 2> float_mesh_display_pipelines_;

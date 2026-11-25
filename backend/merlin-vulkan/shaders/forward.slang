@@ -12,6 +12,8 @@ Sampler2D metallic_texture;
 [[vk::binding(3, 0)]]
 Sampler2D roughness_texture;
 
+[[vk::binding(0, 1)]] Texture2D<float4> specular_environment;
+
 // Bindings below this are reserved for generated material resources. The
 // conventional and generated Forward variants share this vertex ABI.
 [[vk::binding(31, 0)]]
@@ -43,5 +45,5 @@ ForwardFragmentOutput forward_fragment(
     if ((draw_constants.feature_mask & kRoughnessTextureFlag) != 0u)
         scalar_factors.y = roughness_texture.Sample(input.texture_coordinate).r;
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
-        material_constants, texture_sample, normal_sample, scalar_factors));
+        material_constants, texture_sample, normal_sample, scalar_factors, specular_environment));
 }

@@ -19,7 +19,7 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 10;
+inline constexpr std::uint32_t kBackendContractVersion = 11;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 4;
 
 enum class BackendKind { Vulkan,
@@ -569,6 +569,8 @@ struct ForwardDomeLight {
   std::array<Vec4, 9> diffuse_environment{};
   Vec3 radiance_scale{1.0F, 1.0F, 1.0F};
   bool camera_visible{true};
+  // Optional linear RGBA8 atlas produced by BuildSpecularEnvironment.
+  TextureHandle specular_texture;
 };
 
 struct ForwardLightingSettings {

@@ -733,6 +733,64 @@ void Renderer::Impl::RecordMeshDisplay(VkCommandBuffer command,
   }
 }
 
+void Renderer::Impl::EnsureEnvironmentDescriptorSetLayout() {
+  if (environment_descriptor_set_layout_ == VK_NULL_HANDLE) {
+    const VkDescriptorSetLayoutBinding binding{shader_abi::kConventionalSpecularEnvironment.binding,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    info.bindingCount = 1;
+    info.pBindings = &binding;
+    Check(vkCreateDescriptorSetLayout(device_, &info, nullptr, &environment_descriptor_set_layout_),
+        "create environment descriptor layout");
+  }
+}
+
+void Renderer::Impl::WriteEnvironmentDescriptor(FrameContext& frame,
+    VkDescriptorSet& set, VkImageView view) {
+  constexpr auto type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  if (frame.environment_descriptor_pool == VK_NULL_HANDLE) {
+    const VkDescriptorPoolSize size{type, 2};
+    VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    info.maxSets = 2;
+    info.poolSizeCount = 1;
+    info.pPoolSizes = &size;
+    Check(vkCreateDescriptorPool(device_, &info, nullptr, &frame.environment_descriptor_pool),
+        "create environment descriptor pool");
+    ++frame_counters_.descriptor_pool_creation_count;
+  }
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    info.descriptorPool = frame.environment_descriptor_pool;
+    info.descriptorSetCount = 1;
+    info.pSetLayouts = &environment_descriptor_set_layout_;
+    Check(vkAllocateDescriptorSets(device_, &info, &set),
+        "allocate environment descriptor set");
+    ++frame_counters_.descriptor_allocation_count;
+  }
+  const VkDescriptorImageInfo image{VK_NULL_HANDLE, view,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+  VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  write.dstSet = set;
+  write.dstBinding = shader_abi::kConventionalSpecularEnvironment.binding;
+  write.descriptorCount = 1;
+  write.descriptorType = type;
+  write.pImageInfo = &image;
+  vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+  ++frame_counters_.descriptor_update_count;
+}
+
+void Renderer::Impl::PrepareSpecularEnvironment(FrameContext& frame, TextureHandle atlas) {
+  const auto view = atlas.valid() ? texture_slots_.at(atlas.value()).view : FallbackTextureView();
+  const auto generation = atlas.valid() ? material_resource_generation_ : 0;
+  if (frame.specular_environment_set == VK_NULL_HANDLE ||
+      frame.specular_environment_view != view ||
+      frame.specular_environment_generation != generation) {
+    WriteEnvironmentDescriptor(frame, frame.specular_environment_set, view);
+    frame.specular_environment_view = view;
+    frame.specular_environment_generation = generation;
+  }
+}
+
 void Renderer::Impl::RecordDome(VkCommandBuffer command, FrameContext& frame,
     const render::ForwardDomeLight& dome) {
   const auto texture = texture_slots_.find(dome.rgbe_texture.value());
@@ -740,20 +798,11 @@ void Renderer::Impl::RecordDome(VkCommandBuffer command, FrameContext& frame,
     throw RendererError(RendererErrorCode::InvalidRequest,
         "record dome background", "dome texture is absent from the snapshot");
   }
-  constexpr auto type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-  if (dome_descriptor_set_layout_ == VK_NULL_HANDLE) {
-    const VkDescriptorSetLayoutBinding binding{0, type, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-    VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    info.bindingCount = 1;
-    info.pBindings = &binding;
-    Check(vkCreateDescriptorSetLayout(device_, &info, nullptr, &dome_descriptor_set_layout_),
-        "create dome descriptor layout");
-  }
   if (dome_pipeline_layout_ == VK_NULL_HANDLE) {
     const VkPushConstantRange range{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(render::DomeDrawConstants)};
     VkPipelineLayoutCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     info.setLayoutCount = 1;
-    info.pSetLayouts = &dome_descriptor_set_layout_;
+    info.pSetLayouts = &environment_descriptor_set_layout_;
     info.pushConstantRangeCount = 1;
     info.pPushConstantRanges = &range;
     Check(vkCreatePipelineLayout(device_, &info, nullptr, &dome_pipeline_layout_),
@@ -763,35 +812,7 @@ void Renderer::Impl::RecordDome(VkCommandBuffer command, FrameContext& frame,
     active_target_->dome_pipeline = CreatePipeline(active_target_->shaders,
         kDoubleSidedFlag, nullptr, false, true);
   }
-  if (frame.dome_descriptor_pool == VK_NULL_HANDLE) {
-    const VkDescriptorPoolSize size{type, 1};
-    VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    info.maxSets = 1;
-    info.poolSizeCount = 1;
-    info.pPoolSizes = &size;
-    Check(vkCreateDescriptorPool(device_, &info, nullptr, &frame.dome_descriptor_pool),
-        "create dome descriptor pool");
-    ++frame_counters_.descriptor_pool_creation_count;
-  }
-  if (frame.dome_descriptor_set == VK_NULL_HANDLE) {
-    VkDescriptorSetAllocateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    info.descriptorPool = frame.dome_descriptor_pool;
-    info.descriptorSetCount = 1;
-    info.pSetLayouts = &dome_descriptor_set_layout_;
-    Check(vkAllocateDescriptorSets(device_, &info, &frame.dome_descriptor_set),
-        "allocate dome descriptor set");
-    ++frame_counters_.descriptor_allocation_count;
-  }
-  const VkDescriptorImageInfo image{VK_NULL_HANDLE, texture->second.view,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-  VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  write.dstSet = frame.dome_descriptor_set;
-  write.descriptorCount = 1;
-  write.descriptorType = type;
-  write.pImageInfo = &image;
-  vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-  ++frame_counters_.descriptor_update_count;
-
+  WriteEnvironmentDescriptor(frame, frame.dome_descriptor_set, texture->second.view);
   vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, active_target_->dome_pipeline);
   vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
       dome_pipeline_layout_, 0, 1, &frame.dome_descriptor_set, 0, nullptr);

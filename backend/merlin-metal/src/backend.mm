@@ -58,6 +58,15 @@ Backend::Impl::Impl(const render::BackendCreateInfo& info, BackendOptions option
     }
 
     bindless_ = device_.argumentBuffersSupport == MTLArgumentBuffersTier2;
+    auto* environment = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                     width:1 height:1 mipmapped:NO];
+    environment.usage = MTLTextureUsageShaderRead;
+    disabled_specular_environment_ = [device_ newTextureWithDescriptor:environment];
+    if (disabled_specular_environment_ == nil) {
+      throw render::RendererError(render::RendererErrorCode::ResourceExhausted,
+          "create Metal environment binding", "newTexture returned nil");
+    }
     CreateLibraryAndPipeline();
     CreateDepthState();
     CreateHeap();

@@ -1,6 +1,8 @@
 // Shared Forward ABI. Keep resource bindings and ordinary-data layout stable;
 // tests compare Slang reflection with the C++ upload structures.
 
+#include "specular-environment.slang"
+
 static const uint kDisplayColorFlag = 1u;
 static const uint kBaseColorTextureFlag = 2u;
 static const uint kDirectionalLightFlag = 4u;
@@ -52,6 +54,7 @@ struct MaterialConstants
     float4 surface_factors; // metallic, perceptual roughness, reserved, reserved
     uint4 scalar_texture_resources; // metallic texture/sampler, roughness texture/sampler
     float4 clip_to_view_direction[3];
+    float4 specular_environment_scale; // RGB dome radiance scale, w enables specular IBL
 };
 
 static const float kSurfaceDebugGeometricNormal = 1.0f;
@@ -444,12 +447,20 @@ float3 ForwardSpecular(float3 normal, float3 view, float3 light,
     return specular * (distribution * visibility * n_dot_l);
 }
 
+struct ForwardSpecularSurface
+{
+    float3 view;
+    float3 reflectance;
+    float metallic;
+    float roughness;
+};
+
 [ForceInline]
 float4 ShadeForwardSurface(
     SurfaceGeometry surface,
     MaterialConstants material,
     float4 base_color,
-    DrawConstants draw, float3 clip_xyw, float2 scalar_factors)
+    DrawConstants draw, ForwardSpecularSurface glossy, float3 environment_specular)
 {
     float4 shaded = base_color;
     if (material.surface_policy.y != 0.0f)
@@ -497,27 +508,19 @@ float4 ShadeForwardSurface(
         }
         if ((draw.feature_mask & kForwardSpecularFlag) != 0u)
         {
-            float3 view_direction = SafeNormalize(
-                clip_xyw.x * material.clip_to_view_direction[0].xyz +
-                clip_xyw.y * material.clip_to_view_direction[1].xyz +
-                clip_xyw.z * material.clip_to_view_direction[2].xyz,
-                normal);
-            float metallic = saturate(scalar_factors.x);
-            float roughness = clamp(scalar_factors.y, 0.045f, 1.0f);
-            float alpha = roughness * roughness;
-            float3 reflectance = lerp(float3(0.04f), saturate(base_color.rgb), metallic);
-            float3 specular = material.light_color_alpha_cutoff.rgb *
+            float alpha = glossy.roughness * glossy.roughness;
+            float3 specular = environment_specular + material.light_color_alpha_cutoff.rgb *
                 (material.light_policy.y * material.light_direction_intensity.w) *
-                ForwardSpecular(normal, view_direction,
+                ForwardSpecular(normal, glossy.view,
                     normalize(material.light_direction_intensity.xyz),
-                    reflectance, alpha * alpha);
+                    glossy.reflectance, alpha * alpha);
             for (uint i = 0; i < uint(material.light_policy.z); ++i)
             {
                 float4 light = material.additional_light_directions[i];
                 specular += material.additional_light_colors[i].rgb * light.w *
-                    ForwardSpecular(normal, view_direction, light.xyz, reflectance, alpha * alpha);
+                    ForwardSpecular(normal, glossy.view, light.xyz, glossy.reflectance, alpha * alpha);
             }
-            shaded.rgb = base_color.rgb * light_scale * (1.0f - metallic) + specular;
+            shaded.rgb = base_color.rgb * light_scale * (1.0f - glossy.metallic) + specular;
         }
         else
         {
@@ -551,7 +554,8 @@ float4 ShadeForward(
     float4 texture_sample,
     float4 normal_sample,
     float2 scalar_factors,
-    DrawConstants draw)
+    DrawConstants draw,
+    Texture2D<float4> specular_environment)
 {
     if (material.surface_policy.w == 1.0f)
         return (draw.feature_mask & kGeometryColorFlag) != 0u
@@ -565,8 +569,31 @@ float4 ShadeForward(
     {
         base_color *= texture_sample;
     }
-    return ShadeForwardSurface(surface, material, base_color, draw,
-        input.clip_xyw, scalar_factors);
+    ForwardSpecularSurface glossy = (ForwardSpecularSurface)0;
+    float3 environment_specular = float3(0.0f);
+    if (material.surface_policy.y == 0.0f &&
+        (draw.feature_mask & (kDirectionalLightFlag | kForwardSpecularFlag)) ==
+            (kDirectionalLightFlag | kForwardSpecularFlag))
+    {
+        float3 normal = surface.shading_normal;
+        glossy.view = SafeNormalize(
+            input.clip_xyw.x * material.clip_to_view_direction[0].xyz +
+            input.clip_xyw.y * material.clip_to_view_direction[1].xyz +
+            input.clip_xyw.z * material.clip_to_view_direction[2].xyz, normal);
+        glossy.metallic = saturate(scalar_factors.x);
+        glossy.roughness = clamp(scalar_factors.y, kMinSpecularRoughness, 1.0f);
+        glossy.reflectance = lerp(float3(0.04f), saturate(base_color.rgb), glossy.metallic);
+        float n_dot_v = saturate(dot(normal, glossy.view));
+        if (material.specular_environment_scale.w != 0.0f && n_dot_v > 0.0f)
+        {
+            float3 direction = mul(material.world_to_environment,
+                float4(reflect(-glossy.view, normal), 0.0f)).xyz;
+            environment_specular = EvaluateSpecularEnvironment(specular_environment,
+                SafeNormalize(direction, normal), n_dot_v, glossy.roughness,
+                glossy.reflectance) * material.specular_environment_scale.rgb;
+        }
+    }
+    return ShadeForwardSurface(surface, material, base_color, draw, glossy, environment_specular);
 }
 
 // Generated wrappers retain the diffuse lighting profile until their material
@@ -576,7 +603,8 @@ float4 ShadeForwardSurface(SurfaceGeometry surface, MaterialConstants material,
     float4 base_color, DrawConstants draw)
 {
     draw.feature_mask &= ~kForwardSpecularFlag;
-    return ShadeForwardSurface(surface, material, base_color, draw, float3(0.0f), float2(0.0f));
+    return ShadeForwardSurface(surface, material, base_color, draw,
+        (ForwardSpecularSurface)0, float3(0.0f));
 }
 
 #ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
@@ -595,10 +623,10 @@ float4 ShadeForward(
     bool front_facing,
     MaterialConstants material,
     float4 texture_sample,
-    float4 normal_sample, float2 scalar_factors)
+    float4 normal_sample, float2 scalar_factors, Texture2D<float4> specular_environment)
 {
     return ShadeForward(input, front_facing, material, texture_sample,
-        normal_sample, scalar_factors, draw_constants);
+        normal_sample, scalar_factors, draw_constants, specular_environment);
 }
 #endif
 

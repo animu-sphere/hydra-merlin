@@ -42,6 +42,7 @@ ConstantBuffer<GpuDrivenForwardConstants> gpu_driven_forward_constants;
 [[vk::binding(2, 1)]] StructuredBuffer<GpuInstance> gpu_instances;
 [[vk::binding(3, 1)]] StructuredBuffer<GpuMaterial> gpu_materials;
 [[vk::binding(4, 1)]] StructuredBuffer<GpuDraw> gpu_draws;
+[[vk::binding(0, 2)]] Texture2D<float4> specular_environment;
 
 DrawConstants LoadGpuDrivenDrawConstants(uint draw_slot)
 {
@@ -132,5 +133,5 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
                     material.scalar_texture_resources.w)], input.texture_coordinate).r;
     return MakeForwardFragmentOutput(
         ShadeForward(conventional_input, front_facing, material,
-            texture_sample, normal_sample, scalar_factors, draw), draw);
+            texture_sample, normal_sample, scalar_factors, draw, specular_environment), draw);
 }

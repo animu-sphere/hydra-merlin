@@ -187,18 +187,23 @@ void Renderer::Impl::CreateTarget(std::uint32_t width, std::uint32_t height,
     push_range.size = sizeof(PushConstants);
     VkPipelineLayoutCreateInfo layout_info{
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    std::array<VkDescriptorSetLayout, 2> bindless_layouts{};
+    EnsureEnvironmentDescriptorSetLayout();
+    std::array<VkDescriptorSetLayout, 3> bindless_layouts{};
     bindless_layouts[shader_abi::kBindlessTextures.set] =
         bindless_descriptor_set_layout_;
     bindless_layouts[shader_abi::kBindlessMaterialConstants.set] =
         bindless_material_descriptor_set_layout_;
+    bindless_layouts[shader_abi::kBindlessSpecularEnvironment.set] =
+        environment_descriptor_set_layout_;
+    const std::array conventional_layouts{
+        descriptor_set_layout_, environment_descriptor_set_layout_};
     if (bindless_texture_table_) {
       layout_info.setLayoutCount =
           static_cast<std::uint32_t>(bindless_layouts.size());
       layout_info.pSetLayouts = bindless_layouts.data();
     } else {
-      layout_info.setLayoutCount = 1;
-      layout_info.pSetLayouts = &descriptor_set_layout_;
+      layout_info.setLayoutCount = static_cast<std::uint32_t>(conventional_layouts.size());
+      layout_info.pSetLayouts = conventional_layouts.data();
     }
     layout_info.pushConstantRangeCount = 1;
     layout_info.pPushConstantRanges = &push_range;

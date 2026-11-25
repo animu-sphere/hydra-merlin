@@ -46,6 +46,9 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
           render::NdcYDirection::Up, request.debug_view, request.mesh_display.mode)};
   const auto lighting = render::PrepareForwardLighting(*request.snapshot,
       render::PackagedDiffuseEnvironment().coefficients, request.forward_lighting);
+  const auto specular_environment = lighting.specular_texture.valid()
+      ? textures_.at(lighting.specular_texture.value()).texture
+      : disabled_specular_environment_;
   id<MTLRenderCommandEncoder> encoder =
       [command renderCommandEncoderWithDescriptor:pass];
   if (encoder == nil) {
@@ -77,6 +80,7 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
   }
   [encoder setRenderPipelineState:float_color ? float_pipeline_ : pipeline_];
+  [encoder setFragmentTexture:specular_environment atIndex:8];
   [encoder setDepthStencilState:depth_state_];
   const bool offset_surfaces = render::OffsetMeshSurfaces(request.mesh_display.mode);
   if (offset_surfaces) {

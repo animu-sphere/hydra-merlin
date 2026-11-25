@@ -270,12 +270,16 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   SyncTextures(*request.snapshot, resource_sync_mode);
   SyncSamplers(*request.snapshot, resource_sync_mode);
   // Vulkan maps NDC +Y down in framebuffer coordinates.
-  PrepareMaterialDescriptors(frame, *request.snapshot, PrepareForwardLighting(request),
+  const auto lighting = PrepareForwardLighting(request);
+  PrepareMaterialDescriptors(frame, *request.snapshot, lighting,
       {render::PackForwardOutputTransform(request.output_transform),
           render::PackForwardSurfacePolicy(request.snapshot->front_face,
               render::NdcYDirection::Down, request.debug_view,
               request.mesh_display.mode)});
   PrepareBindlessDescriptors();
+  if (draw_records_.size() != 0 && render::DrawMeshSurfaces(request.mesh_display.mode)) {
+    PrepareSpecularEnvironment(frame, lighting.specular_texture);
+  }
   const auto gaussian_attribute_upload_start = CpuClock::now();
   SyncGaussianAttributes(*request.snapshot, resource_sync_mode);
   gaussian_attribute_upload_ns =

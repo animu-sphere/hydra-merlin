@@ -59,6 +59,7 @@
 #include <merlin/extraction/scene_extractor.hpp>
 #include <merlin/render/backend.hpp>
 #include <merlin/render/diffuse_environment.hpp>
+#include <merlin/render/specular_environment.hpp>
 #include <merlin/render/surface_geometry.hpp>
 #ifdef MERLIN_HYDRA2_ENABLE_VULKAN
 #include <merlin/vulkan/backend.hpp>
@@ -2234,8 +2235,12 @@ public:
       const auto diffuse = merlin::render::LoadDiffuseEnvironment(image, &texture.pixels);
       texture.width = diffuse.width;
       texture.height = diffuse.height;
+      auto specular = merlin::render::BuildSpecularEnvironment(
+          texture.width, texture.height, texture.pixels);
+      specular.label = texture.label + " specular environment";
       found = dome_textures_.emplace(image,
-          DomeTexture{world_.CreateTexture(std::move(texture)), diffuse.coefficients}).first;
+          DomeTexture{world_.CreateTexture(std::move(texture)),
+              world_.CreateTexture(std::move(specular)), diffuse.coefficients}).first;
     }
     dome_lights_[path] = {found->second, world_to_environment, radiance_scale};
   }
@@ -2540,7 +2545,7 @@ public:
           ToMerlinMatrix(projection_matrix.GetInverse() * view_to_world *
               dome.world_to_environment),
           dome.texture.diffuse, dome.radiance_scale,
-          dome_background_visible_ && color_aov};
+          dome_background_visible_ && color_aov, dome.texture.specular};
     }
     request.gpu_driven_indexed = gpu_driven_indexed_;
     request.gpu_driven_gaussian = gpu_driven_gaussian_;
@@ -3286,6 +3291,7 @@ private:
 
   struct DomeTexture {
     merlin::TextureHandle handle;
+    merlin::TextureHandle specular;
     std::array<merlin::Vec4, 9> diffuse;
   };
 

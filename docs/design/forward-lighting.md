@@ -89,9 +89,19 @@ from the world-space viewing ray through the fragment for perspective and
 orthographic cameras. Roughness is bounded to `[0.045, 1]` in the lobe.
 Reflectance at normal incidence interpolates between 0.04 and base color
 with metalness. Metalness also scales the existing diffuse term by
-`1 - metalness`. The dome continues to supply diffuse illumination and a
-background. The lighting profile uses the existing directional light
+`1 - metalness`. The lighting profile uses the existing directional light
 amplitudes and the default dielectric specular weight, color and IOR.
+
+The selected HDR dome supplies specular image-based lighting. Hydra builds a
+512 × 544 linear RGBA8 atlas once per resolved Radiance image. It stores a
+sharp 512 × 256 lat-long level, progressively filtered GGX roughness levels
+and a 64 × 64 integrated Smith-GGX/Schlick BRDF table. Filtering and
+interpolation operate on decoded linear radiance. The shader samples around
+the shading normal's world-space view reflection, using the same dome
+orientation as the panorama. It applies the dome color and energy before
+the Forward output transform. Native callers can pass an atlas built by
+`BuildSpecularEnvironment` through `ForwardDomeLight::specular_texture`.
+The method uses the [GGX split-sum approximation](https://de45xmedrsdbp.cloudfront.net/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf).
 
 The material bindings travel through the conventional, bindless and GPU Scene
 paths. Alpha mask, color conversion and ID output use the same shared policy.
@@ -185,7 +195,8 @@ Hydra requests explicit lighting. **Enable Scene Lights** controls the authored
 lights supplied by Hydra. **Enable Default Camera Light** controls the Hdx
 camera source and contributes alongside supported authored lights.
 **Enable Default Dome Light** controls the Hdx dome, which supplies diffuse SH
-lighting and the OpenUSD Stinson Beach panorama. With all three disabled, lit
+lighting, specular reflections on metallic-roughness surfaces, and the OpenUSD
+Stinson Beach panorama. With all three disabled, lit
 surfaces receive zero lighting. Native diagnostic requests retain the fill and
 fallback defined above.
 
@@ -193,8 +204,8 @@ Both backends draw the dome before geometry, using the inverse projection,
 camera rotation and dome orientation to sample the Radiance HDR. Camera
 translation does not move the panorama. The background is opaque, with clear
 depth and background IDs, and receives the host display encoding. The standard
-`domeLightCameraVisibility` setting hides the panorama while retaining dome
-illumination. The lit-surface exposure and tone-mapping contract applies to
+`domeLightCameraVisibility` setting hides the panorama while retaining diffuse
+and specular illumination. The lit-surface exposure and tone-mapping contract applies to
 surface lighting. See the [OpenUSD 26.08 light data source](https://github.com/PixarAnimationStudios/OpenUSD/blob/v26.08/pxr/imaging/hdx/taskControllerSceneIndex.cpp)
 and the [support matrix](../reference/support-matrix.md#forward-lighting-and-output).
 
@@ -245,6 +256,11 @@ directional inputs, removes an unselected Point record that moves the last table
 slot, and requires exact four-AOV parity with zero geometry upload and no
 pipeline creation. Native Forward compares handwritten and generated MaterialX
 prototype evaluation; this does not cover generated-material Hydra ingestion.
+
+The Vulkan output fixture also lights a metallic patch with a small HDR
+emitter in an otherwise black dome. All four Forward paths check the mirror
+RGB, roughness blur, dome rotation, radiance scale, hidden background and
+exact depth/ID restoration.
 
 The CPU contract test exercises RenderWorld/extractor table compaction,
 retained snapshots, camera changes, light translation, zero intensity,

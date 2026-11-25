@@ -1,5 +1,6 @@
 #include <merlin/render/forward_lighting.hpp>
 #include <merlin/render/backend.hpp>
+#include <merlin/render/specular_environment.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -128,6 +129,22 @@ ForwardLighting PrepareForwardLighting(const extraction::FrameSnapshot& snapshot
   if (settings.dome) {
     const auto& dome = *settings.dome;
     result.world_to_environment = dome.world_to_environment;
+    if (dome.specular_texture.valid()) {
+      const auto texture = std::find_if(snapshot.textures.begin(), snapshot.textures.end(),
+          [&](const auto& record) { return record.texture == dome.specular_texture.value(); });
+      if (texture == snapshot.textures.end() ||
+          texture->width != kSpecularEnvironmentWidth ||
+          texture->height != kSpecularEnvironmentHeight ||
+          texture->format != TextureFormat::Rgba8Unorm) {
+        throw RendererError(RendererErrorCode::InvalidRequest,
+            "prepare Forward specular environment",
+            "dome requires a specular environment atlas in the snapshot");
+      }
+      result.specular_texture = dome.specular_texture;
+      const auto& rgb = dome.radiance_scale;
+      result.specular_environment_scale = {rgb.x, rgb.y, rgb.z,
+          rgb.x != 0.0F || rgb.y != 0.0F || rgb.z != 0.0F ? 1.0F : 0.0F};
+    }
     for (std::size_t i = 0; i < result.environment.size(); ++i) {
       const auto& coefficient = dome.diffuse_environment[i];
       result.environment[i] = {coefficient.x * dome.radiance_scale.x,

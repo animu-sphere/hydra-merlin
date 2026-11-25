@@ -37,6 +37,8 @@ StructuredBuffer<GpuMaterial> gpu_materials;
 [[vk::binding(4, 1)]]
 StructuredBuffer<GpuDraw> gpu_draws;
 
+[[vk::binding(0, 2)]] Texture2D<float4> specular_environment;
+
 [shader("vertex")]
 ForwardVertexOutput forward_gpu_scene_vertex(ForwardVertexInput input)
 {
@@ -93,6 +95,6 @@ ForwardFragmentOutput forward_gpu_scene_fragment(
                     effective_material.scalar_texture_resources.w)], input.texture_coordinate).r;
     return MakeForwardFragmentOutput(
         ShadeForward(input, front_facing, effective_material, texture_sample,
-            normal_sample, scalar_factors, constants),
+            normal_sample, scalar_factors, constants, specular_environment),
         constants);
 }
