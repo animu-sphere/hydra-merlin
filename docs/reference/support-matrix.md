@@ -165,7 +165,7 @@ they are not implied to work by the availability of the surrounding adapter.
 - The native diagnostic profile uses one unshadowed directional source and
   the packaged diffuse SH environment. Hydra uses up to eight unshadowed
   directional sources in stable handle order and one Radiance HDR dome in
-  scene-path order. Point and spot lighting, shadows, specular IBL, and
+  scene-path order. Point and spot lighting, shadows, and
   multiple-dome lighting remain unsupported. Extended emitters are evaluated
   at their center direction.
 - Lit Forward exposes EV in `[-32, 32]` and None/Reinhard, with default 0 EV
@@ -179,7 +179,8 @@ they are not implied to work by the availability of the surrounding adapter.
   See the [output contract](../design/forward-lighting.md#output-transform).
 - usdview's Scene Lights, Default Camera Light, and Default Dome Light feed
   independent inputs to the Hydra renderer. The default dome supplies diffuse
-  lighting and the OpenUSD Stinson Beach HDR background. Camera visibility
+  lighting, specular IBL for metallic-roughness Forward surfaces, and the
+  OpenUSD Stinson Beach HDR background. Camera visibility
   controls the background independently of illumination. Windows Vulkan and
   Apple M3 Metal exercise these controls in Tier 0 and native Hgi presentation
   with OpenUSD 26.08. See the
@@ -187,8 +188,8 @@ they are not implied to work by the availability of the surrounding adapter.
   for the measured surface and background differences.
 - The opaque MaterialX Standard Surface subset shades direct metalness and
   roughness constants or linear scalar textures with the same shared GGX lobe
-  under the camera light and distant lights. It uses the diffuse dome and the
-  default dielectric specular weight, color and IOR. The
+  under the camera light and distant lights. It uses diffuse and specular dome
+  illumination and the default dielectric specular weight, color and IOR. The
   [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
   checks authored inputs and controlled highlight measurements on Windows
   Vulkan and Apple M3 Metal with OpenUSD 26.08. See the

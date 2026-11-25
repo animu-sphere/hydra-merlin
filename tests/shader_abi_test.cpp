@@ -105,6 +105,7 @@ void RequireCommonAbi(std::string_view json) {
   RequireField(json, "surface_factors", 560, 16);
   RequireField(json, "scalar_texture_resources", 576, 16);
   RequireField(json, "clip_to_view_direction", 592, 48);
+  RequireField(json, "specular_environment_scale", 640, 16);
   RequireField(json, "light_policy", 256, 16);
   RequireField(json, "additional_light_directions", 272, 112);
   RequireField(json, "additional_light_colors", 384, 112);
@@ -250,6 +251,12 @@ int main(int argc, char** argv) {
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":3}");
     RequireBinding(conventional_fragment, "material_constants",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":31}");
+    RequireBinding(conventional_fragment, "specular_environment",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":0}");
+    for (const auto* fragment : {&bindless_fragment, &gpu_scene_fragment, &gpu_driven_fragment}) {
+      RequireBinding(*fragment, "specular_environment",
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":0}");
+    }
     RequireBinding(bindless_fragment, "bindless_samplers",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
     RequireBinding(bindless_fragment, "bindless_textures",
@@ -601,7 +608,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 17);
+    static_assert(kVersion == 18);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);

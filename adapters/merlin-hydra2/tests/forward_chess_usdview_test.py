@@ -207,13 +207,24 @@ def _check_specular(stage, settings, view, scene_camera, capture):
             dielectric = sample(f"{prefix}-dielectric", 0.0, 0.4, dome)
             narrow = sample(f"{prefix}-narrow", 1.0, 0.4, dome)
             broad = sample(f"{prefix}-broad", 1.0, 0.6, dome)
-            assert narrow["center_red"] > broad["center_red"] > 0, (narrow, broad)
-            assert narrow["center_red"] > dielectric["center_red"], (narrow, dielectric)
-            assert (0 < narrow["width_at_half_peak"] < broad["width_at_half_peak"] <
-                    broad["image_width"]), (narrow, broad)
+            if not dome:
+                assert narrow["center_red"] > broad["center_red"] > 0, (narrow, broad)
+                assert narrow["center_red"] > dielectric["center_red"], (narrow, dielectric)
+                assert (0 < narrow["width_at_half_peak"] < broad["width_at_half_peak"] <
+                        broad["image_width"]), (narrow, broad)
             result[prefix] = {"dielectric": dielectric, "narrow": narrow, "broad": broad}
         direct, with_dome = (result[f"specular-{source}-{state}"] for state in ("direct", "dome"))
         assert with_dome["dielectric"]["center_red"] > direct["dielectric"]["center_red"]
-        assert with_dome["narrow"] == direct["narrow"]
-        assert with_dome["broad"] == direct["broad"]
+        assert with_dome["narrow"]["center_red"] > direct["narrow"]["center_red"]
+        assert with_dome["broad"]["center_red"] > direct["broad"]["center_red"]
+
+    settings.ambientLightOnly = False
+    settings.enableSceneLights = False
+    unlit = sample("specular-dome-only-off", 1.0, 0.045, False)
+    sharp = sample("specular-dome-only-sharp", 1.0, 0.045, True)
+    rough = sample("specular-dome-only-rough", 1.0, 0.75, True)
+    assert unlit["center_red"] == 0, unlit
+    assert min(sharp["center_red"], rough["center_red"]) > 0, (sharp, rough)
+    assert sharp != rough, (sharp, rough)
+    result["specular-dome-only"] = {"unlit": unlit, "sharp": sharp, "rough": rough}
     return result

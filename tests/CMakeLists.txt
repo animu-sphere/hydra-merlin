@@ -759,6 +759,7 @@ if(TARGET merlin-headless)
     target_link_libraries(merlin-generated-material-vulkan-tests
       PRIVATE Merlin::RenderWorld Merlin::RenderExtraction
               Merlin::MaterialX Merlin::Vulkan)
+    add_dependencies(merlin-generated-material-vulkan-tests merlin-headless)
     add_test(
       NAME merlin-vulkan-generated-material
       COMMAND merlin-generated-material-vulkan-tests

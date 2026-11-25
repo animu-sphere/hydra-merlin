@@ -40,6 +40,8 @@ struct ForwardLighting {
   Mat4 world_to_environment;
   std::array<Vec4, 3> clip_to_view_direction{};
   Vec4 policy{0.15F, 0.85F, 0.0F, 0.0F};
+  TextureHandle specular_texture;
+  Vec4 specular_environment_scale;
 };
 
 [[nodiscard]] ForwardLighting PrepareForwardLighting(
@@ -84,6 +86,7 @@ template <typename Constants>
   result.surface_factors = {material.parameters.metallic,
       material.parameters.roughness, 0.0F, 0.0F};
   result.clip_to_view_direction = lighting.clip_to_view_direction;
+  result.specular_environment_scale = lighting.specular_environment_scale;
   return result;
 }
 

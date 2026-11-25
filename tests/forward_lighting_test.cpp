@@ -65,6 +65,7 @@ void DrawPolicies() {
     merlin::Mat4 world_to_environment;
     merlin::Vec4 surface_factors;
     std::array<merlin::Vec4, 3> clip_to_view_direction;
+    merlin::Vec4 specular_environment_scale;
   };
   merlin::extraction::MaterialRecord material;
   material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
@@ -77,6 +78,7 @@ void DrawPolicies() {
   lighting.primary.direction_intensity = {0.0F, 1.0F, 0.0F, 0.0F};
   lighting.primary.color = {0.5F, 0.6F, 0.7F};
   lighting.environment[8] = {1.0F, 2.0F, 3.0F, 4.0F};
+  lighting.specular_environment_scale = {0.5F, 1.0F, 2.0F, 1.0F};
   const auto upload = merlin::render::MakeForwardMaterialConstants<Upload>(material, lighting,
       {merlin::render::PackForwardOutputTransform({}), {-1.0F, 3.0F, 0.0F, 0.0F}});
   assert(upload.surface_policy.x == -1.0F);
@@ -92,6 +94,8 @@ void DrawPolicies() {
   assert(upload.diffuse_environment[8].z == 3.0F);
   assert(upload.surface_factors.x == 0.4F && upload.surface_factors.y == 0.3F);
   assert(upload.normal_map.x == 0.5F && upload.normal_map.y == -1.0F);
+  assert(upload.specular_environment_scale.x == 0.5F &&
+         upload.specular_environment_scale.w == 1.0F);
 }
 
 void ViewDirections() {

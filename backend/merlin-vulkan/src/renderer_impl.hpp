@@ -411,8 +411,11 @@ public:
     FrameCpuTimings cpu_timings;
     FrameCounters counters;
     VkDescriptorPool descriptor_pool{};
-    VkDescriptorPool dome_descriptor_pool{};
+    VkDescriptorPool environment_descriptor_pool{};
     VkDescriptorSet dome_descriptor_set{};
+    VkDescriptorSet specular_environment_set{};
+    VkImageView specular_environment_view{};
+    std::uint64_t specular_environment_generation{};
     std::uint32_t descriptor_capacity{};
     std::vector<VkDescriptorSet> material_descriptor_sets;
     VkDescriptorSet bindless_material_descriptor_set{};
@@ -939,6 +942,10 @@ public:
 
   void RecordDome(VkCommandBuffer command, FrameContext& frame,
       const render::ForwardDomeLight& dome);
+  void EnsureEnvironmentDescriptorSetLayout();
+  void WriteEnvironmentDescriptor(FrameContext& frame, VkDescriptorSet& set,
+      VkImageView view);
+  void PrepareSpecularEnvironment(FrameContext& frame, TextureHandle atlas);
 
   VkPipeline EnsurePipeline(const ShaderPaths& shaders,
       std::uint32_t variant_key);
@@ -1253,7 +1260,7 @@ public:
   TextureSlot fallback_texture_;
   SamplerSlot fallback_sampler_;
   VkDescriptorSetLayout descriptor_set_layout_{};
-  VkDescriptorSetLayout dome_descriptor_set_layout_{};
+  VkDescriptorSetLayout environment_descriptor_set_layout_{};
   VkPipelineLayout dome_pipeline_layout_{};
   VkPipelineLayout mesh_display_pipeline_layout_{};
   std::map<std::string, VkDescriptorSetLayout>

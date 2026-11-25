@@ -8,6 +8,18 @@ after its public API and release process are established.
 
 ## [Unreleased]
 
+### Added
+
+- Forward MaterialX Standard Surface metals reflect the selected HDR dome on
+  Vulkan and Metal. Specular roughness controls reflection blur, and hiding the
+  dome backdrop retains its illumination.
+
+### Changed
+
+- Backend contract 11 carries the dome's specular texture. Shader ABI 18 adds
+  the Forward specular environment binding and radiance constants. Rebuild
+  SDK consumers and shader artifacts.
+
 ## [0.17.0] - 2026-11-25
 
 ### Added

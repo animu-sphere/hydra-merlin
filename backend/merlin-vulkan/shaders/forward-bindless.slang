@@ -9,6 +9,8 @@ Texture2D bindless_textures[];
 [[vk::binding(0, 1)]]
 ConstantBuffer<MaterialConstants> material_constants;
 
+[[vk::binding(0, 2)]] Texture2D<float4> specular_environment;
+
 [shader("vertex")]
 ForwardVertexOutput forward_bindless_vertex(ForwardVertexInput input)
 {
@@ -56,5 +58,5 @@ ForwardFragmentOutput forward_bindless_fragment(
                 bindless_samplers[NonUniformResourceIndex(
                     material_constants.scalar_texture_resources.w)], input.texture_coordinate).r;
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
-        material_constants, texture_sample, normal_sample, scalar_factors));
+        material_constants, texture_sample, normal_sample, scalar_factors, specular_environment));
 }

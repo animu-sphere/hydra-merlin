@@ -1,5 +1,6 @@
 #include <merlin/core/render_world.hpp>
 #include <merlin/extraction/scene_extractor.hpp>
+#include <merlin/render/specular_environment.hpp>
 #include <merlin/vulkan/descriptor_indexing.hpp>
 #include <merlin/vulkan/renderer.hpp>
 #include "forward_output_fixture.hpp"
@@ -101,6 +102,87 @@ int main(int argc, char** argv) try {
   if (renderer->statistics().validation_messages != 0)
     return 1;
   std::cout << mode << ": output transforms, alpha/depth/IDs, repeats and rejection passed\n";
+
+  // A small HDR emitter centered on +Z. A face-on metal reflects its
+  // authored RGB at low roughness, even with the panorama hidden.
+  merlin::TextureDescriptor hdr;
+  hdr.width = 32;
+  hdr.height = 16;
+  hdr.pixels.resize(hdr.width * hdr.height * 4);
+  for (const auto y : {7U, 8U}) {
+    for (const auto x : {7U, 8U}) {
+      const std::array<std::uint8_t, 4> rgbe{192, 96, 48, 129};
+      std::copy(rgbe.begin(), rgbe.end(), hdr.pixels.begin() + (y * hdr.width + x) * 4);
+    }
+  }
+  const auto atlas = world.CreateTexture(merlin::render::BuildSpecularEnvironment(
+      hdr.width, hdr.height, hdr.pixels));
+  const auto panorama = world.CreateTexture(std::move(hdr));
+  merlin::CameraDescriptor camera;
+  camera.projection.values[10] = -1.0F;
+  camera.projection.values[14] = 1.0F;
+  extractor.SetActiveCamera(world.CreateCamera(camera));
+  material.features |= merlin::MaterialFeature::ForwardSpecular;
+  material.parameters.metallic = 1.0F;
+  material.parameters.roughness = 0.045F;
+  world.UpdateMaterial(instance.material, material);
+  const auto render_metal = [&](float roughness) {
+    if (material.parameters.roughness != roughness) {
+      material.parameters.roughness = roughness;
+      world.UpdateMaterial(instance.material, material);
+    }
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    return render({0, merlin::render::ToneMapping::None});
+  };
+  const auto center = [](const auto& frame) {
+    const auto offset = 32 * frame.color.row_pitch_bytes + 32 * 4;
+    return std::array{frame.color.pixels[offset], frame.color.pixels[offset + 1],
+        frame.color.pixels[offset + 2], frame.color.pixels[offset + 3]};
+  };
+  const auto same_geometry = [](const auto& a, const auto& b) {
+    return a.depth.pixels == b.depth.pixels && a.prim_id.pixels == b.prim_id.pixels &&
+           a.instance_id.pixels == b.instance_id.pixels;
+  };
+  request.forward_lighting.explicit_lights = true;
+  const auto unlit = render_metal(0.045F);
+  auto& dome = request.forward_lighting.dome.emplace();
+  dome.rgbe_texture = panorama;
+  dome.specular_texture = atlas;
+  dome.camera_visible = false;
+  const auto sharp = render_metal(0.045F);
+  const auto rough = render_metal(0.75F);
+  dome.world_to_environment.values[0] = -1.0F;
+  dome.world_to_environment.values[10] = -1.0F;
+  const auto rotated = render_metal(0.045F);
+  dome.world_to_environment = {};
+  dome.camera_visible = true;
+  const auto visible = render_metal(0.045F);
+  dome.camera_visible = false;
+  dome.radiance_scale.x = 0.5F;
+  const auto half_red = render_metal(0.045F);
+  dome.radiance_scale.x = 1.0F;
+  const auto restored = render_metal(0.045F);
+  const auto rgb = center(sharp);
+  if (center(unlit)[0] != 0 || std::abs(int(rgb[0]) - 153) > 2 ||
+      std::abs(int(rgb[1]) - 36) > 2 || std::abs(int(rgb[2]) - 10) > 2 ||
+      center(rough)[0] == 0 || center(rough)[0] >= rgb[0] / 2 ||
+      center(rotated) != center(unlit) || center(visible) != rgb ||
+      std::abs(int(center(half_red)[0]) * 2 - rgb[0]) > 2 ||
+      center(half_red)[1] != rgb[1] || center(half_red)[2] != rgb[2] ||
+      sharp.color.pixels != restored.color.pixels ||
+      !same_geometry(unlit, sharp) || !same_geometry(sharp, visible) ||
+      !same_geometry(sharp, restored) || restored.counters.upload_bytes != 0 ||
+      restored.counters.pipeline_creation_count != 0) {
+    std::cerr << "sharp RGB=" << int(rgb[0]) << ',' << int(rgb[1]) << ',' << int(rgb[2])
+              << " rough/rotated/half-red=" << int(center(rough)[0]) << '/'
+              << int(center(rotated)[0]) << '/' << int(center(half_red)[0])
+              << " restore uploads/pipelines=" << restored.counters.upload_bytes
+              << '/' << restored.counters.pipeline_creation_count << '\n';
+    throw std::runtime_error("Forward HDR dome reflection, filtering, or restoration differs");
+  }
+  request.forward_lighting = {};
+  std::cout << mode << ": HDR dome reflection, roughness and orientation passed\n";
 
   // Surface geometry views on the same Forward entry. Each fixture case is a
   // fresh source, so a fresh renderer keeps its geometry at arena offset 0.

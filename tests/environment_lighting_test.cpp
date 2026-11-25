@@ -1,6 +1,7 @@
 #include <merlin/render/diffuse_environment.hpp>
 
 #include <merlin/render/backend.hpp>
+#include <merlin/render/specular_environment.hpp>
 
 #include <algorithm>
 #include <array>
@@ -89,8 +90,9 @@ int main(int argc, char** argv) {
   const auto uniform_path = std::filesystem::temp_directory_path() /
                             "merlin-uniform-environment.hdr";
   WriteUniformEnvironment(uniform_path);
+  std::vector<std::uint8_t> pixels;
   const auto uniform =
-      merlin::render::LoadDiffuseEnvironment(uniform_path);
+      merlin::render::LoadDiffuseEnvironment(uniform_path, &pixels);
   for (const auto& normal :
       {merlin::Vec3{0.0F, 1.0F, 0.0F}, merlin::Vec3{1.0F, 0.0F, 0.0F},
           merlin::Vec3{0.0F, 0.0F, -1.0F},
@@ -102,6 +104,22 @@ int main(int argc, char** argv) {
     assert(std::abs(value.z - 1.0F) < 0.01F);
   }
   std::filesystem::remove(uniform_path);
+
+  const auto atlas = merlin::render::BuildSpecularEnvironment(uniform.width, uniform.height, pixels);
+  assert(atlas.width == merlin::render::kSpecularEnvironmentWidth);
+  assert(atlas.height == merlin::render::kSpecularEnvironmentHeight);
+  for (const auto row : {0U, 256U, 384U, 448U, 480U, 512U, 543U}) {
+    const auto index = row * atlas.width * 4;
+    assert(std::equal(atlas.pixels.begin() + index, atlas.pixels.begin() + index + 4,
+        pixels.begin()));
+  }
+  const auto integrated_fresnel = [&](std::uint32_t roughness_row) {
+    const auto index = ((448U + roughness_row) * atlas.width + 127U) * 4;
+    return (256U * atlas.pixels[index] + atlas.pixels[index + 1] +
+            256U * atlas.pixels[index + 2] + atlas.pixels[index + 3]) / 65535.0;
+  };
+  assert(std::abs(integrated_fresnel(0) - 1.0) < 0.01);
+  assert(std::abs(integrated_fresnel(63) - (1.0 - std::log(2.0))) < 0.01);
 
   bool missing_rejected{};
   try {

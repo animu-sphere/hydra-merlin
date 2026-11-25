@@ -831,7 +831,8 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
       display_mode != render::MeshDisplayMode::HiddenSurfaceWireframe;
   if (draw_mesh_surfaces && frame.gpu_driven.selected) {
     const std::array descriptor_sets{
-        bindless_descriptor_set_, frame.bindless_material_descriptor_set};
+        bindless_descriptor_set_, frame.bindless_material_descriptor_set,
+        frame.specular_environment_set};
     const std::uint32_t dynamic_offset{};
     vkCmdBindDescriptorSets(
         command, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -914,22 +915,24 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
         }
         const auto dynamic_offset =
             static_cast<std::uint32_t>(dynamic_offset_value);
-        std::array<VkDescriptorSet, 2> descriptor_sets{};
+        std::array<VkDescriptorSet, 3> descriptor_sets{};
         descriptor_sets[shader_abi::kBindlessTextures.set] =
             bindless_descriptor_set_;
         descriptor_sets[shader_abi::kBindlessMaterialConstants.set] =
             frame.bindless_material_descriptor_set;
+        descriptor_sets[shader_abi::kBindlessSpecularEnvironment.set] =
+            frame.specular_environment_set;
         vkCmdBindDescriptorSets(
             command, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0,
             static_cast<std::uint32_t>(descriptor_sets.size()),
             descriptor_sets.data(), 1, &dynamic_offset);
       } else {
-        const auto descriptor_set =
-            frame.material_descriptor_sets[draw.material_index];
+        const std::array descriptor_sets{frame.material_descriptor_sets[draw.material_index],
+            frame.specular_environment_set};
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pipeline_layout, 0, 1,
-            &descriptor_set, 0, nullptr);
+            pipeline_layout, 0, generated_artifact != nullptr ? 1U : 2U,
+            descriptor_sets.data(), 0, nullptr);
       }
       if (use_gpu_scene) {
         shader_abi::GpuSceneDrawConstants push;

@@ -141,7 +141,9 @@ The gate works with Vulkan/Hydra as well. It checks the board and pieces,
 including the point-instanced pawns. Session-layer overrides isolate authored
 base color, normal mapping, metalness and roughness on the board and each set
 of pieces. A separate surface measures reflection and highlight width under
-the camera light and a distant light, with and without the diffuse dome.
+the camera light and a distant light, with and without the dome. It also
+compares smooth and rough metal with only the default dome illuminating the
+surface and its panorama hidden.
 Images, input counts and probe measurements are written to
 `adapters/merlin-hydra2/forward-chess-*-install` under the build directory. When a native Hgi bridge is available, the test compares its
 images with Tier 0. For a manual launch on Metal, set

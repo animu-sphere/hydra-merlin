@@ -10,6 +10,7 @@ struct ResourceTable
 };
 [[vk::binding(3, 0)]] ParameterBlock<ResourceTable> resources : register(b3);
 [[vk::binding(2, 0)]] ConstantBuffer<MaterialConstants> material_constants : register(b2);
+[[vk::binding(16, 0)]] Texture2D<float4> specular_environment : register(t8);
 
 [ForceInline]
 ForwardVertexOutput EvaluateMetalVertex(ForwardVertexInput input, DrawConstants draw)
@@ -28,7 +29,7 @@ ForwardFragmentOutput ShadeMetalForward(
 {
     input.color *= material.base_color;
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
-        material, texture_sample, normal_sample, scalar_factors, draw), draw);
+        material, texture_sample, normal_sample, scalar_factors, draw, specular_environment), draw);
 }
 
 // Argument-table normal texture read; the material block carries its slots.

@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 17;
+inline constexpr std::uint32_t kVersion = 18;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -54,6 +54,7 @@ struct alignas(16) MaterialConstants {
   Vec4 surface_factors;
   std::array<std::uint32_t, 4> scalar_texture_resources{};
   std::array<Vec4, 3> clip_to_view_direction;
+  Vec4 specular_environment_scale;
 };
 
 // Table-backed Forward keeps indexed submission on the CPU while selecting a
@@ -479,7 +480,8 @@ static_assert(offsetof(DrawConstants, feature_mask) == 112);
 static_assert(offsetof(DrawConstants, prim_id) == 116);
 static_assert(offsetof(DrawConstants, instance_id) == 120);
 static_assert(offsetof(DrawConstants, texture_index) == 124);
-static_assert(sizeof(MaterialConstants) == 640);
+static_assert(sizeof(MaterialConstants) == 656);
+static_assert(offsetof(MaterialConstants, specular_environment_scale) == 640);
 static_assert(alignof(MaterialConstants) == 16);
 static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);
@@ -608,12 +610,16 @@ inline constexpr ResourceBinding kConventionalRoughnessTexture{
     0, 3, ResourceClass::CombinedImageSampler};
 inline constexpr ResourceBinding kConventionalMaterialConstants{
     0, 31, ResourceClass::UniformBuffer};
+inline constexpr ResourceBinding kConventionalSpecularEnvironment{
+    1, 0, ResourceClass::SampledImage};
 inline constexpr ResourceBinding kBindlessSamplers{
     0, 0, ResourceClass::Sampler};
 inline constexpr ResourceBinding kBindlessTextures{
     0, 1, ResourceClass::SampledImage};
 inline constexpr ResourceBinding kBindlessMaterialConstants{
     1, 0, ResourceClass::UniformBuffer};
+inline constexpr ResourceBinding kBindlessSpecularEnvironment{
+    2, 0, ResourceClass::SampledImage};
 inline constexpr ResourceBinding kGpuSceneGeometries{
     1, 1, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGpuSceneInstances{
