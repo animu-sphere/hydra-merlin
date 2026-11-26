@@ -191,6 +191,7 @@ enum class MaterialFeature : std::uint32_t {
   ForwardSpecular = 1U << 4U,
   MetallicTexture = 1U << 5U,
   RoughnessTexture = 1U << 6U,
+  EmissiveTexture = 1U << 7U,
 };
 
 [[nodiscard]] constexpr MaterialFeature operator|(MaterialFeature lhs,
@@ -410,6 +411,7 @@ struct MaterialIR {
   // constant while a draw has usable texture coordinates and resources.
   std::optional<TextureBinding> metallic_texture;
   std::optional<TextureBinding> roughness_texture;
+  std::optional<TextureBinding> emissive_texture;
 };
 
 using MaterialDescriptor = MaterialIR;

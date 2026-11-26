@@ -271,18 +271,20 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
         "material normal texture and sampler residency is incomplete");
   }
 
-  const auto validate_scalar = [](bool present, std::uint32_t texture,
-                                   std::uint32_t sampler) {
+  const auto validate_binding = [](bool present, std::uint32_t texture,
+                                    std::uint32_t sampler) {
     if (present != (texture != kInvalidGpuSceneTableIndex) ||
         present != (sampler != kInvalidGpuSceneTableIndex)) {
       Throw(GpuScenePackingErrorCode::MissingResidency,
-          "material scalar texture and sampler residency is incomplete");
+          "material texture and sampler residency is incomplete");
     }
   };
-  validate_scalar(source.metallic_texture.has_value(),
+  validate_binding(source.metallic_texture.has_value(),
       binding.metallic_texture_index, binding.metallic_sampler_index);
-  validate_scalar(source.roughness_texture.has_value(),
+  validate_binding(source.roughness_texture.has_value(),
       binding.roughness_texture_index, binding.roughness_sampler_index);
+  validate_binding(source.emissive_texture.has_value(),
+      binding.emissive_texture_index, binding.emissive_sampler_index);
 
   GpuMaterial result;
   result.base_color = source.parameters.base_color;
@@ -313,7 +315,11 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   result.scalar_texture_resources = {binding.metallic_texture_index,
       binding.metallic_sampler_index, binding.roughness_texture_index,
       binding.roughness_sampler_index};
-  result.emissive_radiance = {emission.x, emission.y, emission.z, 0.0F};
+  result.emissive_radiance = {emission.x, emission.y, emission.z,
+      HasMaterialFeature(source.features, MaterialFeature::EmissiveTexture)
+          ? 1.0F : 0.0F};
+  result.emissive_texture_resources = {binding.emissive_texture_index,
+      binding.emissive_sampler_index, 0U, 0U};
   return result;
 }
 

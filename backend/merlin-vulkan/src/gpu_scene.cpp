@@ -141,18 +141,22 @@ void Renderer::Impl::StageGpuSceneUpdate(
             "material normal texture or sampler reference exceeds bindless "
             "capacity");
       }
-      for (std::size_t i = 0; i < material.scalar_texture_resources.size(); i += 2) {
-        const auto texture = material.scalar_texture_resources[i];
-        const auto sampler = material.scalar_texture_resources[i + 1];
+      const auto validate_binding = [&](auto texture, auto sampler) {
         const bool present = texture != render::kInvalidGpuSceneTableIndex;
         if (present != (sampler != render::kInvalidGpuSceneTableIndex) ||
             (present && bindless_texture_table_ &&
                 (texture >= bindless_texture_views_.size() ||
                     sampler >= bindless_samplers_.size()))) {
           throw RendererError(RendererErrorCode::InvalidRequest, "upload GPU Scene",
-              "invalid scalar texture or sampler table reference");
+              "invalid material texture or sampler table reference");
         }
+      };
+      for (std::size_t i = 0; i < material.scalar_texture_resources.size(); i += 2) {
+        validate_binding(material.scalar_texture_resources[i],
+            material.scalar_texture_resources[i + 1]);
       }
+      validate_binding(material.emissive_texture_resources[0],
+          material.emissive_texture_resources[1]);
     }
   }
   for (const auto& range : update->draws.ranges) {

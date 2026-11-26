@@ -131,7 +131,14 @@ ForwardFragmentOutput forward_gpu_driven_fragment(
             material.scalar_texture_resources.z)].Sample(
                 bindless_samplers[NonUniformResourceIndex(
                     material.scalar_texture_resources.w)], input.texture_coordinate).r;
+    float3 emissive_sample = DefaultEmissiveSample(material);
+    if ((draw.feature_mask & kEmissiveTextureFlag) != 0u)
+        emissive_sample = bindless_textures[NonUniformResourceIndex(
+            material.emissive_texture_resources.x)].Sample(
+                bindless_samplers[NonUniformResourceIndex(
+                    material.emissive_texture_resources.y)], input.texture_coordinate).rgb;
     return MakeForwardFragmentOutput(
         ShadeForward(conventional_input, front_facing, material,
-            texture_sample, normal_sample, scalar_factors, draw, specular_environment), draw);
+            texture_sample, normal_sample, scalar_factors, emissive_sample, draw,
+            specular_environment), draw);
 }

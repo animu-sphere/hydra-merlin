@@ -1186,12 +1186,13 @@ struct ParsedMaterial {
   std::optional<merlin::TextureDescriptor> normal_texture;
   merlin::SamplerDescriptor normal_sampler;
   std::string normal_diagnostic;
-  struct ScalarImage {
+  struct ImageInput {
     std::optional<merlin::TextureDescriptor> texture;
     merlin::SamplerDescriptor sampler;
   };
-  ScalarImage metallic;
-  ScalarImage roughness;
+  ImageInput metallic;
+  ImageInput roughness;
+  ImageInput emissive;
   bool flip_texture_rows{};
   std::vector<std::string> materialx_unsupported_inputs;
 };
@@ -1226,7 +1227,8 @@ bool MaterialFeaturesEqual(const merlin::MaterialDescriptor& lhs,
   if (!TextureBindingsEqual(lhs.base_color_texture, rhs.base_color_texture) ||
       !TextureBindingsEqual(lhs.normal_texture, rhs.normal_texture) ||
       !TextureBindingsEqual(lhs.metallic_texture, rhs.metallic_texture) ||
-      !TextureBindingsEqual(lhs.roughness_texture, rhs.roughness_texture)) {
+      !TextureBindingsEqual(lhs.roughness_texture, rhs.roughness_texture) ||
+      !TextureBindingsEqual(lhs.emissive_texture, rhs.emissive_texture)) {
     return false;
   }
   return lhs.alpha_mode == rhs.alpha_mode &&
@@ -1459,7 +1461,8 @@ void ParseMaterialXNormal(const HdMaterialNetwork2& network,
   }
 }
 
-void ParseMaterialXEmission(const HdMaterialNode2& surface, ParsedMaterial& result) {
+void ParseMaterialXEmission(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& surface, ParsedMaterial& result) {
   const auto valid_component = [](float value) {
     return std::isfinite(value) && value >= 0.0F;
   };
@@ -1474,14 +1477,25 @@ void ParseMaterialXEmission(const HdMaterialNode2& surface, ParsedMaterial& resu
   }
 
   merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
-  const auto* authored_color = FindParameter(surface, "emission_color");
-  const bool valid_color = InputConnections(surface, "emission_color").empty() &&
-      (authored_color == nullptr ||
-          (ReadColor(*authored_color, color) && valid_component(color.x) &&
-              valid_component(color.y) && valid_component(color.z)));
-  if (!valid_color) {
-    result.materialx_unsupported_inputs.emplace_back(
-        "emission_color (expected a finite nonnegative constant)");
+  ParsedMaterial::ImageInput image;
+  bool valid_color = true;
+  if (!InputConnections(surface, "emission_color").empty()) {
+    std::string diagnostic;
+    image.texture = ReadMaterialXImage(network,
+        ConnectedNode(network, surface, "emission_color"), "ND_image_color3",
+        image.sampler, diagnostic);
+    valid_color = image.texture.has_value();
+    if (!valid_color) {
+      result.materialx_unsupported_inputs.emplace_back(
+          "emission_color (" + diagnostic + ")");
+    }
+  } else if (const auto* authored_color = FindParameter(surface, "emission_color")) {
+    valid_color = ReadColor(*authored_color, color) && valid_component(color.x) &&
+                  valid_component(color.y) && valid_component(color.z);
+    if (!valid_color) {
+      result.materialx_unsupported_inputs.emplace_back(
+          "emission_color (expected a finite nonnegative constant)");
+    }
   }
   if (!valid_weight || !valid_color) {
     return;
@@ -1494,6 +1508,10 @@ void ParseMaterialXEmission(const HdMaterialNode2& surface, ParsedMaterial& resu
     return;
   }
   result.material.parameters.emissive_radiance = radiance;
+  if (image.texture) {
+    result.emissive = std::move(image);
+    result.material.features |= merlin::MaterialFeature::EmissiveTexture;
+  }
 }
 
 void ParseMaterialXSurface(const HdMaterialNetwork2& network,
@@ -1537,7 +1555,7 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
   result.material.features |= merlin::MaterialFeature::ForwardSpecular;
   parameters.roughness = 0.2F;
   const auto parse_scalar = [&](const char* input, float& parameter,
-                                ParsedMaterial::ScalarImage& image,
+                                ParsedMaterial::ImageInput& image,
                                 merlin::MaterialFeature feature) {
     if (const auto* authored = FindParameter(surface, input)) {
       float value{};
@@ -1564,7 +1582,7 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
       merlin::MaterialFeature::MetallicTexture);
   parse_scalar("specular_roughness", parameters.roughness, result.roughness,
       merlin::MaterialFeature::RoughnessTexture);
-  ParseMaterialXEmission(surface, result);
+  ParseMaterialXEmission(network, surface, result);
   for (const auto& [input, default_value] :
       {std::pair{"specular", 1.0F}, {"specular_IOR", 1.5F},
           {"specular_anisotropy", 0.0F}, {"specular_rotation", 0.0F},
@@ -1779,6 +1797,7 @@ struct MaterialEntry {
   std::optional<MaterialTextureKey> normal_image;
   std::optional<MaterialTextureKey> metallic_image;
   std::optional<MaterialTextureKey> roughness_image;
+  std::optional<MaterialTextureKey> emissive_image;
 };
 
 struct MaterialTextureEntry {
@@ -2176,6 +2195,7 @@ public:
     std::optional<MaterialTextureKey> normal_image;
     std::optional<MaterialTextureKey> metallic_image;
     std::optional<MaterialTextureKey> roughness_image;
+    std::optional<MaterialTextureKey> emissive_image;
     descriptor.base_color_texture = AcquireTextureSlotLocked(
         std::move(parsed.texture), std::move(parsed.sampler),
         parsed.flip_texture_rows, entry.descriptor.base_color_texture,
@@ -2192,12 +2212,17 @@ public:
         std::move(parsed.roughness.texture), std::move(parsed.roughness.sampler),
         parsed.flip_texture_rows, entry.descriptor.roughness_texture,
         entry.roughness_image, roughness_image);
+    descriptor.emissive_texture = AcquireTextureSlotLocked(
+        std::move(parsed.emissive.texture), std::move(parsed.emissive.sampler),
+        parsed.flip_texture_rows, entry.descriptor.emissive_texture,
+        entry.emissive_image, emissive_image);
     if (created) {
       entry.handle = world_.CreateMaterial(descriptor);
       entry.base_color_image = std::move(base_color_image);
       entry.normal_image = std::move(normal_image);
       entry.metallic_image = std::move(metallic_image);
       entry.roughness_image = std::move(roughness_image);
+      entry.emissive_image = std::move(emissive_image);
       entry.descriptor = std::move(descriptor);
       return;
     }
@@ -2221,13 +2246,17 @@ public:
         entry.descriptor.metallic_texture, descriptor.metallic_texture);
     ReleaseMaterialSamplerLocked(
         entry.descriptor.roughness_texture, descriptor.roughness_texture);
+    ReleaseMaterialSamplerLocked(
+        entry.descriptor.emissive_texture, descriptor.emissive_texture);
     ReleaseMaterialTextureLocked(entry.normal_image, normal_image);
     ReleaseMaterialTextureLocked(entry.metallic_image, metallic_image);
     ReleaseMaterialTextureLocked(entry.roughness_image, roughness_image);
+    ReleaseMaterialTextureLocked(entry.emissive_image, emissive_image);
     entry.base_color_image = std::move(base_color_image);
     entry.normal_image = std::move(normal_image);
     entry.metallic_image = std::move(metallic_image);
     entry.roughness_image = std::move(roughness_image);
+    entry.emissive_image = std::move(emissive_image);
     entry.descriptor = std::move(descriptor);
   }
 
@@ -2526,7 +2555,7 @@ public:
     const auto snapshot_build_counters =
         changes.empty() ? merlin::extraction::SnapshotBuildCounters{}
                         : snapshot->build_counters;
-    ReportNormalMapDisablementLocked(*snapshot);
+    ReportTextureDisablementLocked(*snapshot);
     merlin::render::RenderRequest request;
     request.snapshot = snapshot;
     request.output_transform = output_transform_;
@@ -2890,16 +2919,18 @@ public:
                 snapshot->materials.end(), [](const auto& material) {
                   return material.normal_texture.has_value();
                 }));
-        const auto count_scalar_images = [&](auto binding) {
+        const auto count_images = [&](auto binding) {
           return std::count_if(snapshot->materials.begin(),
               snapshot->materials.end(), [&](const auto& material) {
                 return (material.*binding).has_value();
               });
         };
-        const auto metallic_map_materials = count_scalar_images(
+        const auto metallic_map_materials = count_images(
             &merlin::extraction::MaterialRecord::metallic_texture);
-        const auto roughness_map_materials = count_scalar_images(
+        const auto roughness_map_materials = count_images(
             &merlin::extraction::MaterialRecord::roughness_texture);
+        const auto emissive_map_materials = count_images(
+            &merlin::extraction::MaterialRecord::emissive_texture);
         const auto normal_map_disabled_draws =
             merlin::render::CountForwardNormalMapDisabledDraws(*snapshot);
         const auto hgi_vulkan_telemetry =
@@ -3026,6 +3057,7 @@ public:
                << " normal_map_materials=" << normal_map_materials
                << " metallic_map_materials=" << metallic_map_materials
                << " roughness_map_materials=" << roughness_map_materials
+               << " emissive_map_materials=" << emissive_map_materials
                << " normal_map_disabled_draws=" << normal_map_disabled_draws
                << " material_fallbacks=" << snapshot->material_fallbacks.size()
                << " generated_material_draw_count="
@@ -3260,8 +3292,10 @@ private:
     ReleaseMaterialSamplerLocked(entry.descriptor.normal_texture);
     ReleaseMaterialTextureLocked(entry.metallic_image);
     ReleaseMaterialTextureLocked(entry.roughness_image);
+    ReleaseMaterialTextureLocked(entry.emissive_image);
     ReleaseMaterialSamplerLocked(entry.descriptor.metallic_texture);
     ReleaseMaterialSamplerLocked(entry.descriptor.roughness_texture);
+    ReleaseMaterialSamplerLocked(entry.descriptor.emissive_texture);
     materials_.erase(found);
   }
 
@@ -3342,14 +3376,13 @@ private:
     merlin::Vec3 radiance_scale;
   };
 
-  // Normal maps bound to geometry without texture coordinates are disabled
-  // per draw. Report each new count once per snapshot revision, not per frame.
-  void ReportNormalMapDisablementLocked(
+  // Report changed counts of draws that cannot sample their bound textures.
+  void ReportTextureDisablementLocked(
       const merlin::extraction::FrameSnapshot& snapshot) {
-    if (snapshot.revision == normal_map_report_revision_) {
+    if (snapshot.revision == texture_report_revision_) {
       return;
     }
-    normal_map_report_revision_ = snapshot.revision;
+    texture_report_revision_ = snapshot.revision;
     const auto disabled =
         merlin::render::CountForwardNormalMapDisabledDraws(snapshot);
     if (disabled != 0U && disabled != reported_normal_map_disabled_draws_) {
@@ -3361,11 +3394,27 @@ private:
           merlin::DiagnosticDisposition::Fallback, "use-shading-normal-base");
     }
     reported_normal_map_disabled_draws_ = disabled;
+    const auto emissive_disabled = std::count_if(snapshot.draws.begin(),
+        snapshot.draws.end(), [&](const auto& draw) {
+          return !snapshot.geometries[draw.geometry_index].has_texcoords &&
+              snapshot.materials[draw.material_index].emissive_texture.has_value();
+        });
+    if (emissive_disabled != 0 &&
+        emissive_disabled != reported_emissive_map_disabled_draws_) {
+      ReportHydraDiagnostic("surface.emissive-map.disabled",
+          SdfPath::AbsoluteRootPath(),
+          std::to_string(emissive_disabled) +
+              " draw(s) bind an emissive map to geometry without UV0; "
+              "emission is disabled for them",
+          merlin::DiagnosticDisposition::Fallback, "disable-emission");
+    }
+    reported_emissive_map_disabled_draws_ = emissive_disabled;
   }
 
   mutable std::mutex mutex_;
-  std::uint64_t normal_map_report_revision_{};
+  std::uint64_t texture_report_revision_{};
   std::size_t reported_normal_map_disabled_draws_{};
+  std::ptrdiff_t reported_emissive_map_disabled_draws_{};
   merlin::RenderWorld world_;
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};

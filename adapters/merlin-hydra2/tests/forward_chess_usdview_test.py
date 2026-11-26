@@ -9,7 +9,7 @@ import runpy
 
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade
 from pxr.Usdviewq.common import ColorCorrectionModes, RenderModes
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QColor, QImage
 
 
 def _changed_pixels(first, second):
@@ -230,10 +230,10 @@ def _check_standard_surface(stage, settings, view, scene_camera, capture):
     assert sharp != rough, (sharp, rough)
     result["specular-dome-only"] = {"unlit": unlit, "sharp": sharp, "rough": rough}
     settings.domeLightEnabled = False
-    return result, _check_emission(stage, view, shader, capture)
+    return result, _check_emission(stage, view, mesh, shader, capture)
 
 
-def _check_emission(stage, view, shader, capture):
+def _check_emission(stage, view, mesh, shader, capture):
     # All three sources are disabled. In linear output the center should be
     # exactly the authored weight times color, within AOV quantization.
     view.SetRendererSetting("merlin:exposureEv", 0.0)
@@ -242,12 +242,13 @@ def _check_emission(stage, view, shader, capture):
     color = shader.CreateInput("emission_color", Sdf.ValueTypeNames.Color3f)
     result = {}
 
-    def sample(name, expected):
+    def sample(name, expected, *, emissive_maps=0):
         event, image = capture(f"emission-{name}")
         center = image.pixelColor(image.width() // 2, image.height() // 2).getRgb()[:3]
         assert all(abs(actual - round(255 * value)) <= 1
                    for actual, value in zip(center, expected)), (name, center, expected)
         assert event["draw_count"] == 1 and event["pipeline_creation_count"] == 0, event
+        assert event["emissive_map_materials"] == emissive_maps, event
         result[name] = center
 
     sample("default", (0, 0, 0))
@@ -267,4 +268,47 @@ def _check_emission(stage, view, shader, capture):
     sample("connected", (0, 0, 0))
     color.ClearSources()
     sample("restored", (0.5, 0.25, 0.125))
+
+    path = Path(os.environ["MERLIN_HYDRA2_SMOKE_IMAGE"]).with_suffix(".emission.png")
+    image = QImage(2, 2, QImage.Format.Format_RGB888)
+    rgb = [(255, 0, 0), (0, 128, 0), (0, 0, 255), (128, 0, 128)]
+    for i, channels in enumerate(rgb):
+        image.setPixelColor(i % 2, i // 2, QColor(*channels))
+    assert image.save(str(path)), path
+    texture = UsdShade.Shader.Define(stage, "/SpecularMaterial/EmissionImage")
+    texture.CreateIdAttr("ND_image_color3")
+    file = texture.CreateInput("file", Sdf.ValueTypeNames.Asset)
+    file.Set(Sdf.AssetPath(path.as_posix()))
+    file.GetAttr().SetColorSpace("srgb_texture")
+    texture.CreateInput("filtertype", Sdf.ValueTypeNames.String).Set("closest")
+    output = texture.CreateOutput("out", Sdf.ValueTypeNames.Color3f)
+    color.ConnectToSource(output)
+    sample("image-without-uv", (0, 0, 0), emissive_maps=1)
+
+    st = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
+        "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+    st.Set([(0, 0), (1, 0), (1, 1), (0, 1)])
+
+    def sample_image(name, intensity):
+        event, image = capture(f"emission-{name}")
+        assert event["emissive_map_materials"] == 1 and event["draw_count"] == 1, event
+        assert event["upload_bytes"] == event["pipeline_creation_count"] == 0, event
+        half = ((128 / 255 + 0.055) / 1.055) ** 2.4
+        expected = [(1, 0, 0), (0, half, 0), (0, 0, 1), (half, 0, half)]
+        actual = [
+            image.pixelColor(image.width() * x // 4, image.height() * y // 4).getRgb()[:3]
+            for y in (1, 3) for x in (1, 3)
+        ]
+        for pixel, linear in zip(actual, expected):
+            assert all(abs(a - round(255 * intensity * b)) <= 1
+                       for a, b in zip(pixel, linear)), (name, actual, expected)
+        result[name] = actual
+
+    sample_image("image", 0.5)
+    weight.Set(0.25)
+    sample_image("image-dimmer", 0.25)
+    file.Set(Sdf.AssetPath(path.with_suffix(".missing.png").as_posix()))
+    sample("image-missing-file", (0, 0, 0))
+    color.ClearSources()
+    sample("image-disconnected", (0.25, 0.125, 0.0625))
     return result

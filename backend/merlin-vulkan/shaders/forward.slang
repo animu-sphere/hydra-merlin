@@ -12,6 +12,9 @@ Sampler2D metallic_texture;
 [[vk::binding(3, 0)]]
 Sampler2D roughness_texture;
 
+[[vk::binding(4, 0)]]
+Sampler2D emissive_texture;
+
 [[vk::binding(0, 1)]] Texture2D<float4> specular_environment;
 
 // Bindings below this are reserved for generated material resources. The
@@ -44,6 +47,10 @@ ForwardFragmentOutput forward_fragment(
         scalar_factors.x = metallic_texture.Sample(input.texture_coordinate).r;
     if ((draw_constants.feature_mask & kRoughnessTextureFlag) != 0u)
         scalar_factors.y = roughness_texture.Sample(input.texture_coordinate).r;
+    float3 emissive_sample = DefaultEmissiveSample(material_constants);
+    if ((draw_constants.feature_mask & kEmissiveTextureFlag) != 0u)
+        emissive_sample = emissive_texture.Sample(input.texture_coordinate).rgb;
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
-        material_constants, texture_sample, normal_sample, scalar_factors, specular_environment));
+        material_constants, texture_sample, normal_sample, scalar_factors,
+        emissive_sample, specular_environment));
 }

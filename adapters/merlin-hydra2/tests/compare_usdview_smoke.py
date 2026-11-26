@@ -88,7 +88,9 @@ CHESS_PHASES = ("chess-dome", "chess-geometry", "chess-normal-base",
     for surface in ("dielectric", "narrow", "broad")
 ) + ("specular-dome-only-off", "specular-dome-only-sharp", "specular-dome-only-rough") + tuple(
     f"emission-{phase}"
-    for phase in ("default", "white", "color", "brighter", "invalid", "connected", "restored")
+    for phase in ("default", "white", "color", "brighter", "invalid", "connected", "restored",
+                  "image-without-uv", "image", "image-dimmer", "image-missing-file",
+                  "image-disconnected")
 )
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25

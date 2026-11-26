@@ -58,6 +58,7 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
   mesh.positions = {{-0.7F, -0.7F, 0.5F}, {0.7F, -0.7F, 0.5F},
       {0.7F, 0.7F, 0.5F}, {-0.7F, 0.7F, 0.5F}};
   mesh.normals.assign(4, {0, 0, 1});
+  mesh.texcoords = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
   mesh.indices = {0, 1, 2, 0, 2, 3};
   merlin::MaterialDescriptor material;
   material.features = merlin::MaterialFeature::DirectionalLight;
@@ -88,15 +89,38 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
       [&](merlin::render::OutputTransformSettings settings) {
         return Render(backend, extractor.snapshot(), settings);
       }, albedo);
-  merlin::tests::VerifyForwardEmission(
-      [&](merlin::render::OutputTransformSettings settings) {
-        return Render(backend, extractor.snapshot(), settings, true);
-      },
+  const auto render_unlit = [&](merlin::render::OutputTransformSettings settings) {
+    return Render(backend, extractor.snapshot(), settings, true);
+  };
+  merlin::tests::VerifyForwardEmission(render_unlit,
       [&](merlin::Vec3 emission) {
         material.parameters.emissive_radiance = emission;
         world.UpdateMaterial(instance.material, material, merlin::ChangeAspect::MaterialParameters);
         extractor.Apply(world, world.Commit());
       });
+
+  const auto emissive_texture = world.CreateTexture(merlin::tests::ForwardEmissiveTexture());
+  merlin::SamplerDescriptor sampling;
+  sampling.min_filter = sampling.mag_filter = merlin::FilterMode::Nearest;
+  const auto emissive_sampler = world.CreateSampler(sampling);
+  merlin::tests::VerifyForwardEmissiveTexture(render_unlit, [&](bool textured, float intensity) {
+    const bool changed = material.emissive_texture.has_value() != textured;
+    material.parameters.emissive_radiance = {intensity, intensity, intensity};
+    if (textured) {
+      material.features |= merlin::MaterialFeature::EmissiveTexture;
+      material.emissive_texture = merlin::TextureBinding{emissive_texture, emissive_sampler, 0};
+    } else {
+      material.features = merlin::MaterialFeature::DirectionalLight;
+      material.emissive_texture.reset();
+    }
+    world.UpdateMaterial(instance.material, material, changed
+        ? merlin::ChangeAspect::MaterialParameters | merlin::ChangeAspect::MaterialFeatures
+        : merlin::ChangeAspect::MaterialParameters);
+    extractor.Apply(world, world.Commit());
+  });
+  world.Remove(emissive_sampler);
+  world.Remove(emissive_texture);
+  (void)render();
 
   std::ofstream report(output / "comparison.json");
   report << "{\n  \"schema\": \"merlin-metal-forward-lighting/v1\",\n"

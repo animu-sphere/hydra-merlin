@@ -1,5 +1,6 @@
 #pragma once
 
+#include <merlin/core/types.hpp>
 #include <merlin/render/output_transform.hpp>
 
 #include <algorithm>
@@ -114,6 +115,54 @@ void VerifyForwardEmission(Render render, SetEmission set_emission) {
   set_emission(Vec3{});
   if (render(OutputTransformSettings{}).color.pixels != baseline.color.pixels)
     throw std::runtime_error("clearing Forward emission did not restore the image");
+}
+
+inline TextureDescriptor ForwardEmissiveTexture() {
+  TextureDescriptor texture;
+  texture.format = TextureFormat::Rgba8Srgb;
+  texture.width = 2;
+  texture.height = 1;
+  texture.pixels = {255, 0, 0, 0, 0, 128, 255, 127};
+  return texture;
+}
+
+template <typename Render, typename SetEmissiveTexture>
+void VerifyForwardEmissiveTexture(Render render, SetEmissiveTexture set_texture) {
+  using namespace merlin::render;
+  const OutputTransformSettings settings{0.0F, ToneMapping::None};
+  const auto baseline = render(settings);
+  for (const auto intensity : {0.5F, 0.25F}) {
+    set_texture(true, intensity);
+    const auto frame = render(settings);
+    const auto& counters = ForwardCounters(frame);
+    if (intensity == 0.25F &&
+        (counters.upload_bytes != counters.gpu_scene_upload_bytes ||
+            counters.pipeline_creation_count != 0)) {
+      throw std::runtime_error("emissive intensity edit rebuilt GPU resources");
+    }
+    constexpr double encoded_green = 128.0 / 255.0;
+    const double green = std::pow((encoded_green + 0.055) / 1.055, 2.4);
+    const std::array expected{std::array{1.0, 0.0, 0.0}, std::array{0.0, green, 1.0}};
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+      const auto pixel = (frame.color.product.height / 2) * frame.color.row_pitch_bytes +
+                         frame.color.product.width * (3 + 2 * i) / 8 * 4;
+      for (std::size_t channel = 0; channel < 3; ++channel) {
+        const auto value = std::lround(255 * intensity * expected[i][channel]);
+        if (std::abs(static_cast<long>(frame.color.pixels[pixel + channel]) - value) > 1)
+          throw std::runtime_error("Forward emissive image differs from the UV0/sRGB oracle");
+      }
+      if (frame.color.pixels[pixel + 3] != baseline.color.pixels[pixel + 3])
+        throw std::runtime_error("Forward emissive image changed alpha");
+    }
+    if (frame.depth.pixels != baseline.depth.pixels ||
+        frame.prim_id.pixels != baseline.prim_id.pixels ||
+        frame.instance_id.pixels != baseline.instance_id.pixels) {
+      throw std::runtime_error("Forward emissive image changed depth or identity");
+    }
+  }
+  set_texture(false, 0.0F);
+  if (render(settings).color.pixels != baseline.color.pixels)
+    throw std::runtime_error("disconnecting the emissive image did not restore the image");
 }
 
 } // namespace merlin::tests

@@ -88,7 +88,9 @@ template <typename Constants>
   result.clip_to_view_direction = lighting.clip_to_view_direction;
   result.specular_environment_scale = lighting.specular_environment_scale;
   const auto emission = material.parameters.emissive_radiance;
-  result.emissive_radiance = {emission.x, emission.y, emission.z, 0.0F};
+  result.emissive_radiance = {emission.x, emission.y, emission.z,
+      HasMaterialFeature(material.features, MaterialFeature::EmissiveTexture)
+          ? 1.0F : 0.0F};
   return result;
 }
 

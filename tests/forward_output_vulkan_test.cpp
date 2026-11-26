@@ -37,6 +37,7 @@ int main(int argc, char** argv) try {
   mesh.positions = {{-0.7F, -0.7F, 0.5F}, {0.7F, -0.7F, 0.5F},
       {0.7F, 0.7F, 0.5F}, {-0.7F, 0.7F, 0.5F}};
   mesh.normals.assign(4, {0, 0, 1});
+  mesh.texcoords = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
   mesh.indices = {0, 1, 2, 0, 2, 3};
   merlin::MaterialDescriptor material;
   material.features = merlin::MaterialFeature::DirectionalLight;
@@ -61,7 +62,7 @@ int main(int argc, char** argv) try {
   merlin::render::GpuScenePackingState packing(capacities);
   const std::vector placements{merlin::render::GpuGeometryPlacement{0, 0}};
   const std::vector identities{merlin::render::GpuInstanceIdentity{17, 23}};
-  const std::vector bindings{merlin::render::GpuMaterialBinding{}};
+  std::vector bindings{merlin::render::GpuMaterialBinding{}};
   std::uint64_t completion{};
   const auto render = [&](merlin::render::OutputTransformSettings settings) {
     request.output_transform = settings;
@@ -110,8 +111,36 @@ int main(int argc, char** argv) try {
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
   });
-  request.forward_lighting = {};
   std::cout << mode << ": emissive radiance without lights and output transforms passed\n";
+
+  const auto emissive_texture = world.CreateTexture(merlin::tests::ForwardEmissiveTexture());
+  merlin::SamplerDescriptor sampling;
+  sampling.min_filter = sampling.mag_filter = merlin::FilterMode::Nearest;
+  const auto emissive_sampler = world.CreateSampler(sampling);
+  merlin::tests::VerifyForwardEmissiveTexture(render, [&](bool textured, float intensity) {
+    const bool changed = material.emissive_texture.has_value() != textured;
+    material.parameters.emissive_radiance = {intensity, intensity, intensity};
+    if (textured) {
+      material.features |= merlin::MaterialFeature::EmissiveTexture;
+      material.emissive_texture = merlin::TextureBinding{emissive_texture, emissive_sampler, 0};
+      // This is the first sampled image and sampler in this renderer.
+      bindings.front().emissive_texture_index = merlin::vulkan::kReservedBindlessTextureSlots;
+      bindings.front().emissive_sampler_index = 0;
+    } else {
+      material.features = merlin::MaterialFeature::DirectionalLight;
+      material.emissive_texture.reset();
+      bindings.front() = {};
+    }
+    world.UpdateMaterial(instance.material, material, changed
+        ? merlin::ChangeAspect::MaterialParameters | merlin::ChangeAspect::MaterialFeatures
+        : merlin::ChangeAspect::MaterialParameters);
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+  });
+  world.Remove(emissive_sampler);
+  world.Remove(emissive_texture);
+  request.forward_lighting = {};
+  std::cout << mode << ": emissive UV0 image, linear decode and live intensity passed\n";
 
   // A small HDR emitter centered on +Z. A face-on metal reflects its
   // authored RGB at low roughness, even with the panorama hidden.

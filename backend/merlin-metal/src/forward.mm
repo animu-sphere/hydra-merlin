@@ -239,7 +239,8 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
       constants.feature_mask &=
           ~static_cast<std::uint32_t>(MaterialFeature::NormalTexture |
                                       MaterialFeature::MetallicTexture |
-                                      MaterialFeature::RoughnessTexture);
+                                      MaterialFeature::RoughnessTexture |
+                                      MaterialFeature::EmissiveTexture);
     }
     const auto normal_map = resolve_texture(
         material.normal_texture, MaterialFeature::NormalTexture);
@@ -247,6 +248,8 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
         material.metallic_texture, MaterialFeature::MetallicTexture);
     const auto roughness_map = resolve_texture(
         material.roughness_texture, MaterialFeature::RoughnessTexture);
+    const auto emissive_map = resolve_texture(
+        material.emissive_texture, MaterialFeature::EmissiveTexture);
 
     if (material.module) {
       ++build.telemetry.generated_material_fallback_count;
@@ -271,6 +274,8 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
     material_constants.scalar_texture_resources = {metallic_map.texture_index,
         metallic_map.sampler_index, roughness_map.texture_index,
         roughness_map.sampler_index};
+    material_constants.emissive_texture_resources = {
+        emissive_map.texture_index, emissive_map.sampler_index, 0U, 0U};
     [encoder setRenderPipelineState:use_gpu_scene
                                         ? (float_color ? float_gpu_scene_pipeline_ : gpu_scene_pipeline_)
                                         : (float_color ? float_pipeline_ : pipeline_)];
@@ -324,6 +329,8 @@ void Backend::Impl::EncodeRender(id<MTLCommandBuffer> command, FrameContext& fra
       [encoder setFragmentSamplerState:metallic_map.sampler atIndex:2];
       [encoder setFragmentTexture:roughness_map.texture atIndex:3];
       [encoder setFragmentSamplerState:roughness_map.sampler atIndex:3];
+      [encoder setFragmentTexture:emissive_map.texture atIndex:4];
+      [encoder setFragmentSamplerState:emissive_map.sampler atIndex:4];
     }
     [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                         indexCount:geometry->second.index_count

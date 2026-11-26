@@ -107,9 +107,11 @@ void TestPackedRecordsAndRanges() {
   auto source = snapshot.materials[0];
   source.features |= MaterialFeature::ForwardSpecular |
                      MaterialFeature::MetallicTexture |
-                     MaterialFeature::RoughnessTexture;
+                     MaterialFeature::RoughnessTexture |
+                     MaterialFeature::EmissiveTexture;
   source.metallic_texture = TextureBindingRecord{1, 0, 0};
   source.roughness_texture = TextureBindingRecord{2, 1, 0};
+  source.emissive_texture = TextureBindingRecord{3, 1, 0};
   snapshot.materials.assign({source});
   GpuScenePackingState state(GpuScenePackingCapacities{4, 4, 4, 4});
 
@@ -121,6 +123,8 @@ void TestPackedRecordsAndRanges() {
   binding.metallic_sampler_index = 4;
   binding.roughness_texture_index = 5;
   binding.roughness_sampler_index = 6;
+  binding.emissive_texture_index = 8;
+  binding.emissive_sampler_index = 9;
   const std::vector bindings{binding};
   const auto update = state.Apply(
       snapshot, 0, 0, GpuScenePackingInputs{placements, identities, bindings});
@@ -166,6 +170,9 @@ void TestPackedRecordsAndRanges() {
   assert(Near(material.base_color.x, 0.1F));
   const std::array<std::uint32_t, 4> scalar_slots{3, 4, 5, 6};
   assert(material.scalar_texture_resources == scalar_slots);
+  const std::array<std::uint32_t, 4> emissive_slots{8, 9, 0, 0};
+  assert(material.emissive_texture_resources == emissive_slots);
+  assert(material.emissive_radiance.w == 1.0F);
   assert(Near(material.surface_factors.x, 0.75F));
   assert(Near(material.surface_factors.y, 0.25F));
   assert(Near(material.surface_factors.z, 0.6F));

@@ -41,6 +41,7 @@ MaterialUniforms Renderer::Impl::MakeMaterialUniforms(
   pack_binding(material.normal_texture, uniforms.normal_map_resource.data());
   pack_binding(material.metallic_texture, uniforms.scalar_texture_resources.data());
   pack_binding(material.roughness_texture, uniforms.scalar_texture_resources.data() + 2);
+  pack_binding(material.emissive_texture, uniforms.emissive_texture_resources.data());
   return uniforms;
 }
 
@@ -446,7 +447,8 @@ void Renderer::Impl::ValidateMaterialTextureBindings() const {
     const auto& material = material_records_[i];
     for (const auto& binding :
         {material.base_color_texture, material.normal_texture,
-            material.metallic_texture, material.roughness_texture}) {
+            material.metallic_texture, material.roughness_texture,
+            material.emissive_texture}) {
       if (binding && (binding->texture_index >= texture_records_.size() ||
                          binding->sampler_index >= sampler_records_.size())) {
         throw RendererError(RendererErrorCode::InvalidRequest,
@@ -514,7 +516,7 @@ void Renderer::Impl::PrepareMaterialDescriptors(
       maximum_samplers = std::max(maximum_samplers, artifact_samplers);
     }
     std::vector<VkDescriptorPoolSize> sizes{
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count * 4U},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, material_count * 5U},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, material_count * 2U},
     };
     if (maximum_sampled_images != 0U) {
@@ -623,7 +625,7 @@ void Renderer::Impl::PrepareMaterialDescriptors(
   frame_counters_.descriptor_allocation_count += material_count;
 
   // Writes point into image_infos, so its reservation must never grow.
-  std::size_t maximum_image_infos = material_count * 4U;
+  std::size_t maximum_image_infos = material_count * 5U;
   for (const auto* artifact : selected_material_artifacts_) {
     if (artifact == nullptr) {
       continue;
@@ -763,6 +765,8 @@ void Renderer::Impl::PrepareMaterialDescriptors(
         shader_abi::kConventionalMetallicTexture.binding);
     write_texture(material.roughness_texture,
         shader_abi::kConventionalRoughnessTexture.binding);
+    write_texture(material.emissive_texture,
+        shader_abi::kConventionalEmissiveTexture.binding);
     VkWriteDescriptorSet buffer_write{
         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     buffer_write.dstSet = frame.material_descriptor_sets[i];
