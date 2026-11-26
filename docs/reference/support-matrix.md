@@ -188,11 +188,14 @@ they are not implied to work by the availability of the surrounding adapter.
   for the measured surface and background differences.
 - The opaque MaterialX Standard Surface subset shades direct metalness and
   roughness constants or linear scalar textures with the same shared GGX lobe
-  under the camera light and distant lights. It uses diffuse and specular dome
-  illumination and the default dielectric specular weight, color and IOR. The
-  [Open Chess Set gate](../guides/forward-validation.md#open-chess-set)
-  checks authored inputs and controlled highlight measurements on Windows
-  Vulkan and Apple M3 Metal with OpenUSD 26.08. See the
+  under the camera light, distant lights and specular dome illumination. The
+  [specular constants](../design/forward-lighting.md#metallic-roughness-surfaces)
+  control both direct and dome reflections. The
+  [Open Chess Set gate](../guides/forward-validation.md#open-chess-set) uses
+  controlled highlight probes alongside the scene. The original metalness
+  and roughness probes ran on Windows Vulkan and Apple M3 Metal with
+  OpenUSD 26.08. The specular constant probes produced matching center samples
+  in Vulkan Tier 0 and HgiVulkan. See the
   [Vulkan verification](../reports/delivery-history.md#vulkan-open-chess-set-and-forward-host-verification--2026-11-24)
   and [Metal verification](../releases/v0.16.8.md#verification-evidence).
 - Forward adds Standard Surface emission before the output transform.

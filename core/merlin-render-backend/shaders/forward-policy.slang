@@ -58,6 +58,7 @@ struct MaterialConstants
     float4 specular_environment_scale; // RGB dome radiance scale, w enables specular IBL
     float4 emissive_radiance; // scene-linear RGB, w is 1 for texture modulation
     uint4 emissive_texture_resources; // texture/sampler table indices, zw reserved
+    float4 specular_factors; // RGB tint times weight, w dielectric F0
 };
 
 static const float kSurfaceDebugGeometricNormal = 1.0f;
@@ -428,7 +429,7 @@ float3 EvaluateSurfaceDebugView(SurfaceGeometry surface, float view)
 // Isotropic GGX with correlated Smith visibility and Schlick Fresnel.
 [ForceInline]
 float3 ForwardSpecular(float3 normal, float3 view, float3 light,
-    float3 reflectance, float alpha_squared)
+    float3 f0, float3 f90, float alpha_squared)
 {
     float n_dot_l = saturate(dot(normal, light));
     float n_dot_v = saturate(dot(normal, view));
@@ -445,15 +446,15 @@ float3 ForwardSpecular(float3 normal, float3 view, float3 light,
          n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0f - alpha_squared) + alpha_squared));
     float fresnel = 1.0f - v_dot_h;
     float fresnel_squared = fresnel * fresnel;
-    float3 specular = lerp(reflectance, float3(1.0f),
-        fresnel_squared * fresnel_squared * fresnel);
+    float3 specular = lerp(f0, f90, fresnel_squared * fresnel_squared * fresnel);
     return specular * (distribution * visibility * n_dot_l);
 }
 
 struct ForwardSpecularSurface
 {
     float3 view;
-    float3 reflectance;
+    float3 f0;
+    float3 f90;
     float metallic;
     float roughness;
 };
@@ -524,12 +525,13 @@ float4 ShadeForwardSurface(
                 (material.light_policy.y * material.light_direction_intensity.w) *
                 ForwardSpecular(normal, glossy.view,
                     normalize(material.light_direction_intensity.xyz),
-                    glossy.reflectance, alpha * alpha);
+                    glossy.f0, glossy.f90, alpha * alpha);
             for (uint i = 0; i < uint(material.light_policy.z); ++i)
             {
                 float4 light = material.additional_light_directions[i];
                 specular += material.additional_light_colors[i].rgb * light.w *
-                    ForwardSpecular(normal, glossy.view, light.xyz, glossy.reflectance, alpha * alpha);
+                    ForwardSpecular(normal, glossy.view, light.xyz,
+                        glossy.f0, glossy.f90, alpha * alpha);
             }
             shaded.rgb = base_color.rgb * light_scale * (1.0f - glossy.metallic) + specular;
         }
@@ -595,7 +597,12 @@ float4 ShadeForward(
             input.clip_xyw.z * material.clip_to_view_direction[2].xyz, normal);
         glossy.metallic = saturate(scalar_factors.x);
         glossy.roughness = clamp(scalar_factors.y, kMinSpecularRoughness, 1.0f);
-        glossy.reflectance = lerp(float3(0.04f), saturate(base_color.rgb), glossy.metallic);
+        float3 tint = material.specular_factors.rgb;
+        float dielectric_f0 = material.specular_factors.w;
+        glossy.f0 = lerp(tint * dielectric_f0, saturate(base_color.rgb), glossy.metallic);
+        // With equal IOR on both sides, the dielectric interface has no reflection.
+        float3 dielectric_f90 = dielectric_f0 > 0.0f ? tint : float3(0.0f);
+        glossy.f90 = lerp(dielectric_f90, tint, glossy.metallic);
         float n_dot_v = saturate(dot(normal, glossy.view));
         if (material.specular_environment_scale.w != 0.0f && n_dot_v > 0.0f)
         {
@@ -603,7 +610,7 @@ float4 ShadeForward(
                 float4(reflect(-glossy.view, normal), 0.0f)).xyz;
             environment_specular = EvaluateSpecularEnvironment(specular_environment,
                 SafeNormalize(direction, normal), n_dot_v, glossy.roughness,
-                glossy.reflectance) * material.specular_environment_scale.rgb;
+                glossy.f0, glossy.f90) * material.specular_environment_scale.rgb;
         }
     }
     return ShadeForwardSurface(surface, material, base_color, draw, glossy,

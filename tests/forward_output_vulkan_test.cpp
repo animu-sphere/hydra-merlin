@@ -165,7 +165,7 @@ int main(int argc, char** argv) try {
   material.parameters.metallic = 1.0F;
   material.parameters.roughness = 0.045F;
   world.UpdateMaterial(instance.material, material);
-  const auto render_metal = [&](float roughness) {
+  const auto render_specular = [&](float roughness) {
     if (material.parameters.roughness != roughness) {
       material.parameters.roughness = roughness;
       world.UpdateMaterial(instance.material, material);
@@ -184,24 +184,24 @@ int main(int argc, char** argv) try {
            a.instance_id.pixels == b.instance_id.pixels;
   };
   request.forward_lighting.explicit_lights = true;
-  const auto unlit = render_metal(0.045F);
+  const auto unlit = render_specular(0.045F);
   auto& dome = request.forward_lighting.dome.emplace();
   dome.rgbe_texture = panorama;
   dome.specular_texture = atlas;
   dome.camera_visible = false;
-  const auto sharp = render_metal(0.045F);
-  const auto rough = render_metal(0.75F);
+  const auto sharp = render_specular(0.045F);
+  const auto rough = render_specular(0.75F);
   dome.world_to_environment.values[0] = -1.0F;
   dome.world_to_environment.values[10] = -1.0F;
-  const auto rotated = render_metal(0.045F);
+  const auto rotated = render_specular(0.045F);
   dome.world_to_environment = {};
   dome.camera_visible = true;
-  const auto visible = render_metal(0.045F);
+  const auto visible = render_specular(0.045F);
   dome.camera_visible = false;
   dome.radiance_scale.x = 0.5F;
-  const auto half_red = render_metal(0.045F);
+  const auto half_red = render_specular(0.045F);
   dome.radiance_scale.x = 1.0F;
-  const auto restored = render_metal(0.045F);
+  const auto restored = render_specular(0.045F);
   const auto rgb = center(sharp);
   if (center(unlit)[0] != 0 || std::abs(int(rgb[0]) - 153) > 2 ||
       std::abs(int(rgb[1]) - 36) > 2 || std::abs(int(rgb[2]) - 10) > 2 ||
@@ -220,8 +220,49 @@ int main(int argc, char** argv) try {
               << '/' << restored.counters.pipeline_creation_count << '\n';
     throw std::runtime_error("Forward HDR dome reflection, filtering, or restoration differs");
   }
-  request.forward_lighting = {};
   std::cout << mode << ": HDR dome reflection, roughness and orientation passed\n";
+
+  const auto reflection_dome = dome;
+  request.forward_lighting.dome.reset();
+  const auto directional = world.CreateLight({});
+  material.parameters.base_color = {0.0F, 0.0F, 0.0F, 0.75F};
+  material.parameters.metallic = 0.0F;
+  for (const bool dome_only : {false, true}) {
+    if (dome_only) {
+      world.Remove(directional);
+      request.forward_lighting.dome = reflection_dome;
+    }
+    const auto sample = [&](float weight, float ior, merlin::Vec3 tint) {
+      material.parameters.roughness = dome_only ? 0.045F : 0.4F;
+      material.parameters.specular_weight = weight;
+      material.parameters.specular_ior = ior;
+      material.parameters.specular_color = tint;
+      world.UpdateMaterial(instance.material, material, merlin::ChangeAspect::MaterialParameters);
+      const auto frame = render_specular(material.parameters.roughness);
+      if (!same_geometry(unlit, frame) || center(frame)[3] != center(unlit)[3] ||
+          frame.counters.upload_bytes != frame.counters.gpu_scene_upload_bytes ||
+          frame.counters.pipeline_creation_count != 0) {
+        throw std::runtime_error("specular value edit changed geometry or rebuilt GPU resources");
+      }
+      return center(frame);
+    };
+    const merlin::Vec3 white{1.0F, 1.0F, 1.0F};
+    const auto full = sample(1.0F, 1.5F, white);
+    const auto half = sample(0.5F, 1.5F, white);
+    const auto ior = sample(1.0F, 2.0F, white);
+    const auto tint = sample(1.0F, 1.5F, {1.0F, 0.0F, 0.0F});
+    const auto zero_weight = sample(0.0F, 1.5F, white);
+    const auto matched_ior = sample(1.0F, 1.0F, white);
+    if (full[0] < 8 || std::abs(2 * int(half[0]) - full[0]) > 2 ||
+        std::abs(int(ior[0]) - full[0] * (25.0 / 9.0)) > 4 ||
+        tint[0] != full[0] || tint[1] != 0 || tint[2] != 0 ||
+        zero_weight != center(unlit) || matched_ior != center(unlit) ||
+        sample(1.0F, 1.5F, white) != full) {
+      throw std::runtime_error("dielectric specular controls differ from the Fresnel oracle");
+    }
+  }
+  request.forward_lighting = {};
+  std::cout << mode << ": dielectric specular weight, IOR and tint passed\n";
 
   // Surface geometry views on the same Forward entry. Each fixture case is a
   // fresh source, so a fresh renderer keeps its geometry at arena offset 0.

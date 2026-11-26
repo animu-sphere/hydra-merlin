@@ -11,7 +11,7 @@ namespace merlin::render {
 
 // Common CPU/shader layout for persistent GPU Scene tables. Bump the version
 // whenever any record's meaning, field order, size, or alignment changes.
-inline constexpr std::uint32_t kGpuSceneAbiVersion = 5;
+inline constexpr std::uint32_t kGpuSceneAbiVersion = 6;
 
 inline constexpr std::uint32_t kInvalidGpuSceneTableIndex = ~std::uint32_t{};
 
@@ -70,6 +70,8 @@ struct alignas(16) GpuMaterial {
   Vec4 emissive_radiance;
   std::array<std::uint32_t, 4> emissive_texture_resources{
       kInvalidGpuSceneTableIndex, kInvalidGpuSceneTableIndex, 0U, 0U};
+  // RGB is specular tint times weight. w is the dielectric F0 from IOR.
+  Vec4 specular_factors{1.0F, 1.0F, 1.0F, 0.04F};
 };
 
 // draw_id_low/high preserve the source-local 64-bit DrawRecord identity across
@@ -127,7 +129,7 @@ static_assert(offsetof(GpuInstance, flags) == 124);
 
 static_assert(std::is_standard_layout_v<GpuMaterial>);
 static_assert(std::is_trivially_copyable_v<GpuMaterial>);
-static_assert(sizeof(GpuMaterial) == 128);
+static_assert(sizeof(GpuMaterial) == 144);
 static_assert(alignof(GpuMaterial) == 16);
 static_assert(offsetof(GpuMaterial, base_color) == 0);
 static_assert(offsetof(GpuMaterial, surface_factors) == 16);
@@ -143,6 +145,7 @@ static_assert(offsetof(GpuMaterial, reserved) == 76);
 static_assert(offsetof(GpuMaterial, scalar_texture_resources) == 80);
 static_assert(offsetof(GpuMaterial, emissive_radiance) == 96);
 static_assert(offsetof(GpuMaterial, emissive_texture_resources) == 112);
+static_assert(offsetof(GpuMaterial, specular_factors) == 128);
 
 static_assert(std::is_standard_layout_v<GpuDraw>);
 static_assert(std::is_trivially_copyable_v<GpuDraw>);

@@ -1,4 +1,5 @@
 #include <merlin/render/gpu_scene_packing.hpp>
+#include <merlin/render/forward_lighting.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -239,9 +240,12 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
       !std::isfinite(source.parameters.metallic) ||
       !std::isfinite(source.parameters.roughness) ||
       !std::isfinite(source.parameters.alpha_cutoff) ||
-      !std::isfinite(source.parameters.normal_scale) || !IsFinite(emission)) {
+      !std::isfinite(source.parameters.normal_scale) || !IsFinite(emission) ||
+      !IsFinite(source.parameters.specular_color) ||
+      !std::isfinite(source.parameters.specular_weight) ||
+      !std::isfinite(source.parameters.specular_ior) || source.parameters.specular_ior < 1.0F) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
-        "material parameters are not finite");
+        "material parameters must be finite and specular IOR must be >= 1");
   }
   if (emission.x < 0.0F || emission.y < 0.0F || emission.z < 0.0F) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
@@ -320,6 +324,7 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
           ? 1.0F : 0.0F};
   result.emissive_texture_resources = {binding.emissive_texture_index,
       binding.emissive_sampler_index, 0U, 0U};
+  result.specular_factors = PackForwardSpecularFactors(source.parameters);
   return result;
 }
 

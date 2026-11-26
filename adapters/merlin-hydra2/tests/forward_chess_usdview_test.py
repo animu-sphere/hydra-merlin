@@ -229,8 +229,51 @@ def _check_standard_surface(stage, settings, view, scene_camera, capture):
     assert min(sharp["center_red"], rough["center_red"]) > 0, (sharp, rough)
     assert sharp != rough, (sharp, rough)
     result["specular-dome-only"] = {"unlit": unlit, "sharp": sharp, "rough": rough}
+    result["authored_constants"] = _check_specular_constants(settings, view, shader, capture)
+    settings.enableSceneLights = False
     settings.domeLightEnabled = False
     return result, _check_emission(stage, view, mesh, shader, capture)
+
+
+def _check_specular_constants(settings, view, shader, capture):
+    shader.GetInput("base_color").Set(Gf.Vec3f(0))
+    shader.GetInput("metalness").Set(0)
+    weight = shader.CreateInput("specular", Sdf.ValueTypeNames.Float)
+    ior = shader.CreateInput("specular_IOR", Sdf.ValueTypeNames.Float)
+    tint = shader.CreateInput("specular_color", Sdf.ValueTypeNames.Color3f)
+    result = {}
+    for dome_only in (False, True):
+        source = "dome" if dome_only else "distant"
+        settings.enableSceneLights = not dome_only
+        settings.domeLightEnabled = dome_only
+        shader.GetInput("specular_roughness").Set(0.2 if dome_only else 0.4)
+        # Keep the weaker dome reflection above RGBA8 quantization.
+        view.SetRendererSetting("merlin:exposureEv", 3.0 if dome_only else -1.0)
+
+        def sample(phase, strength, index, color):
+            weight.Set(strength)
+            ior.Set(index)
+            tint.Set(Gf.Vec3f(*color))
+            event, image = capture(f"specular-constants-{source}-{phase}")
+            assert event["draw_count"] == 1 and event["pipeline_creation_count"] == 0, event
+            assert event["upload_bytes"] == 0, event
+            pixel = image.pixelColor(image.width() // 2, image.height() // 2)
+            return pixel.getRgb()[:3]
+
+        white = (1, 1, 1)
+        default = sample("default", 1.0, 1.5, white)
+        high_ior = sample("high-ior", 1.0, 2.0, white)
+        tinted = sample("tinted", 1.0, 1.5, (1, 0, 0))
+        half = sample("half-weight", 0.5, 1.5, white)
+        assert high_ior[0] > default[0] > half[0] > 0, (source, high_ior, default, half)
+        assert tinted == (default[0], 0, 0), (source, default, tinted)
+        assert sample("zero-weight", 0.0, 1.5, white) == (0, 0, 0)
+        assert sample("matched-ior", 1.0, 1.0, white) == (0, 0, 0)
+        assert sample("invalid-ior", 1.0, 0.5, white) == default
+        assert sample("restored", 1.0, 1.5, white) == default
+        result[source] = {"default_rgb": default, "high_ior_rgb": high_ior,
+                          "half_weight_rgb": half, "tinted_rgb": tinted}
+    return result
 
 
 def _check_emission(stage, view, mesh, shader, capture):

@@ -1209,7 +1209,12 @@ bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
          lhs.normal_flip_green == rhs.normal_flip_green &&
          lhs.emissive_radiance.x == rhs.emissive_radiance.x &&
          lhs.emissive_radiance.y == rhs.emissive_radiance.y &&
-         lhs.emissive_radiance.z == rhs.emissive_radiance.z;
+         lhs.emissive_radiance.z == rhs.emissive_radiance.z &&
+         lhs.specular_color.x == rhs.specular_color.x &&
+         lhs.specular_color.y == rhs.specular_color.y &&
+         lhs.specular_color.z == rhs.specular_color.z &&
+         lhs.specular_weight == rhs.specular_weight &&
+         lhs.specular_ior == rhs.specular_ior;
 }
 
 bool TextureBindingsEqual(const std::optional<merlin::TextureBinding>& lhs,
@@ -1583,9 +1588,36 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
   parse_scalar("specular_roughness", parameters.roughness, result.roughness,
       merlin::MaterialFeature::RoughnessTexture);
   ParseMaterialXEmission(network, surface, result);
+  const auto parse_specular_constant = [&](const char* input, float& parameter,
+                                           float minimum, float maximum) {
+    float value = parameter;
+    const auto* authored = FindParameter(surface, input);
+    if (InputConnections(surface, input).empty() &&
+        (authored == nullptr || ReadScalar(*authored, value)) &&
+        value >= minimum && value <= maximum) {
+      parameter = value;
+    } else {
+      result.materialx_unsupported_inputs.emplace_back(
+          std::string(input) + " (expected a constant in range)");
+    }
+  };
+  parse_specular_constant("specular", parameters.specular_weight, 0.0F, 1.0F);
+  parse_specular_constant("specular_IOR", parameters.specular_ior, 1.0F,
+      std::numeric_limits<float>::max());
+  merlin::Vec4 specular_color{1.0F, 1.0F, 1.0F, 1.0F};
+  const auto* authored_color = FindParameter(surface, "specular_color");
+  const auto unit_component = [](float value) { return value >= 0.0F && value <= 1.0F; };
+  if (InputConnections(surface, "specular_color").empty() &&
+      (authored_color == nullptr || ReadColor(*authored_color, specular_color)) &&
+      unit_component(specular_color.x) && unit_component(specular_color.y) &&
+      unit_component(specular_color.z)) {
+    parameters.specular_color = {specular_color.x, specular_color.y, specular_color.z};
+  } else {
+    result.materialx_unsupported_inputs.emplace_back(
+        "specular_color (expected a constant RGB in [0, 1])");
+  }
   for (const auto& [input, default_value] :
-      {std::pair{"specular", 1.0F}, {"specular_IOR", 1.5F},
-          {"specular_anisotropy", 0.0F}, {"specular_rotation", 0.0F},
+      {std::pair{"specular_anisotropy", 0.0F}, {"specular_rotation", 0.0F},
           {"subsurface", 0.0F}, {"transmission", 0.0F}, {"coat", 0.0F},
           {"sheen", 0.0F}, {"thin_film_thickness", 0.0F}}) {
     float value = default_value;
@@ -1595,15 +1627,6 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
     if (!InputConnections(surface, input).empty() || value != default_value) {
       result.materialx_unsupported_inputs.emplace_back(input);
     }
-  }
-  merlin::Vec4 specular_color{1.0F, 1.0F, 1.0F, 1.0F};
-  if (const auto* value = FindParameter(surface, "specular_color")) {
-    (void)ReadColor(*value, specular_color);
-  }
-  if (!InputConnections(surface, "specular_color").empty() ||
-      specular_color.x != 1.0F || specular_color.y != 1.0F ||
-      specular_color.z != 1.0F) {
-    result.materialx_unsupported_inputs.emplace_back("specular_color");
   }
   if (network.terminals.contains(HdMaterialTerminalTokens->displacement)) {
     result.materialx_unsupported_inputs.emplace_back("displacement");
