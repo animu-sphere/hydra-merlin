@@ -109,6 +109,19 @@ Generated shaders that use the diffuse wrapper keep their existing lighting
 contract. The [support matrix](../reference/support-matrix.md#forward-lighting-and-output)
 lists the validated host configurations and remaining limits.
 
+## Emissive radiance
+
+Hydra multiplies the finite nonnegative Standard Surface constants `emission`
+and `emission_color` into scene-linear RGB. Their defaults are zero weight and
+white color. Connected, invalid, or out-of-range inputs give zero emission and
+report `hydra.material.materialx-subset` with the input name. Native materials
+can set `MaterialParameterBlock::emissive_radiance` directly.
+
+Lit Forward adds emissive radiance to the reflected lighting before exposure
+and tone mapping, including when every light is disabled. The emissive term
+affects only the shaded surface's RGB. Editing either constant updates material
+parameters and reuses the existing shader and pipeline.
+
 ## Output transform
 
 Lit Forward surfaces use one renderer-neutral output contract:

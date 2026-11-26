@@ -103,6 +103,16 @@ int main(int argc, char** argv) try {
     return 1;
   std::cout << mode << ": output transforms, alpha/depth/IDs, repeats and rejection passed\n";
 
+  request.forward_lighting.explicit_lights = true;
+  merlin::tests::VerifyForwardEmission(render, [&](merlin::Vec3 emission) {
+    material.parameters.emissive_radiance = emission;
+    world.UpdateMaterial(instance.material, material, merlin::ChangeAspect::MaterialParameters);
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+  });
+  request.forward_lighting = {};
+  std::cout << mode << ": emissive radiance without lights and output transforms passed\n";
+
   // A small HDR emitter centered on +Z. A face-on metal reflects its
   // authored RGB at low roughness, even with the panorama hidden.
   merlin::TextureDescriptor hdr;

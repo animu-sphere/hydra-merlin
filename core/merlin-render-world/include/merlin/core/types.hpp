@@ -226,6 +226,8 @@ struct MaterialParameterBlock {
   // normal_scale, then renormalized. The default convention is +Y up.
   float normal_scale{1.0F};
   bool normal_flip_green{};
+  // Nonnegative scene-linear RGB added to Forward surface lighting.
+  Vec3 emissive_radiance{};
 };
 
 struct TextureBinding {

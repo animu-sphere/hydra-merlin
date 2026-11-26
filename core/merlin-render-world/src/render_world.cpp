@@ -180,9 +180,10 @@ bool IsFiniteMaterialValue(const MaterialValue& value) {
 
 void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
   const auto& p = descriptor.parameters;
-  const std::array<float, 8> values{p.base_color.x, p.base_color.y,
+  const std::array<float, 11> values{p.base_color.x, p.base_color.y,
       p.base_color.z, p.base_color.w, p.metallic,
-      p.roughness, p.alpha_cutoff, p.normal_scale};
+      p.roughness, p.alpha_cutoff, p.normal_scale,
+      p.emissive_radiance.x, p.emissive_radiance.y, p.emissive_radiance.z};
   if (std::any_of(values.begin(), values.end(),
           [](float value) { return !std::isfinite(value); })) {
     throw std::invalid_argument("material parameters must be finite");
@@ -191,6 +192,10 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
       p.roughness > 1.0F || p.alpha_cutoff < 0.0F || p.alpha_cutoff > 1.0F) {
     throw std::invalid_argument(
         "material metallic, roughness, and alpha cutoff must be in [0, 1]");
+  }
+  if (p.emissive_radiance.x < 0.0F || p.emissive_radiance.y < 0.0F ||
+      p.emissive_radiance.z < 0.0F) {
+    throw std::invalid_argument("material emissive radiance must be nonnegative");
   }
   constexpr auto supported = MaterialFeature::VertexColor |
                              MaterialFeature::BaseColorTexture |

@@ -35,7 +35,8 @@ material_fields = [("base_color", 0, 16), ("light_direction_intensity", 16, 16),
                    ("light_policy", 256, 16), ("additional_light_directions", 272, 112),
                    ("additional_light_colors", 384, 112), ("world_to_environment", 496, 64),
                    ("surface_factors", 560, 16), ("scalar_texture_resources", 576, 16),
-                   ("clip_to_view_direction", 592, 48), ("specular_environment_scale", 640, 16)]
+                   ("clip_to_view_direction", 592, 48), ("specular_environment_scale", 640, 16),
+                   ("emissive_radiance", 656, 16)]
 draw_fields = [("model_view_projection", 0, 64), ("normal_matrix_column0", 64, 16),
                ("normal_matrix_column1", 80, 16), ("normal_matrix_column2", 96, 16),
                ("feature_mask", 112, 4), ("prim_id", 116, 4), ("instance_id", 120, 4),
@@ -59,7 +60,7 @@ for stem, entry, stage in [
         assert [f["binding"]["index"] for f in fields] == [0, 1, 2, 3, 4]
         assert [f["type"]["elementCount"] for f in fields] == [3, 3, 4, 2, 4]
     else:
-        constants(parameter(data, source, "material_constants", "constantBuffer", 2), 656, material_fields)
+        constants(parameter(data, source, "material_constants", "constantBuffer", 2), 672, material_fields)
         parameter(data, source, "specular_environment", "shaderResource", 8, "texture")
         outputs = data["entryPoints"][0]["result"]["type"]["fields"]
         assert [f["binding"]["index"] for f in outputs] == [0, 1, 2]
@@ -67,7 +68,7 @@ for stem, entry, stage in [
         assert [f["type"]["scalarType"] for f in outputs[1:]] == ["uint32", "uint32"]
     if scene:
         for name, slot, size in [("gpu_geometries", 4, 64), ("gpu_instances", 5, 128),
-                                 ("gpu_materials", 6, 96), ("gpu_draws", 7, 32)]:
+                                 ("gpu_materials", 6, 112), ("gpu_draws", 7, 32)]:
             typ = parameter(data, source, name, "constantBuffer", slot)
             assert typ["baseShape"] == "structuredBuffer"
             fields = typ["resultType"]["fields"]

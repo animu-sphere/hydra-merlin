@@ -9,6 +9,13 @@
 
 namespace merlin::tests {
 
+const auto& ForwardCounters(const auto& frame) {
+  if constexpr (requires { frame.telemetry; })
+    return frame.telemetry;
+  else
+    return frame.counters;
+}
+
 // Shared native image gate, with an independent double-precision oracle.
 // Caller supplies a lit +Z patch, no authored light, and a warmed backend.
 template <typename Render>
@@ -24,12 +31,7 @@ void VerifyForwardOutputTransforms(Render render, Vec4 albedo) {
            a.instance_id.pixels == b.instance_id.pixels;
   };
   const auto stable = [&](const auto& frame) {
-    const auto& counters = [&]() -> const auto& {
-      if constexpr (requires { frame.telemetry; })
-        return frame.telemetry;
-      else
-        return frame.counters;
-    }();
+    const auto& counters = ForwardCounters(frame);
     require(counters.upload_bytes == 0 && counters.pipeline_creation_count == 0 &&
                 counters.allocation_count == 0,
         "output edit recreated GPU resources");
@@ -74,6 +76,44 @@ void VerifyForwardOutputTransforms(Render render, Vec4 albedo) {
   }
   require(same(baseline, render(OutputTransformSettings{})),
       "restoring output settings did not restore the exact image");
+}
+
+// Render with explicit lighting and no lights, so the expected RGB depends
+// only on emissive radiance and the output transform.
+template <typename Render, typename SetEmission>
+void VerifyForwardEmission(Render render, SetEmission set_emission) {
+  using namespace merlin::render;
+  const auto baseline = render(OutputTransformSettings{});
+  set_emission(Vec3{0.125F, 0.5F, 2.0F});
+  for (const auto mode : {ToneMapping::None, ToneMapping::Reinhard}) {
+    const auto frame = render(OutputTransformSettings{1.0F, mode});
+    const auto& counters = ForwardCounters(frame);
+    if (counters.upload_bytes != counters.gpu_scene_upload_bytes ||
+        counters.pipeline_creation_count != 0)
+      throw std::runtime_error("emission edit uploaded non-table resources or created a pipeline");
+    const auto pixel = (frame.color.product.height / 2) * frame.color.row_pitch_bytes +
+                       (frame.color.product.width / 2) * 4;
+    const std::array<double, 3> exposed{0.25, 1.0, 4.0};
+    for (std::size_t channel = 0; channel < exposed.size(); ++channel) {
+      const auto mapped = mode == ToneMapping::None
+          ? exposed[channel]
+          : exposed[channel] / (1.0 + exposed[channel]);
+      const auto expected = std::lround(255 * std::min(mapped, 1.0));
+      if (baseline.color.pixels[pixel + channel] != 0 ||
+          std::abs(static_cast<long>(frame.color.pixels[pixel + channel]) - expected) > 1) {
+        throw std::runtime_error("Forward emission differs from the scene-linear oracle");
+      }
+    }
+    if (frame.color.pixels[pixel + 3] != baseline.color.pixels[pixel + 3] ||
+        frame.depth.pixels != baseline.depth.pixels ||
+        frame.prim_id.pixels != baseline.prim_id.pixels ||
+        frame.instance_id.pixels != baseline.instance_id.pixels) {
+      throw std::runtime_error("Forward emission changed alpha, depth or identity");
+    }
+  }
+  set_emission(Vec3{});
+  if (render(OutputTransformSettings{}).color.pixels != baseline.color.pixels)
+    throw std::runtime_error("clearing Forward emission did not restore the image");
 }
 
 } // namespace merlin::tests

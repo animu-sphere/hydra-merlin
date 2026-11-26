@@ -1205,7 +1205,10 @@ bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
          lhs.metallic == rhs.metallic && lhs.roughness == rhs.roughness &&
          lhs.alpha_cutoff == rhs.alpha_cutoff &&
          lhs.normal_scale == rhs.normal_scale &&
-         lhs.normal_flip_green == rhs.normal_flip_green;
+         lhs.normal_flip_green == rhs.normal_flip_green &&
+         lhs.emissive_radiance.x == rhs.emissive_radiance.x &&
+         lhs.emissive_radiance.y == rhs.emissive_radiance.y &&
+         lhs.emissive_radiance.z == rhs.emissive_radiance.z;
 }
 
 bool TextureBindingsEqual(const std::optional<merlin::TextureBinding>& lhs,
@@ -1456,6 +1459,43 @@ void ParseMaterialXNormal(const HdMaterialNetwork2& network,
   }
 }
 
+void ParseMaterialXEmission(const HdMaterialNode2& surface, ParsedMaterial& result) {
+  const auto valid_component = [](float value) {
+    return std::isfinite(value) && value >= 0.0F;
+  };
+  float weight = 0.0F;
+  const auto* authored_weight = FindParameter(surface, "emission");
+  const bool valid_weight = InputConnections(surface, "emission").empty() &&
+      (authored_weight == nullptr ||
+          (ReadScalar(*authored_weight, weight) && valid_component(weight)));
+  if (!valid_weight) {
+    result.materialx_unsupported_inputs.emplace_back(
+        "emission (expected a finite nonnegative constant)");
+  }
+
+  merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
+  const auto* authored_color = FindParameter(surface, "emission_color");
+  const bool valid_color = InputConnections(surface, "emission_color").empty() &&
+      (authored_color == nullptr ||
+          (ReadColor(*authored_color, color) && valid_component(color.x) &&
+              valid_component(color.y) && valid_component(color.z)));
+  if (!valid_color) {
+    result.materialx_unsupported_inputs.emplace_back(
+        "emission_color (expected a finite nonnegative constant)");
+  }
+  if (!valid_weight || !valid_color) {
+    return;
+  }
+
+  const merlin::Vec3 radiance{weight * color.x, weight * color.y, weight * color.z};
+  if (!valid_component(radiance.x) || !valid_component(radiance.y) ||
+      !valid_component(radiance.z)) {
+    result.materialx_unsupported_inputs.emplace_back("emission (radiance is out of range)");
+    return;
+  }
+  result.material.parameters.emissive_radiance = radiance;
+}
+
 void ParseMaterialXSurface(const HdMaterialNetwork2& network,
     const HdMaterialNode2& surface, ParsedMaterial& result) {
   result.flip_texture_rows = true;
@@ -1524,11 +1564,12 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
       merlin::MaterialFeature::MetallicTexture);
   parse_scalar("specular_roughness", parameters.roughness, result.roughness,
       merlin::MaterialFeature::RoughnessTexture);
+  ParseMaterialXEmission(surface, result);
   for (const auto& [input, default_value] :
       {std::pair{"specular", 1.0F}, {"specular_IOR", 1.5F},
           {"specular_anisotropy", 0.0F}, {"specular_rotation", 0.0F},
           {"subsurface", 0.0F}, {"transmission", 0.0F}, {"coat", 0.0F},
-          {"sheen", 0.0F}, {"emission", 0.0F}, {"thin_film_thickness", 0.0F}}) {
+          {"sheen", 0.0F}, {"thin_film_thickness", 0.0F}}) {
     float value = default_value;
     if (const auto* parameter = FindParameter(surface, input)) {
       (void)ReadScalar(*parameter, value);

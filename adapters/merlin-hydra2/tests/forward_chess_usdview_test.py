@@ -101,7 +101,8 @@ def testUsdviewInputFunction(appController):
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         material_differences = _check_chess_inputs(
             stage, pixels(material_pixels), capture, pixels)
-        probe = _check_specular(stage, settings, view, scene_camera, capture)
+        specular, emission = _check_standard_surface(
+            stage, settings, view, scene_camera, capture)
 
     evidence = {
         "schema": "merlin-usdview-forward-chess/v2",
@@ -120,7 +121,8 @@ def testUsdviewInputFunction(appController):
         "normal_changed_pixels": changed_normal,
         "dome_changed_pixels": changed_dome,
         "authored_input_changed_pixels": material_differences,
-        "specular_probe": probe,
+        "specular_probe": specular,
+        "emission_probe": emission,
     }
     Path(f"{root}-forward-chess.json").write_text(
         json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
@@ -159,7 +161,7 @@ def _check_chess_inputs(stage, baseline, capture, pixels):
     return differences
 
 
-def _check_specular(stage, settings, view, scene_camera, capture):
+def _check_standard_surface(stage, settings, view, scene_camera, capture):
     stage.GetDefaultPrim().SetActive(False)
     mesh = UsdGeom.Mesh.Define(stage, "/SpecularProbe")
     mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
@@ -227,4 +229,42 @@ def _check_specular(stage, settings, view, scene_camera, capture):
     assert min(sharp["center_red"], rough["center_red"]) > 0, (sharp, rough)
     assert sharp != rough, (sharp, rough)
     result["specular-dome-only"] = {"unlit": unlit, "sharp": sharp, "rough": rough}
+    settings.domeLightEnabled = False
+    return result, _check_emission(stage, view, shader, capture)
+
+
+def _check_emission(stage, view, shader, capture):
+    # All three sources are disabled. In linear output the center should be
+    # exactly the authored weight times color, within AOV quantization.
+    view.SetRendererSetting("merlin:exposureEv", 0.0)
+    view.SetRendererSetting("merlin:toneMapping", "none")
+    weight = shader.CreateInput("emission", Sdf.ValueTypeNames.Float)
+    color = shader.CreateInput("emission_color", Sdf.ValueTypeNames.Color3f)
+    result = {}
+
+    def sample(name, expected):
+        event, image = capture(f"emission-{name}")
+        center = image.pixelColor(image.width() // 2, image.height() // 2).getRgb()[:3]
+        assert all(abs(actual - round(255 * value)) <= 1
+                   for actual, value in zip(center, expected)), (name, center, expected)
+        assert event["draw_count"] == 1 and event["pipeline_creation_count"] == 0, event
+        result[name] = center
+
+    sample("default", (0, 0, 0))
+    weight.Set(0.25)
+    sample("white", (0.25, 0.25, 0.25))
+    color.Set(Gf.Vec3f(1, 0.5, 0.25))
+    sample("color", (0.25, 0.125, 0.0625))
+    weight.Set(0.5)
+    sample("brighter", (0.5, 0.25, 0.125))
+    weight.Set(-0.5)
+    sample("invalid", (0, 0, 0))
+    weight.Set(0.5)
+    connected = UsdShade.Shader.Define(stage, "/SpecularMaterial/EmissionColor")
+    connected.CreateIdAttr("ND_constant_color3")
+    connected.CreateInput("value", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(1))
+    color.ConnectToSource(connected.ConnectableAPI(), "out")
+    sample("connected", (0, 0, 0))
+    color.ClearSources()
+    sample("restored", (0.5, 0.25, 0.125))
     return result

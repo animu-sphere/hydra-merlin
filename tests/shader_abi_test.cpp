@@ -106,6 +106,7 @@ void RequireCommonAbi(std::string_view json) {
   RequireField(json, "scalar_texture_resources", 576, 16);
   RequireField(json, "clip_to_view_direction", 592, 48);
   RequireField(json, "specular_environment_scale", 640, 16);
+  RequireField(json, "emissive_radiance", 656, 16);
   RequireField(json, "light_policy", 256, 16);
   RequireField(json, "additional_light_directions", 272, 112);
   RequireField(json, "additional_light_colors", 384, 112);
@@ -608,7 +609,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 18);
+    static_assert(kVersion == 19);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);

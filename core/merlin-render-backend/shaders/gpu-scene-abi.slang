@@ -42,6 +42,7 @@ struct GpuMaterial
     uint normal_texcoord_set;
     uint reserved;
     uint4 scalar_texture_resources;
+    float4 emissive_radiance;
 };
 
 struct GpuDraw

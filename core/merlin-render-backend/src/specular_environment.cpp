@@ -250,8 +250,8 @@ const auto& EnvironmentBrdf() {
 
 TextureDescriptor BuildSpecularEnvironment(std::uint32_t width,
     std::uint32_t height, std::span<const std::uint8_t> rgbe_pixels) {
-  if (width == 0 || height == 0 || width > 32767 ||
-      height > std::numeric_limits<int>::max() / 2 ||
+  constexpr auto max_height = static_cast<std::uint32_t>(std::numeric_limits<int>::max() / 2);
+  if (width == 0 || height == 0 || width > 32767 || height > max_height ||
       rgbe_pixels.size() % 4 != 0 ||
       static_cast<std::uint64_t>(width) * height != rgbe_pixels.size() / 4) {
     throw RendererError(RendererErrorCode::InvalidRequest,
