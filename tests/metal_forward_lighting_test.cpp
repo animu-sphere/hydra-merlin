@@ -88,6 +88,15 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
       [&](merlin::render::OutputTransformSettings settings) {
         return Render(backend, extractor.snapshot(), settings);
       }, albedo);
+  merlin::tests::VerifyForwardEmission(
+      [&](merlin::render::OutputTransformSettings settings) {
+        return Render(backend, extractor.snapshot(), settings, true);
+      },
+      [&](merlin::Vec3 emission) {
+        material.parameters.emissive_radiance = emission;
+        world.UpdateMaterial(instance.material, material, merlin::ChangeAspect::MaterialParameters);
+        extractor.Apply(world, world.Commit());
+      });
 
   std::ofstream report(output / "comparison.json");
   report << "{\n  \"schema\": \"merlin-metal-forward-lighting/v1\",\n"

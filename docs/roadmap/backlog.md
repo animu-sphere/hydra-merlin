@@ -32,7 +32,7 @@ cost evidence.
 
 **Goal:** Select bounded two-level Gaussian tiling only when measured 4K/8K
 p95/p99 benefit justifies it. Independently broaden Standard Surface,
-UV/opacity/emissive coverage, multi-light, environment and authored
+UV/opacity/emission texture coverage, multi-light, environment and authored
 lighting, shadows, asynchronous compilation, residency, and Forward/Visibility
 material parity.
 

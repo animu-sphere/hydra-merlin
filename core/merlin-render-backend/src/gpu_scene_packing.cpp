@@ -234,13 +234,18 @@ GpuInstance PackInstance(const extraction::InstanceRecord& source,
 
 GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
     const GpuMaterialBinding& binding) {
+  const auto emission = source.parameters.emissive_radiance;
   if (!IsFinite(source.parameters.base_color) ||
       !std::isfinite(source.parameters.metallic) ||
       !std::isfinite(source.parameters.roughness) ||
       !std::isfinite(source.parameters.alpha_cutoff) ||
-      !std::isfinite(source.parameters.normal_scale)) {
+      !std::isfinite(source.parameters.normal_scale) || !IsFinite(emission)) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
         "material parameters are not finite");
+  }
+  if (emission.x < 0.0F || emission.y < 0.0F || emission.z < 0.0F) {
+    Throw(GpuScenePackingErrorCode::InvalidRecord,
+        "material emissive radiance must be nonnegative");
   }
   const auto feature_flags = static_cast<std::uint32_t>(source.features);
   if ((feature_flags & ~kGpuMaterialFeatureMask) != 0U) {
@@ -308,6 +313,7 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   result.scalar_texture_resources = {binding.metallic_texture_index,
       binding.metallic_sampler_index, binding.roughness_texture_index,
       binding.roughness_sampler_index};
+  result.emissive_radiance = {emission.x, emission.y, emission.z, 0.0F};
   return result;
 }
 

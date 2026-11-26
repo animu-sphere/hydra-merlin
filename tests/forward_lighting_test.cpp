@@ -66,6 +66,7 @@ void DrawPolicies() {
     merlin::Vec4 surface_factors;
     std::array<merlin::Vec4, 3> clip_to_view_direction;
     merlin::Vec4 specular_environment_scale;
+    merlin::Vec4 emissive_radiance;
   };
   merlin::extraction::MaterialRecord material;
   material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
@@ -74,6 +75,7 @@ void DrawPolicies() {
   material.parameters.roughness = 0.3F;
   material.parameters.normal_scale = 0.5F;
   material.parameters.normal_flip_green = true;
+  material.parameters.emissive_radiance = {0.5F, 1.0F, 2.0F};
   merlin::render::ForwardLighting lighting;
   lighting.primary.direction_intensity = {0.0F, 1.0F, 0.0F, 0.0F};
   lighting.primary.color = {0.5F, 0.6F, 0.7F};
@@ -96,6 +98,8 @@ void DrawPolicies() {
   assert(upload.normal_map.x == 0.5F && upload.normal_map.y == -1.0F);
   assert(upload.specular_environment_scale.x == 0.5F &&
          upload.specular_environment_scale.w == 1.0F);
+  assert(upload.emissive_radiance.x == 0.5F && upload.emissive_radiance.y == 1.0F &&
+         upload.emissive_radiance.z == 2.0F && upload.emissive_radiance.w == 0.0F);
 }
 
 void ViewDirections() {

@@ -55,6 +55,7 @@ struct MaterialConstants
     uint4 scalar_texture_resources; // metallic texture/sampler, roughness texture/sampler
     float4 clip_to_view_direction[3];
     float4 specular_environment_scale; // RGB dome radiance scale, w enables specular IBL
+    float4 emissive_radiance; // scene-linear RGB, w reserved
 };
 
 static const float kSurfaceDebugGeometricNormal = 1.0f;
@@ -526,6 +527,7 @@ float4 ShadeForwardSurface(
         {
             shaded.rgb *= light_scale;
         }
+        shaded.rgb += material.emissive_radiance.rgb;
         // RGB remains linear. Exposure is 2^EV; Reinhard divides by inverse
         // exposure to avoid overflowing finite HDR inputs at positive EV.
         // Presentation alone applies display encoding. Alpha is unchanged.
