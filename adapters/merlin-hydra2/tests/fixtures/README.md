@@ -52,7 +52,13 @@ UV-debug material in a session layer to visualize the seam.
 
 With `MERLIN_ENABLE_OPENSUBDIV=ON`, the `merlin-hydra2-usdview-subdivision`
 test references this stage and exercises complexity changes, static frames
-and live cage updates. The [CPU design](../../../../docs/design/subdivision-refinement.md)
+and live cage updates. It also isolates `OpenEdgeAndCorner` at Medium and
+captures shading normals, tangents and bitangents. With a checker material
+bound, it joins the first UV seam by editing only the `st` indices and checks
+that the image changes while the pixel coverage counters stay the same.
+For cross-backend capture instructions, see the
+[build guide](../../../../docs/guides/build-and-install.md#cpu-subdivision).
+The [CPU design](../../../../docs/design/subdivision-refinement.md)
 defines the rendering contract and the
 [UsdGeomMesh schema](https://openusd.org/release/api/class_usd_geom_mesh.html)
 defines the authored attributes.

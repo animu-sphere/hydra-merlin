@@ -11,6 +11,36 @@ Legend: ✅ done
 
 ---
 
+## Vulkan subdivision comparison baseline — 2026-11-27
+
+Windows Release testing used `b689403` with the expanded usdview fixture,
+OpenUSD 26.08, Vulkan SDK 1.4.350.0 and an RTX A5000 with driver 597.16.
+Tier 0 CPU readback and HgiVulkan GPU copy produced 15 byte-identical PNG
+pairs. The captures include shading normals, tangents and bitangents on
+`OpenEdgeAndCorner`. Joining the first seam by editing only `st` indices
+rebuilt one refinement plan and changed the checker image with the same
+pixel coverage counters. The installed native Vulkan probe drew 2,472 and
+9,888 Teapot triangles and 6 and 24 strip triangles for `none` and level 1.
+Within each policy, color readbacks matched across 24 unchanged frames
+after a points-only edit.
+
+The scene measurements used Vulkan validation, a 513×385 target, separate
+usdview processes and unpinned clocks and power. Each value comes from one
+local capture per policy. See the
+[November 25 procedure](#cpu-catmullclark-scene-verification--2026-11-25).
+
+| usdview scene | Initial CPU refinement, ms | Medium transition upload, MB | Working set growth, MiB | Points edit CPU refinement, ms | Points edit upload, bytes | Warm median render-pass time, ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Teapot, `none` → level 1 | 0 → 28.34 | 0 → 2.02 | 3.38 → 17.32 | 0 → 17.09 | 1,344 → 9,024 | 1.40 → 1.46 |
+| Kitchen_set, `none` → level 1 | 0 → 9,691 | 0 → 420.74 | 63.42 → 2,406 | 0 → 9.72 | 1,600 → 18,048 | 17.41 → 19.86 |
+
+Both refined scenes reused their plan for the points-only edit. All 24
+warm frames per run showed zero subdivision evaluations and zero uploads.
+Kitchen_set again recorded one fallback among its 1,788 meshes. Captures,
+frame logs and timing summaries are in `build/subdivision-parity-evidence`.
+
+---
+
 ## CPU Catmull–Clark scene verification — 2026-11-25
 
 Windows Release testing used renderer `5bfad2d`, OpenUSD 26.08, Vulkan SDK
