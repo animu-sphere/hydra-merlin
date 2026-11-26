@@ -44,6 +44,7 @@ struct GpuMaterial
     uint4 scalar_texture_resources;
     float4 emissive_radiance;
     uint4 emissive_texture_resources;
+    float4 specular_factors;
 };
 
 struct GpuDraw

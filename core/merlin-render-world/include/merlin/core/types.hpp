@@ -229,6 +229,10 @@ struct MaterialParameterBlock {
   bool normal_flip_green{};
   // Nonnegative scene-linear RGB added to Forward surface lighting.
   Vec3 emissive_radiance{};
+  // Handwritten Forward specular lobe. Tint and weight are in [0, 1].
+  Vec3 specular_color{1.0F, 1.0F, 1.0F};
+  float specular_weight{1.0F};
+  float specular_ior{1.5F};
 };
 
 struct TextureBinding {

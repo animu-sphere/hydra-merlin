@@ -101,6 +101,7 @@ struct alignas(16) MaterialConstants {
   Vec4 specular_environment_scale;
   Vec4 emissive_radiance;
   std::array<std::uint32_t, 4> emissive_texture_resources{};
+  Vec4 specular_factors;
 };
 
 struct alignas(16) GpuSceneDrawConstants {
@@ -116,10 +117,11 @@ static_assert(offsetof(extraction::DrawVertex, texcoord) == 40);
 static_assert(offsetof(extraction::DrawVertex, tangent) == 48);
 static_assert(sizeof(extraction::DrawVertex) == 64);
 static_assert(sizeof(DrawConstants) == 144);
-static_assert(sizeof(MaterialConstants) == 688);
+static_assert(sizeof(MaterialConstants) == 704);
 static_assert(offsetof(MaterialConstants, specular_environment_scale) == 640);
 static_assert(offsetof(MaterialConstants, emissive_radiance) == 656);
 static_assert(offsetof(MaterialConstants, emissive_texture_resources) == 672);
+static_assert(offsetof(MaterialConstants, specular_factors) == 688);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 static_assert(offsetof(MaterialConstants, output_transform) == 192);
 static_assert(offsetof(MaterialConstants, surface_policy) == 208);

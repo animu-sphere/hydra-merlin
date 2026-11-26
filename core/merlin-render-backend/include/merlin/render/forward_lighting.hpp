@@ -61,6 +61,15 @@ struct ForwardFramePolicy {
   Vec4 surface_policy{1.0F, 0.0F, 0.0F, 0.0F};
 };
 
+[[nodiscard]] inline Vec4 PackForwardSpecularFactors(const MaterialParameterBlock& material) {
+  const double ior = material.specular_ior;
+  const double fresnel = (ior - 1.0) / (ior + 1.0);
+  const auto color = material.specular_color;
+  const auto weight = material.specular_weight;
+  return {color.x * weight, color.y * weight, color.z * weight,
+      static_cast<float>(fresnel * fresnel)};
+}
+
 // Backends supply their ABI type and selected environment; policy packing is
 // shared without coupling Core to either native binding layout.
 template <typename Constants>
@@ -91,6 +100,7 @@ template <typename Constants>
   result.emissive_radiance = {emission.x, emission.y, emission.z,
       HasMaterialFeature(material.features, MaterialFeature::EmissiveTexture)
           ? 1.0F : 0.0F};
+  result.specular_factors = PackForwardSpecularFactors(material.parameters);
   return result;
 }
 

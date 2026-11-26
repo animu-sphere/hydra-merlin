@@ -54,5 +54,6 @@ MaterialConstants LoadForwardGpuMaterialConstants(GpuMaterial material, Material
     lighting.scalar_texture_resources = material.scalar_texture_resources;
     lighting.emissive_radiance = material.emissive_radiance;
     lighting.emissive_texture_resources = material.emissive_texture_resources;
+    lighting.specular_factors = material.specular_factors;
     return lighting;
 }

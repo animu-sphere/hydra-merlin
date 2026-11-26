@@ -87,6 +87,11 @@ CHESS_PHASES = ("chess-dome", "chess-geometry", "chess-normal-base",
     for lighting in ("direct", "dome")
     for surface in ("dielectric", "narrow", "broad")
 ) + ("specular-dome-only-off", "specular-dome-only-sharp", "specular-dome-only-rough") + tuple(
+    f"specular-constants-{source}-{phase}"
+    for source in ("distant", "dome")
+    for phase in ("default", "high-ior", "tinted", "half-weight", "zero-weight",
+                  "matched-ior", "invalid-ior", "restored")
+) + tuple(
     f"emission-{phase}"
     for phase in ("default", "white", "color", "brighter", "invalid", "connected", "restored",
                   "image-without-uv", "image", "image-dimmer", "image-missing-file",

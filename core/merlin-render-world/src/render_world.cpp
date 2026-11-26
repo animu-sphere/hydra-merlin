@@ -197,6 +197,14 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
       p.emissive_radiance.z < 0.0F) {
     throw std::invalid_argument("material emissive radiance must be nonnegative");
   }
+  const std::array specular{p.specular_color.x, p.specular_color.y,
+      p.specular_color.z, p.specular_weight};
+  if (!std::all_of(specular.begin(), specular.end(),
+          [](float value) { return value >= 0.0F && value <= 1.0F; }) ||
+      !std::isfinite(p.specular_ior) || p.specular_ior < 1.0F) {
+    throw std::invalid_argument(
+        "material specular color and weight must be in [0, 1] and IOR must be finite and >= 1");
+  }
   constexpr auto supported = MaterialFeature::VertexColor |
                              MaterialFeature::BaseColorTexture |
                              MaterialFeature::DirectionalLight |

@@ -87,10 +87,21 @@ Each supported directional source contributes an isotropic GGX lobe with
 correlated Smith visibility and Schlick Fresnel. The view direction comes
 from the world-space viewing ray through the fragment for perspective and
 orthographic cameras. Roughness is bounded to `[0.045, 1]` in the lobe.
-Reflectance at normal incidence interpolates between 0.04 and base color
-with metalness. Metalness also scales the existing diffuse term by
-`1 - metalness`. The lighting profile uses the existing directional light
-amplitudes and the default dielectric specular weight, color and IOR.
+Metalness blends the dielectric and metallic Schlick reflectance and scales
+the diffuse term by `1 - metalness`.
+
+Standard Surface `specular` and `specular_color` accept scene-linear constants
+in `[0, 1]` and default to 1 and white. `specular_IOR` accepts finite constants
+of at least 1 and defaults to 1.5. Hydra uses the corresponding default and
+reports `hydra.material.materialx-subset` for unsupported connections or invalid
+constants. The dielectric lobe uses `((IOR - 1) / (IOR + 1))²` as its face-on
+reflectance and scales the entire reflection by the weight and tint. An IOR
+of 1 removes the dielectric reflection. The metallic lobe uses base color
+as its face-on reflectance and applies weight times tint to the Schlick grazing
+term as an approximation of MaterialX conductor edge tint. Direct lights and
+dome IBL share both reflectance endpoints. Parameter edits update the material
+data and reuse the existing shader and pipeline.
+[MaterialX Standard Surface node definition](https://github.com/AcademySoftwareFoundation/MaterialX/blob/main/libraries/bxdf/standard_surface.mtlx)
 
 The selected HDR dome supplies specular image-based lighting. Hydra builds a
 512 × 544 linear RGBA8 atlas once per resolved Radiance image. It stores a

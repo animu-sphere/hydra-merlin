@@ -16,13 +16,16 @@ after its public API and release process are established.
 - Hydra Forward supports constant MaterialX Standard Surface `emission` and
   a constant or direct UV0 image for `emission_color`. Emission remains visible
   with all lights off and passes through the scene exposure and tone mapping.
+- Forward uses authored MaterialX Standard Surface `specular`, `specular_color`,
+  and `specular_IOR` constants under directional and HDR dome lighting. Editing
+  these values reuses the existing pipeline.
 
 ### Changed
 
-- Backend contract 13 and shader ABI 20 carry the specular environment and
-  emissive radiance with optional texture modulation. GPU Scene ABI 5 carries
-  the emissive texture and sampler slots. Rebuild SDK consumers and shader
-  artifacts.
+- Backend contract 14 and shader ABI 21 carry the specular environment,
+  specular factors, and emissive radiance with optional texture modulation.
+  GPU Scene ABI 6 carries the specular factors and emissive texture and sampler
+  slots. Rebuild SDK consumers and shader artifacts.
 
 ## [0.17.0] - 2026-11-25
 
