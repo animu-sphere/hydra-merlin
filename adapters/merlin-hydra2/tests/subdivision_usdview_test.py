@@ -3,7 +3,7 @@
 import os
 import runpy
 
-from pxr import Gf, UsdGeom, Vt
+from pxr import Gf, UsdGeom, UsdShade, Vt
 from pxr.UsdAppUtils.complexityArgs import RefinementComplexities
 from pxr.Usdviewq.common import ColorCorrectionModes, RenderModes
 from PySide6.QtGui import QImage
@@ -98,3 +98,41 @@ def testUsdviewInputFunction(controller):
     capture("subdivision-refined-wire", wireframe)
     _, events = capture("subdivision-hull", lambda _: setattr(settings, "renderMode", RenderModes.FLAT_SHADED))
     assert counter(events, "subdivision_eval_count") == 0
+
+    strip = UsdGeom.Mesh(stage.GetPrimAtPath("/Subdivision/OpenEdgeAndCorner"))
+
+    def isolate_strip(_):
+        for child in fixture.GetChildren():
+            if child != strip.GetPrim():
+                UsdGeom.Imageable(child).MakeInvisible()
+        settings.renderMode = RenderModes.SMOOTH_SHADED
+        settings.complexity = RefinementComplexities.MEDIUM
+        view.SetRendererSetting("merlin:debugView", "shading-normal-base")
+
+    normals, _ = capture("subdivision-shading-normal-base", isolate_strip)
+    tangents, _ = capture("subdivision-tangent", lambda _: view.SetRendererSetting(
+        "merlin:debugView", "tangent"))
+    bitangents, _ = capture("subdivision-bitangent", lambda _: view.SetRendererSetting(
+        "merlin:debugView", "bitangent"))
+    assert len({normals, tangents, bitangents}) == 3
+
+    def bind_checker(_):
+        material = UsdShade.Material.Define(stage, "/SubdivisionChecker")
+        material.GetPrim().GetReferences().AddInternalReference("/World/BoundMaterial")
+        UsdShade.MaterialBindingAPI.Apply(strip.GetPrim()).Bind(material)
+        view.SetRendererSetting("merlin:debugView", "none")
+
+    seam, seam_events = capture("subdivision-uv-seam", bind_checker)
+    st = UsdGeom.PrimvarsAPI(strip).GetPrimvar("st")
+
+    def join_uv_edge(_):
+        # Reuse the right face's indices at the two shared geometric vertices.
+        indices = Vt.IntArray(st.GetIndices())
+        indices[2], indices[3] = indices[5], indices[4]
+        st.SetIndices(indices)
+
+    joined, events = capture("subdivision-uv-joined", join_uv_edge)
+    assert joined != seam
+    assert counter(events, "subdivision_plan_count") == 1, events
+    for field in ("covered_pixels", "covered_x_sum", "covered_y_sum"):
+        assert events[-1][field] == seam_events[-1][field], field

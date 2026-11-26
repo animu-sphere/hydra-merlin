@@ -47,6 +47,33 @@ The CPU source is compiled into `Merlin::RenderWorld` from
 network step or separate installation. Run the CPU reference and any
 configured Hydra host fixture with `ctest --test-dir <build> -L subdivision`.
 
+For the macOS usdview capture, use a matching OpenUSD SDK and Python with
+`testusdview` and Qt available. Run from a graphical session.
+
+```bash
+cmake --preset metal-hydra -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH=/path/to/openusd -DPython3_EXECUTABLE=/path/to/python \
+  -DMERLIN_ENABLE_OPENSUBDIV=ON
+cmake --build --preset metal-hydra --parallel
+ctest --preset metal-hydra -L subdivision --output-on-failure --no-tests=error
+```
+
+Check that CTest lists both `merlin-mesh-subdivision` and
+`merlin-hydra2-usdview-subdivision`. To capture the Vulkan reference, use the
+`vulkan-hydra` preset with the same subdivision option and run the same two
+tests. Retain the `usdview-first-frame-*.png` captures, `merlin-regression.log`
+and `merlin-usdview-trace.json` from
+`adapters/merlin-hydra2/usdview-subdivision-install` under each build directory.
+Compare the same phases across backends, including the three
+surface debug views and the checker captures before and after joining the UV
+edge. Record the selected host transfer path from the regression log.
+
+For scene measurements, repeat the Low-to-Medium transition, a points-only
+edit and 24 warm frames for each policy with matching camera and target size.
+Capture process working set immediately before and after the transition.
+Use the same refinement, upload and render-pass counters as the
+[Vulkan baseline](../reports/delivery-history.md#vulkan-subdivision-comparison-baseline--2026-11-27).
+
 ### Windows dependency setup
 
 Install Visual Studio 2022 with C++ desktop tools, CMake, and the validated
