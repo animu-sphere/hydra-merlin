@@ -111,16 +111,22 @@ lists the validated host configurations and remaining limits.
 
 ## Emissive radiance
 
-Hydra multiplies the finite nonnegative Standard Surface constants `emission`
-and `emission_color` into scene-linear RGB. Their defaults are zero weight and
-white color. Connected, invalid, or out-of-range inputs give zero emission and
-report `hydra.material.materialx-subset` with the input name. Native materials
-can set `MaterialParameterBlock::emissive_radiance` directly.
+Hydra multiplies the finite nonnegative Standard Surface `emission` weight
+by `emission_color` in scene-linear RGB. Their defaults are zero weight and
+white color. The color accepts a constant or a direct UV0 `image` of type
+`color3`, with the same color-space, addressing, and filter rules as the
+base-color image. Tagged sRGB is decoded before multiplication. Unsupported
+connections, unreadable images, and invalid constants give zero emission and
+report `hydra.material.materialx-subset` with the input name. Draws without UV0
+report `surface.emissive-map.disabled` and suppress textured emission.
+Native materials can supply `MaterialParameterBlock::emissive_radiance`
+and multiply it by a sampled RGB value with `MaterialFeature::EmissiveTexture`
+and `MaterialDescriptor::emissive_texture`.
 
 Lit Forward adds emissive radiance to the reflected lighting before exposure
 and tone mapping, including when every light is disabled. The emissive term
-affects only the shaded surface's RGB. Editing either constant updates material
-parameters and reuses the existing shader and pipeline.
+affects only the shaded surface's RGB. Editing the weight or a constant color
+updates material parameters and reuses the existing shader and pipeline.
 
 ## Output transform
 

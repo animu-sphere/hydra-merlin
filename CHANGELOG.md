@@ -14,14 +14,15 @@ after its public API and release process are established.
   Vulkan and Metal. Specular roughness controls reflection blur, and hiding the
   dome backdrop retains its illumination.
 - Hydra Forward supports constant MaterialX Standard Surface `emission` and
-  `emission_color`. Emissive radiance remains visible with all lights off and
-  passes through the scene exposure and tone mapping.
+  a constant or direct UV0 image for `emission_color`. Emission remains visible
+  with all lights off and passes through the scene exposure and tone mapping.
 
 ### Changed
 
-- Backend contract 12 and shader ABI 19 carry the specular environment and
-  constant emissive radiance. GPU Scene ABI 4 carries emissive radiance per
-  material. Rebuild SDK consumers and shader artifacts.
+- Backend contract 13 and shader ABI 20 carry the specular environment and
+  emissive radiance with optional texture modulation. GPU Scene ABI 5 carries
+  the emissive texture and sampler slots. Rebuild SDK consumers and shader
+  artifacts.
 
 ## [0.17.0] - 2026-11-25
 

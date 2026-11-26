@@ -8,6 +8,8 @@
 [[vk::binding(13, 0)]] Texture2D<float4> roughness_texture : register(t3);
 [[vk::binding(14, 0)]] SamplerState metallic_sampler : register(s2);
 [[vk::binding(15, 0)]] SamplerState roughness_sampler : register(s3);
+[[vk::binding(17, 0)]] Texture2D<float4> emissive_texture : register(t4);
+[[vk::binding(18, 0)]] SamplerState emissive_sampler : register(s4);
 
 [shader("vertex")]
 ForwardVertexOutput merlin_vertex(ForwardVertexInput input)
@@ -25,7 +27,8 @@ ForwardFragmentOutput merlin_fragment_argument_buffer(
             resources.samplers[draw_constants.sampler_index], input.texture_coordinate);
     return ShadeMetalForward(input, front_facing, draw_constants, material_constants, texture_sample,
         SampleMetalNormalTexture(input, draw_constants, material_constants),
-        SampleMetalScalarTextures(input, draw_constants, material_constants));
+        SampleMetalScalarTextures(input, draw_constants, material_constants),
+        SampleMetalEmissiveTexture(input, draw_constants, material_constants));
 }
 
 [shader("fragment")]
@@ -43,6 +46,9 @@ ForwardFragmentOutput merlin_fragment_conventional(
         scalar_factors.x = metallic_texture.Sample(metallic_sampler, input.texture_coordinate).r;
     if ((draw_constants.feature_mask & kRoughnessTextureFlag) != 0u)
         scalar_factors.y = roughness_texture.Sample(roughness_sampler, input.texture_coordinate).r;
+    float3 emissive_sample = DefaultEmissiveSample(material_constants);
+    if ((draw_constants.feature_mask & kEmissiveTextureFlag) != 0u)
+        emissive_sample = emissive_texture.Sample(emissive_sampler, input.texture_coordinate).rgb;
     return ShadeMetalForward(input, front_facing, draw_constants, material_constants, texture_sample,
-        normal_sample, scalar_factors);
+        normal_sample, scalar_factors, emissive_sample);
 }

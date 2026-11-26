@@ -203,7 +203,8 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
                              MaterialFeature::NormalTexture |
                              MaterialFeature::ForwardSpecular |
                              MaterialFeature::MetallicTexture |
-                             MaterialFeature::RoughnessTexture;
+                             MaterialFeature::RoughnessTexture |
+                             MaterialFeature::EmissiveTexture;
   const auto unsupported = static_cast<std::uint32_t>(descriptor.features) &
                            ~static_cast<std::uint32_t>(supported);
   if (unsupported != 0U) {
@@ -228,9 +229,13 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
     throw std::invalid_argument(
         "metallic and roughness texture features require texture bindings");
   }
+  if (HasMaterialFeature(descriptor.features, MaterialFeature::EmissiveTexture) &&
+      !descriptor.emissive_texture) {
+    throw std::invalid_argument("emissive texture feature requires a texture binding");
+  }
   for (const auto& binding : {descriptor.base_color_texture,
            descriptor.normal_texture, descriptor.metallic_texture,
-           descriptor.roughness_texture}) {
+           descriptor.roughness_texture, descriptor.emissive_texture}) {
     if (binding && binding->texcoord_set != 0U) {
       throw std::invalid_argument(
           "only texture coordinate set 0 is currently supported");
@@ -561,7 +566,8 @@ public:
       const MaterialDescriptor& descriptor) const {
     for (const auto& binding :
         {descriptor.base_color_texture, descriptor.normal_texture,
-            descriptor.metallic_texture, descriptor.roughness_texture}) {
+            descriptor.metallic_texture, descriptor.roughness_texture,
+            descriptor.emissive_texture}) {
       if (binding) {
         (void)textures.Get(binding->texture);
         (void)samplers.Get(binding->sampler);

@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 19;
+inline constexpr std::uint32_t kVersion = 20;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -56,6 +56,7 @@ struct alignas(16) MaterialConstants {
   std::array<Vec4, 3> clip_to_view_direction;
   Vec4 specular_environment_scale;
   Vec4 emissive_radiance;
+  std::array<std::uint32_t, 4> emissive_texture_resources{};
 };
 
 // Table-backed Forward keeps indexed submission on the CPU while selecting a
@@ -481,9 +482,10 @@ static_assert(offsetof(DrawConstants, feature_mask) == 112);
 static_assert(offsetof(DrawConstants, prim_id) == 116);
 static_assert(offsetof(DrawConstants, instance_id) == 120);
 static_assert(offsetof(DrawConstants, texture_index) == 124);
-static_assert(sizeof(MaterialConstants) == 672);
+static_assert(sizeof(MaterialConstants) == 688);
 static_assert(offsetof(MaterialConstants, specular_environment_scale) == 640);
 static_assert(offsetof(MaterialConstants, emissive_radiance) == 656);
+static_assert(offsetof(MaterialConstants, emissive_texture_resources) == 672);
 static_assert(alignof(MaterialConstants) == 16);
 static_assert(offsetof(MaterialConstants, base_color) == 0);
 static_assert(offsetof(MaterialConstants, light_direction_intensity) == 16);
@@ -610,6 +612,8 @@ inline constexpr ResourceBinding kConventionalMetallicTexture{
     0, 2, ResourceClass::CombinedImageSampler};
 inline constexpr ResourceBinding kConventionalRoughnessTexture{
     0, 3, ResourceClass::CombinedImageSampler};
+inline constexpr ResourceBinding kConventionalEmissiveTexture{
+    0, 4, ResourceClass::CombinedImageSampler};
 inline constexpr ResourceBinding kConventionalMaterialConstants{
     0, 31, ResourceClass::UniformBuffer};
 inline constexpr ResourceBinding kConventionalSpecularEnvironment{

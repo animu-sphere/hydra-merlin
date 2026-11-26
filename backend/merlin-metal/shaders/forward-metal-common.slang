@@ -25,11 +25,13 @@ ForwardVertexOutput EvaluateMetalVertex(ForwardVertexInput input, DrawConstants 
 [ForceInline]
 ForwardFragmentOutput ShadeMetalForward(
     ForwardVertexOutput input, bool front_facing, DrawConstants draw,
-    MaterialConstants material, float4 texture_sample, float4 normal_sample, float2 scalar_factors)
+    MaterialConstants material, float4 texture_sample, float4 normal_sample,
+    float2 scalar_factors, float3 emissive_sample)
 {
     input.color *= material.base_color;
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
-        material, texture_sample, normal_sample, scalar_factors, draw, specular_environment), draw);
+        material, texture_sample, normal_sample, scalar_factors, emissive_sample,
+        draw, specular_environment), draw);
 }
 
 // Argument-table normal texture read; the material block carries its slots.
@@ -57,4 +59,14 @@ float2 SampleMetalScalarTextures(
         factors.y = resources.textures[slots.z].Sample(
             resources.samplers[slots.w], input.texture_coordinate).r;
     return factors;
+}
+
+[ForceInline]
+float3 SampleMetalEmissiveTexture(
+    ForwardVertexOutput input, DrawConstants draw, MaterialConstants material)
+{
+    if ((draw.feature_mask & kEmissiveTextureFlag) != 0u)
+        return resources.textures[material.emissive_texture_resources.x].Sample(
+            resources.samplers[material.emissive_texture_resources.y], input.texture_coordinate).rgb;
+    return DefaultEmissiveSample(material);
 }

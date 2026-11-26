@@ -10,6 +10,7 @@ static const uint kNormalTextureFlag = 8u;
 static const uint kForwardSpecularFlag = 16u;
 static const uint kMetallicTextureFlag = 32u;
 static const uint kRoughnessTextureFlag = 64u;
+static const uint kEmissiveTextureFlag = 128u;
 static const uint kMaskedAlphaFlag = 0x10000000u;
 static const uint kGeometryColorFlag = 0x20000000u;
 static const uint kSamplerIndexShift = 8u;
@@ -55,7 +56,8 @@ struct MaterialConstants
     uint4 scalar_texture_resources; // metallic texture/sampler, roughness texture/sampler
     float4 clip_to_view_direction[3];
     float4 specular_environment_scale; // RGB dome radiance scale, w enables specular IBL
-    float4 emissive_radiance; // scene-linear RGB, w reserved
+    float4 emissive_radiance; // scene-linear RGB, w is 1 for texture modulation
+    uint4 emissive_texture_resources; // texture/sampler table indices, zw reserved
 };
 
 static const float kSurfaceDebugGeometricNormal = 1.0f;
@@ -456,12 +458,20 @@ struct ForwardSpecularSurface
     float roughness;
 };
 
+// A texture-driven material emits zero on draws without usable UV0.
+[ForceInline]
+float3 DefaultEmissiveSample(MaterialConstants material)
+{
+    return float3(1.0f - material.emissive_radiance.w);
+}
+
 [ForceInline]
 float4 ShadeForwardSurface(
     SurfaceGeometry surface,
     MaterialConstants material,
     float4 base_color,
-    DrawConstants draw, ForwardSpecularSurface glossy, float3 environment_specular)
+    DrawConstants draw, ForwardSpecularSurface glossy, float3 environment_specular,
+    float3 emissive_sample)
 {
     float4 shaded = base_color;
     if (material.surface_policy.y != 0.0f)
@@ -527,7 +537,7 @@ float4 ShadeForwardSurface(
         {
             shaded.rgb *= light_scale;
         }
-        shaded.rgb += material.emissive_radiance.rgb;
+        shaded.rgb += material.emissive_radiance.rgb * emissive_sample;
         // RGB remains linear. Exposure is 2^EV; Reinhard divides by inverse
         // exposure to avoid overflowing finite HDR inputs at positive EV.
         // Presentation alone applies display encoding. Alpha is unchanged.
@@ -556,6 +566,7 @@ float4 ShadeForward(
     float4 texture_sample,
     float4 normal_sample,
     float2 scalar_factors,
+    float3 emissive_sample,
     DrawConstants draw,
     Texture2D<float4> specular_environment)
 {
@@ -595,7 +606,8 @@ float4 ShadeForward(
                 glossy.reflectance) * material.specular_environment_scale.rgb;
         }
     }
-    return ShadeForwardSurface(surface, material, base_color, draw, glossy, environment_specular);
+    return ShadeForwardSurface(surface, material, base_color, draw, glossy,
+        environment_specular, emissive_sample);
 }
 
 // Generated wrappers retain the diffuse lighting profile until their material
@@ -606,7 +618,7 @@ float4 ShadeForwardSurface(SurfaceGeometry surface, MaterialConstants material,
 {
     draw.feature_mask &= ~kForwardSpecularFlag;
     return ShadeForwardSurface(surface, material, base_color, draw,
-        (ForwardSpecularSurface)0, float3(0.0f));
+        (ForwardSpecularSurface)0, float3(0.0f), DefaultEmissiveSample(material));
 }
 
 #ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS
@@ -625,10 +637,11 @@ float4 ShadeForward(
     bool front_facing,
     MaterialConstants material,
     float4 texture_sample,
-    float4 normal_sample, float2 scalar_factors, Texture2D<float4> specular_environment)
+    float4 normal_sample, float2 scalar_factors, float3 emissive_sample,
+    Texture2D<float4> specular_environment)
 {
     return ShadeForward(input, front_facing, material, texture_sample,
-        normal_sample, scalar_factors, draw_constants, specular_environment);
+        normal_sample, scalar_factors, emissive_sample, draw_constants, specular_environment);
 }
 #endif
 

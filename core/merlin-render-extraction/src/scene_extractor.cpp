@@ -514,9 +514,8 @@ public:
             material.normal_texture->texcoord_set};
       }
     }
-    const auto resolve_scalar_texture = [&](const auto& binding,
-                                            MaterialFeature feature,
-                                            const char* input)
+    const auto resolve_texture = [&](const auto& binding, MaterialFeature feature,
+                                     const char* input, const char* fallback)
         -> std::optional<TextureBindingRecord> {
       if (!binding || !HasMaterialFeature(record.features, feature)) {
         return std::nullopt;
@@ -533,16 +532,22 @@ public:
                             : MaterialFallbackCode::MissingSampler,
             std::string(input) +
                 (missing_texture ? " texture" : " sampler") +
-                " is unavailable; using the constant"});
+                " is unavailable; " + fallback});
         return std::nullopt;
       }
       return TextureBindingRecord{static_cast<std::uint32_t>(texture->second),
           static_cast<std::uint32_t>(sampler->second), binding->texcoord_set};
     };
-    record.metallic_texture = resolve_scalar_texture(material.metallic_texture,
-        MaterialFeature::MetallicTexture, "metallic");
-    record.roughness_texture = resolve_scalar_texture(material.roughness_texture,
-        MaterialFeature::RoughnessTexture, "roughness");
+    record.metallic_texture = resolve_texture(material.metallic_texture,
+        MaterialFeature::MetallicTexture, "metallic", "using the constant");
+    record.roughness_texture = resolve_texture(material.roughness_texture,
+        MaterialFeature::RoughnessTexture, "roughness", "using the constant");
+    record.emissive_texture = resolve_texture(material.emissive_texture,
+        MaterialFeature::EmissiveTexture, "emissive", "disabling emission");
+    if (HasMaterialFeature(material.features, MaterialFeature::EmissiveTexture) &&
+        !record.emissive_texture) {
+      record.parameters.emissive_radiance = {};
+    }
     return record;
   }
 
@@ -856,7 +861,8 @@ public:
       const MaterialDescriptor& descriptor) {
     for (const auto& binding :
         {descriptor.base_color_texture, descriptor.normal_texture,
-            descriptor.metallic_texture, descriptor.roughness_texture}) {
+            descriptor.metallic_texture, descriptor.roughness_texture,
+            descriptor.emissive_texture}) {
       if (binding) {
         AddDependency(texture_materials, binding->texture.value(), handle);
         AddDependency(sampler_materials, binding->sampler.value(), handle);
@@ -878,7 +884,8 @@ public:
       const MaterialDescriptor& descriptor) {
     for (const auto& binding :
         {descriptor.base_color_texture, descriptor.normal_texture,
-            descriptor.metallic_texture, descriptor.roughness_texture}) {
+            descriptor.metallic_texture, descriptor.roughness_texture,
+            descriptor.emissive_texture}) {
       if (binding) {
         RemoveDependency(texture_materials, binding->texture.value(), handle);
         RemoveDependency(sampler_materials, binding->sampler.value(), handle);
