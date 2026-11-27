@@ -285,6 +285,19 @@ if(MERLIN_BUILD_TESTS)
     LABELS "hydra;lighting;core"
     ENVIRONMENT_MODIFICATION
       "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib")
+
+  add_executable(merlin-hydra2-materialx-uv-test tests/materialx_uv_test.cpp)
+  merlin_target_defaults(merlin-hydra2-materialx-uv-test)
+  target_link_libraries(merlin-hydra2-materialx-uv-test PRIVATE merlin-hydra2-runtime)
+  target_compile_definitions(merlin-hydra2-materialx-uv-test PRIVATE
+    NOMINMAX _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING)
+  add_test(NAME merlin-hydra2-materialx-uv
+    COMMAND merlin-hydra2-materialx-uv-test "${CMAKE_CURRENT_SOURCE_DIR}/tests/checker.ppm")
+  set_tests_properties(merlin-hydra2-materialx-uv PROPERTIES
+    LABELS "hydra;materialx;core"
+    ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${_merlin_pxr_root}/bin;PATH=path_list_prepend:${_merlin_pxr_root}/lib")
+
   merlin_target_defaults(merlin-hydra2-render-settings-test)
   target_link_libraries(merlin-hydra2-render-settings-test
     PRIVATE merlin-hydra2-runtime)

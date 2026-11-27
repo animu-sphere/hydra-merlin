@@ -146,8 +146,9 @@ compares smooth and rough metal with only the default dome illuminating the
 surface and its panorama hidden. With one light source active at a time, it
 checks specular weight, tint and IOR edits under the distant light and dome,
 including default fallback for invalid IOR and pipeline reuse. With every light
-disabled, it checks constant emission, UV0 orientation, sRGB decoding, live
-intensity edits, and recovery after unsupported connections or missing assets.
+disabled, it checks constant emission, UV0 orientation with implicit
+coordinates and an explicit `st` connection, sRGB decoding, live intensity
+edits, and recovery after unsupported connections or missing assets.
 Images, input counts and probe measurements are written to
 `adapters/merlin-hydra2/forward-chess-*-install` under the build directory. When a native Hgi bridge is available, the test compares its
 images with Tier 0. For a manual launch on Metal, set

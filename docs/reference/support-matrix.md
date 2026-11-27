@@ -202,6 +202,10 @@ they are not implied to work by the availability of the surrounding adapter.
   A direct UV0 color image can modulate the constant weight. Unsupported
   inputs and draws without the required UV0 use zero emission and report a
   fallback. See the [emission contract](../design/forward-lighting.md#emissive-radiance).
+- Direct MaterialX images can name the Mesh `st` primvar through a vector2
+  `geompropvalue` connection. A CPU-only Hydra regression covers UV0 binding,
+  rejection of other primvar names and recovery after an input edit. See
+  [MaterialX image coordinates](../design/forward-lighting.md#materialx-image-coordinates).
 - Custom Vulkan HDR environments have no Metal parity claim.
 - Cross-backend evidence compares center samples; full-image Vulkan/Metal
   rasterization parity is not yet validated.

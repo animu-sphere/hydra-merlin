@@ -1357,6 +1357,40 @@ const HdMaterialNode2* ConnectedNode(const HdMaterialNetwork2& network,
   return found == network.nodes.end() ? nullptr : &found->second;
 }
 
+std::string MaterialXImageUvDiagnostic(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& image) {
+  if (InputConnections(image, "texcoord").empty()) {
+    return FindParameter(image, "texcoord") == nullptr
+        ? ""
+        : "constant MaterialX image texture coordinates are unsupported";
+  }
+
+  const auto* uv = ConnectedNode(network, image, "texcoord");
+  if (uv != nullptr && uv->nodeTypeId == TfToken("ND_texcoord_vector2")) {
+    const auto* index = FindParameter(*uv, "index");
+    if (InputConnections(*uv, "index").empty() &&
+        (index == nullptr ||
+            (index->IsHolding<int>() && index->UncheckedGet<int>() == 0))) {
+      return {};
+    }
+  } else if (uv != nullptr &&
+      uv->nodeTypeId == TfToken("ND_geompropvalue_vector2")) {
+    // Hydra Mesh maps primvars:st to the surface's UV0 stream.
+    if (!InputConnections(*uv, "geomprop").empty() ||
+        ReadTokenParameter(*uv, "geomprop") != "st") {
+      return "MaterialX image geompropvalue requires the st primvar";
+    }
+    const auto* fallback = FindParameter(*uv, "default");
+    if (!InputConnections(*uv, "default").empty() ||
+        (fallback != nullptr && (!fallback->IsHolding<GfVec2f>() ||
+            fallback->UncheckedGet<GfVec2f>() != GfVec2f(0.0F)))) {
+      return "custom MaterialX geompropvalue defaults are unsupported";
+    }
+    return {};
+  }
+  return "MaterialX image requires texture coordinate set 0";
+}
+
 std::optional<merlin::TextureDescriptor> ReadMaterialXImage(
     const HdMaterialNetwork2& network, const HdMaterialNode2* image,
     const char* node_type, merlin::SamplerDescriptor& sampler,
@@ -1368,18 +1402,9 @@ std::optional<merlin::TextureDescriptor> ReadMaterialXImage(
     diagnostic = "expected a direct MaterialX " + expected.GetString() + " connection";
     return std::nullopt;
   }
-  if (!InputConnections(*image, "texcoord").empty()) {
-    const auto* uv = ConnectedNode(network, *image, "texcoord");
-    const auto* index = uv ? FindParameter(*uv, "index") : nullptr;
-    if (uv == nullptr || uv->nodeTypeId != TfToken("ND_texcoord_vector2") ||
-        !InputConnections(*uv, "index").empty() ||
-        (index != nullptr && (!index->IsHolding<int>() ||
-            index->UncheckedGet<int>() != 0))) {
-      diagnostic = "MaterialX image requires texture coordinate set 0";
-      return std::nullopt;
-    }
-  } else if (FindParameter(*image, "texcoord") != nullptr) {
-    diagnostic = "constant MaterialX image texture coordinates are unsupported";
+  if (auto uv_diagnostic = MaterialXImageUvDiagnostic(network, *image);
+      !uv_diagnostic.empty()) {
+    diagnostic = std::move(uv_diagnostic);
     return std::nullopt;
   }
   const auto space = ReadTokenParameter(*image, "colorSpace:file");
