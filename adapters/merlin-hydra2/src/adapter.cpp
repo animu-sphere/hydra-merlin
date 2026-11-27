@@ -1359,6 +1359,35 @@ const HdMaterialNode2* ConnectedNode(const HdMaterialNetwork2& network,
   return found == network.nodes.end() ? nullptr : &found->second;
 }
 
+template <typename T>
+bool ReadMaterialXConstant(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& surface, const char* input, const char* node_type,
+    T& result, bool (*read_value)(const VtValue&, T&)) {
+  const auto& connections = InputConnections(surface, input);
+  if (connections.empty()) {
+    const auto* value = FindParameter(surface, input);
+    return value == nullptr || read_value(*value, result);
+  }
+
+  const auto* node = ConnectedNode(network, surface, input);
+  const auto& output = connections.front().upstreamOutputName;
+  if (node == nullptr || node->nodeTypeId != TfToken(node_type) ||
+      (!output.IsEmpty() && output != TfToken("out")) ||
+      !InputConnections(*node, "value").empty()) {
+    return false;
+  }
+  const auto space = ReadTokenParameter(*node, "colorSpace:value");
+  if (!space.empty() && space != "lin_rec709" && space != "raw") {
+    return false;
+  }
+  if (const auto* value = FindParameter(*node, "value")) {
+    return read_value(*value, result);
+  }
+  // Both the float and color3 constant nodedefs default to zero.
+  result = {};
+  return true;
+}
+
 std::string MaterialXImageUvDiagnostic(const HdMaterialNetwork2& network,
     const HdMaterialNode2& image) {
   if (InputConnections(image, "texcoord").empty()) {
@@ -1499,10 +1528,8 @@ void ParseMaterialXEmission(const HdMaterialNetwork2& network,
     return std::isfinite(value) && value >= 0.0F;
   };
   float weight = 0.0F;
-  const auto* authored_weight = FindParameter(surface, "emission");
-  const bool valid_weight = InputConnections(surface, "emission").empty() &&
-      (authored_weight == nullptr ||
-          (ReadScalar(*authored_weight, weight) && valid_component(weight)));
+  const bool valid_weight = ReadMaterialXConstant(network, surface, "emission",
+      "ND_constant_float", weight, ReadScalar) && valid_component(weight);
   if (!valid_weight) {
     result.materialx_unsupported_inputs.emplace_back(
         "emission (expected a finite nonnegative constant)");
@@ -1511,22 +1538,24 @@ void ParseMaterialXEmission(const HdMaterialNetwork2& network,
   merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
   ParsedMaterial::ImageInput image;
   bool valid_color = true;
-  if (!InputConnections(surface, "emission_color").empty()) {
+  const auto* color_node = ConnectedNode(network, surface, "emission_color");
+  if (color_node != nullptr && color_node->nodeTypeId == TfToken("ND_image_color3")) {
     std::string diagnostic;
-    image.texture = ReadMaterialXImage(network,
-        ConnectedNode(network, surface, "emission_color"), "ND_image_color3",
+    image.texture = ReadMaterialXImage(network, color_node, "ND_image_color3",
         image.sampler, diagnostic);
     valid_color = image.texture.has_value();
     if (!valid_color) {
       result.materialx_unsupported_inputs.emplace_back(
           "emission_color (" + diagnostic + ")");
     }
-  } else if (const auto* authored_color = FindParameter(surface, "emission_color")) {
-    valid_color = ReadColor(*authored_color, color) && valid_component(color.x) &&
-                  valid_component(color.y) && valid_component(color.z);
+  } else {
+    valid_color = ReadMaterialXConstant(network, surface, "emission_color",
+        "ND_constant_color3", color, ReadColor) && valid_component(color.x) &&
+        valid_component(color.y) && valid_component(color.z);
     if (!valid_color) {
       result.materialx_unsupported_inputs.emplace_back(
-          "emission_color (expected a finite nonnegative constant)");
+          "emission_color (expected a finite nonnegative scene-linear RGB constant "
+          "or direct MaterialX ND_image_color3 connection)");
     }
   }
   if (!valid_weight || !valid_color) {
@@ -1628,9 +1657,8 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
   const auto parse_specular_constant = [&](const char* input, float& parameter,
                                            float minimum, float maximum) {
     float value = parameter;
-    const auto* authored = FindParameter(surface, input);
-    if (InputConnections(surface, input).empty() &&
-        (authored == nullptr || ReadScalar(*authored, value)) &&
+    if (ReadMaterialXConstant(network, surface, input, "ND_constant_float",
+            value, ReadScalar) &&
         value >= minimum && value <= maximum) {
       parameter = value;
     } else {
@@ -1642,10 +1670,9 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
   parse_specular_constant("specular_IOR", parameters.specular_ior, 1.0F,
       std::numeric_limits<float>::max());
   merlin::Vec4 specular_color{1.0F, 1.0F, 1.0F, 1.0F};
-  const auto* authored_color = FindParameter(surface, "specular_color");
   const auto unit_component = [](float value) { return value >= 0.0F && value <= 1.0F; };
-  if (InputConnections(surface, "specular_color").empty() &&
-      (authored_color == nullptr || ReadColor(*authored_color, specular_color)) &&
+  if (ReadMaterialXConstant(network, surface, "specular_color",
+          "ND_constant_color3", specular_color, ReadColor) &&
       unit_component(specular_color.x) && unit_component(specular_color.y) &&
       unit_component(specular_color.z)) {
     parameters.specular_color = {specular_color.x, specular_color.y, specular_color.z};

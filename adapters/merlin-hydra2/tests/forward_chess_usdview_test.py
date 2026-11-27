@@ -238,12 +238,28 @@ def _check_standard_surface(stage, settings, view, scene_camera, capture):
     return result, emission, opacity
 
 
+def _define_constant(stage, path, node_type, value_type):
+    shader = UsdShade.Shader.Define(stage, path)
+    shader.CreateIdAttr(node_type)
+    return shader.CreateInput("value", value_type), shader.CreateOutput("out", value_type)
+
+
 def _check_specular_constants(settings, view, shader, capture):
     shader.GetInput("base_color").Set(Gf.Vec3f(0))
     shader.GetInput("metalness").Set(0)
     weight = shader.CreateInput("specular", Sdf.ValueTypeNames.Float)
     ior = shader.CreateInput("specular_IOR", Sdf.ValueTypeNames.Float)
     tint = shader.CreateInput("specular_color", Sdf.ValueTypeNames.Color3f)
+    inputs = (weight, ior, tint)
+    constants = [
+        _define_constant(shader.GetPrim().GetStage(), f"/SpecularMaterial/{name}",
+                         node_type, value_type)
+        for name, node_type, value_type in (
+            ("SpecularWeight", "ND_constant_float", Sdf.ValueTypeNames.Float),
+            ("SpecularIor", "ND_constant_float", Sdf.ValueTypeNames.Float),
+            ("SpecularTint", "ND_constant_color3", Sdf.ValueTypeNames.Color3f),
+        )
+    ]
     result = {}
     for dome_only in (False, True):
         source = "dome" if dome_only else "distant"
@@ -253,10 +269,9 @@ def _check_specular_constants(settings, view, shader, capture):
         # Keep the weaker dome reflection above RGBA8 quantization.
         view.SetRendererSetting("merlin:exposureEv", 3.0 if dome_only else -1.0)
 
-        def sample(phase, strength, index, color):
-            weight.Set(strength)
-            ior.Set(index)
-            tint.Set(Gf.Vec3f(*color))
+        def sample(phase, strength, index, color, *, value_inputs=inputs):
+            for attr, value in zip(value_inputs, (strength, index, Gf.Vec3f(*color))):
+                attr.Set(value)
             event, image = capture(f"specular-constants-{source}-{phase}")
             assert event["draw_count"] == 1 and event["pipeline_creation_count"] == 0, event
             assert event["upload_bytes"] == 0, event
@@ -273,6 +288,15 @@ def _check_specular_constants(settings, view, shader, capture):
         assert sample("zero-weight", 0.0, 1.5, white) == (0, 0, 0)
         assert sample("matched-ior", 1.0, 1.0, white) == (0, 0, 0)
         assert sample("invalid-ior", 1.0, 0.5, white) == default
+
+        for attr, (_, output) in zip(inputs, constants):
+            assert attr.ConnectToSource(output)
+        node_inputs = [value for value, _ in constants]
+        assert sample("connected", 1.0, 2.0, white, value_inputs=node_inputs) == high_ior
+        assert sample("connected-tint", 1.0, 1.5, (1, 0, 0), value_inputs=node_inputs) == tinted
+        assert sample("connected-weight", 0.5, 1.5, white, value_inputs=node_inputs) == half
+        for attr in inputs:
+            attr.ClearSources()
         assert sample("restored", 1.0, 1.5, white) == default
         result[source] = {"default_rgb": default, "high_ior_rgb": high_ior,
                           "half_weight_rgb": half, "tinted_rgb": tinted}
@@ -307,11 +331,18 @@ def _check_emission(stage, view, mesh, shader, capture):
     weight.Set(-0.5)
     sample("invalid", (0, 0, 0))
     weight.Set(0.5)
-    connected = UsdShade.Shader.Define(stage, "/SpecularMaterial/EmissionColor")
-    connected.CreateIdAttr("ND_constant_color3")
-    connected.CreateInput("value", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(1))
-    color.ConnectToSource(connected.ConnectableAPI(), "out")
-    sample("connected", (0, 0, 0))
+    node_weight, weight_output = _define_constant(stage, "/SpecularMaterial/EmissionWeight",
+        "ND_constant_float", Sdf.ValueTypeNames.Float)
+    node_color, color_output = _define_constant(stage, "/SpecularMaterial/EmissionColor",
+        "ND_constant_color3", Sdf.ValueTypeNames.Color3f)
+    node_weight.Set(0.5)
+    node_color.Set(Gf.Vec3f(1, 0.5, 0.25))
+    assert weight.ConnectToSource(weight_output) and color.ConnectToSource(color_output)
+    sample("connected", (0.5, 0.25, 0.125))
+    node_weight.Set(0.25)
+    node_color.Set(Gf.Vec3f(0.25, 0.5, 1))
+    sample("connected-edit", (0.0625, 0.125, 0.25))
+    weight.ClearSources()
     color.ClearSources()
     sample("restored", (0.5, 0.25, 0.125))
 

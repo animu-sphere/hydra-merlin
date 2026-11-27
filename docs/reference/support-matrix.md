@@ -198,6 +198,10 @@ they are not implied to work by the availability of the surrounding adapter.
   in Vulkan Tier 0 and HgiVulkan. See the
   [Vulkan verification](../reports/delivery-history.md#vulkan-open-chess-set-and-forward-host-verification--2026-11-24)
   and [Metal verification](../releases/v0.16.8.md#verification-evidence).
+- Direct MaterialX [constant nodes](../design/forward-lighting.md#materialx-constant-nodes)
+  supply Standard Surface specular weight, tint and IOR, and emission weight
+  and color. The Open Chess Set gate checks matching results for directly
+  authored values and live node edits on Windows Vulkan with OpenUSD 26.08.
 - Forward adds Standard Surface emission before the output transform.
   A direct UV0 color image can modulate the constant weight. Unsupported
   inputs and draws without the required UV0 use zero emission and report a

@@ -1,6 +1,7 @@
 #include "adapter.hpp"
 
 #include <pxr/base/gf/vec2f.h>
+#include <pxr/base/gf/vec3f.h>
 #include <pxr/imaging/hd/material.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderPass.h>
@@ -70,7 +71,7 @@ public:
   HdMaterialNetwork2 network;
 };
 
-void VerifyImageUv(const char* texture_path) {
+void VerifyStandardSurface(const char* texture_path) {
   auto backend = std::make_shared<CaptureBackend>();
   HdMerlinRenderDelegate delegate(backend);
   std::unique_ptr<HdRenderIndex> index(HdRenderIndex::New(&delegate, {}));
@@ -121,17 +122,20 @@ void VerifyImageUv(const char* texture_path) {
     Check(record.parameters.emissive_radiance.x == 0.5F,
         "image lost its authored emission weight");
   };
-  const auto check_rejection = [&](std::string_view reason) {
-    const auto record = sync();
-    Check(!record.emissive_texture && record.parameters.emissive_radiance.x == 0.0F,
-        "unsupported coordinates did not fall back to zero emission");
+  const auto check_subset_diagnostic = [&](std::string_view reason) {
     const auto diagnostics = delegate.GetLatestViewportFrame().diagnostics;
     Check(std::any_of(diagnostics.begin(), diagnostics.end(), [&](const auto& item) {
       return item.code == "hydra.material.materialx-subset" &&
              item.source == path.GetString() &&
              item.message.find(reason) != std::string::npos;
     }),
-        "material fallback did not report its UV diagnostic");
+        "material fallback did not report the expected diagnostic");
+  };
+  const auto check_rejection = [&](std::string_view reason) {
+    const auto record = sync();
+    Check(!record.emissive_texture && record.parameters.emissive_radiance.x == 0.0F,
+        "unsupported emission input did not fall back to zero emission");
+    check_subset_diagnostic(reason);
   };
 
   const auto implicit = sync();
@@ -178,11 +182,7 @@ void VerifyImageUv(const char* texture_path) {
   Check(missing.alpha_mode == merlin::AlphaMode::Opaque && !missing.opacity_texture &&
         !merlin::HasMaterialFeature(missing.features, merlin::MaterialFeature::OpacityTexture),
       "missing opacity image did not fall back to opaque");
-  const auto diagnostics = delegate.GetLatestViewportFrame().diagnostics;
-  Check(std::any_of(diagnostics.begin(), diagnostics.end(), [&](const auto& item) {
-    return item.code == "hydra.material.materialx-subset" &&
-           item.source == path.GetString() && item.message.find("opacity (") != std::string::npos;
-  }), "missing opacity image did not report the input name");
+  check_subset_diagnostic("opacity (");
   image.parameters[file] = VtValue(SdfAssetPath(texture_path));
   const auto recovered = sync();
   Check(recovered.material == masked.material && recovered.opacity_texture &&
@@ -194,13 +194,50 @@ void VerifyImageUv(const char* texture_path) {
   check_uv0(disconnected);
   Check(disconnected.alpha_mode == merlin::AlphaMode::Opaque && !disconnected.opacity_texture,
       "disconnecting opacity changed the remaining material inputs");
+
+  const auto color_path = path.AppendChild(TfToken("constantColor"));
+  const TfToken emission_color("emission_color");
+  const TfToken value("value");
+  auto& color = source.network.nodes[color_path];
+  color.nodeTypeId = TfToken("ND_constant_color3");
+  surface.parameters[emission_color] = VtValue(GfVec3f(1.0F, 0.5F, 0.25F));
+  surface.inputConnections.erase(emission_color);
+  const auto inline_color = sync();
+
+  surface.inputConnections[emission_color] = {{color_path, out}};
+  color.parameters[value] = surface.parameters[emission_color];
+  const auto connected = sync();
+  Check(!connected.emissive_texture && connected.revision == inline_color.revision,
+      "equivalent constant node changed the material revision");
+  color.parameters.erase(value);
+  const auto default_color = sync();
+  Check(default_color.parameters.emissive_radiance.x == 0.0F,
+      "constant node without a value did not use its zero default");
+
+  color.parameters[value] = VtValue(GfVec3f(0.5F, 1.0F, 0.25F));
+  color.inputConnections[value] = {{image_path, out}};
+  check_rejection("emission_color (");
+  color.inputConnections.erase(value);
+  surface.inputConnections[emission_color] = {{color_path, TfToken("wrongOutput")}};
+  check_rejection("emission_color (");
+  surface.inputConnections[emission_color] = {{color_path, out}};
+  const TfToken color_space("colorSpace:value");
+  color.parameters[color_space] = VtValue(TfToken("srgb_texture"));
+  check_rejection("emission_color (");
+  color.parameters[color_space] = VtValue(TfToken("lin_rec709"));
+  const auto edited = sync();
+  Check(edited.material == inline_color.material && !edited.emissive_texture &&
+        edited.parameters.emissive_radiance.x == 0.25F &&
+        edited.parameters.emissive_radiance.y == 0.5F &&
+        edited.parameters.emissive_radiance.z == 0.125F,
+      "valid constant node edit did not update the existing material");
 }
 
 } // namespace
 
 int main(int argc, char** argv) try {
   Check(argc == 2, "expected checker texture path");
-  VerifyImageUv(argv[1]);
+  VerifyStandardSurface(argv[1]);
   return 0;
 } catch (const std::exception& error) {
   std::cerr << error.what() << '\n';
