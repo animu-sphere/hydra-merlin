@@ -41,6 +41,7 @@ struct Arguments {
   bool resolution_overridden{};
   bool validation{};
   bool gaussian_adaptive_bounds{};
+  std::uint32_t gaussian_tile_pair_capacity{};
   std::uint32_t arena_blocks{4};
 };
 
@@ -222,6 +223,8 @@ Arguments ParseArguments(int argc, char** argv) {
       result.validation = true;
     } else if (argument == "--gaussian-adaptive-bounds") {
       result.gaussian_adaptive_bounds = true;
+    } else if (argument == "--gaussian-tile-pair-capacity") {
+      result.gaussian_tile_pair_capacity = ParseUnsigned(value(argument), argument);
     } else if (argument == "--arena-blocks") {
       result.arena_blocks = ParseUnsigned(value(argument), argument);
       if (result.arena_blocks != 2 && result.arena_blocks != 4 &&
@@ -232,7 +235,8 @@ Arguments ParseArguments(int argc, char** argv) {
       std::cout
           << "Usage: merlin-benchmark [--output FILE] [--fixture NAME] "
              "[--width N] [--height N] [--steady-frames N] [--validate] "
-             "[--arena-blocks 2|4|8|16] [--gaussian-adaptive-bounds]\n"
+             "[--arena-blocks 2|4|8|16] [--gaussian-adaptive-bounds] "
+             "[--gaussian-tile-pair-capacity N]\n"
              "Fixtures: reference, million-triangles, ten-thousand-meshes, "
              "thousand-instances, gpu-driven-small-objects, "
              "gpu-driven-diverse-objects, gpu-driven-textured-objects, "
@@ -1304,6 +1308,7 @@ merlin::vulkan::RenderResult Render(
   if (UsesGaussianTiles(gaussian_execution)) {
     request.gaussian_adaptive_tile_bounds =
         gaussian_execution == GaussianExecution::GpuTiledAdaptive;
+    request.gaussian_tile_pair_capacity = arguments.gaussian_tile_pair_capacity;
     request.gpu_driven_gaussian_tiles =
         merlin::vulkan::GpuDrivenGaussianTileMode::Require;
     request.gpu_driven_gaussian_tile_raster =
@@ -1427,6 +1432,13 @@ GaussianComparison CompareGaussianOutput(std::string name,
 void RequireGaussianGpuFrame(const merlin::vulkan::RenderResult& result,
     GaussianExecution execution) {
   const auto& c = result.counters;
+  if (c.gaussian_gpu_tile_raster_overflow_fallback_count != 0) {
+    throw std::runtime_error(std::string(GaussianExecutionName(execution)) +
+        " fell back to sorted raster (tile pairs requested=" +
+        std::to_string(c.gaussian_gpu_tile_requested_pair_count) + ", capacity=" +
+        std::to_string(c.gaussian_gpu_tile_pair_capacity) + ", clamped records=" +
+        std::to_string(c.gaussian_gpu_tile_clamped_record_count) + ")");
+  }
   if (c.upload_bytes != 0 || c.gaussian_upload_bytes != 0 ||
       c.gaussian_float_color_frame_count != 1 ||
       c.gaussian_attribute_upload_bytes != 0 || c.allocation_count != 0 ||
@@ -1436,12 +1448,12 @@ void RequireGaussianGpuFrame(const merlin::vulkan::RenderResult& result,
       c.gaussian_gpu_preparation_fallback_count != 0 || c.gaussian_gpu_sort_fallback_count != 0 ||
       c.gaussian_gpu_raster_fallback_count != 0 || c.gaussian_gpu_tile_fallback_count != 0 ||
       c.gaussian_gpu_tile_raster_fallback_count != 0 ||
-      c.gaussian_gpu_tile_raster_overflow_fallback_count != 0 ||
       c.gaussian_gpu_sort_reference_divergence_count != 0 ||
       c.gaussian_gpu_tile_reference_divergence_count != 0 ||
       (UsesGaussianTiles(execution) && c.gaussian_gpu_tile_raster_frame_count != 1) ||
       (execution == GaussianExecution::GpuSortedStream && c.gaussian_gpu_raster_indirect_draw_count != 2)) {
-    throw std::runtime_error("Gaussian GPU sample uploaded, traversed, allocated, or fell back");
+    throw std::runtime_error(std::string(GaussianExecutionName(execution)) +
+        " GPU sample uploaded, traversed, allocated, or fell back");
   }
 }
 

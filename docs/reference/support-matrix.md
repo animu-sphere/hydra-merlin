@@ -366,6 +366,15 @@ implemented:
   [Metal validation](../reports/delivery-history.md#metal-subdivision-validation--2026-11-28).
   The native USD viewport keeps its level-zero policy.
 
+### Gaussian rendering
+
+- The Vulkan 1M fixture at 4K has a three-pixel `instanceId` difference between
+  the CPU and GPU sorted streams in the static comparison. At 8K, flat tile
+  raster exceeds the default pair budget and uses the GPU sorted stream. The
+  same 8K fixture passed native image comparisons on RTX A5000 with a larger
+  pair budget. See the
+  [resolution measurements](../reports/delivery-history.md#vulkan-flat-gaussian-tiles-at-4k-and-8k--2026-11-28).
+
 ### Other
 
 - Metal builds do not produce `merlin-headless` or `merlin-benchmark`.
