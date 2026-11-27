@@ -11,6 +11,65 @@ Legend: ✅ done
 
 ---
 
+## Metal subdivision validation — 2026-11-28
+
+Apple M3 with 24 GiB RAM ran a Release Metal/Hydra build of `ffd091c` on
+macOS 15.7.9 with OpenUSD 26.08 and OpenSubdiv 3.6.1. The Core Far comparison
+and the installed usdview fixture passed. Tier 0 CPU readback and HgiMetal
+GPU copy produced 15 byte-identical PNG pairs, including shading normals,
+tangents and bitangents. Joining the first indexed UV seam rebuilt one
+plan and changed the checker image while preserving all three coverage
+counters. Host runs used Metal API validation, with shader instrumentation
+disabled as in the existing host gate.
+
+The [Windows Vulkan GPU run](https://github.com/animu-sphere/hydra-merlin/actions/runs/46038904158)
+passed all three subdivision tests on `d5ad945`, which uses the same renderer
+source. Its Tier 0 and HgiVulkan captures were byte-identical across all
+15 phases. On the Apple M3, Qt reports a 402×302 framebuffer for the
+401×301 viewport at device pixel ratio 2. The default screenshot includes
+the extra top row. Recapturing with the rectangle cropped from the lower
+left aligned the full 401×301 images. Across backends, 14 phases match all
+three coverage counters and differ by at most 1/255 per channel. These
+include the shading-normal, tangent, bitangent and both checker captures.
+The refined-wire phase differs by more than 1/255 at 386 of 120,701 pixels,
+with a maximum channel difference of 62/255 and a coverage difference of
+50 pixels. Vulkan and Metal use their respective native line rasterization.
+
+An installed native Metal consumer rendered Teapot and the indexed-UV strip
+with API and shader validation. It submitted 2,472 and 9,888 Teapot triangles
+and 6 and 24 strip triangles for `none` and level 1, matching the counts in
+the [Windows Vulkan baseline](#vulkan-subdivision-comparison-baseline--2026-11-27).
+Each policy produced distinct shading-normal, tangent and bitangent images.
+All four AOV readbacks stayed byte-identical over 24 unchanged frames after
+a points-only edit, with zero upload bytes.
+
+The scene measurements used HgiMetal GPU copy, a 513×385 target, a fixed
+camera per scene, separate usdview processes and unpinned clocks and power.
+Each value comes from one capture per policy. The session-layer control sets
+the meshes to `none`, and both policies transition from Low to Medium.
+Working set is macOS process RSS before and after that transition. The points
+edit moved the first control point of Teapot's `Geometry` or Kitchen_set's
+`pCube251`. Warm render-pass time is the median of the last sample in each
+of 24 captured phases.
+
+| usdview scene | Initial CPU refinement, ms | Medium transition upload, MB | RSS growth, MiB | Points edit CPU refinement, ms | Points edit upload, bytes | Warm median render-pass time, ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Teapot, `none` → level 1 | 0 → 3.94 | 0 → 2.02 | 0.08 → 10.95 | 0 → 1.93 | 504,288 → 2,017,152 | 0.65 → 0.82 |
+| Kitchen_set, `none` → level 1 | 0 → 1,414.57 | 0 → 420.74 | 25.20 → 2,248.50 | 0 → 0.224 | 45,696 → 182,784 | 24.82 → 25.21 |
+
+The Medium upload totals match the recorded Vulkan sizes. Metal uploads a
+full mesh for each points-only change. The Vulkan baseline used partial uploads.
+Both refined scenes reused their plans for the edit. Each run's 24
+warm captures had identical color with zero evaluations and zero uploads.
+Kitchen_set refined 1,787 of 1,788 meshes and used the polygon fallback for
+the non-manifold stool. Windows and macOS timing and RSS samples use different
+hardware, cameras and memory accounting.
+
+Local captures, raw logs, scene summaries, per-phase cross-backend comparisons
+and the installed native probe are under `build/subdivision-metal`.
+
+---
+
 ## Vulkan subdivision comparison baseline — 2026-11-27
 
 Windows Release testing used `b689403` with the expanded usdview fixture,
