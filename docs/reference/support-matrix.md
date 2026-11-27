@@ -355,8 +355,16 @@ implemented:
   with the polygon cage in Windows Vulkan usdview. Both reuse the plan
   for a points-only edit. See the
   [scene measurements](../reports/delivery-history.md#cpu-catmullclark-scene-verification--2026-11-25).
-  The native USD viewport keeps its level-zero policy. Metal subdivision
-  output and timing remain unverified.
+  Apple M3/OpenUSD 26.08 passed the same usdview fixture in Tier 0 and
+  HgiMetal. With aligned screenshot crops, the surface debug views and
+  indexed UV seam captures match Windows Vulkan within 1/255 per channel.
+  Refined-wire rendering has backend-dependent pixel coverage. An
+  installed native Metal consumer rendered Teapot and the indexed-UV strip
+  with the same triangle counts as the Vulkan baseline. Teapot and
+  Kitchen_set reuse their refinement plans for points-only edits on Metal.
+  The backend uploads the edited mesh in full. See the
+  [Metal validation](../reports/delivery-history.md#metal-subdivision-validation--2026-11-28).
+  The native USD viewport keeps its level-zero policy.
 
 ### Other
 

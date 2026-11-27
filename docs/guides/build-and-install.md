@@ -66,7 +66,15 @@ and `merlin-usdview-trace.json` from
 `adapters/merlin-hydra2/usdview-subdivision-install` under each build directory.
 Compare the same phases across backends, including the three
 surface debug views and the checker captures before and after joining the UV
-edge. Record the selected host transfer path from the regression log.
+edge. If Qt rounds the framebuffer up for a high-DPI display, crop the raw
+framebuffer from the lower left to the logged render target size before
+comparing pixels. Record the selected host transfer path from the regression
+log.
+
+On the Windows GPU capability runner, dispatch the
+[`gpu-capability.yml`](../../.github/workflows/gpu-capability.yml) workflow with
+`suite=subdivision`. Download the `subdivision-vulkan-<run-id>` artifact for
+the Tier 0 and HgiVulkan captures and logs.
 
 For scene measurements, repeat the Low-to-Medium transition, a points-only
 edit and 24 warm frames for each policy with matching camera and target size.
