@@ -92,9 +92,11 @@ the diffuse term by `1 - metalness`.
 
 Standard Surface `specular` and `specular_color` accept scene-linear constants
 in `[0, 1]` and default to 1 and white. `specular_IOR` accepts finite constants
-of at least 1 and defaults to 1.5. Hydra uses the corresponding default and
-reports `hydra.material.materialx-subset` for unsupported connections or invalid
-constants. The dielectric lobe uses `((IOR - 1) / (IOR + 1))²` as its face-on
+of at least 1 and defaults to 1.5. These inputs accept the same
+[constant nodes](#materialx-constant-nodes) as emission. Hydra uses the
+corresponding default and reports `hydra.material.materialx-subset` for
+unsupported connections or invalid constants. The dielectric lobe uses
+`((IOR - 1) / (IOR + 1))²` as its face-on
 reflectance and scales the entire reflection by the weight and tint. An IOR
 of 1 removes the dielectric reflection. The metallic lobe uses base color
 as its face-on reflectance and applies weight times tint to the Schlick grazing
@@ -128,13 +130,24 @@ implicit UV0, `texcoord` with index 0, or a vector2 `geompropvalue` naming
 Other primvar names, connected property names and custom `geompropvalue`
 defaults use the input's existing fallback and diagnostic.
 
+## MaterialX constant nodes
+
+Hydra accepts a direct standard `constant` node with a literal `value` for the
+Standard Surface specular and emission controls. Use `ND_constant_float` for
+weights and IOR and `ND_constant_color3` for tint and emissive color. The
+node's default is zero or black when `value` is omitted. Existing input
+ranges and diagnostics apply to node values, including the scene-linear
+requirement for RGB. Hydra translates node edits to material parameters.
+[MaterialX standard nodes](https://github.com/AcademySoftwareFoundation/MaterialX/blob/main/documents/Specification/MaterialX.StandardNodes.md#procedural-nodes)
+
 ## Emissive radiance
 
 Hydra multiplies the finite nonnegative Standard Surface `emission` weight
 by `emission_color` in scene-linear RGB. Their defaults are zero weight and
 white color. The color accepts a constant or a direct UV0 `image` of type
 `color3`, with the same color-space, addressing, and filter rules as the
-base-color image. Tagged sRGB is decoded before multiplication. Unsupported
+base-color image. Both inputs accept [constant nodes](#materialx-constant-nodes).
+Tagged sRGB images are decoded before multiplication. Unsupported
 connections, unreadable images, and invalid constants give zero emission and
 report `hydra.material.materialx-subset` with the input name. Draws without UV0
 report `surface.emissive-map.disabled` and suppress textured emission.
