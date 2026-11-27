@@ -108,6 +108,12 @@ if(NOT EXISTS "${host_trace}")
   message(FATAL_ERROR
     "usdview did not produce the requested host Chrome trace")
 endif()
+if(MERLIN_SUBDIVISION_FIXTURE AND MERLIN_FORCE_HGI_VULKAN)
+  file(STRINGS "${marker}" subdivision_transfer REGEX "hgi_transfer_mode=gpu-copy")
+  if(NOT subdivision_transfer)
+    message(FATAL_ERROR "Subdivision fixture did not select HgiVulkan GPU copy")
+  endif()
+endif()
 if(MERLIN_SHADING_MODES_ONLY OR MERLIN_SUBDIVISION_FIXTURE)
   # The shading callback compares every captured frame and reports any failure
   # through testusdview. It does not exercise presentation timing.

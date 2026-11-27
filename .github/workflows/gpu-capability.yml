@@ -6,7 +6,7 @@ on:
       suite:
         description: Capability suite to execute
         type: choice
-        options: [all, hydra, generated, gaussian]
+        options: [all, hydra, generated, gaussian, subdivision]
         default: all
 
 permissions:
@@ -238,7 +238,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Check out the reference Open Chess Set
-        if: inputs.suite != 'gaussian'
+        if: inputs.suite == 'all' || inputs.suite == 'hydra'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: usd-wg/assets
@@ -297,12 +297,16 @@ jobs:
 
       - name: Configure Hydra
         shell: pwsh
+        env:
+          MERLIN_CAPABILITY_SUITE: ${{ inputs.suite }}
         run: |
-          $chess = if ('${{ inputs.suite }}' -ne 'gaussian') {
+          $chess = if ($env:MERLIN_CAPABILITY_SUITE -in @('all', 'hydra')) {
             "${{ github.workspace }}/open-chess-assets/full_assets/OpenChessSet/chess_set.usda"
           }
+          $subdivision = if ($env:MERLIN_CAPABILITY_SUITE -eq 'subdivision') { 'ON' } else { 'OFF' }
           cmake -S . -B build -A x64 -DMERLIN_ENABLE_HYDRA2=ON `
           -DMERLIN_ENABLE_HGI_VULKAN_BRIDGE=ON `
+          "-DMERLIN_ENABLE_OPENSUBDIV=$subdivision" `
           "-DCMAKE_PREFIX_PATH=$env:OPENUSD_ROOT" `
           "-DMERLIN_OPEN_CHESS_SET=$chess" `
           "-DMERLIN_TESTUSDVIEW_SCRIPT=$env:MERLIN_TESTUSDVIEW_SCRIPT" `
@@ -316,19 +320,36 @@ jobs:
           --parallel 4 -- /nodeReuse:false
 
       - name: Run discovery, bridge, RenderBuffer, and viewport tests
-        if: inputs.suite != 'gaussian'
+        if: inputs.suite == 'all' || inputs.suite == 'hydra'
         run: ctest --test-dir build -C Release -R "^merlin-(hydra2-(discovery|render-buffer|hgi-vulkan-bridge)|viewport-(vulkan|hydra))$" --output-on-failure
 
       - name: Run Tier 0 and HgiVulkan usdview regressions
-        if: inputs.suite != 'gaussian'
+        if: inputs.suite == 'all' || inputs.suite == 'hydra'
         run: >-
           ctest --test-dir build -C Release
           -R "^merlin-(install-consumer|vulkan-(install-runtime|material-resources)|hydra2-(hgi-vulkan-aov|usdview-(smoke|hgi-vulkan-smoke|hgi-vulkan-comparison)|forward-lighting-(tier0|hgi-vulkan|comparison|native-comparison)|forward-(motion|navigation|normals|chess)-(tier0|hgi-vulkan|comparison)))$"
           --output-on-failure --verbose --no-tests=error --output-junit forward-runtime-tests.xml
 
       - name: Require executed native and host Forward coverage
-        if: inputs.suite != 'gaussian'
+        if: inputs.suite == 'all' || inputs.suite == 'hydra'
         run: python scripts/check-forward-runtime-evidence.py --junit build/forward-runtime-tests.xml
+
+      - name: Run the subdivision comparison fixtures
+        if: inputs.suite == 'subdivision'
+        run: >-
+          ctest --test-dir build -C Release -L subdivision
+          --output-on-failure --no-tests=error --output-junit subdivision-tests.xml
+
+      - name: Upload subdivision evidence
+        if: always() && inputs.suite == 'subdivision'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: subdivision-vulkan-${{ github.run_id }}
+          path: |
+            build/subdivision-tests.xml
+            build/adapters/merlin-hydra2/usdview-subdivision*-install/*.log
+            build/adapters/merlin-hydra2/usdview-subdivision*-install/*.json
+            build/adapters/merlin-hydra2/usdview-subdivision*-install/*.png
 
       - name: Record paired Exact and adaptive Gaussian sequences
         if: inputs.suite == 'gaussian'
@@ -368,7 +389,7 @@ jobs:
             build/gaussian-sequences/*/usdview.log
 
       - name: Upload usdview evidence
-        if: always() && inputs.suite != 'gaussian'
+        if: always() && (inputs.suite == 'all' || inputs.suite == 'hydra')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hydra-usdview-${{ matrix.openusd }}-evidence-${{ github.run_id }}
