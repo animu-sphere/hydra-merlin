@@ -314,7 +314,7 @@ constexpr std::uint32_t kMaskedAlphaFlag = 1U << 28U;
 constexpr std::uint32_t kDoubleSidedFlag = 1U << 29U;
 constexpr std::uint32_t kCounterClockwiseFrontFaceFlag = 1U << 30U;
 constexpr std::uint32_t kGpuScenePipelineFlag = 1U << 31U;
-constexpr std::uint32_t kSamplerIndexShift = 8U;
+constexpr std::uint32_t kSamplerIndexShift = 9U;
 constexpr std::uint32_t kSamplerIndexMask = 0xffffU;
 
 constexpr VkDeviceSize kArenaAlignment = 16;

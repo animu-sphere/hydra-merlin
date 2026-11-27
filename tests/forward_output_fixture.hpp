@@ -165,4 +165,67 @@ void VerifyForwardEmissiveTexture(Render render, SetEmissiveTexture set_texture)
     throw std::runtime_error("disconnecting the emissive image did not restore the image");
 }
 
+inline TextureDescriptor ForwardOpacityTexture() {
+  TextureDescriptor texture;
+  texture.format = TextureFormat::Rgba8Srgb;
+  texture.width = 2;
+  texture.height = 1;
+  // Red disappears, green remains at the default cutoff. File alpha is ignored.
+  texture.pixels = {255, 0, 0, 255, 0, 250, 0, 0};
+  return texture;
+}
+
+template <typename Render, typename SetOpacityTexture>
+void VerifyForwardOpacityTexture(Render render, SetOpacityTexture set_texture) {
+  using namespace merlin::render;
+  const OutputTransformSettings settings{0.0F, ToneMapping::None};
+  const auto baseline = render(settings);
+  const auto width = baseline.color.product.width;
+  const auto row = baseline.color.product.height / 2;
+  const auto empty = row * width;
+  const auto rejected = row * width + width * 3 / 8;
+  const auto visible = row * width + width * 5 / 8;
+  const auto alpha = row * baseline.color.row_pitch_bytes + (visible % width) * 4 + 3;
+  set_texture(true, 0.5F);
+  const auto masked = render(settings);
+  // 0.69 lies between the raw and decoded green luminance for this texel.
+  set_texture(true, baseline.color.pixels[alpha] / 255.0F * 0.69F);
+  const auto higher_cutoff = render(settings);
+  const auto& counters = ForwardCounters(higher_cutoff);
+  if (counters.upload_bytes != counters.gpu_scene_upload_bytes ||
+      counters.pipeline_creation_count != 0) {
+    throw std::runtime_error("opacity cutoff edit rebuilt GPU resources");
+  }
+
+  const auto matches = [width](const auto& frame, auto pixel,
+                           const auto& reference, auto reference_pixel, std::size_t channels) {
+    const auto color = frame.color.pixels.begin() +
+        (pixel / width) * frame.color.row_pitch_bytes + (pixel % width) * 4;
+    const auto reference_color = reference.color.pixels.begin() +
+        (reference_pixel / width) * reference.color.row_pitch_bytes +
+        (reference_pixel % width) * 4;
+    return std::equal(color, color + channels, reference_color) &&
+           frame.depth.pixels[pixel] == reference.depth.pixels[reference_pixel] &&
+           frame.prim_id.pixels[pixel] == reference.prim_id.pixels[reference_pixel] &&
+           frame.instance_id.pixels[pixel] == reference.instance_id.pixels[reference_pixel];
+  };
+  if (baseline.depth.pixels[rejected] >= baseline.depth.pixels[empty] ||
+      baseline.depth.pixels[visible] >= baseline.depth.pixels[empty] ||
+      !matches(masked, rejected, baseline, empty, 4) ||
+      !matches(masked, visible, baseline, visible, 3) ||
+      masked.color.pixels[alpha] != 255) {
+    throw std::runtime_error("Forward opacity mask disagrees across color, depth or IDs");
+  }
+  if (!matches(higher_cutoff, visible, baseline, empty, 4))
+    throw std::runtime_error("Forward opacity mask did not use linear RGB luminance");
+
+  set_texture(false, 0.5F);
+  const auto restored = render(settings);
+  if (restored.color.pixels != baseline.color.pixels || restored.depth.pixels != baseline.depth.pixels ||
+      restored.prim_id.pixels != baseline.prim_id.pixels ||
+      restored.instance_id.pixels != baseline.instance_id.pixels) {
+    throw std::runtime_error("disconnecting the opacity image did not restore coverage");
+  }
+}
+
 } // namespace merlin::tests

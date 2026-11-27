@@ -1193,6 +1193,7 @@ struct ParsedMaterial {
   ImageInput metallic;
   ImageInput roughness;
   ImageInput emissive;
+  ImageInput opacity;
   bool flip_texture_rows{};
   std::vector<std::string> materialx_unsupported_inputs;
 };
@@ -1233,7 +1234,8 @@ bool MaterialFeaturesEqual(const merlin::MaterialDescriptor& lhs,
       !TextureBindingsEqual(lhs.normal_texture, rhs.normal_texture) ||
       !TextureBindingsEqual(lhs.metallic_texture, rhs.metallic_texture) ||
       !TextureBindingsEqual(lhs.roughness_texture, rhs.roughness_texture) ||
-      !TextureBindingsEqual(lhs.emissive_texture, rhs.emissive_texture)) {
+      !TextureBindingsEqual(lhs.emissive_texture, rhs.emissive_texture) ||
+      !TextureBindingsEqual(lhs.opacity_texture, rhs.opacity_texture)) {
     return false;
   }
   return lhs.alpha_mode == rhs.alpha_mode &&
@@ -1575,8 +1577,18 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
   if (const auto* value = FindParameter(surface, "opacity")) {
     (void)ReadColor(*value, opacity);
   }
-  if (!InputConnections(surface, "opacity").empty() || opacity.x != opacity.y ||
-      opacity.x != opacity.z) {
+  if (!InputConnections(surface, "opacity").empty()) {
+    std::string diagnostic;
+    result.opacity.texture = ReadMaterialXImage(network,
+        ConnectedNode(network, surface, "opacity"), "ND_image_color3",
+        result.opacity.sampler, diagnostic);
+    if (result.opacity.texture) {
+      result.material.alpha_mode = merlin::AlphaMode::Masked;
+      result.material.features |= merlin::MaterialFeature::OpacityTexture;
+    } else {
+      result.materialx_unsupported_inputs.emplace_back("opacity (" + diagnostic + ")");
+    }
+  } else if (opacity.x != opacity.y || opacity.x != opacity.z) {
     result.materialx_unsupported_inputs.emplace_back("opacity");
   } else if (opacity.x < 1.0F) {
     parameters.base_color.w = opacity.x;
@@ -1846,6 +1858,7 @@ struct MaterialEntry {
   std::optional<MaterialTextureKey> metallic_image;
   std::optional<MaterialTextureKey> roughness_image;
   std::optional<MaterialTextureKey> emissive_image;
+  std::optional<MaterialTextureKey> opacity_image;
 };
 
 struct MaterialTextureEntry {
@@ -2244,6 +2257,7 @@ public:
     std::optional<MaterialTextureKey> metallic_image;
     std::optional<MaterialTextureKey> roughness_image;
     std::optional<MaterialTextureKey> emissive_image;
+    std::optional<MaterialTextureKey> opacity_image;
     descriptor.base_color_texture = AcquireTextureSlotLocked(
         std::move(parsed.texture), std::move(parsed.sampler),
         parsed.flip_texture_rows, entry.descriptor.base_color_texture,
@@ -2264,6 +2278,10 @@ public:
         std::move(parsed.emissive.texture), std::move(parsed.emissive.sampler),
         parsed.flip_texture_rows, entry.descriptor.emissive_texture,
         entry.emissive_image, emissive_image);
+    descriptor.opacity_texture = AcquireTextureSlotLocked(
+        std::move(parsed.opacity.texture), std::move(parsed.opacity.sampler),
+        parsed.flip_texture_rows, entry.descriptor.opacity_texture,
+        entry.opacity_image, opacity_image);
     if (created) {
       entry.handle = world_.CreateMaterial(descriptor);
       entry.base_color_image = std::move(base_color_image);
@@ -2271,6 +2289,7 @@ public:
       entry.metallic_image = std::move(metallic_image);
       entry.roughness_image = std::move(roughness_image);
       entry.emissive_image = std::move(emissive_image);
+      entry.opacity_image = std::move(opacity_image);
       entry.descriptor = std::move(descriptor);
       return;
     }
@@ -2296,15 +2315,19 @@ public:
         entry.descriptor.roughness_texture, descriptor.roughness_texture);
     ReleaseMaterialSamplerLocked(
         entry.descriptor.emissive_texture, descriptor.emissive_texture);
+    ReleaseMaterialSamplerLocked(
+        entry.descriptor.opacity_texture, descriptor.opacity_texture);
     ReleaseMaterialTextureLocked(entry.normal_image, normal_image);
     ReleaseMaterialTextureLocked(entry.metallic_image, metallic_image);
     ReleaseMaterialTextureLocked(entry.roughness_image, roughness_image);
     ReleaseMaterialTextureLocked(entry.emissive_image, emissive_image);
+    ReleaseMaterialTextureLocked(entry.opacity_image, opacity_image);
     entry.base_color_image = std::move(base_color_image);
     entry.normal_image = std::move(normal_image);
     entry.metallic_image = std::move(metallic_image);
     entry.roughness_image = std::move(roughness_image);
     entry.emissive_image = std::move(emissive_image);
+    entry.opacity_image = std::move(opacity_image);
     entry.descriptor = std::move(descriptor);
   }
 
@@ -2979,6 +3002,8 @@ public:
             &merlin::extraction::MaterialRecord::roughness_texture);
         const auto emissive_map_materials = count_images(
             &merlin::extraction::MaterialRecord::emissive_texture);
+        const auto opacity_map_materials = count_images(
+            &merlin::extraction::MaterialRecord::opacity_texture);
         const auto normal_map_disabled_draws =
             merlin::render::CountForwardNormalMapDisabledDraws(*snapshot);
         const auto hgi_vulkan_telemetry =
@@ -3106,6 +3131,7 @@ public:
                << " metallic_map_materials=" << metallic_map_materials
                << " roughness_map_materials=" << roughness_map_materials
                << " emissive_map_materials=" << emissive_map_materials
+               << " opacity_map_materials=" << opacity_map_materials
                << " normal_map_disabled_draws=" << normal_map_disabled_draws
                << " material_fallbacks=" << snapshot->material_fallbacks.size()
                << " generated_material_draw_count="
@@ -3341,9 +3367,11 @@ private:
     ReleaseMaterialTextureLocked(entry.metallic_image);
     ReleaseMaterialTextureLocked(entry.roughness_image);
     ReleaseMaterialTextureLocked(entry.emissive_image);
+    ReleaseMaterialTextureLocked(entry.opacity_image);
     ReleaseMaterialSamplerLocked(entry.descriptor.metallic_texture);
     ReleaseMaterialSamplerLocked(entry.descriptor.roughness_texture);
     ReleaseMaterialSamplerLocked(entry.descriptor.emissive_texture);
+    ReleaseMaterialSamplerLocked(entry.descriptor.opacity_texture);
     materials_.erase(found);
   }
 
@@ -3457,12 +3485,28 @@ private:
           merlin::DiagnosticDisposition::Fallback, "disable-emission");
     }
     reported_emissive_map_disabled_draws_ = emissive_disabled;
+    const auto opacity_disabled = std::count_if(snapshot.draws.begin(),
+        snapshot.draws.end(), [&](const auto& draw) {
+          return !snapshot.geometries[draw.geometry_index].has_texcoords &&
+              snapshot.materials[draw.material_index].opacity_texture.has_value();
+        });
+    if (opacity_disabled != 0 &&
+        opacity_disabled != reported_opacity_map_disabled_draws_) {
+      ReportHydraDiagnostic("surface.opacity-map.disabled",
+          SdfPath::AbsoluteRootPath(),
+          std::to_string(opacity_disabled) +
+              " draw(s) bind an opacity map to geometry without UV0; "
+              "using their existing alpha",
+          merlin::DiagnosticDisposition::Fallback, "use-existing-alpha");
+    }
+    reported_opacity_map_disabled_draws_ = opacity_disabled;
   }
 
   mutable std::mutex mutex_;
   std::uint64_t texture_report_revision_{};
   std::size_t reported_normal_map_disabled_draws_{};
   std::ptrdiff_t reported_emissive_map_disabled_draws_{};
+  std::ptrdiff_t reported_opacity_map_disabled_draws_{};
   merlin::RenderWorld world_;
   merlin::FrontFaceWinding camera_front_face_{
       merlin::FrontFaceWinding::Clockwise};

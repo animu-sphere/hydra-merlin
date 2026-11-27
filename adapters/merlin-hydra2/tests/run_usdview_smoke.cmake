@@ -139,7 +139,8 @@ if(MERLIN_FORWARD_CHESS_ONLY)
     message(FATAL_ERROR "usdview did not produce Open Chess Set material evidence")
   endif()
   set(required_phases baseline chess-dome chess-geometry chess-normal-base
-      chess-normal chess-restored chess-inputs-restored)
+      chess-normal chess-restored chess-inputs-restored opacity-opaque
+      opacity-image opacity-no-uv opacity-missing-file opacity-disconnected)
   foreach(group IN ITEMS chessboard black white)
     foreach(input IN ITEMS base_color normal metalness specular_roughness)
       list(APPEND required_phases "chess-${group}-${input}")

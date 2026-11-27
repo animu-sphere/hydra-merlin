@@ -37,5 +37,6 @@ ForwardFragmentOutput merlin_fragment_gpu_scene(
     return ShadeMetalForward(input, front_facing, constants, effective_material,
         texture_sample, SampleMetalNormalTexture(input, constants, effective_material),
         SampleMetalScalarTextures(input, constants, effective_material),
-        SampleMetalEmissiveTexture(input, constants, effective_material));
+        SampleMetalEmissiveTexture(input, constants, effective_material),
+        SampleMetalOpacityTexture(input, constants, effective_material));
 }

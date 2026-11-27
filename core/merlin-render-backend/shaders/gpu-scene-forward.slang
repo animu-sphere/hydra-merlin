@@ -29,8 +29,11 @@ DrawConstants LoadForwardGpuDrawConstants(float4x4 view_projection, GpuGeometry 
         any(material.scalar_texture_resources.zw == kInvalidGpuSceneTableIndex))
         result.feature_mask &= ~kRoughnessTextureFlag;
     if ((geometry.attribute_mask & 4u) == 0u ||
-        any(material.emissive_texture_resources.xy == kInvalidGpuSceneTableIndex))
+        any(material.emissive_opacity_texture_resources.xy == kInvalidGpuSceneTableIndex))
         result.feature_mask &= ~kEmissiveTextureFlag;
+    if ((geometry.attribute_mask & 4u) == 0u ||
+        any(material.emissive_opacity_texture_resources.zw == kInvalidGpuSceneTableIndex))
+        result.feature_mask &= ~kOpacityTextureFlag;
     if ((material.material_class_flags & (1u << 16u)) != 0u)
         result.feature_mask |= kMaskedAlphaFlag;
     result.prim_id = instance.object_id;
@@ -53,7 +56,7 @@ MaterialConstants LoadForwardGpuMaterialConstants(GpuMaterial material, Material
     lighting.surface_factors.xy = material.surface_factors.xy;
     lighting.scalar_texture_resources = material.scalar_texture_resources;
     lighting.emissive_radiance = material.emissive_radiance;
-    lighting.emissive_texture_resources = material.emissive_texture_resources;
+    lighting.emissive_opacity_texture_resources = material.emissive_opacity_texture_resources;
     lighting.specular_factors = material.specular_factors;
     return lighting;
 }

@@ -548,6 +548,8 @@ public:
         !record.emissive_texture) {
       record.parameters.emissive_radiance = {};
     }
+    record.opacity_texture = resolve_texture(material.opacity_texture,
+        MaterialFeature::OpacityTexture, "opacity", "using the existing alpha");
     return record;
   }
 
@@ -862,7 +864,7 @@ public:
     for (const auto& binding :
         {descriptor.base_color_texture, descriptor.normal_texture,
             descriptor.metallic_texture, descriptor.roughness_texture,
-            descriptor.emissive_texture}) {
+            descriptor.emissive_texture, descriptor.opacity_texture}) {
       if (binding) {
         AddDependency(texture_materials, binding->texture.value(), handle);
         AddDependency(sampler_materials, binding->sampler.value(), handle);
@@ -885,7 +887,7 @@ public:
     for (const auto& binding :
         {descriptor.base_color_texture, descriptor.normal_texture,
             descriptor.metallic_texture, descriptor.roughness_texture,
-            descriptor.emissive_texture}) {
+            descriptor.emissive_texture, descriptor.opacity_texture}) {
       if (binding) {
         RemoveDependency(texture_materials, binding->texture.value(), handle);
         RemoveDependency(sampler_materials, binding->sampler.value(), handle);

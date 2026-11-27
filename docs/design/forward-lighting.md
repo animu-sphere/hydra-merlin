@@ -147,6 +147,29 @@ and tone mapping, including when every light is disabled. The emissive term
 affects only the shaded surface's RGB. Editing the weight or a constant color
 updates material parameters and reuses the existing shader and pipeline.
 
+## Opacity masks
+
+Hydra accepts a direct UV0 `image` of type `color3` for Standard Surface
+`opacity`. It uses the same image loader, UV rules, color-space conversion and
+sampler settings as base color. MaterialX Standard Surface reduces color
+opacity to luminance. Forward uses Rec. 709 luminance in its linear RGB
+working space and multiplies the existing surface alpha by that value. The
+image's alpha channel is ignored.
+[MaterialX Standard Surface node definition](https://github.com/AcademySoftwareFoundation/MaterialX/blob/main/libraries/bxdf/standard_surface.mtlx)
+
+Hydra selects the masked path with a cutoff of 0.5 for a valid connection.
+Only surviving fragments write color, depth, primId and instanceId. They use
+the ordinary Forward shading and depth rules and write an alpha of 1.
+Unsupported connections and unreadable images use the opaque fallback and
+report `hydra.material.materialx-subset` with the input name. Draws without UV0
+use their existing surface alpha and report `surface.opacity-map.disabled`.
+
+Native callers can bind `MaterialDescriptor::opacity_texture` with
+`MaterialFeature::OpacityTexture` and `AlphaMode::Masked`. The handwritten
+Forward path uses the material's existing `alpha_cutoff` parameter. A
+cutoff-only edit reuses the pipeline. Fractional alpha blending requires a
+separate compositing policy.
+
 ## Output transform
 
 Lit Forward surfaces use one renderer-neutral output contract:

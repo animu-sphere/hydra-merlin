@@ -149,12 +149,19 @@ including default fallback for invalid IOR and pipeline reuse. With every light
 disabled, it checks constant emission, UV0 orientation with implicit
 coordinates and an explicit `st` connection, sRGB decoding, live intensity
 edits, and recovery after unsupported connections or missing assets.
+The opacity probe checks that a red/green UV0 image cuts the surface coverage
+in half and that missing UVs or a missing image restore the original coverage.
 Images, input counts and probe measurements are written to
 `adapters/merlin-hydra2/forward-chess-*-install` under the build directory. When a native Hgi bridge is available, the test compares its
 images with Tier 0. For a manual launch on Metal, set
 `MERLIN_METAL_HEAP_MIB=1024` before starting usdview. The test runner uses the
 same heap size by default. For a close view, use **Camera → Free Camera
 Settings... → Override Near** and set it to `0.02` stage units.
+
+The `merlin-hydra2-materialx-uv` test also checks opacity binding and recovery
+without a GPU. The native `merlin-vulkan-output-*` and
+`merlin-metal-forward-lighting` tests check opacity against the color, depth,
+primId and instanceId outputs.
 
 ## Metal host gates
 

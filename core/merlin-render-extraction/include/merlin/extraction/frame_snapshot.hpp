@@ -128,6 +128,7 @@ struct MaterialRecord {
   std::optional<TextureBindingRecord> metallic_texture;
   std::optional<TextureBindingRecord> roughness_texture;
   std::optional<TextureBindingRecord> emissive_texture;
+  std::optional<TextureBindingRecord> opacity_texture;
   AlphaMode alpha_mode{AlphaMode::Opaque};
   bool double_sided{};
   MaterialFeature features{MaterialFeature::None};

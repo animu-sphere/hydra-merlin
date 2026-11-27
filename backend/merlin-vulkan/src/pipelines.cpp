@@ -425,6 +425,7 @@ void Renderer::Impl::EnsureDescriptorSetLayout() {
       texture_binding(shader_abi::kConventionalMetallicTexture),
       texture_binding(shader_abi::kConventionalRoughnessTexture),
       texture_binding(shader_abi::kConventionalEmissiveTexture),
+      texture_binding(shader_abi::kConventionalOpacityTexture),
       VkDescriptorSetLayoutBinding{shader_abi::kConventionalMaterialConstants.binding,
           VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -1008,7 +1009,8 @@ Renderer::Impl::DrawPipelineVariant Renderer::Impl::MakeDrawPipelineVariant(
                                     MaterialFeature::NormalTexture |
                                     MaterialFeature::MetallicTexture |
                                     MaterialFeature::RoughnessTexture |
-                                    MaterialFeature::EmissiveTexture);
+                                    MaterialFeature::EmissiveTexture |
+                                    MaterialFeature::OpacityTexture);
   }
   auto variant_key = feature_mask;
   if (material.alpha_mode == AlphaMode::Masked) {

@@ -43,7 +43,7 @@ struct GpuMaterial
     uint reserved;
     uint4 scalar_texture_resources;
     float4 emissive_radiance;
-    uint4 emissive_texture_resources;
+    uint4 emissive_opacity_texture_resources;
     float4 specular_factors;
 };
 

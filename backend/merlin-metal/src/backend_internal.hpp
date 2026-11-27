@@ -100,7 +100,7 @@ struct alignas(16) MaterialConstants {
   std::array<Vec4, 3> clip_to_view_direction;
   Vec4 specular_environment_scale;
   Vec4 emissive_radiance;
-  std::array<std::uint32_t, 4> emissive_texture_resources{};
+  std::array<std::uint32_t, 4> emissive_opacity_texture_resources{};
   Vec4 specular_factors;
 };
 
@@ -120,7 +120,7 @@ static_assert(sizeof(DrawConstants) == 144);
 static_assert(sizeof(MaterialConstants) == 704);
 static_assert(offsetof(MaterialConstants, specular_environment_scale) == 640);
 static_assert(offsetof(MaterialConstants, emissive_radiance) == 656);
-static_assert(offsetof(MaterialConstants, emissive_texture_resources) == 672);
+static_assert(offsetof(MaterialConstants, emissive_opacity_texture_resources) == 672);
 static_assert(offsetof(MaterialConstants, specular_factors) == 688);
 static_assert(offsetof(MaterialConstants, diffuse_environment) == 48);
 static_assert(offsetof(MaterialConstants, output_transform) == 192);
