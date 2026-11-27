@@ -348,6 +348,13 @@ def _check_emission(stage, view, mesh, shader, capture):
         result[name] = actual
 
     sample_image("image", 0.5)
+    uv = UsdShade.Shader.Define(stage, "/SpecularMaterial/EmissionUv")
+    uv.CreateIdAttr("ND_geompropvalue_vector2")
+    uv.CreateInput("geomprop", Sdf.ValueTypeNames.String).Set("st")
+    uv_output = uv.CreateOutput("out", Sdf.ValueTypeNames.Float2)
+    texcoord = texture.CreateInput("texcoord", Sdf.ValueTypeNames.Float2)
+    assert texcoord.ConnectToSource(uv_output)
+    sample_image("image-named-st", 0.5)
     weight.Set(0.25)
     sample_image("image-dimmer", 0.25)
     file.Set(Sdf.AssetPath(path.with_suffix(".missing.png").as_posix()))

@@ -120,6 +120,14 @@ Generated shaders that use the diffuse wrapper keep their existing lighting
 contract. The [support matrix](../reference/support-matrix.md#forward-lighting-and-output)
 lists the validated host configurations and remaining limits.
 
+## MaterialX image coordinates
+
+Hydra uses the Mesh `st` primvar as UV0. Direct MaterialX images can use
+implicit UV0, `texcoord` with index 0, or a vector2 `geompropvalue` naming
+`st`. The loader keeps the MaterialX lower-left image origin for all three.
+Other primvar names, connected property names and custom `geompropvalue`
+defaults use the input's existing fallback and diagnostic.
+
 ## Emissive radiance
 
 Hydra multiplies the finite nonnegative Standard Surface `emission` weight
