@@ -11,6 +11,49 @@ Legend: ✅ done
 
 ---
 
+## Vulkan flat Gaussian tiles at 4K and 8K — 2026-11-28
+
+Windows Release build of `8dad694` with the benchmark capacity override,
+MSVC 19.51, Vulkan SDK 1.4.350.0, Vulkan API 1.4.329, and NVIDIA RTX A5000
+(driver 597.16). The 1M-particle synthetic grid used all four readback AOVs
+and the benchmark's fixed static and camera-motion sequences. Vulkan
+validation was enabled for the three-sample diagnostic runs and disabled for
+the forty-sample timing runs. GPU clocks and power were unpinned.
+
+- At 3840×2160, the static GPU sorted stream differed from the CPU reference
+  at three `instanceId` pixels. The two particles had the same depth at each
+  pixel, and the CPU-selected particle was on its ellipse cutoff rim. The
+  moving comparison passed, and depth and `primId` matched in both phases.
+  The exact sorted-stream ID gate reported failure and retained the full JSON.
+- At 7680×4320, flat Exact requested 14,619,152 pairs in the static frame.
+  The default capacity was 8,001,536 and the renderer fell back to the GPU
+  sorted stream. A 16,000,000-pair budget selected tile raster in both modes.
+  Static Adaptive requested 10,298,032 pairs, 29.6% fewer than Exact. With
+  the override the three-sample run passed all six image comparisons with
+  zero renderer validation messages.
+
+The timing runs used the default 8,001,536-pair capacity through 4K, and the
+16,000,000-pair override at 8K. Both modes used the same capacity at each
+resolution. Times are milliseconds. With 40 samples, p99 is the maximum.
+
+| Resolution | Camera | GPU Exact p95 / p99 | GPU Adaptive p95 / p99 | Frame Exact p95 / p99 | Frame Adaptive p95 / p99 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1920×1080 | Static | 7.91 / 8.42 | 7.96 / 8.12 | 15.95 / 16.51 | 14.92 / 17.54 |
+| 1920×1080 | Motion | 7.82 / 8.11 | 7.87 / 7.91 | 16.24 / 18.04 | 15.89 / 17.48 |
+| 2560×1440 | Static | 10.30 / 10.64 | 9.81 / 9.99 | 22.54 / 23.32 | 21.40 / 21.59 |
+| 2560×1440 | Motion | 10.30 / 10.90 | 9.37 / 9.66 | 25.72 / 26.24 | 23.82 / 24.58 |
+| 3840×2160 | Static | 16.46 / 16.89 | 17.55 / 19.18 | 54.36 / 56.02 | 52.25 / 52.50 |
+| 3840×2160 | Motion | 19.07 / 19.62 | 20.46 / 21.17 | 64.38 / 65.45 | 73.76 / 75.36 |
+| 7680×4320 | Static | 50.83 / 51.18 | 48.71 / 48.97 | 155.44 / 155.55 | 152.17 / 166.51 |
+| 7680×4320 | Motion | 50.36 / 50.64 | 61.83 / 63.51 | 182.33 / 193.49 | 203.06 / 213.06 |
+
+Exact and Adaptive matched all four AOVs in all eight static and final
+motion comparisons. The 4K static sorted-stream comparison was the sole
+image-gate failure in the timing runs. The lower 8K pair count coincided
+with lower static GPU p95/p99 and higher moving GPU p95/p99 in this capture.
+The raw captures are local in `build/v018-gaussian-resolution/`. See the
+[benchmark guide](../guides/benchmarking.md#gaussian-comparisons) for commands.
+
 ## Metal subdivision validation — 2026-11-28
 
 Apple M3 with 24 GiB RAM ran a Release Metal/Hydra build of `ffd091c` on

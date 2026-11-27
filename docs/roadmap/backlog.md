@@ -30,20 +30,20 @@ cost evidence.
 
 ### v0.18.0 — Hierarchical Gaussian tiles; production MaterialX and lighting
 
-**Goal:** Select bounded two-level Gaussian tiling only when measured 4K/8K
-p95/p99 benefit justifies it. Independently broaden Standard Surface,
-UV/opacity/emission texture coverage, multi-light, environment and authored
-lighting, shadows, asynchronous compilation, residency, and Forward/Visibility
-material parity.
+The [Gaussian tile track](current.md#v0180--high-resolution-gaussian-tiles) is active.
 
-**Depends on:** Flat Gaussian tile evidence, the
-[MaterialX function boundary](../design/materialxgenslang-boundary.md), and the
+**Goal:** Broaden Standard Surface, UV/opacity/emission texture coverage,
+multi-light, environment and authored lighting, shadows, asynchronous
+compilation, residency, and Forward/Visibility material parity.
+
+**Depends on:** The
+[MaterialX function boundary](../design/materialxgenslang-boundary.md) and the
 v0.16.x Forward output-transform, [surface geometry](../design/surface-geometry.md)
 and representative-quality baseline. Material evaluation does not own lighting,
 surface frames or passes.
 
-**Exit:** Overflow falls back safely; representative material/lighting fixtures
-and backend comparisons meet declared tolerances. Unsupported inputs have
+**Exit:** Representative material/lighting fixtures and backend comparisons
+meet declared tolerances. Unsupported inputs have
 structured fallback; static and parameter-only edits avoid steady-state
 compile/pipeline creation.
 

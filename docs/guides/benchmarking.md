@@ -168,6 +168,15 @@ still occur and are reported. Add `--gaussian-adaptive-bounds` to measure
 must match the Exact GPU tile phase byte for byte. Compare requested and
 rejected pairs, binning and raster timestamps, and total GPU and frame time.
 
+At high resolutions, flat tiling can exceed the renderer's default pair
+capacity. The benchmark rejects those samples and reports the requested pair
+count, capacity and clamped records. Use `--gaussian-tile-pair-capacity N` to
+try a larger budget on a capable GPU. The override applies to both Exact and
+Adaptive tile phases. The renderer aligns it to its workgroup size and checks
+the device limits. The report records the effective capacity in
+`gaussian_gpu_tile_pair_capacity`. Compare performance with the same capacity
+for both tile policies because the fixed budget also affects binning cost.
+
 `gaussian_verification` compares static and final moving images outside the
 timed samples. Sorted-stream permits two RGBA8 steps and requires exact
 depth/IDs. Tiled permits six steps, exact depth/primId, and up to 1% depth-tied
@@ -187,6 +196,11 @@ self-comparison, or removal of the baseline's image verification evidence.
 ./build/adapters/merlin-benchmark/merlin-benchmark.exe `
   --fixture one-million-gaussians --width 597 --height 540 `
   --steady-frames 40 --output gaussian.json
+
+./build/adapters/merlin-benchmark/merlin-benchmark.exe `
+  --fixture one-million-gaussians --width 7680 --height 4320 `
+  --steady-frames 40 --gaussian-adaptive-bounds `
+  --gaussian-tile-pair-capacity 16000000 --output gaussian-8k.json
 
 cmake -DMERLIN_BENCHMARK=C:/path/to/merlin-benchmark.exe `
   -DMERLIN_BENCHMARK_OUTPUT_DIR=build/gaussian-check `

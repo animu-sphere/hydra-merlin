@@ -24,6 +24,8 @@ after its public API and release process are established.
 
 - Hydra Forward can cut out MaterialX Standard Surface meshes with a direct
   UV0 opacity image. Rejected fragments write neither depth nor picking IDs.
+- `merlin-benchmark` accepts a Gaussian tile pair capacity for high-resolution
+  captures and reports the pair counts when tile raster falls back on overflow.
 
 ### Changed
 
