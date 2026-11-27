@@ -118,6 +118,27 @@ void RunFixture(merlin::render::Backend& backend, merlin::Vec4 albedo,
         : merlin::ChangeAspect::MaterialParameters);
     extractor.Apply(world, world.Commit());
   });
+  world.UpdateTexture(emissive_texture, merlin::tests::ForwardOpacityTexture());
+  merlin::tests::VerifyForwardOpacityTexture(
+      [&](merlin::render::OutputTransformSettings settings) {
+        return Render(backend, extractor.snapshot(), settings);
+      }, [&](bool textured, float cutoff) {
+        const bool changed = material.opacity_texture.has_value() != textured;
+        material.parameters.alpha_cutoff = cutoff;
+        if (textured) {
+          material.features |= merlin::MaterialFeature::OpacityTexture;
+          material.alpha_mode = merlin::AlphaMode::Masked;
+          material.opacity_texture = merlin::TextureBinding{emissive_texture, emissive_sampler, 0};
+        } else {
+          material.features = merlin::MaterialFeature::DirectionalLight;
+          material.alpha_mode = merlin::AlphaMode::Opaque;
+          material.opacity_texture.reset();
+        }
+        world.UpdateMaterial(instance.material, material, changed
+            ? merlin::ChangeAspect::MaterialParameters | merlin::ChangeAspect::MaterialFeatures
+            : merlin::ChangeAspect::MaterialParameters);
+        extractor.Apply(world, world.Commit());
+      });
   world.Remove(emissive_sampler);
   world.Remove(emissive_texture);
   (void)render();

@@ -289,6 +289,8 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
       binding.roughness_texture_index, binding.roughness_sampler_index);
   validate_binding(source.emissive_texture.has_value(),
       binding.emissive_texture_index, binding.emissive_sampler_index);
+  validate_binding(source.opacity_texture.has_value(),
+      binding.opacity_texture_index, binding.opacity_sampler_index);
 
   GpuMaterial result;
   result.base_color = source.parameters.base_color;
@@ -322,8 +324,9 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   result.emissive_radiance = {emission.x, emission.y, emission.z,
       HasMaterialFeature(source.features, MaterialFeature::EmissiveTexture)
           ? 1.0F : 0.0F};
-  result.emissive_texture_resources = {binding.emissive_texture_index,
-      binding.emissive_sampler_index, 0U, 0U};
+  result.emissive_opacity_texture_resources = {binding.emissive_texture_index,
+      binding.emissive_sampler_index, binding.opacity_texture_index,
+      binding.opacity_sampler_index};
   result.specular_factors = PackForwardSpecularFactors(source.parameters);
   return result;
 }

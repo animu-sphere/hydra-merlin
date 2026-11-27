@@ -15,6 +15,9 @@ Sampler2D roughness_texture;
 [[vk::binding(4, 0)]]
 Sampler2D emissive_texture;
 
+[[vk::binding(5, 0)]]
+Sampler2D opacity_texture;
+
 [[vk::binding(0, 1)]] Texture2D<float4> specular_environment;
 
 // Bindings below this are reserved for generated material resources. The
@@ -50,7 +53,10 @@ ForwardFragmentOutput forward_fragment(
     float3 emissive_sample = DefaultEmissiveSample(material_constants);
     if ((draw_constants.feature_mask & kEmissiveTextureFlag) != 0u)
         emissive_sample = emissive_texture.Sample(input.texture_coordinate).rgb;
+    float opacity_sample = 1.0f;
+    if ((draw_constants.feature_mask & kOpacityTextureFlag) != 0u)
+        opacity_sample = ForwardOpacity(opacity_texture.Sample(input.texture_coordinate).rgb);
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
         material_constants, texture_sample, normal_sample, scalar_factors,
-        emissive_sample, specular_environment));
+        emissive_sample, opacity_sample, specular_environment));
 }

@@ -36,7 +36,7 @@ material_fields = [("base_color", 0, 16), ("light_direction_intensity", 16, 16),
                    ("additional_light_colors", 384, 112), ("world_to_environment", 496, 64),
                    ("surface_factors", 560, 16), ("scalar_texture_resources", 576, 16),
                    ("clip_to_view_direction", 592, 48), ("specular_environment_scale", 640, 16),
-                   ("emissive_radiance", 656, 16), ("emissive_texture_resources", 672, 16),
+                   ("emissive_radiance", 656, 16), ("emissive_opacity_texture_resources", 672, 16),
                    ("specular_factors", 688, 16)]
 draw_fields = [("model_view_projection", 0, 64), ("normal_matrix_column0", 64, 16),
                ("normal_matrix_column1", 80, 16), ("normal_matrix_column2", 96, 16),
@@ -92,6 +92,8 @@ for stem, entry, stage in [
         parameter(data, source, "roughness_sampler", "samplerState", 3, "sampler")
         parameter(data, source, "emissive_texture", "shaderResource", 4, "texture")
         parameter(data, source, "emissive_sampler", "samplerState", 4, "sampler")
+        parameter(data, source, "opacity_texture", "shaderResource", 5, "texture")
+        parameter(data, source, "opacity_sampler", "samplerState", 5, "sampler")
 
 load("presentation.vertex", "merlin_presentation_vertex", "vertex")
 data, source = load("presentation.fragment", "merlin_presentation_fragment", "fragment")

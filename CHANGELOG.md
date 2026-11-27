@@ -22,12 +22,15 @@ after its public API and release process are established.
 - Hydra Forward accepts a MaterialX `geompropvalue` vector2 connection naming
   `st` as the UV0 source for supported Standard Surface images.
 
+- Hydra Forward can cut out MaterialX Standard Surface meshes with a direct
+  UV0 opacity image. Rejected fragments write neither depth nor picking IDs.
+
 ### Changed
 
-- Backend contract 14 and shader ABI 21 carry the specular environment,
-  specular factors, and emissive radiance with optional texture modulation.
-  GPU Scene ABI 6 carries the specular factors and emissive texture and sampler
-  slots. Rebuild SDK consumers and shader artifacts.
+- Backend contract 15 and shader ABI 22 carry the specular environment,
+  specular factors, and emissive and opacity textures. GPU Scene ABI 7 carries
+  the specular factors and emissive and opacity texture and sampler slots.
+  Rebuild SDK consumers and shader artifacts.
 
 ## [0.17.0] - 2026-11-25
 

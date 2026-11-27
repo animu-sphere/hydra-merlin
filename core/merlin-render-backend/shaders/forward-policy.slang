@@ -11,9 +11,10 @@ static const uint kForwardSpecularFlag = 16u;
 static const uint kMetallicTextureFlag = 32u;
 static const uint kRoughnessTextureFlag = 64u;
 static const uint kEmissiveTextureFlag = 128u;
+static const uint kOpacityTextureFlag = 256u;
 static const uint kMaskedAlphaFlag = 0x10000000u;
 static const uint kGeometryColorFlag = 0x20000000u;
-static const uint kSamplerIndexShift = 8u;
+static const uint kSamplerIndexShift = 9u;
 static const uint kSamplerIndexMask = 0xffffu;
 
 struct DrawConstants
@@ -57,7 +58,7 @@ struct MaterialConstants
     float4 clip_to_view_direction[3];
     float4 specular_environment_scale; // RGB dome radiance scale, w enables specular IBL
     float4 emissive_radiance; // scene-linear RGB, w is 1 for texture modulation
-    uint4 emissive_texture_resources; // texture/sampler table indices, zw reserved
+    uint4 emissive_opacity_texture_resources; // emissive texture/sampler, opacity texture/sampler
     float4 specular_factors; // RGB tint times weight, w dielectric F0
 };
 
@@ -467,6 +468,12 @@ float3 DefaultEmissiveSample(MaterialConstants material)
 }
 
 [ForceInline]
+float ForwardOpacity(float3 linear_rgb)
+{
+    return dot(linear_rgb, float3(0.2126f, 0.7152f, 0.0722f));
+}
+
+[ForceInline]
 float4 ShadeForwardSurface(
     SurfaceGeometry surface,
     MaterialConstants material,
@@ -569,6 +576,7 @@ float4 ShadeForward(
     float4 normal_sample,
     float2 scalar_factors,
     float3 emissive_sample,
+    float opacity_sample,
     DrawConstants draw,
     Texture2D<float4> specular_environment)
 {
@@ -584,6 +592,7 @@ float4 ShadeForward(
     {
         base_color *= texture_sample;
     }
+    base_color.a *= opacity_sample;
     ForwardSpecularSurface glossy = (ForwardSpecularSurface)0;
     float3 environment_specular = float3(0.0f);
     if (material.surface_policy.y == 0.0f &&
@@ -613,8 +622,11 @@ float4 ShadeForward(
                 glossy.f0, glossy.f90) * material.specular_environment_scale.rgb;
         }
     }
-    return ShadeForwardSurface(surface, material, base_color, draw, glossy,
+    float4 shaded = ShadeForwardSurface(surface, material, base_color, draw, glossy,
         environment_specular, emissive_sample);
+    if ((draw.feature_mask & kOpacityTextureFlag) != 0u)
+        shaded.a = 1.0f;
+    return shaded;
 }
 
 // Generated wrappers retain the diffuse lighting profile until their material
@@ -645,10 +657,12 @@ float4 ShadeForward(
     MaterialConstants material,
     float4 texture_sample,
     float4 normal_sample, float2 scalar_factors, float3 emissive_sample,
+    float opacity_sample,
     Texture2D<float4> specular_environment)
 {
     return ShadeForward(input, front_facing, material, texture_sample,
-        normal_sample, scalar_factors, emissive_sample, draw_constants, specular_environment);
+        normal_sample, scalar_factors, emissive_sample, opacity_sample, draw_constants,
+        specular_environment);
 }
 #endif
 

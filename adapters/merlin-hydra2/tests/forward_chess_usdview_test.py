@@ -101,7 +101,7 @@ def testUsdviewInputFunction(appController):
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         material_differences = _check_chess_inputs(
             stage, pixels(material_pixels), capture, pixels)
-        specular, emission = _check_standard_surface(
+        specular, emission, opacity = _check_standard_surface(
             stage, settings, view, scene_camera, capture)
 
     evidence = {
@@ -123,6 +123,7 @@ def testUsdviewInputFunction(appController):
         "authored_input_changed_pixels": material_differences,
         "specular_probe": specular,
         "emission_probe": emission,
+        "opacity_probe": opacity,
     }
     Path(f"{root}-forward-chess.json").write_text(
         json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
@@ -232,7 +233,9 @@ def _check_standard_surface(stage, settings, view, scene_camera, capture):
     result["authored_constants"] = _check_specular_constants(settings, view, shader, capture)
     settings.enableSceneLights = False
     settings.domeLightEnabled = False
-    return result, _check_emission(stage, view, mesh, shader, capture)
+    emission = _check_emission(stage, view, mesh, shader, capture)
+    opacity = _check_opacity_image(stage, mesh, shader, capture)
+    return result, emission, opacity
 
 
 def _check_specular_constants(settings, view, shader, capture):
@@ -362,3 +365,46 @@ def _check_emission(stage, view, mesh, shader, capture):
     color.ClearSources()
     sample("image-disconnected", (0.25, 0.125, 0.0625))
     return result
+
+
+def _check_opacity_image(stage, mesh, shader, capture):
+    path = Path(os.environ["MERLIN_HYDRA2_SMOKE_IMAGE"]).with_suffix(".opacity.png")
+    image = QImage(2, 1, QImage.Format.Format_RGB888)
+    image.setPixelColor(0, 0, QColor(255, 0, 0))
+    image.setPixelColor(1, 0, QColor(0, 255, 0))
+    assert image.save(str(path)), path
+    texture = UsdShade.Shader.Define(stage, "/SpecularMaterial/OpacityImage")
+    texture.CreateIdAttr("ND_image_color3")
+    file = texture.CreateInput("file", Sdf.ValueTypeNames.Asset)
+    file.Set(Sdf.AssetPath(path.as_posix()))
+    texture.CreateInput("filtertype", Sdf.ValueTypeNames.String).Set("closest")
+    output = texture.CreateOutput("out", Sdf.ValueTypeNames.Color3f)
+    opacity = shader.CreateInput("opacity", Sdf.ValueTypeNames.Color3f)
+    uv = UsdGeom.PrimvarsAPI(mesh).GetPrimvar("st").GetAttr()
+    coordinates = uv.Get()
+
+    opaque, reference = capture("opacity-opaque")
+    covered = opaque["covered_pixels"]
+    assert opaque["opacity_map_materials"] == 0
+    assert opacity.ConnectToSource(output)
+    masked, image = capture("opacity-image")
+    assert masked["opacity_map_materials"] == 1
+    assert 0.45 * covered < masked["covered_pixels"] < 0.55 * covered, masked
+    y = image.height() // 2
+    left, right = image.width() // 4, image.width() * 3 // 4
+    assert image.pixelColor(left, y).getRgb()[:3] != reference.pixelColor(left, y).getRgb()[:3]
+    assert image.pixelColor(right, y).getRgb()[:3] == reference.pixelColor(right, y).getRgb()[:3]
+
+    uv.Block()
+    no_uv, image = capture("opacity-no-uv")
+    assert no_uv["opacity_map_materials"] == 1 and no_uv["covered_pixels"] == covered
+    assert image == reference
+    uv.Set(coordinates)
+    file.Set(Sdf.AssetPath(path.with_suffix(".missing.png").as_posix()))
+    missing, image = capture("opacity-missing-file")
+    assert missing["opacity_map_materials"] == 0 and missing["covered_pixels"] == covered
+    assert image == reference
+    opacity.ClearSources()
+    disconnected, image = capture("opacity-disconnected")
+    assert disconnected["opacity_map_materials"] == 0 and image == reference
+    return {"opaque_pixels": covered, "masked_pixels": masked["covered_pixels"]}

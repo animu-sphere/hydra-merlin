@@ -26,11 +26,11 @@ ForwardVertexOutput EvaluateMetalVertex(ForwardVertexInput input, DrawConstants 
 ForwardFragmentOutput ShadeMetalForward(
     ForwardVertexOutput input, bool front_facing, DrawConstants draw,
     MaterialConstants material, float4 texture_sample, float4 normal_sample,
-    float2 scalar_factors, float3 emissive_sample)
+    float2 scalar_factors, float3 emissive_sample, float opacity_sample)
 {
     input.color *= material.base_color;
     return MakeForwardFragmentOutput(ShadeForward(input, front_facing,
-        material, texture_sample, normal_sample, scalar_factors, emissive_sample,
+        material, texture_sample, normal_sample, scalar_factors, emissive_sample, opacity_sample,
         draw, specular_environment), draw);
 }
 
@@ -66,7 +66,20 @@ float3 SampleMetalEmissiveTexture(
     ForwardVertexOutput input, DrawConstants draw, MaterialConstants material)
 {
     if ((draw.feature_mask & kEmissiveTextureFlag) != 0u)
-        return resources.textures[material.emissive_texture_resources.x].Sample(
-            resources.samplers[material.emissive_texture_resources.y], input.texture_coordinate).rgb;
+        return resources.textures[material.emissive_opacity_texture_resources.x].Sample(
+            resources.samplers[material.emissive_opacity_texture_resources.y], input.texture_coordinate).rgb;
     return DefaultEmissiveSample(material);
+}
+
+[ForceInline]
+float SampleMetalOpacityTexture(
+    ForwardVertexOutput input, DrawConstants draw, MaterialConstants material)
+{
+    if ((draw.feature_mask & kOpacityTextureFlag) != 0u)
+    {
+        uint2 slots = material.emissive_opacity_texture_resources.zw;
+        return ForwardOpacity(resources.textures[slots.x].Sample(
+            resources.samplers[slots.y], input.texture_coordinate).rgb);
+    }
+    return 1.0f;
 }

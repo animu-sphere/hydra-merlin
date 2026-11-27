@@ -212,7 +212,8 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
                              MaterialFeature::ForwardSpecular |
                              MaterialFeature::MetallicTexture |
                              MaterialFeature::RoughnessTexture |
-                             MaterialFeature::EmissiveTexture;
+                             MaterialFeature::EmissiveTexture |
+                             MaterialFeature::OpacityTexture;
   const auto unsupported = static_cast<std::uint32_t>(descriptor.features) &
                            ~static_cast<std::uint32_t>(supported);
   if (unsupported != 0U) {
@@ -241,9 +242,14 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
       !descriptor.emissive_texture) {
     throw std::invalid_argument("emissive texture feature requires a texture binding");
   }
+  if (HasMaterialFeature(descriptor.features, MaterialFeature::OpacityTexture) &&
+      (!descriptor.opacity_texture || descriptor.alpha_mode != AlphaMode::Masked)) {
+    throw std::invalid_argument("opacity texture feature requires a masked material and texture binding");
+  }
   for (const auto& binding : {descriptor.base_color_texture,
            descriptor.normal_texture, descriptor.metallic_texture,
-           descriptor.roughness_texture, descriptor.emissive_texture}) {
+           descriptor.roughness_texture, descriptor.emissive_texture,
+           descriptor.opacity_texture}) {
     if (binding && binding->texcoord_set != 0U) {
       throw std::invalid_argument(
           "only texture coordinate set 0 is currently supported");
@@ -575,7 +581,7 @@ public:
     for (const auto& binding :
         {descriptor.base_color_texture, descriptor.normal_texture,
             descriptor.metallic_texture, descriptor.roughness_texture,
-            descriptor.emissive_texture}) {
+            descriptor.emissive_texture, descriptor.opacity_texture}) {
       if (binding) {
         (void)textures.Get(binding->texture);
         (void)samplers.Get(binding->sampler);

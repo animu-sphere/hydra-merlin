@@ -155,8 +155,10 @@ void Renderer::Impl::StageGpuSceneUpdate(
         validate_binding(material.scalar_texture_resources[i],
             material.scalar_texture_resources[i + 1]);
       }
-      validate_binding(material.emissive_texture_resources[0],
-          material.emissive_texture_resources[1]);
+      validate_binding(material.emissive_opacity_texture_resources[0],
+          material.emissive_opacity_texture_resources[1]);
+      validate_binding(material.emissive_opacity_texture_resources[2],
+          material.emissive_opacity_texture_resources[3]);
     }
   }
   for (const auto& range : update->draws.ranges) {

@@ -137,10 +137,33 @@ int main(int argc, char** argv) try {
     extractor.Apply(world, world.Commit());
     request.snapshot = extractor.snapshot();
   });
+  request.forward_lighting = {};
+  // Reuse the first resident image and sampler to preserve the table indices.
+  world.UpdateTexture(emissive_texture, merlin::tests::ForwardOpacityTexture());
+  merlin::tests::VerifyForwardOpacityTexture(render, [&](bool textured, float cutoff) {
+    const bool changed = material.opacity_texture.has_value() != textured;
+    material.parameters.alpha_cutoff = cutoff;
+    if (textured) {
+      material.features |= merlin::MaterialFeature::OpacityTexture;
+      material.alpha_mode = merlin::AlphaMode::Masked;
+      material.opacity_texture = merlin::TextureBinding{emissive_texture, emissive_sampler, 0};
+      bindings.front().opacity_texture_index = merlin::vulkan::kReservedBindlessTextureSlots;
+      bindings.front().opacity_sampler_index = 0;
+    } else {
+      material.features = merlin::MaterialFeature::DirectionalLight;
+      material.alpha_mode = merlin::AlphaMode::Opaque;
+      material.opacity_texture.reset();
+      bindings.front() = {};
+    }
+    world.UpdateMaterial(instance.material, material, changed
+        ? merlin::ChangeAspect::MaterialParameters | merlin::ChangeAspect::MaterialFeatures
+        : merlin::ChangeAspect::MaterialParameters);
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+  });
   world.Remove(emissive_sampler);
   world.Remove(emissive_texture);
-  request.forward_lighting = {};
-  std::cout << mode << ": emissive UV0 image, linear decode and live intensity passed\n";
+  std::cout << mode << ": emissive and opacity UV0 images passed\n";
 
   // A small HDR emitter centered on +Z. A face-on metal reflects its
   // authored RGB at low roughness, even with the panorama hidden.

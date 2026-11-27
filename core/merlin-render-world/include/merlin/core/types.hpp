@@ -192,6 +192,7 @@ enum class MaterialFeature : std::uint32_t {
   MetallicTexture = 1U << 5U,
   RoughnessTexture = 1U << 6U,
   EmissiveTexture = 1U << 7U,
+  OpacityTexture = 1U << 8U,
 };
 
 [[nodiscard]] constexpr MaterialFeature operator|(MaterialFeature lhs,
@@ -416,6 +417,8 @@ struct MaterialIR {
   std::optional<TextureBinding> metallic_texture;
   std::optional<TextureBinding> roughness_texture;
   std::optional<TextureBinding> emissive_texture;
+  // UV0 cutout coverage from scene-linear RGB luminance.
+  std::optional<TextureBinding> opacity_texture;
 };
 
 using MaterialDescriptor = MaterialIR;

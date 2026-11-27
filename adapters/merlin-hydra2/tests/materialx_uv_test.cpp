@@ -159,6 +159,41 @@ void VerifyImageUv(const char* texture_path) {
   check_rejection("requires the st primvar");
   uv.parameters[geomprop] = VtValue(TfToken("st"));
   check_uv0(sync());
+
+  const TfToken opacity("opacity");
+  const TfToken file("file");
+  surface.inputConnections[opacity] = {{image_path, out}};
+  const auto masked = sync();
+  check_uv0(masked);
+  Check(masked.alpha_mode == merlin::AlphaMode::Masked &&
+        masked.parameters.alpha_cutoff == 0.5F &&
+        masked.opacity_texture && masked.opacity_texture->texcoord_set == 0 &&
+        merlin::HasMaterialFeature(masked.features, merlin::MaterialFeature::OpacityTexture),
+      "opacity image did not select UV0 alpha masking");
+  Check(masked.opacity_texture->texture_index == masked.emissive_texture->texture_index,
+      "opacity and emission could not share the same image");
+
+  image.parameters[file] = VtValue(SdfAssetPath());
+  const auto missing = sync();
+  Check(missing.alpha_mode == merlin::AlphaMode::Opaque && !missing.opacity_texture &&
+        !merlin::HasMaterialFeature(missing.features, merlin::MaterialFeature::OpacityTexture),
+      "missing opacity image did not fall back to opaque");
+  const auto diagnostics = delegate.GetLatestViewportFrame().diagnostics;
+  Check(std::any_of(diagnostics.begin(), diagnostics.end(), [&](const auto& item) {
+    return item.code == "hydra.material.materialx-subset" &&
+           item.source == path.GetString() && item.message.find("opacity (") != std::string::npos;
+  }), "missing opacity image did not report the input name");
+  image.parameters[file] = VtValue(SdfAssetPath(texture_path));
+  const auto recovered = sync();
+  Check(recovered.material == masked.material && recovered.opacity_texture &&
+        recovered.alpha_mode == merlin::AlphaMode::Masked,
+      "restoring the opacity image did not recover the same masked material");
+
+  surface.inputConnections.erase(opacity);
+  const auto disconnected = sync();
+  check_uv0(disconnected);
+  Check(disconnected.alpha_mode == merlin::AlphaMode::Opaque && !disconnected.opacity_texture,
+      "disconnecting opacity changed the remaining material inputs");
 }
 
 } // namespace
