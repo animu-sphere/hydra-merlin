@@ -793,39 +793,57 @@ void Renderer::Impl::PrepareMaterialDescriptors(
           selected_material_artifacts_});
 }
 
-void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
-    const RenderRequest& request) {
-  const auto& snapshot = *request.snapshot;
-  const auto& clear_color = request.clear_color;
-  const auto& dome = request.forward_lighting.dome;
-  const auto& cpu_readback_aovs = frame.cpu_readback_aovs;
-  const auto display_mode = request.mesh_display.mode;
-  std::array<VkClearValue, 4> clear{};
-  clear[0].color = {
-      {std::clamp(clear_color.x, 0.0F, 1.0F),
-          std::clamp(clear_color.y, 0.0F, 1.0F),
-          std::clamp(clear_color.z, 0.0F, 1.0F),
-          std::clamp(clear_color.w, 0.0F, 1.0F)}};
-  clear[1].depthStencil = {1.0F, 0};
-  clear[2].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
-  clear[3].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
-  VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-  pass.renderPass = active_target_->render_pass;
-  pass.framebuffer = active_target_->framebuffer;
-  pass.renderArea = {{0, 0}, {active_target_->width, active_target_->height}};
-  pass.clearValueCount = static_cast<std::uint32_t>(clear.size());
-  pass.pClearValues = clear.data();
-  vkCmdBeginRenderPass(command, &pass, VK_SUBPASS_CONTENTS_INLINE);
-  const VkViewport viewport{0.0F, 0.0F, static_cast<float>(active_target_->width),
-      static_cast<float>(active_target_->height), 0.0F, 1.0F};
-  const VkRect2D scissor{{0, 0}, {active_target_->width, active_target_->height}};
-  vkCmdSetViewport(command, 0, 1, &viewport);
-  vkCmdSetScissor(command, 0, 1, &scissor);
-  const float polygon_offset = render::OffsetMeshSurfaces(display_mode) ? 1.0F : 0.0F;
-  vkCmdSetDepthBias(command, polygon_offset, 0.0F, polygon_offset);
-  if (dome && dome->camera_visible) {
-    RecordDome(command, frame, *dome);
+bool Renderer::Impl::IsTransmissiveDraw(const extraction::DrawRecord& draw) const {
+  const auto& material = material_records_[draw.material_index];
+  return selected_material_artifacts_[draw.material_index] == nullptr &&
+      material.parameters.transmission_weight > 0.0F &&
+      HasMaterialFeature(material.features, MaterialFeature::DirectionalLight) &&
+      HasMaterialFeature(material.features, MaterialFeature::ForwardSpecular) &&
+      (material.parameters.metallic < 1.0F ||
+          (material.metallic_texture && geometry_records_[draw.geometry_index].has_texcoords));
+}
+
+bool Renderer::Impl::NeedsOpaqueSceneCapture(const RenderRequest& request) const {
+  const auto display = request.mesh_display.mode;
+  if (!render::DrawMeshSurfaces(display) || display == render::MeshDisplayMode::Geometry ||
+      display == render::MeshDisplayMode::HiddenSurfaceWireframe ||
+      request.debug_view != render::DebugView::None) {
+    return false;
   }
+  // Check materials first to keep ordinary GPU-driven frames free of a
+  // per-draw scan.
+  bool has_transmission = false;
+  for (std::size_t i = 0; i < material_records_.size(); ++i) {
+    if (material_records_[i].parameters.transmission_weight > 0.0F) {
+      has_transmission = true;
+      break;
+    }
+  }
+  if (!has_transmission) {
+    return false;
+  }
+  bool transmissive = false;
+  bool opaque = false;
+  for (std::size_t i = 0; i < draw_records_.size(); ++i) {
+    if (IsTransmissiveDraw(draw_records_[i])) {
+      transmissive = true;
+    } else {
+      opaque = true;
+    }
+    if (transmissive && opaque) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void Renderer::Impl::RecordForwardMeshes(VkCommandBuffer command, FrameContext& frame,
+    const RenderRequest& request, bool opaque_capture) {
+  const auto& snapshot = *request.snapshot;
+  const auto display_mode = request.mesh_display.mode;
+  const auto environment_set = frame.capture_opaque_scene && !opaque_capture
+      ? frame.refraction_environment_set
+      : frame.specular_environment_set;
   const auto view_projection = render::MultiplyForwardMatrices(snapshot.projection, snapshot.view);
   const auto gpu_scene_draw_slots =
       gpu_scene_buffers_.pending_update
@@ -841,10 +859,10 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
   const bool draw_mesh_surfaces = render::DrawMeshSurfaces(display_mode);
   const bool use_surface_materials = display_mode != render::MeshDisplayMode::Geometry &&
       display_mode != render::MeshDisplayMode::HiddenSurfaceWireframe;
-  if (draw_mesh_surfaces && frame.gpu_driven.selected) {
+  if (draw_mesh_surfaces && frame.gpu_driven.selected && !opaque_capture) {
     const std::array descriptor_sets{
         bindless_descriptor_set_, frame.bindless_material_descriptor_set,
-        frame.specular_environment_set};
+        environment_set};
     const std::uint32_t dynamic_offset{};
     vkCmdBindDescriptorSets(
         command, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -879,6 +897,12 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
   } else if (draw_mesh_surfaces) {
     for (std::size_t i = 0; i < draw_records_.size(); ++i) {
       const auto& draw = draw_records_[i];
+      if (opaque_capture) {
+        ++frame_counters_.mesh_cpu_draw_visit_count;
+        if (IsTransmissiveDraw(draw)) {
+          continue;
+        }
+      }
       const auto& geometry = geometry_records_[draw.geometry_index];
       const auto& slot = geometry_slots_.at(geometry.mesh);
       const auto vertex_buffer = vertex_arena_.buffer(slot.vertices.block);
@@ -889,24 +913,25 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
       const auto& instance = instance_records_[draw.instance_index];
       const auto& material = material_records_[draw.material_index];
       const auto variant = MakeDrawPipelineVariant(draw, snapshot);
-      auto feature_mask = variant.feature_mask;
+      const auto pipeline_key = variant.variant_key |
+          (opaque_capture ? kOpaqueCapturePipelineFlag : 0U);
       const auto* generated_artifact =
           use_surface_materials ? selected_material_artifacts_[draw.material_index]
                                 : nullptr;
       const bool use_gpu_scene =
           gpu_scene_ready && generated_artifact == nullptr;
-      if (generated_artifact != nullptr) {
+      if (!opaque_capture && generated_artifact != nullptr) {
         ++frame_counters_.generated_material_draw_count;
-      } else if (material.module) {
+      } else if (!opaque_capture && material.module) {
         ++frame_counters_.generated_material_fallback_count;
       }
       const auto pipeline =
           generated_artifact != nullptr
               ? EnsureGeneratedPipeline(active_target_->shaders,
                     *generated_artifact,
-                    variant.variant_key)
+                    pipeline_key)
               : EnsurePipeline(active_target_->shaders,
-                    variant.variant_key |
+                    pipeline_key |
                         (use_gpu_scene
                                 ? kGpuScenePipelineFlag
                                 : 0U));
@@ -933,7 +958,7 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
         descriptor_sets[shader_abi::kBindlessMaterialConstants.set] =
             frame.bindless_material_descriptor_set;
         descriptor_sets[shader_abi::kBindlessSpecularEnvironment.set] =
-            frame.specular_environment_set;
+            environment_set;
         vkCmdBindDescriptorSets(
             command, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0,
@@ -941,7 +966,7 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
             descriptor_sets.data(), 1, &dynamic_offset);
       } else {
         const std::array descriptor_sets{frame.material_descriptor_sets[draw.material_index],
-            frame.specular_environment_set};
+            environment_set};
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipeline_layout, 0, generated_artifact != nullptr ? 1U : 2U,
             descriptor_sets.data(), 0, nullptr);
@@ -954,7 +979,9 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
             VK_SHADER_STAGE_VERTEX_BIT |
                 VK_SHADER_STAGE_FRAGMENT_BIT,
             0, sizeof(push), &push);
-        ++frame_counters_.gpu_scene_draw_count;
+        if (!opaque_capture) {
+          ++frame_counters_.gpu_scene_draw_count;
+        }
       } else {
         PushConstants push;
         push.model_view_projection =
@@ -963,7 +990,7 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
         push.normal_matrix_column0 = normal_matrix[0];
         push.normal_matrix_column1 = normal_matrix[1];
         push.normal_matrix_column2 = normal_matrix[2];
-        push.feature_mask = feature_mask;
+        push.feature_mask = variant.feature_mask;
         if (geometry.has_colors) {
           push.feature_mask |= render::kForwardGeometryColorFlag;
         }
@@ -1000,6 +1027,54 @@ void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
       vkCmdDrawIndexed(command, slot.index_count, 1, 0, 0, 0);
     }
   }
+}
+
+void Renderer::Impl::RecordFrame(VkCommandBuffer command, FrameContext& frame,
+    const RenderRequest& request) {
+  const auto& clear_color = request.clear_color;
+  const auto& dome = request.forward_lighting.dome;
+  const auto& cpu_readback_aovs = frame.cpu_readback_aovs;
+  const auto display_mode = request.mesh_display.mode;
+  std::array<VkClearValue, 4> clear{};
+  clear[0].color = {
+      {std::clamp(clear_color.x, 0.0F, 1.0F),
+          std::clamp(clear_color.y, 0.0F, 1.0F),
+          std::clamp(clear_color.z, 0.0F, 1.0F),
+          std::clamp(clear_color.w, 0.0F, 1.0F)}};
+  clear[1].depthStencil = {1.0F, 0};
+  clear[2].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
+  clear[3].color.uint32[0] = std::numeric_limits<std::uint32_t>::max();
+  VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+  pass.renderPass = active_target_->render_pass;
+  pass.framebuffer = active_target_->framebuffer;
+  pass.renderArea = {{0, 0}, {active_target_->width, active_target_->height}};
+  pass.clearValueCount = static_cast<std::uint32_t>(clear.size());
+  pass.pClearValues = clear.data();
+  const VkViewport viewport{0.0F, 0.0F, static_cast<float>(active_target_->width),
+      static_cast<float>(active_target_->height), 0.0F, 1.0F};
+  const VkRect2D scissor{{0, 0}, {active_target_->width, active_target_->height}};
+  const float polygon_offset = render::OffsetMeshSurfaces(display_mode) ? 1.0F : 0.0F;
+  const auto set_viewport = [&] {
+    vkCmdSetViewport(command, 0, 1, &viewport);
+    vkCmdSetScissor(command, 0, 1, &scissor);
+    vkCmdSetDepthBias(command, polygon_offset, 0.0F, polygon_offset);
+  };
+  if (frame.capture_opaque_scene) {
+    auto capture = pass;
+    capture.renderPass = frame.target.opaque_scene.render_pass;
+    capture.framebuffer = frame.target.opaque_scene.framebuffer;
+    capture.clearValueCount = 2;
+    vkCmdBeginRenderPass(command, &capture, VK_SUBPASS_CONTENTS_INLINE);
+    set_viewport();
+    RecordForwardMeshes(command, frame, request, true);
+    vkCmdEndRenderPass(command);
+  }
+  vkCmdBeginRenderPass(command, &pass, VK_SUBPASS_CONTENTS_INLINE);
+  set_viewport();
+  if (dome && dome->camera_visible) {
+    RecordDome(command, frame, *dome);
+  }
+  RecordForwardMeshes(command, frame, request, false);
   RecordMeshDisplay(command, frame, request);
   vkCmdNextSubpass(command, VK_SUBPASS_CONTENTS_INLINE);
   if (frame.timestamp_pool != VK_NULL_HANDLE) {

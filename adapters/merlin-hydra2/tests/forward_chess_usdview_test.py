@@ -103,6 +103,9 @@ def testUsdviewInputFunction(appController):
             stage, pixels(material_pixels), capture, pixels)
         settings.domeLightEnabled = True
         transmission = _check_pawn_transmission(stage, pixels(dome_pixels), capture, pixels)
+        refraction = None
+        if os.environ["MERLIN_HYDRA2_TEST_BACKEND"] == "vulkan":
+            refraction = _check_pawn_refraction(stage, pixels(dome_pixels), capture, pixels)
         settings.domeLightEnabled = False
         specular, emission, opacity = _check_standard_surface(
             stage, settings, view, scene_camera, capture)
@@ -125,6 +128,7 @@ def testUsdviewInputFunction(appController):
         "dome_changed_pixels": changed_dome,
         "authored_input_changed_pixels": material_differences,
         "pawn_transmission_changed_pixels": transmission,
+        "pawn_refraction_changed_pixels": refraction,
         "specular_probe": specular,
         "emission_probe": emission,
         "opacity_probe": opacity,
@@ -183,6 +187,51 @@ def _check_pawn_transmission(stage, baseline, capture, pixels):
         weight.GetAttr().Clear()
     _, restored = capture("chess-transmission-restored")
     assert pixels(restored) == baseline, "pawn transmission did not restore"
+    return changed
+
+
+def _check_pawn_refraction(stage, baseline, capture, pixels):
+    weights = [UsdShade.Material.Get(
+        stage, f"/ChessSet/{group}/Pawns/Pawn/Materials/M_Pawn_Top_{suffix}"
+    ).GetInput("transmission") for group, suffix in (("Black", "B"), ("White", "W"))]
+    for weight in weights:
+        weight.Set(0.0)
+    _, opaque = capture("chess-refraction-opaque")
+    board = stage.GetPrimAtPath("/ChessSet/Chessboard")
+    emissions = []
+    for prim in Usd.PrimRange(board):
+        shader = UsdShade.Shader(prim)
+        if not shader or shader.GetIdAttr().Get() != "ND_standard_surface_surfaceshader":
+            continue
+        weight = shader.CreateInput("emission", Sdf.ValueTypeNames.Float)
+        color = shader.CreateInput("emission_color", Sdf.ValueTypeNames.Color3f)
+        for shader_input in (weight, color):
+            if shader_input.HasConnectedSource():
+                shader_input.DisconnectSource()
+        weight.Set(1.0)
+        color.Set(Gf.Vec3f(0, 2, 0))
+        emissions.extend((weight, color))
+    assert emissions, "no Open Chess Set board surfaces to recolor"
+    _, opaque_green = capture("chess-refraction-opaque-green")
+    for weight in weights:
+        weight.GetAttr().Clear()
+    _, transmitted_green = capture("chess-refraction-transmitted-green")
+    for emission in emissions:
+        emission.ClearSources()
+        emission.GetAttr().Clear()
+
+    # The board is hidden at these pixels with opaque heads. Its emission
+    # can reach them only when it is sampled through a head.
+    opaque, opaque_green, transmitted_green = map(pixels, (opaque, opaque_green, transmitted_green))
+    changed = sum(
+        max(abs(opaque[i + c] - opaque_green[i + c]) for c in range(3)) <= 2
+        and max(abs(baseline[i + c] - opaque[i + c]) for c in range(3)) > 4
+        and transmitted_green[i + 1] - baseline[i + 1] > 8
+        for i in range(0, len(baseline), 4)
+    )
+    assert changed > 8, f"no board emission visible through the pawn heads ({changed} pixels)"
+    _, restored = capture("chess-refraction-restored")
+    assert pixels(restored) == baseline, "refraction capture did not restore"
     return changed
 
 

@@ -127,6 +127,17 @@ public:
     }
   };
 
+  struct OpaqueSceneTarget {
+    VkImage color{};
+    VkDeviceMemory color_memory{};
+    VkImageView color_view{};
+    VkImage depth{};
+    VkDeviceMemory depth_memory{};
+    VkImageView depth_view{};
+    VkRenderPass render_pass{};
+    VkFramebuffer framebuffer{};
+  };
+
   struct RenderTarget {
     std::uint32_t width{};
     std::uint32_t height{};
@@ -148,6 +159,7 @@ public:
     VkImageView instance_id_view{};
     VkRenderPass render_pass{};
     VkFramebuffer framebuffer{};
+    OpaqueSceneTarget opaque_scene;
     VkPipelineLayout pipeline_layout{};
     std::map<std::uint32_t, VkPipeline> pipelines;
     std::map<std::uint32_t, VkPipeline> gpu_driven_pipelines;
@@ -414,8 +426,12 @@ public:
     VkDescriptorPool environment_descriptor_pool{};
     VkDescriptorSet dome_descriptor_set{};
     VkDescriptorSet specular_environment_set{};
+    VkDescriptorSet refraction_environment_set{};
     VkImageView specular_environment_view{};
     std::uint64_t specular_environment_generation{};
+    std::array<VkImageView, 3> refraction_environment_views{};
+    std::uint64_t refraction_environment_generation{};
+    bool capture_opaque_scene{};
     std::uint32_t descriptor_capacity{};
     std::vector<VkDescriptorSet> material_descriptor_sets;
     VkDescriptorSet bindless_material_descriptor_set{};
@@ -931,6 +947,8 @@ public:
       bool gaussian_tile_raster_images, bool gaussian_float_color);
 
   void CreateRenderPass();
+  bool EnsureOpaqueSceneTarget(RenderTarget& target);
+  void DestroyOpaqueSceneTarget(OpaqueSceneTarget& target) noexcept;
 
   VkShaderModule GetShaderModule(const std::filesystem::path& path);
 
@@ -944,8 +962,12 @@ public:
       const render::ForwardDomeLight& dome);
   void EnsureEnvironmentDescriptorSetLayout();
   void WriteEnvironmentDescriptor(FrameContext& frame, VkDescriptorSet& set,
-      VkImageView view);
+      VkImageView view, VkImageView opaque_color, VkImageView opaque_depth);
   void PrepareSpecularEnvironment(FrameContext& frame, TextureHandle atlas);
+  bool NeedsOpaqueSceneCapture(const RenderRequest& request) const;
+  bool IsTransmissiveDraw(const extraction::DrawRecord& draw) const;
+  void RecordForwardMeshes(VkCommandBuffer command, FrameContext& frame,
+      const RenderRequest& request, bool opaque_capture);
 
   VkPipeline EnsurePipeline(const ShaderPaths& shaders,
       std::uint32_t variant_key);

@@ -199,28 +199,33 @@ transmission lobe scales down dielectric diffuse by `1 - transmission`.
 Specular highlights keep the existing direct and dome lighting.
 
 The visible interface bends the camera ray from air into the dielectric using
-`specular_IOR` and the shading normal. The resulting direction samples the
-dome's prefiltered radiance at the surface roughness. The transmitted term
-uses the scene-linear tint, the complement of the dielectric Schlick
-reflection, and the dielectric fraction `1 - metalness`. It enters RGB
-before exposure and tone mapping. An enabled dome with its panorama hidden
-still illuminates transmission. The rasterized surface supplies coverage,
-depth and picking IDs, including for full transmission.
+`specular_IOR` and the shading normal. The transmitted radiance uses the
+scene-linear tint, the complement of the dielectric Schlick reflection, and
+the dielectric fraction `1 - metalness`. It enters RGB before exposure and
+tone mapping. The rasterized interface supplies coverage, depth and picking
+IDs, including at full transmission.
 [MaterialX PBR specification](https://github.com/AcademySoftwareFoundation/MaterialX/blob/main/documents/Specification/MaterialX.PBRSpec.md)
+
+The Vulkan Forward pass captures the nearest opaque and alpha-masked Mesh
+surfaces into frame-owned scene-linear floating-point color and device depth
+when both opaque and transmissive draws are present. Capture requires
+renderable, sampleable `RGBA32F` and `D32F` images. The opaque pass applies
+each surface's lighting and alpha test and bypasses the output transform. The main
+pass searches along the projected refracted ray and accepts intersections
+behind the visible interface. It refines depth crossings and samples the
+opaque radiance at a verified hit. Missing and off-screen hits sample the
+prefiltered dome at the material's roughness, including when the panorama is
+hidden. The screen-space approximation has a bounded search and can miss
+thin or occluded geometry. It resolves one interface against the opaque Mesh
+snapshot. The dome supplies incident radiance on Metal.
 
 Unsupported weight or tint inputs (including textures) and active
 `thin_walled`, depth, scatter, dispersion or extra roughness use zero
 transmission and report `hydra.material.materialx-subset`. Constant edits
-update material values and reuse the pipeline. The generated material
-prototype retains its existing lighting profile.
-
-Scene refraction is the next step for the pawn tops. It needs a scene-linear
-opaque color and depth snapshot before transmissive draws. Compare the
-refracted sample against opaque depth and use the dome when the ray leaves
-the viewport or misses. The current approximation covers only the visible
-interface and the dome, so the board and other pieces cannot be seen through
-the pawn heads. Multi-interface refraction and interior transport need
-separate validation.
+update material values. The first mixed opaque/transmissive frame creates the
+capture targets and the opaque pass pipelines, which are reused by the frame
+context until its targets are recreated. The generated material prototype
+continues to supply its diffuse Forward profile for opaque draws.
 
 ## Output transform
 

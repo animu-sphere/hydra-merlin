@@ -1,3 +1,4 @@
+#define MERLIN_FORWARD_SCENE_SET 2
 #include "forward-common.slang"
 
 [[vk::binding(0, 0)]]

@@ -207,7 +207,7 @@ void Renderer::Impl::AdoptBorrowedContext(const RendererOptions& options) {
       static_cast<std::uint64_t>(
           descriptor_configuration.sampler_capacity) *
       options.frames_in_flight;
-  descriptor_configuration.additional_per_stage_resource_count = 4;
+  descriptor_configuration.additional_per_stage_resource_count = 7;
   capabilities_.descriptor_indexing_selection = SelectDescriptorBackend(
       descriptor_configuration, {}, {});
 
@@ -550,10 +550,10 @@ void Renderer::Impl::CreateDevice(const RendererOptions& options) {
   descriptor_configuration.additional_sampler_allocation_count =
       static_cast<std::uint64_t>(descriptor_configuration.sampler_capacity) *
       options.frames_in_flight;
-  // The current Forward fragment stage exposes three color attachments and
-  // one non-table uniform-buffer descriptor. Standalone sampler descriptors
+  // Forward exposes three color attachments, one uniform block and three
+  // sampled images outside the bindless table. Standalone sampler descriptors
   // are excluded from maxPerStageResources by Vulkan.
-  descriptor_configuration.additional_per_stage_resource_count = 4;
+  descriptor_configuration.additional_per_stage_resource_count = 7;
   capabilities_.descriptor_indexing_selection = SelectDescriptorBackend(
       descriptor_configuration, capabilities_.descriptor_indexing_features,
       capabilities_.descriptor_indexing_limits);

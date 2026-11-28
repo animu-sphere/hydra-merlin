@@ -30,6 +30,9 @@ after its public API and release process are established.
 - Handwritten Forward refracts HDR dome lighting for MaterialX Standard
   Surface transmission. Constant weight and tint edits reuse the pipeline,
   and the Open Chess Set gate checks both pawn head materials.
+- Vulkan Forward samples opaque Mesh radiance through transmissive Standard
+  Surface materials. The Open Chess Set gate checks that the board is visible
+  through the tinted pawn heads.
 - Hydra builds enable OpenSubdiv by default. usdview Complexity requests the
   same levels as Storm. Large meshes use the highest requested refinement
   that fits the CPU working-memory budget.
@@ -38,9 +41,10 @@ after its public API and release process are established.
 
 ### Changed
 
-- Backend contract 16, shader ABI 23 and GPU Scene ABI 8 carry the Forward
+- Backend contract 16, shader ABI 24 and GPU Scene ABI 8 carry the Forward
   dielectric transmission parameters, specular factors, and emissive and
-  opacity texture bindings.
+  opacity texture bindings. Shader ABI 24 adds Vulkan opaque scene color and
+  depth bindings.
   Rebuild SDK consumers and shader artifacts.
 
 ## [0.17.0] - 2026-11-25

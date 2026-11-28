@@ -16,7 +16,7 @@
 
 namespace merlin::vulkan::shader_abi {
 
-inline constexpr std::uint32_t kVersion = 23;
+inline constexpr std::uint32_t kVersion = 24;
 inline constexpr std::uint32_t kArtifactSchemaVersion = 2;
 
 // Derived rather than spelled out so a schema bump cannot leave the runtime
@@ -624,6 +624,10 @@ inline constexpr ResourceBinding kConventionalMaterialConstants{
     0, 31, ResourceClass::UniformBuffer};
 inline constexpr ResourceBinding kConventionalSpecularEnvironment{
     1, 0, ResourceClass::SampledImage};
+inline constexpr ResourceBinding kConventionalOpaqueSceneColor{
+    1, 1, ResourceClass::SampledImage};
+inline constexpr ResourceBinding kConventionalOpaqueSceneDepth{
+    1, 2, ResourceClass::SampledImage};
 inline constexpr ResourceBinding kBindlessSamplers{
     0, 0, ResourceClass::Sampler};
 inline constexpr ResourceBinding kBindlessTextures{
@@ -632,6 +636,10 @@ inline constexpr ResourceBinding kBindlessMaterialConstants{
     1, 0, ResourceClass::UniformBuffer};
 inline constexpr ResourceBinding kBindlessSpecularEnvironment{
     2, 0, ResourceClass::SampledImage};
+inline constexpr ResourceBinding kBindlessOpaqueSceneColor{
+    2, 1, ResourceClass::SampledImage};
+inline constexpr ResourceBinding kBindlessOpaqueSceneDepth{
+    2, 2, ResourceClass::SampledImage};
 inline constexpr ResourceBinding kGpuSceneGeometries{
     1, 1, ResourceClass::StorageBuffer};
 inline constexpr ResourceBinding kGpuSceneInstances{

@@ -261,9 +261,17 @@ int main(int argc, char** argv) {
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":31}");
     RequireBinding(conventional_fragment, "specular_environment",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":0}");
+    RequireBinding(conventional_fragment, "opaque_scene_color",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":1}");
+    RequireBinding(conventional_fragment, "opaque_scene_depth",
+        "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":1,\"index\":2}");
     for (const auto* fragment : {&bindless_fragment, &gpu_scene_fragment, &gpu_driven_fragment}) {
       RequireBinding(*fragment, "specular_environment",
           "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":0}");
+      RequireBinding(*fragment, "opaque_scene_color",
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":1}");
+      RequireBinding(*fragment, "opaque_scene_depth",
+          "\"binding\":{\"kind\":\"descriptorTableSlot\",\"space\":2,\"index\":2}");
     }
     RequireBinding(bindless_fragment, "bindless_samplers",
         "\"binding\":{\"kind\":\"descriptorTableSlot\",\"index\":0}");
@@ -616,7 +624,7 @@ int main(int argc, char** argv) {
     RequireBareFilenames(manifest, "source");
 
     using namespace merlin::vulkan::shader_abi;
-    static_assert(kVersion == 23);
+    static_assert(kVersion == 24);
     static_assert(kArtifactSchemaVersion == 2);
     static_assert(kConventionalBaseColorTexture.set == 0);
     static_assert(kConventionalBaseColorTexture.binding == 0);

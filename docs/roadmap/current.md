@@ -8,10 +8,9 @@ Deferred work and future milestones are in the [backlog](backlog.md).
 
 ## Forward MaterialX transmission
 
-- Add opaque scene color and depth sampling for pawn-top refraction, and
-  verify that a surface behind the pawn is visible through the tinted head.
-  The initial [dome-lit transmission profile](../design/forward-lighting.md#dielectric-transmission)
-  supplies the material and lighting inputs.
+- Implement Metal opaque scene sampling for pawn-top refraction and verify it
+  with the native HDR backdrop and Open Chess Set gates. See the
+  [transmission profile](../design/forward-lighting.md#dielectric-transmission).
 
 ## v0.18.0 — High-resolution Gaussian tiles
 

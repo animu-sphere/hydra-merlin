@@ -3,6 +3,10 @@
 
 #include "specular-environment.slang"
 
+#ifndef MERLIN_FORWARD_OPAQUE_CAPTURE
+#define MERLIN_FORWARD_OPAQUE_CAPTURE false
+#endif
+
 static const uint kDisplayColorFlag = 1u;
 static const uint kBaseColorTextureFlag = 2u;
 static const uint kDirectionalLightFlag = 4u;
@@ -560,11 +564,11 @@ float4 ShadeForwardSurface(
         // RGB remains linear. Exposure is 2^EV; Reinhard divides by inverse
         // exposure to avoid overflowing finite HDR inputs at positive EV.
         // Presentation alone applies display encoding. Alpha is unchanged.
-        if (material.output_transform.y == 1.0f)
+        if (!MERLIN_FORWARD_OPAQUE_CAPTURE && material.output_transform.y == 1.0f)
         {
             shaded.rgb = shaded.rgb / (material.output_transform.z + shaded.rgb);
         }
-        else
+        else if (!MERLIN_FORWARD_OPAQUE_CAPTURE)
         {
             shaded.rgb *= material.output_transform.x;
         }
@@ -576,6 +580,100 @@ float4 ShadeForwardSurface(
     }
     return shaded;
 }
+
+#ifdef MERLIN_FORWARD_SCENE_SET
+float ForwardRayExit(float plane, float slope, float limit)
+{
+    return slope < 0.0f ? min(limit, -plane / slope) : limit;
+}
+
+float ForwardOpaqueDepthAt(float2 position, uint2 extent)
+{
+    int2 pixel = clamp(int2(position), int2(0), int2(extent) - 1);
+    return opaque_scene_depth.Load(int3(pixel, 0));
+}
+
+bool SampleForwardOpaqueScene(ForwardVertexOutput input, DrawConstants draw,
+    float3 direction, out float3 radiance)
+{
+    radiance = float3(0.0f);
+    uint2 extent;
+    opaque_scene_depth.GetDimensions(extent.x, extent.y);
+    if (any(input.position.xy >= float2(extent)))
+        return false;
+
+    // Transpose the normal matrix to map a world direction back to object
+    // space, then project it with the same transform as the surface.
+    float3 object_ray = float3(dot(draw.normal_matrix_column0.xyz, direction),
+        dot(draw.normal_matrix_column1.xyz, direction),
+        dot(draw.normal_matrix_column2.xyz, direction));
+    float4 ray = mul(draw.model_view_projection, float4(object_ray, 0.0f));
+    float4 start = float4(input.clip_xyw.xy, input.position.z * input.clip_xyw.z,
+        input.clip_xyw.z);
+    const float infinite_ray = 3.402823e38f;
+    float distance = ForwardRayExit(start.z, ray.z, infinite_ray);
+    distance = ForwardRayExit(start.w - start.z, ray.w - ray.z, distance);
+    distance = ForwardRayExit(start.w + start.x, ray.w + ray.x, distance);
+    distance = ForwardRayExit(start.w - start.x, ray.w - ray.x, distance);
+    distance = ForwardRayExit(start.w + start.y, ray.w + ray.y, distance);
+    distance = ForwardRayExit(start.w - start.y, ray.w - ray.y, distance);
+    float4 endpoint = distance == infinite_ray ? ray : start + distance * ray;
+    if (distance <= 0.0f || endpoint.w <= 0.0f)
+        return false;
+    float3 end = endpoint.xyz / endpoint.w;
+    float depth_span = end.z - input.position.z;
+    if (!all(isfinite(end)) || depth_span <= 0.0f)
+        return false;
+
+    // The projected ray is a line in framebuffer coordinates and device
+    // depth. Recheck the texel at the candidate intersection to avoid
+    // sampling across depth discontinuities.
+    float2 delta = (end.xy * 0.5f + 0.5f) * float2(extent) - input.position.xy;
+    int steps = int(clamp(ceil(max(abs(delta.x), abs(delta.y))), 1.0f, 32.0f));
+    for (int step = 1; step <= steps; ++step)
+    {
+        float t = float(step) / float(steps);
+        float scene_depth = ForwardOpaqueDepthAt(input.position.xy + delta * t, extent);
+        float hit_t = (scene_depth - input.position.z) / depth_span;
+        if (scene_depth < 1.0f && hit_t > 0.0f && hit_t <= t)
+        {
+            // Refine the crossing when the first sample is already behind a
+            // sloping surface. Reject discontinuities by checking the depth
+            // at the intersection reconstructed from the final sample.
+            float2 hit = input.position.xy + delta * hit_t;
+            if (ForwardOpaqueDepthAt(hit, extent) != scene_depth)
+            {
+                float lo = float(step - 1) / float(steps);
+                float hi = t;
+                for (int refine = 0; refine < 6; ++refine)
+                {
+                    float middle = (lo + hi) * 0.5f;
+                    float depth = ForwardOpaqueDepthAt(input.position.xy + delta * middle, extent);
+                    float depth_t = (depth - input.position.z) / depth_span;
+                    if (depth < 1.0f && depth_t > 0.0f && depth_t <= middle)
+                    {
+                        hi = middle;
+                        scene_depth = depth;
+                        hit_t = depth_t;
+                    }
+                    else
+                    {
+                        lo = middle;
+                    }
+                }
+                hit = input.position.xy + delta * hit_t;
+            }
+            if (all(hit >= 0.0f) && all(hit < float2(extent)) &&
+                ForwardOpaqueDepthAt(hit, extent) == scene_depth)
+            {
+                radiance = opaque_scene_color.Load(int3(int2(hit), 0)).rgb;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+#endif
 
 [ForceInline]
 float4 ShadeForward(
@@ -605,7 +703,7 @@ float4 ShadeForward(
     base_color.a *= opacity_sample;
     ForwardSpecularSurface glossy = (ForwardSpecularSurface)0;
     float3 environment_specular = float3(0.0f);
-    float3 environment_transmission = float3(0.0f);
+    float3 transmitted = float3(0.0f);
     if (material.surface_policy.y == 0.0f &&
         (draw.feature_mask & (kDirectionalLightFlag | kForwardSpecularFlag)) ==
             (kDirectionalLightFlag | kForwardSpecularFlag))
@@ -631,24 +729,34 @@ float4 ShadeForward(
             environment_specular = EvaluateSpecularEnvironment(specular_environment,
                 SafeNormalize(direction, normal), n_dot_v, glossy.roughness,
                 glossy.f0, glossy.f90) * material.specular_environment_scale.rgb;
-            if (material.transmission_factors.w > 0.0f && glossy.metallic < 1.0f)
+        }
+        if (n_dot_v > 0.0f && material.transmission_factors.w > 0.0f && glossy.metallic < 1.0f)
+        {
+            // Approximate the visible air-to-dielectric interface. A miss
+            // uses the prefiltered dome along the same refracted direction.
+            float3 refracted = refract(-glossy.view, normal, material.surface_factors.w);
+            float3 incident = float3(0.0f);
+            bool hit = false;
+#ifdef MERLIN_FORWARD_SCENE_SET
+            if (!MERLIN_FORWARD_OPAQUE_CAPTURE)
+                hit = SampleForwardOpaqueScene(input, draw, refracted, incident);
+#endif
+            if (!hit && material.specular_environment_scale.w != 0.0f)
             {
-                // Approximate the visible air-to-dielectric interface. Reuse the
-                // prefiltered dome for incident radiance along the refracted ray.
-                float3 refracted = refract(-glossy.view, normal, material.surface_factors.w);
                 float3 environment_ray = mul(material.world_to_environment,
                     float4(refracted, 0.0f)).xyz;
-                float3 fresnel = lerp(tint * dielectric_f0, dielectric_f90,
-                    ForwardSchlickWeight(n_dot_v));
-                environment_transmission = SamplePrefilteredEnvironment(specular_environment,
+                incident = SamplePrefilteredEnvironment(specular_environment,
                     SafeNormalize(environment_ray, -normal), glossy.roughness) *
-                    material.specular_environment_scale.rgb * (1.0f - fresnel) *
-                    material.transmission_factors.rgb * material.transmission_factors.w;
+                    material.specular_environment_scale.rgb;
             }
+            float3 fresnel = lerp(tint * dielectric_f0, dielectric_f90,
+                ForwardSchlickWeight(n_dot_v));
+            transmitted = incident * (1.0f - fresnel) *
+                material.transmission_factors.rgb * material.transmission_factors.w;
         }
     }
     float4 shaded = ShadeForwardSurface(surface, material, base_color, draw, glossy,
-        environment_specular, environment_transmission, emissive_sample);
+        environment_specular, transmitted, emissive_sample);
     if ((draw.feature_mask & kOpacityTextureFlag) != 0u)
         shaded.a = 1.0f;
     return shaded;
@@ -697,7 +805,7 @@ ForwardFragmentOutput MakeForwardFragmentOutput(
     DrawConstants draw)
 {
     ForwardFragmentOutput output;
-    output.color = saturate(color);
+    output.color = MERLIN_FORWARD_OPAQUE_CAPTURE ? color : saturate(color);
     output.prim_id = draw.prim_id;
     output.instance_id = draw.instance_id;
     return output;
