@@ -57,7 +57,14 @@ def testUsdviewInputFunction(controller):
         return sum(event[name] for event in events)
 
     def complexity(value):
-        return lambda _: setattr(settings, "complexity", value)
+        action = next(action for action in controller._complexityActions
+                      if action.text() == value.name)
+
+        def select(_):
+            action.trigger()
+            assert action.isChecked() and settings.complexity == value
+
+        return select
 
     cage, events = capture("baseline", complexity(RefinementComplexities.LOW))
     assert counter(events, "subdivision_eval_count") == 0
@@ -68,6 +75,18 @@ def testUsdviewInputFunction(controller):
     assert stable == medium
     assert counter(events, "subdivision_eval_count") == 0
     assert counter(events, "upload_bytes") == 0
+    high, events = capture("subdivision-high", complexity(RefinementComplexities.HIGH))
+    assert high != medium
+    assert counter(events, "subdivision_plan_count") == 4
+    very_high, events = capture("subdivision-very-high", complexity(RefinementComplexities.VERY_HIGH))
+    assert very_high != high
+    assert counter(events, "subdivision_plan_count") == 4
+    restored, events = capture("subdivision-low-restored", complexity(RefinementComplexities.LOW))
+    assert restored == cage
+    assert counter(events, "subdivision_eval_count") == 0
+    restored, events = capture("subdivision-medium-restored", complexity(RefinementComplexities.MEDIUM))
+    assert restored == medium
+    assert counter(events, "subdivision_plan_count") == 4
 
     def points_edit(_):
         points = Vt.Vec3fArray(default.GetPointsAttr().Get())
@@ -87,10 +106,6 @@ def testUsdviewInputFunction(controller):
     _, events = capture("subdivision-topology",
                         lambda _: default.GetHoleIndicesAttr().Set([1]))
     assert counter(events, "subdivision_plan_count") == 1
-    _, events = capture("subdivision-high", complexity(RefinementComplexities.HIGH))
-    assert counter(events, "subdivision_plan_count") == 4
-    _, events = capture("subdivision-very-high", complexity(RefinementComplexities.VERY_HIGH))
-    assert counter(events, "subdivision_plan_count") == 4
 
     def wireframe(_):
         settings.renderMode = RenderModes.WIREFRAME_ON_SURFACE

@@ -179,7 +179,8 @@ void TestPackedRecordsAndRanges() {
   assert(Near(material.surface_factors.x, 0.75F));
   assert(Near(material.surface_factors.y, 0.25F));
   assert(Near(material.surface_factors.z, 0.6F));
-  assert(material.surface_factors.w == 0.0F);
+  assert(Near(material.surface_factors.w, 1.0F / 1.5F));
+  assert(material.transmission_factors.x == 1.0F && material.transmission_factors.w == 0.0F);
   assert((material.material_class_flags &
              merlin::render::kGpuMaterialAlphaMasked) != 0U);
   assert((material.material_class_flags &

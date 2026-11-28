@@ -234,6 +234,9 @@ struct MaterialParameterBlock {
   Vec3 specular_color{1.0F, 1.0F, 1.0F};
   float specular_weight{1.0F};
   float specular_ior{1.5F};
+  // Handwritten Forward dielectric transmission. Both inputs are in [0, 1].
+  Vec3 transmission_color{1.0F, 1.0F, 1.0F};
+  float transmission_weight{};
 };
 
 struct TextureBinding {

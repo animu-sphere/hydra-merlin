@@ -1215,7 +1215,11 @@ bool MaterialParametersEqual(const merlin::MaterialParameterBlock& lhs,
          lhs.specular_color.y == rhs.specular_color.y &&
          lhs.specular_color.z == rhs.specular_color.z &&
          lhs.specular_weight == rhs.specular_weight &&
-         lhs.specular_ior == rhs.specular_ior;
+         lhs.specular_ior == rhs.specular_ior &&
+         lhs.transmission_color.x == rhs.transmission_color.x &&
+         lhs.transmission_color.y == rhs.transmission_color.y &&
+         lhs.transmission_color.z == rhs.transmission_color.z &&
+         lhs.transmission_weight == rhs.transmission_weight;
 }
 
 bool TextureBindingsEqual(const std::optional<merlin::TextureBinding>& lhs,
@@ -1575,6 +1579,54 @@ void ParseMaterialXEmission(const HdMaterialNetwork2& network,
   }
 }
 
+void ParseMaterialXTransmission(const HdMaterialNetwork2& network,
+    const HdMaterialNode2& surface, ParsedMaterial& result) {
+  const auto in_unit_range = [](float value) { return value >= 0.0F && value <= 1.0F; };
+  auto& unsupported = result.materialx_unsupported_inputs;
+  float weight{};
+  if (!ReadMaterialXConstant(network, surface, "transmission", "ND_constant_float",
+          weight, ReadScalar) || !in_unit_range(weight)) {
+    unsupported.emplace_back("transmission (expected a constant in [0, 1])");
+    return;
+  }
+  if (weight == 0.0F) {
+    return;
+  }
+  const auto initial_diagnostic_count = unsupported.size();
+  merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
+  if (!ReadMaterialXConstant(network, surface, "transmission_color", "ND_constant_color3",
+          color, ReadColor) || !in_unit_range(color.x) || !in_unit_range(color.y) ||
+      !in_unit_range(color.z)) {
+    unsupported.emplace_back("transmission_color (expected a constant RGB in [0, 1])");
+  }
+  for (const auto* input : {"transmission_depth", "transmission_dispersion",
+           "transmission_scatter_anisotropy", "transmission_extra_roughness"}) {
+    const auto* parameter = FindParameter(surface, input);
+    float value{};
+    if (!InputConnections(surface, input).empty() ||
+        (parameter != nullptr && (!ReadScalar(*parameter, value) || value != 0.0F))) {
+      unsupported.emplace_back(input);
+    }
+  }
+  const auto* scatter_parameter = FindParameter(surface, "transmission_scatter");
+  merlin::Vec4 scatter{};
+  if (!InputConnections(surface, "transmission_scatter").empty() ||
+      (scatter_parameter != nullptr && (!ReadColor(*scatter_parameter, scatter) ||
+          scatter.x != 0.0F || scatter.y != 0.0F || scatter.z != 0.0F))) {
+    unsupported.emplace_back("transmission_scatter");
+  }
+  const auto* thin_walled = FindParameter(surface, "thin_walled");
+  if (!InputConnections(surface, "thin_walled").empty() ||
+      (thin_walled != nullptr &&
+          (!thin_walled->IsHolding<bool>() || thin_walled->UncheckedGet<bool>()))) {
+    unsupported.emplace_back("thin_walled (unsupported with transmission)");
+  }
+  if (unsupported.size() == initial_diagnostic_count) {
+    result.material.parameters.transmission_color = {color.x, color.y, color.z};
+    result.material.parameters.transmission_weight = weight;
+  }
+}
+
 void ParseMaterialXSurface(const HdMaterialNetwork2& network,
     const HdMaterialNode2& surface, ParsedMaterial& result) {
   result.flip_texture_rows = true;
@@ -1714,9 +1766,10 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
     result.materialx_unsupported_inputs.emplace_back(
         "specular_color (expected a constant RGB in [0, 1])");
   }
+  ParseMaterialXTransmission(network, surface, result);
   for (const auto& [input, default_value] :
       {std::pair{"specular_anisotropy", 0.0F}, {"specular_rotation", 0.0F},
-          {"subsurface", 0.0F}, {"transmission", 0.0F}, {"coat", 0.0F},
+          {"subsurface", 0.0F}, {"coat", 0.0F},
           {"sheen", 0.0F}, {"thin_film_thickness", 0.0F}}) {
     float value = default_value;
     if (const auto* parameter = FindParameter(surface, input)) {
@@ -4451,7 +4504,7 @@ private:
       subdivision_primvars_initialized_ = true;
     }
     ScopedAtomicTimer refine_timer(g_hydra_telemetry.subdivision_eval_ns);
-    auto result = subdivision_.Refine(*subdivision_topology_, MeshPositions(),
+    auto result = subdivision_.RefineForDisplay(*subdivision_topology_, MeshPositions(),
         {subdivision_texcoords_ ? &*subdivision_texcoords_ : nullptr,
             subdivision_colors_ ? &*subdivision_colors_ : nullptr,
             subdivision_opacities_ ? &*subdivision_opacities_ : nullptr},

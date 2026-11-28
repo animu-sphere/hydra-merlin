@@ -133,10 +133,11 @@ defaults use the input's existing fallback and diagnostic.
 ## MaterialX constant nodes
 
 Hydra accepts a direct standard `constant` node with a literal `value` for
-Standard Surface base, specular and emission controls. Use `ND_constant_float`
-for `base`, `metalness`, `specular_roughness`, `specular`, `specular_IOR` and
-`emission`, and `ND_constant_color3` for `base_color`, `specular_color` and
-`emission_color`. The node's default is zero or black when `value` is omitted.
+Standard Surface base, specular, emission and transmission controls.
+Use `ND_constant_float` for `base`, `metalness`, `specular_roughness`,
+`specular`, `specular_IOR`, `emission` and `transmission`. Use
+`ND_constant_color3` for `base_color`, `specular_color`, `emission_color` and
+`transmission_color`. The node's default is zero or black when `value` is omitted.
 RGB values use the scene-linear working space. Metalness and roughness
 use the same `[0, 1]` clamp as inline values. The base weight multiplies
 either the base color constant or the base color image sample.
@@ -187,6 +188,39 @@ Native callers can bind `MaterialDescriptor::opacity_texture` with
 Forward path uses the material's existing `alpha_cutoff` parameter. A
 cutoff-only edit reuses the pipeline. Fractional alpha blending requires a
 separate compositing policy.
+
+## Dielectric transmission
+
+The handwritten Forward profile accepts constant `transmission` and
+`transmission_color` in `[0, 1]`. The defaults are zero weight and white tint.
+Open Chess Set uses full transmission with different tints on the black and
+white pawn tops, along with shared roughness and normal maps. The active
+transmission lobe scales down dielectric diffuse by `1 - transmission`.
+Specular highlights keep the existing direct and dome lighting.
+
+The visible interface bends the camera ray from air into the dielectric using
+`specular_IOR` and the shading normal. The resulting direction samples the
+dome's prefiltered radiance at the surface roughness. The transmitted term
+uses the scene-linear tint, the complement of the dielectric Schlick
+reflection, and the dielectric fraction `1 - metalness`. It enters RGB
+before exposure and tone mapping. An enabled dome with its panorama hidden
+still illuminates transmission. The rasterized surface supplies coverage,
+depth and picking IDs, including for full transmission.
+[MaterialX PBR specification](https://github.com/AcademySoftwareFoundation/MaterialX/blob/main/documents/Specification/MaterialX.PBRSpec.md)
+
+Unsupported weight or tint inputs (including textures) and active
+`thin_walled`, depth, scatter, dispersion or extra roughness use zero
+transmission and report `hydra.material.materialx-subset`. Constant edits
+update material values and reuse the pipeline. The generated material
+prototype retains its existing lighting profile.
+
+Scene refraction is the next step for the pawn tops. It needs a scene-linear
+opaque color and depth snapshot before transmissive draws. Compare the
+refracted sample against opaque depth and use the dome when the ray leaves
+the viewport or misses. The current approximation covers only the visible
+interface and the dome, so the board and other pieces cannot be seen through
+the pawn heads. Multi-interface refraction and interior transport need
+separate validation.
 
 ## Output transform
 

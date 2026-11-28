@@ -30,7 +30,7 @@ Runtime dependencies are needed by the resulting application or host.
 | Hydra 2 on either backend | A validated OpenUSD shared-library SDK (see the support matrix) matching the compiler and architecture | Matching OpenUSD libraries and plugin resources |
 | usdview host | The Hydra build above | The OpenUSD package's compatible Python, Qt bindings and Python dependencies, including PyOpenGL/NumPy |
 | Optional MaterialX | MaterialX 1.39.6+ with `MaterialXGenSlang`, or the pinned source; CMake 3.26+ for a source build | The selected MaterialX package's shared libraries, if applicable |
-| Optional CPU subdivision | Checked-in OpenSubdiv 3.6.1 sources under `third_party/opensubdiv`, enabled with `-DMERLIN_ENABLE_OPENSUBDIV=ON` | Platform C++ runtime |
+| CPU subdivision | Checked-in OpenSubdiv 3.6.1 sources under `third_party/opensubdiv` | Platform C++ runtime |
 
 Slang is a shader compiler shared by both GPU backends. It emits SPIR-V for
 Vulkan and MSL for Metal; Apple's offline compiler turns the Gaussian MSL into
@@ -41,7 +41,10 @@ SDK consumers still need Vulkan development files for its public link dependency
 
 ### CPU subdivision
 
-Add `-DMERLIN_ENABLE_OPENSUBDIV=ON` to a Core, native or Hydra configuration.
+The default `MERLIN_ENABLE_OPENSUBDIV=AUTO` enables subdivision in Hydra
+builds. Set `-DMERLIN_ENABLE_OPENSUBDIV=ON` to enable it in a Core or native
+build. Existing build directories keep their cached selection. Set it to
+`AUTO` to adopt the new default or `OFF` to use polygon cages.
 The CPU source is compiled into `Merlin::RenderWorld` from
 [`third_party/opensubdiv`](../../third_party/opensubdiv/). OpenSubdiv needs no
 network step or separate installation. Run the CPU reference and any

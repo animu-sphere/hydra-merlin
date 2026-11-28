@@ -251,6 +251,13 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
     Throw(GpuScenePackingErrorCode::InvalidRecord,
         "material emissive radiance must be nonnegative");
   }
+  const auto transmission = PackForwardTransmissionFactors(source.parameters);
+  const auto in_unit_range = [](float value) { return value >= 0.0F && value <= 1.0F; };
+  if (!in_unit_range(transmission.x) || !in_unit_range(transmission.y) ||
+      !in_unit_range(transmission.z) || !in_unit_range(transmission.w)) {
+    Throw(GpuScenePackingErrorCode::InvalidRecord,
+        "material transmission color and weight must be in [0, 1]");
+  }
   const auto feature_flags = static_cast<std::uint32_t>(source.features);
   if ((feature_flags & ~kGpuMaterialFeatureMask) != 0U) {
     Throw(GpuScenePackingErrorCode::InvalidRecord,
@@ -296,7 +303,7 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
   result.base_color = source.parameters.base_color;
   result.surface_factors = {source.parameters.metallic,
       source.parameters.roughness,
-      source.parameters.alpha_cutoff, 0.0F};
+      source.parameters.alpha_cutoff, 1.0F / source.parameters.specular_ior};
   result.material_class_flags = feature_flags;
   if (source.alpha_mode == AlphaMode::Masked) {
     result.material_class_flags |= kGpuMaterialAlphaMasked;
@@ -328,6 +335,7 @@ GpuMaterial PackMaterial(const extraction::MaterialRecord& source,
       binding.emissive_sampler_index, binding.opacity_texture_index,
       binding.opacity_sampler_index};
   result.specular_factors = PackForwardSpecularFactors(source.parameters);
+  result.transmission_factors = transmission;
   return result;
 }
 

@@ -27,14 +27,20 @@ after its public API and release process are established.
 
 - Hydra Forward can cut out MaterialX Standard Surface meshes with a direct
   UV0 opacity image. Rejected fragments write neither depth nor picking IDs.
+- Handwritten Forward refracts HDR dome lighting for MaterialX Standard
+  Surface transmission. Constant weight and tint edits reuse the pipeline,
+  and the Open Chess Set gate checks both pawn head materials.
+- Hydra builds enable OpenSubdiv by default. usdview Complexity requests the
+  same levels as Storm. Large meshes use the highest requested refinement
+  that fits the CPU working-memory budget.
 - `merlin-benchmark` accepts a Gaussian tile pair capacity for high-resolution
   captures and reports the pair counts when tile raster falls back on overflow.
 
 ### Changed
 
-- Backend contract 15 and shader ABI 22 carry the specular environment,
-  specular factors, and emissive and opacity textures. GPU Scene ABI 7 carries
-  the specular factors and emissive and opacity texture and sampler slots.
+- Backend contract 16, shader ABI 23 and GPU Scene ABI 8 carry the Forward
+  dielectric transmission parameters, specular factors, and emissive and
+  opacity texture bindings.
   Rebuild SDK consumers and shader artifacts.
 
 ## [0.17.0] - 2026-11-25

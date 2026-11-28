@@ -205,6 +205,12 @@ void ValidateMaterialParameters(const MaterialDescriptor& descriptor) {
     throw std::invalid_argument(
         "material specular color and weight must be in [0, 1] and IOR must be finite and >= 1");
   }
+  const std::array transmission{p.transmission_color.x, p.transmission_color.y,
+      p.transmission_color.z, p.transmission_weight};
+  if (!std::all_of(transmission.begin(), transmission.end(),
+          [](float value) { return value >= 0.0F && value <= 1.0F; })) {
+    throw std::invalid_argument("material transmission color and weight must be in [0, 1]");
+  }
   constexpr auto supported = MaterialFeature::VertexColor |
                              MaterialFeature::BaseColorTexture |
                              MaterialFeature::DirectionalLight |

@@ -33,8 +33,8 @@ float2 SampleEnvironmentBrdf(Texture2D<float4> atlas, float n_dot_v, float rough
 }
 
 [ForceInline]
-float3 EvaluateSpecularEnvironment(Texture2D<float4> atlas, float3 direction,
-    float n_dot_v, float roughness, float3 f0, float3 f90)
+float3 SamplePrefilteredEnvironment(Texture2D<float4> atlas, float3 direction,
+    float roughness)
 {
     const float levels[6] = {kMinSpecularRoughness, 0.15f, 0.3f, 0.5f, 0.75f, 1.0f};
     int level = 0;
@@ -47,6 +47,14 @@ float3 EvaluateSpecularEnvironment(Texture2D<float4> atlas, float3 direction,
     float3 radiance = SampleSpecularLevel(atlas, uv, level);
     if (weight > 0.0f)
         radiance = lerp(radiance, SampleSpecularLevel(atlas, uv, level + 1), weight);
+    return radiance;
+}
+
+[ForceInline]
+float3 EvaluateSpecularEnvironment(Texture2D<float4> atlas, float3 direction,
+    float n_dot_v, float roughness, float3 f0, float3 f90)
+{
+    float3 radiance = SamplePrefilteredEnvironment(atlas, direction, roughness);
     float2 brdf = SampleEnvironmentBrdf(atlas, n_dot_v, roughness);
     return radiance * (f0 * brdf.x + f90 * brdf.y);
 }

@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include <limits>
+#include <numbers>
 
 int main(int argc, char** argv) try {
   if (argc != 3)
@@ -284,8 +285,66 @@ int main(int argc, char** argv) try {
       throw std::runtime_error("dielectric specular controls differ from the Fresnel oracle");
     }
   }
-  request.forward_lighting = {};
   std::cout << mode << ": dielectric specular weight, IOR and tint passed\n";
+
+  // Rotate the HDR emitter from the reflection direction (+Z) to the
+  // transmission direction (-Z). At normal incidence its RGB is
+  // (1.5, 0.75, 0.375), which the tint below equalizes to 0.375.
+  auto& transmission_dome = *request.forward_lighting.dome;
+  transmission_dome.world_to_environment.values[0] = -1.0F;
+  transmission_dome.world_to_environment.values[10] = -1.0F;
+  const auto sample_transmission = [&](float weight, float roughness, float ior) {
+    material.parameters.transmission_weight = weight;
+    material.parameters.transmission_color = {0.25F, 0.5F, 1.0F};
+    material.parameters.specular_ior = ior;
+    material.parameters.roughness = roughness;
+    world.UpdateMaterial(instance.material, material, merlin::ChangeAspect::MaterialParameters);
+    const auto frame = render_specular(roughness);
+    if (!same_geometry(unlit, frame) || center(frame)[3] != center(unlit)[3] ||
+        frame.counters.upload_bytes != frame.counters.gpu_scene_upload_bytes ||
+        frame.counters.pipeline_creation_count != 0) {
+      throw std::runtime_error("transmission edit changed coverage or rebuilt GPU resources");
+    }
+    return center(frame);
+  };
+  const auto no_transmission = sample_transmission(0.0F, 0.045F, 1.5F);
+  const auto transmitted = sample_transmission(1.0F, 0.045F, 1.5F);
+  const auto half_transmitted = sample_transmission(0.5F, 0.045F, 1.5F);
+  const auto rough_transmitted = sample_transmission(1.0F, 0.75F, 1.5F);
+  const auto matched = sample_transmission(1.0F, 0.045F, 1.0F);
+  for (int channel = 0; channel < 3; ++channel) {
+    if (no_transmission[channel] != 0 ||
+        std::abs(int(transmitted[channel]) - 92) > 2 ||
+        std::abs(int(half_transmitted[channel]) - 46) > 2 ||
+        std::abs(int(matched[channel]) - 96) > 2 ||
+        rough_transmitted[channel] == 0 || rough_transmitted[channel] >= transmitted[channel] / 2) {
+      throw std::runtime_error("dome transmission differs from the tint and Fresnel oracle");
+    }
+  }
+  // A tilted normal gives a 60-degree incident angle. Place the emitter at
+  // the refracted direction predicted by Snell's law for IOR 1.5.
+  constexpr double incident = std::numbers::pi / 3.0;
+  const auto bend = incident - std::asin(std::sin(incident) / 1.5);
+  const auto cosine = static_cast<float>(-std::cos(bend));
+  const auto sine = static_cast<float>(std::sin(bend));
+  transmission_dome.world_to_environment.values[0] = cosine;
+  transmission_dome.world_to_environment.values[2] = -sine;
+  transmission_dome.world_to_environment.values[8] = sine;
+  transmission_dome.world_to_environment.values[10] = cosine;
+  mesh.normals.assign(4, {static_cast<float>(std::sin(incident)), 0.0F, 0.5F});
+  world.UpdateMesh(instance.mesh, mesh);
+  (void)render_specular(0.045F);
+  const auto bent = sample_transmission(1.0F, 0.045F, 1.5F);
+  const auto straight = sample_transmission(1.0F, 0.045F, 1.0F);
+  if (std::abs(int(bent[0]) - 89) > 2 || straight != no_transmission) {
+    throw std::runtime_error("dome transmission did not follow the refracted ray");
+  }
+  request.forward_lighting.dome.reset();
+  if (sample_transmission(1.0F, 0.045F, 1.5F) != no_transmission) {
+    throw std::runtime_error("disabled dome still illuminated transmission");
+  }
+  request.forward_lighting = {};
+  std::cout << mode << ": dome transmission, tint, Fresnel and roughness passed\n";
 
   // Surface geometry views on the same Forward entry. Each fixture case is a
   // fresh source, so a fresh renderer keeps its geometry at arena offset 0.
