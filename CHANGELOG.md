@@ -19,8 +19,9 @@ after its public API and release process are established.
 - Forward uses authored MaterialX Standard Surface `specular`, `specular_color`,
   and `specular_IOR` constants under directional and HDR dome lighting. Editing
   these values reuses the existing pipeline.
-- Hydra Forward accepts direct MaterialX `constant` nodes for the
-  Standard Surface specular and emission controls.
+- Hydra Forward accepts direct MaterialX `constant` nodes for Standard Surface
+  base weight and color, metalness, specular roughness, specular weight, tint
+  and IOR, and emission weight and color.
 - Hydra Forward accepts a MaterialX `geompropvalue` vector2 connection naming
   `st` as the UV0 source for supported Standard Surface images.
 

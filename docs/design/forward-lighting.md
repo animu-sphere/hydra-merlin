@@ -132,12 +132,17 @@ defaults use the input's existing fallback and diagnostic.
 
 ## MaterialX constant nodes
 
-Hydra accepts a direct standard `constant` node with a literal `value` for the
-Standard Surface specular and emission controls. Use `ND_constant_float` for
-weights and IOR and `ND_constant_color3` for tint and emissive color. The
-node's default is zero or black when `value` is omitted. Existing input
-ranges and diagnostics apply to node values, including the scene-linear
-requirement for RGB. Hydra translates node edits to material parameters.
+Hydra accepts a direct standard `constant` node with a literal `value` for
+Standard Surface base, specular and emission controls. Use `ND_constant_float`
+for `base`, `metalness`, `specular_roughness`, `specular`, `specular_IOR` and
+`emission`, and `ND_constant_color3` for `base_color`, `specular_color` and
+`emission_color`. The node's default is zero or black when `value` is omitted.
+RGB values use the scene-linear working space. Metalness and roughness
+use the same `[0, 1]` clamp as inline values. The base weight multiplies
+either the base color constant or the base color image sample.
+Invalid connections on `base`, `base_color`, `metalness` or `specular_roughness`
+fall back to the authored inline value when valid or the Standard Surface
+default. Hydra translates valid node edits to material parameters.
 [MaterialX standard nodes](https://github.com/AcademySoftwareFoundation/MaterialX/blob/main/documents/Specification/MaterialX.StandardNodes.md#procedural-nodes)
 
 ## Emissive radiance

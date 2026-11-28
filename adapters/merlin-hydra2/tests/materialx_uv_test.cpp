@@ -11,7 +11,9 @@
 #include <pxr/usd/sdf/assetPath.h>
 
 #include <algorithm>
+#include <initializer_list>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -122,12 +124,14 @@ void VerifyStandardSurface(const char* texture_path) {
     Check(record.parameters.emissive_radiance.x == 0.5F,
         "image lost its authored emission weight");
   };
-  const auto check_subset_diagnostic = [&](std::string_view reason) {
+  const auto check_subset_diagnostic = [&](std::initializer_list<std::string_view> reasons) {
     const auto diagnostics = delegate.GetLatestViewportFrame().diagnostics;
     Check(std::any_of(diagnostics.begin(), diagnostics.end(), [&](const auto& item) {
       return item.code == "hydra.material.materialx-subset" &&
              item.source == path.GetString() &&
-             item.message.find(reason) != std::string::npos;
+             std::all_of(reasons.begin(), reasons.end(), [&](std::string_view reason) {
+               return item.message.find(reason) != std::string::npos;
+             });
     }),
         "material fallback did not report the expected diagnostic");
   };
@@ -135,7 +139,7 @@ void VerifyStandardSurface(const char* texture_path) {
     const auto record = sync();
     Check(!record.emissive_texture && record.parameters.emissive_radiance.x == 0.0F,
         "unsupported emission input did not fall back to zero emission");
-    check_subset_diagnostic(reason);
+    check_subset_diagnostic({reason});
   };
 
   const auto implicit = sync();
@@ -182,7 +186,7 @@ void VerifyStandardSurface(const char* texture_path) {
   Check(missing.alpha_mode == merlin::AlphaMode::Opaque && !missing.opacity_texture &&
         !merlin::HasMaterialFeature(missing.features, merlin::MaterialFeature::OpacityTexture),
       "missing opacity image did not fall back to opaque");
-  check_subset_diagnostic("opacity (");
+  check_subset_diagnostic({"opacity ("});
   image.parameters[file] = VtValue(SdfAssetPath(texture_path));
   const auto recovered = sync();
   Check(recovered.material == masked.material && recovered.opacity_texture &&
@@ -231,6 +235,76 @@ void VerifyStandardSurface(const char* texture_path) {
         edited.parameters.emissive_radiance.y == 0.5F &&
         edited.parameters.emissive_radiance.z == 0.125F,
       "valid constant node edit did not update the existing material");
+
+  const TfToken base("base");
+  const TfToken base_color("base_color");
+  const TfToken metalness("metalness");
+  const TfToken roughness("specular_roughness");
+  const auto scalar_path = path.AppendChild(TfToken("constantScalar"));
+  auto& scalar = source.network.nodes[scalar_path];
+  scalar.nodeTypeId = TfToken("ND_constant_float");
+  scalar.parameters[value] = VtValue(0.5F);
+  surface.parameters[base] = surface.parameters[metalness] =
+      surface.parameters[roughness] = scalar.parameters[value];
+  surface.parameters[base_color] = color.parameters[value];
+  const auto inline_surface = sync();
+  for (const auto& input : {base, metalness, roughness}) {
+    surface.inputConnections[input] = {{scalar_path, out}};
+  }
+  surface.inputConnections[base_color] = {{color_path, out}};
+  const auto connected_surface = sync();
+  Check(connected_surface.revision == inline_surface.revision &&
+        !connected_surface.base_color_texture && !connected_surface.metallic_texture &&
+        !connected_surface.roughness_texture,
+      "equivalent base and metallic-roughness constants changed the material");
+
+  scalar.parameters[value] = VtValue(0.25F);
+  const auto edited_surface = sync();
+  Check(edited_surface.material == inline_surface.material &&
+        edited_surface.revision != inline_surface.revision &&
+        edited_surface.parameters.base_color.x == 0.125F &&
+        edited_surface.parameters.base_color.y == 0.25F &&
+        edited_surface.parameters.base_color.z == 0.0625F &&
+        edited_surface.parameters.base_color.w == 1.0F &&
+        edited_surface.parameters.metallic == 0.25F &&
+        edited_surface.parameters.roughness == 0.25F,
+      "constant value edit did not update the existing opaque material");
+
+  surface.inputConnections.erase(base);
+  scalar.parameters[value] = VtValue(2.0F);
+  const auto clamped = sync();
+  Check(clamped.parameters.metallic == 1.0F && clamped.parameters.roughness == 1.0F,
+      "connected metallic and roughness values did not use the literal clamp");
+  scalar.parameters.erase(value);
+  color.parameters.erase(value);
+  const auto defaults = sync();
+  Check(defaults.parameters.base_color.x == 0.0F && defaults.parameters.base_color.w == 1.0F &&
+        defaults.parameters.metallic == 0.0F && defaults.parameters.roughness == 0.0F,
+      "omitted constant values did not use their node defaults");
+
+  surface.inputConnections[base] = {{scalar_path, out}};
+  scalar.parameters[value] = VtValue(std::numeric_limits<float>::infinity());
+  surface.inputConnections[base_color] = {{color_path, TfToken("wrongOutput")}};
+  const auto fallback_surface = sync();
+  Check(fallback_surface.parameters.base_color.x == 0.25F &&
+        fallback_surface.parameters.metallic == 0.5F &&
+        fallback_surface.parameters.roughness == 0.5F,
+      "invalid constant connections did not retain the inline fallback values");
+  check_subset_diagnostic({"base (", "base_color (", "metalness (", "specular_roughness ("});
+
+  scalar.parameters[value] = VtValue(0.25F);
+  surface.inputConnections[base_color] = {{image_path, out}};
+  const auto scalar_image_path = path.AppendChild(TfToken("scalarImage"));
+  auto& scalar_image = source.network.nodes[scalar_image_path];
+  scalar_image.nodeTypeId = TfToken("ND_image_float");
+  scalar_image.parameters[file] = image.parameters[file];
+  surface.inputConnections[metalness] = surface.inputConnections[roughness] =
+      {{scalar_image_path, out}};
+  const auto textured = sync();
+  Check(textured.base_color_texture && textured.metallic_texture && textured.roughness_texture &&
+        textured.parameters.base_color.x == 0.25F &&
+        textured.parameters.metallic == 0.5F && textured.parameters.roughness == 0.5F,
+      "restoring images lost the base weight or metallic-roughness fallback values");
 }
 
 } // namespace
