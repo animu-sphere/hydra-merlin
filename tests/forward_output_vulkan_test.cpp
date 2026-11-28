@@ -21,7 +21,7 @@ int main(int argc, char** argv) try {
   options.descriptor_backend = mode == "conventional"
                                    ? merlin::vulkan::DescriptorBackendRequest::Conventional
                                    : merlin::vulkan::DescriptorBackendRequest::Bindless;
-  const merlin::render::GpuScenePackingCapacities capacities{1, 1, 1, 1};
+  const merlin::render::GpuScenePackingCapacities capacities{1, 2, 2, 2};
   if (scene)
     options.gpu_scene_capacities = capacities;
   std::optional<merlin::vulkan::Renderer> renderer;
@@ -62,7 +62,7 @@ int main(int argc, char** argv) try {
   }
   merlin::render::GpuScenePackingState packing(capacities);
   const std::vector placements{merlin::render::GpuGeometryPlacement{0, 0}};
-  const std::vector identities{merlin::render::GpuInstanceIdentity{17, 23}};
+  std::vector identities{merlin::render::GpuInstanceIdentity{17, 23}};
   std::vector bindings{merlin::render::GpuMaterialBinding{}};
   std::uint64_t completion{};
   const auto render = [&](merlin::render::OutputTransformSettings settings) {
@@ -74,7 +74,7 @@ int main(int argc, char** argv) try {
     }
     const auto result = renderer->Resolve(renderer->Submit(request));
     completion = result.completion_value;
-    if (scene && result.counters.gpu_scene_draw_count != 1) {
+    if (scene && result.counters.gpu_scene_draw_count != request.snapshot->draws.size()) {
       throw std::runtime_error("output fixture fell back from GPU Scene");
     }
     if (mode == "gpu-driven" && result.counters.gpu_driven_indirect_draw_count != 1) {
@@ -345,6 +345,51 @@ int main(int argc, char** argv) try {
   }
   request.forward_lighting = {};
   std::cout << mode << ": dome transmission, tint, Fresnel and roughness passed\n";
+
+  // Share geometry with an emissive backdrop. With exposure and Reinhard in
+  // the request, the expected result depends on capturing radiance before
+  // clipping and applying the output transform once, after tint and Fresnel.
+  request.forward_lighting.explicit_lights = true;
+  mesh.normals.assign(4, {0.0F, 0.0F, 1.0F});
+  world.UpdateMesh(instance.mesh, mesh);
+  merlin::MaterialDescriptor backdrop_material;
+  backdrop_material.features = merlin::MaterialFeature::DirectionalLight;
+  backdrop_material.parameters.emissive_radiance = {4.0F, 0.5F, 0.0F};
+  merlin::InstanceDescriptor backdrop;
+  backdrop.mesh = instance.mesh;
+  backdrop.material = world.CreateMaterial(backdrop_material);
+  backdrop.transform.values[14] = -0.25F;
+  const auto backdrop_instance = world.CreateInstance(backdrop);
+  identities.push_back({29, 31});
+  bindings.emplace_back();
+  const auto render_scene_refraction = [&] {
+    extractor.Apply(world, world.Commit());
+    request.snapshot = extractor.snapshot();
+    return render({-1, merlin::render::ToneMapping::Reinhard});
+  };
+  const auto refracted_scene = render_scene_refraction();
+  const auto refracted_rgb = center(refracted_scene);
+  if (!same_geometry(unlit, refracted_scene) || refracted_rgb[3] != center(unlit)[3] ||
+      std::abs(int(refracted_rgb[0]) - 83) > 2 || std::abs(int(refracted_rgb[1]) - 27) > 2 ||
+      refracted_rgb[2] != 0) {
+    throw std::runtime_error("scene transmission differs from the HDR tint and depth/ID oracle");
+  }
+  backdrop.transform.values[0] = 0.07F;
+  backdrop.transform.values[12] = -0.1F;
+  world.UpdateInstance(backdrop_instance, backdrop);
+  mesh.normals.assign(4, {static_cast<float>(std::sin(incident)), 0.0F, 0.5F});
+  world.UpdateMesh(instance.mesh, mesh);
+  const auto bent_scene = render_scene_refraction();
+  material.parameters.specular_ior = 1.0F;
+  world.UpdateMaterial(instance.material, material, merlin::ChangeAspect::MaterialParameters);
+  const auto straight_scene = render_scene_refraction();
+  if (center(bent_scene)[0] < 70 || center(straight_scene) != no_transmission ||
+      !same_geometry(bent_scene, straight_scene) ||
+      straight_scene.counters.pipeline_creation_count != 0) {
+    throw std::runtime_error("scene transmission did not follow the refracted ray or reuse its pipeline");
+  }
+  std::cout << mode << ": opaque scene refraction, HDR color, miss and AOVs passed\n";
+  identities.pop_back();
 
   // Surface geometry views on the same Forward entry. Each fixture case is a
   // fresh source, so a fresh renderer keeps its geometry at arena offset 0.

@@ -1,4 +1,5 @@
 #define MERLIN_EXPLICIT_DRAW_CONSTANTS 1
+#define MERLIN_FORWARD_SCENE_SET 2
 #include "forward-common.slang"
 #include "../../../core/merlin-render-backend/shaders/gpu-scene-forward.slang"
 

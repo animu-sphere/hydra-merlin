@@ -298,7 +298,9 @@ void Renderer::Impl::CreateRenderPass() {
   std::array<VkSubpassDependency, 6> dependencies{};
   dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
   dependencies[0].dstSubpass = 0;
-  dependencies[0].srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+  // Frame IDs may have been written as scratch attachments by opaque capture.
+  dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
   dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                                  VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
   dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
@@ -359,6 +361,111 @@ void Renderer::Impl::CreateRenderPass() {
   info.pDependencies = dependencies.data();
   Check(vkCreateRenderPass(device_, &info, nullptr, &active_target_->render_pass),
       "create color/depth render pass");
+}
+
+bool Renderer::Impl::EnsureOpaqueSceneTarget(RenderTarget& target) {
+  auto& opaque = target.opaque_scene;
+  if (opaque.framebuffer != VK_NULL_HANDLE) {
+    return true;
+  }
+  constexpr VkFormat color_format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  const auto supports_sampling = [&](VkFormat format, VkFormatFeatureFlags attachment) {
+    VkFormatProperties properties{};
+    vkGetPhysicalDeviceFormatProperties(physical_device_, format, &properties);
+    const auto required = attachment | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    return (properties.optimalTilingFeatures & required) == required;
+  };
+  if (!supports_sampling(color_format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) ||
+      !supports_sampling(kDepthFormat, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
+    return false;
+  }
+  try {
+    opaque.color = CreateImage(target.width, target.height, color_format,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        opaque.color_memory);
+    opaque.color_view = CreateImageView(opaque.color, color_format, VK_IMAGE_ASPECT_COLOR_BIT);
+    opaque.depth = CreateImage(target.width, target.height, kDepthFormat,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        opaque.depth_memory);
+    opaque.depth_view = CreateImageView(opaque.depth, kDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+    const std::array<VkAttachmentDescription, 4> attachments{{
+        {0, color_format, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {0, kDepthFormat, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {0, kIdFormat, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {0, kIdFormat, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+    }};
+    const std::array<VkAttachmentReference, 3> colors{{
+        {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {3, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+    }};
+    const VkAttachmentReference depth{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = static_cast<std::uint32_t>(colors.size());
+    subpass.pColorAttachments = colors.data();
+    subpass.pDepthStencilAttachment = &depth;
+    // Make the opaque textures visible to Forward fragments and order reuse
+    // of the scratch ID attachments before the main pass clears them.
+    const VkSubpassDependency dependency{0, VK_SUBPASS_EXTERNAL,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0};
+    VkRenderPassCreateInfo pass_info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    pass_info.attachmentCount = static_cast<std::uint32_t>(attachments.size());
+    pass_info.pAttachments = attachments.data();
+    pass_info.subpassCount = 1;
+    pass_info.pSubpasses = &subpass;
+    pass_info.dependencyCount = 1;
+    pass_info.pDependencies = &dependency;
+    Check(vkCreateRenderPass(device_, &pass_info, nullptr, &opaque.render_pass),
+        "create opaque scene capture pass");
+    const std::array views{opaque.color_view, opaque.depth_view, target.prim_id_view,
+        target.instance_id_view};
+    VkFramebufferCreateInfo framebuffer_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+    framebuffer_info.renderPass = opaque.render_pass;
+    framebuffer_info.attachmentCount = static_cast<std::uint32_t>(views.size());
+    framebuffer_info.pAttachments = views.data();
+    framebuffer_info.width = target.width;
+    framebuffer_info.height = target.height;
+    framebuffer_info.layers = 1;
+    Check(vkCreateFramebuffer(device_, &framebuffer_info, nullptr, &opaque.framebuffer),
+        "create opaque scene capture framebuffer");
+  } catch (...) {
+    DestroyOpaqueSceneTarget(opaque);
+    throw;
+  }
+  return true;
+}
+
+void Renderer::Impl::DestroyOpaqueSceneTarget(OpaqueSceneTarget& target) noexcept {
+  vkDestroyFramebuffer(device_, target.framebuffer, nullptr);
+  vkDestroyRenderPass(device_, target.render_pass, nullptr);
+  vkDestroyImageView(device_, target.depth_view, nullptr);
+  vkDestroyImageView(device_, target.color_view, nullptr);
+  vkDestroyImage(device_, target.depth, nullptr);
+  vkDestroyImage(device_, target.color, nullptr);
+  if (target.depth_memory != VK_NULL_HANDLE) {
+    memory_budget_.Free(target.depth_memory);
+  }
+  if (target.color_memory != VK_NULL_HANDLE) {
+    memory_budget_.Free(target.color_memory);
+  }
+  target = {};
 }
 
 void Renderer::Impl::DestroyTarget(RenderTarget& target) noexcept {
@@ -423,6 +530,7 @@ void Renderer::Impl::DestroyTarget(RenderTarget& target) noexcept {
   if (target.render_pass != VK_NULL_HANDLE) {
     vkDestroyRenderPass(device_, target.render_pass, nullptr);
   }
+  DestroyOpaqueSceneTarget(target.opaque_scene);
   if (target.instance_id_view != VK_NULL_HANDLE) {
     vkDestroyImageView(device_, target.instance_id_view, nullptr);
   }

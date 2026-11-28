@@ -106,6 +106,8 @@ CHESS_PHASES = ("chess-dome", "chess-geometry", "chess-normal-base",
     f"opacity-{phase}"
     for phase in ("opaque", "image", "no-uv", "missing-file", "disconnected")
 )
+CHESS_REFRACTION_PHASES = ("chess-refraction-opaque", "chess-refraction-opaque-green",
+                          "chess-refraction-transmitted-green", "chess-refraction-restored")
 MAX_CHANGED_PIXEL_FRACTION = 0.0025
 MAX_MEAN_CHANNEL_ERROR = 0.25
 
@@ -307,8 +309,16 @@ def main() -> None:
                 raise ValueError("normals debug views differ between presentation paths")
         if args.forward_scene_only and forward_reports[0]["scene"] != forward_reports[1]["scene"]:
             raise ValueError("external scene inputs differ between presentation paths")
-        if args.forward_chess_only and forward_reports[0]["root_layer_sha256"] != forward_reports[1]["root_layer_sha256"]:
-            raise ValueError("Open Chess Set stages differ between presentation paths")
+        if args.forward_chess_only:
+            if forward_reports[0]["root_layer_sha256"] != forward_reports[1]["root_layer_sha256"]:
+                raise ValueError("Open Chess Set stages differ between presentation paths")
+            if forward_reports[0]["backend"] != forward_reports[1]["backend"]:
+                raise ValueError("Open Chess Set backends differ between presentation paths")
+            if forward_reports[0]["backend"] == "vulkan":
+                refraction = [report["pawn_refraction_changed_pixels"] for report in forward_reports]
+                if refraction[0] != refraction[1] or refraction[0] <= 8:
+                    raise ValueError("pawn refraction coverage differs between presentation paths")
+                phases += CHESS_REFRACTION_PHASES
         if args.forward_lighting_only:
             expected = list(LIGHTING_PHASES)
             for report in forward_reports:

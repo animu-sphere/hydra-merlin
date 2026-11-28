@@ -568,11 +568,16 @@ VkPipeline Renderer::Impl::CreatePipeline(
       generated_artifact != nullptr
           ? generated_artifact->fragment_entry_point.c_str()
           : "main";
+  const bool opaque_capture = (variant_key & kOpaqueCapturePipelineFlag) != 0U;
+  const VkBool32 capture_value = VK_TRUE;
+  const VkSpecializationMapEntry capture_entry{0, 0, sizeof(capture_value)};
+  const VkSpecializationInfo capture_specialization{
+      1, &capture_entry, sizeof(capture_value), &capture_value};
   const std::array<VkPipelineShaderStageCreateInfo, 2> stages{{{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
                                                                    VK_SHADER_STAGE_VERTEX_BIT, vertex_shader, "main", nullptr},
       {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
           VK_SHADER_STAGE_FRAGMENT_BIT, fragment_shader, fragment_entry,
-          nullptr}}};
+          opaque_capture ? &capture_specialization : nullptr}}};
   const VkVertexInputBindingDescription binding{
       0, sizeof(extraction::DrawVertex), VK_VERTEX_INPUT_RATE_VERTEX};
   const std::array<VkVertexInputAttributeDescription, 5> attributes{{
@@ -677,7 +682,8 @@ VkPipeline Renderer::Impl::CreatePipeline(
                              ? active_target_->generated_pipeline_layouts.at(
                                    generated_artifact->module_key)
                              : active_target_->pipeline_layout;
-  pipeline_info.renderPass = active_target_->render_pass;
+  pipeline_info.renderPass = opaque_capture ? active_target_->opaque_scene.render_pass
+                                            : active_target_->render_pass;
   VkPipeline pipeline{};
   Check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1,
             &pipeline_info, nullptr, &pipeline),
@@ -737,23 +743,34 @@ void Renderer::Impl::RecordMeshDisplay(VkCommandBuffer command,
 
 void Renderer::Impl::EnsureEnvironmentDescriptorSetLayout() {
   if (environment_descriptor_set_layout_ == VK_NULL_HANDLE) {
-    const VkDescriptorSetLayoutBinding binding{shader_abi::kConventionalSpecularEnvironment.binding,
-        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    const std::array<VkDescriptorSetLayoutBinding, 3> bindings{{
+        {shader_abi::kConventionalSpecularEnvironment.binding,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {shader_abi::kConventionalOpaqueSceneColor.binding,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {shader_abi::kConventionalOpaqueSceneDepth.binding,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+    }};
     VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    info.bindingCount = 1;
-    info.pBindings = &binding;
+    info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    info.pBindings = bindings.data();
     Check(vkCreateDescriptorSetLayout(device_, &info, nullptr, &environment_descriptor_set_layout_),
         "create environment descriptor layout");
   }
 }
 
 void Renderer::Impl::WriteEnvironmentDescriptor(FrameContext& frame,
-    VkDescriptorSet& set, VkImageView view) {
+    VkDescriptorSet& set, VkImageView view, VkImageView opaque_color,
+    VkImageView opaque_depth) {
   constexpr auto type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  constexpr std::uint32_t set_count = 3;
+  constexpr std::array bindings{shader_abi::kConventionalSpecularEnvironment.binding,
+      shader_abi::kConventionalOpaqueSceneColor.binding,
+      shader_abi::kConventionalOpaqueSceneDepth.binding};
   if (frame.environment_descriptor_pool == VK_NULL_HANDLE) {
-    const VkDescriptorPoolSize size{type, 2};
+    const VkDescriptorPoolSize size{type, set_count * static_cast<std::uint32_t>(bindings.size())};
     VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    info.maxSets = 2;
+    info.maxSets = set_count;
     info.poolSizeCount = 1;
     info.pPoolSizes = &size;
     Check(vkCreateDescriptorPool(device_, &info, nullptr, &frame.environment_descriptor_pool),
@@ -769,27 +786,41 @@ void Renderer::Impl::WriteEnvironmentDescriptor(FrameContext& frame,
         "allocate environment descriptor set");
     ++frame_counters_.descriptor_allocation_count;
   }
-  const VkDescriptorImageInfo image{VK_NULL_HANDLE, view,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-  VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  write.dstSet = set;
-  write.dstBinding = shader_abi::kConventionalSpecularEnvironment.binding;
-  write.descriptorCount = 1;
-  write.descriptorType = type;
-  write.pImageInfo = &image;
-  vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+  const std::array views{view, opaque_color, opaque_depth};
+  std::array<VkDescriptorImageInfo, bindings.size()> images{};
+  std::array<VkWriteDescriptorSet, bindings.size()> writes{};
+  for (std::size_t i = 0; i < writes.size(); ++i) {
+    images[i] = {VK_NULL_HANDLE, views[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, bindings[i],
+        0, 1, type, &images[i], nullptr, nullptr};
+  }
+  vkUpdateDescriptorSets(device_, static_cast<std::uint32_t>(writes.size()),
+      writes.data(), 0, nullptr);
   ++frame_counters_.descriptor_update_count;
 }
 
 void Renderer::Impl::PrepareSpecularEnvironment(FrameContext& frame, TextureHandle atlas) {
-  const auto view = atlas.valid() ? texture_slots_.at(atlas.value()).view : FallbackTextureView();
+  const auto fallback = FallbackTextureView();
+  const auto view = atlas.valid() ? texture_slots_.at(atlas.value()).view : fallback;
   const auto generation = atlas.valid() ? material_resource_generation_ : 0;
   if (frame.specular_environment_set == VK_NULL_HANDLE ||
       frame.specular_environment_view != view ||
       frame.specular_environment_generation != generation) {
-    WriteEnvironmentDescriptor(frame, frame.specular_environment_set, view);
+    WriteEnvironmentDescriptor(frame, frame.specular_environment_set, view, fallback, fallback);
     frame.specular_environment_view = view;
     frame.specular_environment_generation = generation;
+  }
+  if (frame.capture_opaque_scene) {
+    const auto& opaque = frame.target.opaque_scene;
+    const std::array views{view, opaque.color_view, opaque.depth_view};
+    if (frame.refraction_environment_set == VK_NULL_HANDLE ||
+        frame.refraction_environment_views != views ||
+        frame.refraction_environment_generation != generation) {
+      WriteEnvironmentDescriptor(frame, frame.refraction_environment_set,
+          view, opaque.color_view, opaque.depth_view);
+      frame.refraction_environment_views = views;
+      frame.refraction_environment_generation = generation;
+    }
   }
 }
 
@@ -814,7 +845,8 @@ void Renderer::Impl::RecordDome(VkCommandBuffer command, FrameContext& frame,
     active_target_->dome_pipeline = CreatePipeline(active_target_->shaders,
         kDoubleSidedFlag, nullptr, false, true);
   }
-  WriteEnvironmentDescriptor(frame, frame.dome_descriptor_set, texture->second.view);
+  WriteEnvironmentDescriptor(frame, frame.dome_descriptor_set, texture->second.view,
+      texture->second.view, texture->second.view);
   vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, active_target_->dome_pipeline);
   vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
       dome_pipeline_layout_, 0, 1, &frame.dome_descriptor_set, 0, nullptr);

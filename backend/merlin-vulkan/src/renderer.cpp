@@ -247,6 +247,13 @@ std::uint64_t Renderer::Impl::Submit(const RenderRequest& request) {
   PrepareMeshDrawSummary(*request.snapshot);
   SelectGeneratedMaterials();
   PreflightGeneratedMaterialPipelines(*request.snapshot);
+  frame.capture_opaque_scene = false;
+  if (NeedsOpaqueSceneCapture(request)) {
+    if (frame.target.opaque_scene.framebuffer == VK_NULL_HANDLE) {
+      frame.refraction_environment_views = {};
+    }
+    frame.capture_opaque_scene = EnsureOpaqueSceneTarget(frame.target);
+  }
   frame_counters_.draw_count = draw_records_.size();
   frame_counters_.visible_primitive_count = draw_records_.size();
   frame_counters_.triangle_count = mesh_triangle_count_;

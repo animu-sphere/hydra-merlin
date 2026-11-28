@@ -157,7 +157,12 @@ With dome lighting on, the gate disables transmission on the black and white
 pawn tops one group at a time and checks that restoring their authored values
 restores the image. The native Vulkan Forward output fixtures also compare
 transmitted HDR radiance against the expected tint, Fresnel values and ray
-direction, and check roughness filtering, depth and picking IDs.
+direction, and check roughness filtering, depth and picking IDs. The scene
+refraction fixture moves an HDR emissive backdrop behind the surface, checks
+the transformed color at the refracted hit and verifies the miss behavior.
+On Vulkan, the Open Chess Set gate also recolors the board in the session
+layer and counts pixels where the board's emission is visible through the
+pawn heads. It checks that the authored image restores after the edit.
 Images, input counts and probe measurements are written to
 `adapters/merlin-hydra2/forward-chess-*-install` under the build directory. When a native Hgi bridge is available, the test compares its
 images with Tier 0. For a manual launch on Metal, set

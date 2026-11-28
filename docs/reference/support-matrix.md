@@ -122,7 +122,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Versioned dependency and package metadata | Supported | Available as installed JSON |
 | Tag-driven SDK release automation | Supported | Available for stable SemVer tags: Windows/Linux Core and macOS Apple Silicon Core + Metal, with metadata sidecars and SHA-256 checksums |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Supported | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
-| Hydra material and light translation | Supported (subset) | Authored bindings, distant lights, basic `UsdPreviewSurface`/`UsdUVTexture`, and direct MaterialX Standard Surface base color, tangent-space normal maps, metalness, specular roughness, emissive color and cutout opacity on UV0. Standard Surface accepts a constant emissive weight and constant transmission weight and tint for dome lighting. OpenUSD needs MaterialX file-format support for external `.mtlx` references. Scene refraction, subsurface and arbitrary MaterialX graphs remain outside the supported subset. See the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set). |
+| Hydra material and light translation | Supported (subset) | Authored bindings, distant lights, basic `UsdPreviewSurface`/`UsdUVTexture`, and direct MaterialX Standard Surface base color, tangent-space normal maps, metalness, specular roughness, emissive color and cutout opacity on UV0. Standard Surface accepts a constant emissive weight and constant transmission weight and tint. OpenUSD needs MaterialX file-format support for external `.mtlx` references. Subsurface and arbitrary MaterialX graphs remain outside the supported subset. See the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set). |
 | Slang shader source and Metal compile gate | Supported | Slang is the Forward source of truth; conventional and bindless SPIR-V plus conventional Metal/reflection artifacts are packaged under `shaders/v2`, with Metal non-uniform bindless access explicitly falling back to conventional Forward |
 | Shader module and target-artifact identity | Supported | Available: one host-neutral contract keys generated and handwritten Slang. Module identity covers source and include content, recovered from the compiler's own depfile; a separate artifact key adds compiler, target, profile, capability, layout, optimization, debug, and target-option policy. The build writes both into the shader manifest and a test recomputes every one of them through the contract |
 | MaterialXGenSlang material-function prototype | Experimental | Available: optional `Merlin::MaterialX` emits deterministic graph-only Slang functions and renderer-owned minimum Standard Surface results for constants, image/UV0/world-normal, add/multiply/mix, `base`, `base_color`, `metalness`, `specular_roughness`, and `normal`. Portable library/include fingerprints feed topology-only module keys separated from parameter/resource state. Registered parameter-only and texture/sampler artifacts execute in renderer-owned Vulkan Forward after ABI/reflection checks, reuse pipelines across value and texture-content edits, and report structured fallback/capability telemetry. The same sources retain installed SPIR-V, Metal-target, and reflection evidence. Arbitrary graphs, generated tangent-space normal mapping, production IBL and generated Hydra execution remain outside the prototype. |
@@ -219,11 +219,12 @@ they are not implied to work by the availability of the surrounding adapter.
   images with Tier 0 readback and HgiVulkan GPU copy. Metal evidence covers
   shader compilation and reflection.
 - Standard Surface [dielectric transmission](../design/forward-lighting.md#dielectric-transmission)
-  uses the selected dome. Windows Vulkan covers all four native Forward paths.
-  The Open Chess Set pawn transmission captures match between Tier 0 and
-  HgiVulkan. Metal evidence covers shader compilation and reflection.
-  Scene refraction, thin-walled transmission and volumetric transport remain
-  outside this profile.
+  uses the selected dome on a scene miss. Windows Vulkan validates screen-space
+  refraction of opaque Mesh radiance in conventional, bindless, GPU Scene and
+  GPU-driven Forward. Open Chess Set captures show the board through the pawn
+  heads and match between Tier 0 and HgiVulkan on OpenUSD 26.08. Metal uses
+  dome-only transmission, with shader compilation and reflection evidence.
+  Thin-walled transmission and volumetric transport remain outside this profile.
 - Custom Vulkan HDR environments have no Metal parity claim.
 - Cross-backend evidence compares center samples; full-image Vulkan/Metal
   rasterization parity is not yet validated.
