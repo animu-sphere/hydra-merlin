@@ -1,50 +1,75 @@
 # Hydra Merlin
 
+**A host-neutral real-time raster renderer for OpenUSD and beyond.**
+
+![MaterialX-shaded Open Chess Set on a garden table reconstructed with 3D Gaussian splats](docs/media/merlin-openchess-garden.gif)
+
+*hdMerlin renders MaterialX-shaded meshes and 3D Gaussian splats together in one scene.*
+
 [![Core CI](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/animu-sphere/hydra-merlin/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/github/license/animu-sphere/hydra-merlin)](LICENSE)
 
-hdMerlin is a lightweight, host-neutral raster renderer with independent Vulkan
-and Metal backends and a Hydra 2 adapter. It provides a revisioned scene model,
-immutable snapshots, explicit submission/completion, native viewports, and
-measurable, recoverable fallback paths. It is built as an OpenStrata renderer
-project so builds, validation and runtime composition are reproducible.
+[Quick start](#quick-start) · [Architecture](#architecture) · [Releases](https://github.com/animu-sphere/hydra-merlin/releases) · [Feedback](#feedback-and-contributing)
+
+Use hdMerlin through its native C++ APIs, the standalone viewport, or the
+optional Hydra 2 adapter for usdview and other OpenUSD hosts. The Core and
+native backends build independently of OpenUSD.
 
 ## Highlights
 
-- **Host-neutral core:** public Core APIs expose no OpenUSD, Hydra, DCC, Qt,
-  Vulkan or Metal types; hosts integrate through thin adapters.
-- **Vulkan and Metal:** independent native backends implement the same
-  renderer semantics, with Forward as the correctness reference.
-- **Hydra 2:** a render delegate for usdview and other Hydra hosts, with CPU
-  RenderBuffers as the universal path and Hgi GPU-copy presentation.
-- **Mesh and Gaussian rendering:** standard OpenUSD meshes and
-  `ParticleField3DGaussianSplat` share one persistent scene while keeping
-  separate rendering algorithms.
-- **Slang and MaterialX:** Slang is the shader source of truth; an optional
-  MaterialXGenSlang boundary generates material-evaluation functions while the
-  renderer owns lighting, passes and resources.
-
-## Architecture
-
-```text
-Hydra / headless / native viewport adapters
-            │  normalize host data
-            ▼
-RenderWorld ──► immutable snapshot ──► draw extraction
-            │
-            ▼
-backend-neutral execution contract
-            │
-            ▼
-Vulkan or Metal backend ──► render products / native presentation
-```
-
-Dependencies point from adapters toward Core, never the reverse. See the
-[renderer architecture](docs/design/renderer-architecture.md).
+- **Meshes and splats in one scene.** Standard OpenUSD meshes and
+  `ParticleField3DGaussianSplat` share a persistent renderer scene and use
+  dedicated rendering pipelines.
+- **Independent Vulkan and Metal backends.** Each backend owns its native GPU
+  resources and implements shared renderer semantics. Forward is the
+  correctness reference.
+- **Slang and MaterialX.** Slang defines shared shader behavior. An optional
+  MaterialX compiler generates material-evaluation functions, while hdMerlin
+  owns lighting, render passes, and resources.
+- **Optional Hydra 2 integration.** Load standard USD stages in usdview or
+  another Hydra host and select **Merlin** as the renderer.
+- **Native viewport and offscreen rendering.** Host-neutral C++ APIs expose
+  immutable scene snapshots and explicit frame submission and completion.
 
 ## Quick start
 
-With the [OpenStrata CLI](docs/design/openstrata-project.md):
+Use the CMake presets from the repository root.
+
+### Run the native viewport
+
+On Windows, install the [Vulkan build prerequisites](docs/guides/build-and-install.md#windows-dependency-setup)
+and launch the built-in triangle scene.
+
+```powershell
+cmake --preset vulkan -G "Visual Studio 17 2022" -A x64 -DMERLIN_BUILD_VIEWPORT=ON
+cmake --build --preset vulkan --parallel
+./build/vulkan/adapters/merlin-viewport/Release/merlin-viewport.exe --backend vulkan
+```
+
+Run `ctest --preset vulkan` to check the build. For macOS, follow the
+[Metal build instructions](docs/guides/build-and-install.md#macos--metal-backend-and-native-viewport).
+
+### Build and test Core
+
+The Core-only preset requires CMake and a C++20 toolchain.
+
+```sh
+cmake --preset core
+cmake --build --preset core --parallel
+ctest --preset core
+```
+
+### Open a USD stage
+
+Use the `vulkan-hydra` preset on Windows or `metal-hydra` on macOS with a
+compatible OpenUSD SDK. Set `-DMERLIN_BUILD_VIEWPORT=ON` to build the viewport
+and pass it `--usd /path/to/scene.usd`. In usdview, select **Merlin**.
+[Hydra build instructions](docs/guides/build-and-install.md#hydra-2) · [Opening USD stages](docs/guides/viewport.md#opening-usd-stages)
+
+### Optional OpenStrata CLI
+
+`ost` wraps the project's CMake build with runtime setup and validation.
+[OpenStrata CLI and runtime setup](docs/design/openstrata-project.md#cli-and-runtime-policy)
 
 ```powershell
 ost runtime pull cy2026 --profile core
@@ -52,59 +77,72 @@ ost build --jobs auto
 ost validate --json
 ```
 
-Or with CMake presets (Windows / Vulkan shown; use the `metal` preset with
-Ninja on macOS):
+## Architecture
 
-```powershell
-cmake --preset vulkan -G "Visual Studio 17 2022" -A x64 -DMERLIN_BUILD_VIEWPORT=ON
-cmake --build --preset vulkan --parallel
-ctest --preset vulkan
-./build/vulkan/adapters/merlin-viewport/Release/merlin-viewport.exe --backend vulkan
+```mermaid
+flowchart TD
+    H["usdview / Hydra host"] --> HA["Hydra 2 adapter"]
+    N["Native viewport / headless app"] --> NA["Viewport / headless adapters"]
+    subgraph C["Host-neutral renderer"]
+        W["RenderWorld"] --> S["Immutable frame snapshot"]
+        S --> D["Draw extraction / GPU Scene"]
+        D --> E["Backend-neutral execution contract"]
+    end
+    HA --> W
+    NA --> W
+    E --> V["Vulkan backend"]
+    E --> M["Metal backend"]
+    V --> R["Render products / native presentation"]
+    M --> R
 ```
 
-A Core-only build needs only CMake and a C++20 compiler:
-`cmake --preset core`, then build and test the same preset. See
-[build and install](docs/guides/build-and-install.md) for prerequisites,
-platform procedures, Hydra builds and MaterialX, and
-[running the viewport](docs/guides/viewport.md) for USD stages, usdview and
-Gaussian options.
+Adapters normalize host data before it reaches Core, whose public API is
+independent of OpenUSD, Hydra, Vulkan, and Metal. The optional MaterialX
+compiler supplies material-evaluation functions to the shared Slang shading
+path. The Hydra adapter owns CPU RenderBuffer and Hgi GPU-copy presentation.
+[Renderer architecture](docs/design/renderer-architecture.md) · [Hgi presentation](docs/design/hgi-host-presentation.md)
 
-## Supported platforms
+## Platform and feature support
 
-Windows x64 (Vulkan), macOS on Apple Silicon (Metal) and Linux x64 (Core, plus
-Vulkan on a software driver) are exercised, with Hydra 2 on Windows and macOS.
-The [support matrix](docs/reference/support-matrix.md) is the canonical list of
-validated platforms, SDK versions, features, evidence levels and known
-limitations.
+| Platform | Validation coverage |
+| --- | --- |
+| Windows x64 | Vulkan, native viewport, and Hydra 2 |
+| macOS on Apple Silicon | Metal, native viewport, and Hydra 2 |
+| Linux x64 | Core and Vulkan on Mesa lavapipe, including X11 under Xvfb |
 
-## OpenUSD / Hydra
-
-The Hydra 2 adapter is opt-in, so OpenUSD never becomes a transitive dependency
-of Core or the native backends. Build it against a compatible OpenUSD SDK (see
-the support matrix for validated versions) using the
-[Hydra build procedure](docs/guides/build-and-install.md#hydra-2), then select
-**Merlin** in usdview or another Hydra host. hdMerlin consumes standard USD
-data and defines no renderer-specific USD schema.
+Linux hardware GPU, native Wayland, and Hydra execution remain unverified.
+See the [support matrix](docs/reference/support-matrix.md) for SDK versions,
+backend-specific feature coverage, and validation evidence.
 
 ## Documentation
 
-| Topic | Document |
+| Goal | Guide |
 | --- | --- |
-| Documentation map and ownership rules | [docs/README.md](docs/README.md) |
-| Build, install and run | [Build and install](docs/guides/build-and-install.md), [Viewport and Hydra hosts](docs/guides/viewport.md) |
-| Consume the SDK | [Using the CMake package](docs/guides/cmake-package.md) |
-| What works now | [Support matrix](docs/reference/support-matrix.md) |
-| Architecture and contracts | [Renderer architecture](docs/design/renderer-architecture.md), [design documents](docs/README.md#design) |
-| Validation and performance | [Forward validation](docs/guides/forward-validation.md), [Benchmarking](docs/guides/benchmarking.md) |
-| What shipped | [Changelog](CHANGELOG.md), [release records](docs/releases/README.md) |
-| Contributing | [Contributing](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), [Security policy](SECURITY.md) |
+| Build or run hdMerlin | [Build and install](docs/guides/build-and-install.md) · [Viewport and Hydra hosts](docs/guides/viewport.md) |
+| Integrate the C++ SDK | [Using the CMake package](docs/guides/cmake-package.md) |
+| Explore the design | [Documentation index](docs/README.md) · [Design documents](docs/README.md#design) |
+| Validate or benchmark a build | [Forward validation](docs/guides/forward-validation.md) · [Benchmarking](docs/guides/benchmarking.md) |
 
 ## Roadmap
 
-[v0.17.0](docs/releases/v0.17.0.md) adds opt-in Gaussian contribution culling
-and experimental CPU Catmull–Clark refinement. See the
-[current work](docs/roadmap/current.md) and the [backlog](docs/roadmap/backlog.md).
+[Current work](docs/roadmap/current.md) · [Backlog](docs/roadmap/backlog.md) · [Changelog](CHANGELOG.md) · [Release records](docs/releases/README.md)
+
+## Feedback and contributing
+
+Tell us what you are building with OpenUSD, Hydra, or hdMerlin. Reports on
+rendering correctness, performance, and host integration are welcome.
+
+- [Report an issue or share feedback](https://github.com/animu-sphere/hydra-merlin/issues)
+- [Contributing guide](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+
+## Credits
+
+The demo combines Open Chess Set by Moeen and Mujtaba Sayed with a Gaussian
+reconstruction of the Garden scene from Mip-NeRF 360 by Jonathan T. Barron
+and colleagues. [Capture details and asset credits](docs/media/README.md)
 
 ## License
 
 hdMerlin is licensed under the [Apache License 2.0](LICENSE).
+[Third-party notices](THIRD_PARTY_NOTICES.md)
