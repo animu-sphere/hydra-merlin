@@ -6,7 +6,7 @@ on:
       suite:
         description: Capability suite to execute
         type: choice
-        options: [all, hydra, generated, gaussian, subdivision]
+        options: [all, hydra, generated, gaussian, gaussian-4k, subdivision]
         default: all
 
 permissions:
@@ -151,6 +151,49 @@ jobs:
             build-native/native-runtime-tests.xml
             build-native/Testing/Temporary/LastTest.log
 
+  gaussian-4k:
+    if: inputs.suite == 'gaussian-4k'
+    name: Vulkan Gaussian 4K image gate
+    runs-on: [self-hosted, Windows, X64, vulkan-1.4]
+    timeout-minutes: 30
+    env:
+      MSBUILDDISABLENODEREUSE: 1
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Restore the LunarG Vulkan SDK cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci/vulkan-sdk/1.4.350.0
+          key: lunarg-vulkan-sdk-windows-x64-1.4.350.0-vma
+
+      - name: Provision the LunarG Vulkan SDK
+        shell: pwsh
+        run: .github/scripts/setup-vulkan.ps1
+
+      - name: Configure and build the Vulkan benchmark
+        shell: pwsh
+        run: |
+          cmake -S . -B build-gaussian-4k -A x64 -DMERLIN_ENABLE_VULKAN=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Gaussian benchmark configure failed' }
+          cmake --build build-gaussian-4k --config Release --target merlin-benchmark --parallel 4 -- /nodeReuse:false
+
+      - name: Compare 4K Gaussian color, depth, and IDs
+        shell: pwsh
+        run: |
+          $benchmark = 'build-gaussian-4k/adapters/merlin-benchmark/Release/merlin-benchmark.exe'
+          & $benchmark --fixture one-million-gaussians --width 3840 --height 2160 `
+            --steady-frames 3 --gaussian-adaptive-bounds --validate `
+            --output build-gaussian-4k/gaussian-4k.json
+
+      - name: Upload the 4K Gaussian report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gaussian-vulkan-4k-${{ github.run_id }}
+          path: build-gaussian-4k/gaussian-4k.json
+
   generated-forward:
     if: inputs.suite == 'all' || inputs.suite == 'generated'
     name: Generated Forward / ${{ matrix.build_type }}
@@ -215,7 +258,7 @@ jobs:
             build-generated/Testing/Temporary/LastTest.log
 
   hydra:
-    if: inputs.suite != 'generated'
+    if: inputs.suite != 'generated' && inputs.suite != 'gaussian-4k'
     name: OpenUSD ${{ matrix.openusd }} HgiVulkan
     runs-on: [self-hosted, Windows, X64, vulkan-1.4]
     timeout-minutes: 60

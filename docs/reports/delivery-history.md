@@ -11,6 +11,25 @@ Legend: ✅ done
 
 ---
 
+## Vulkan 4K Gaussian ID parity — 2026-11-28
+
+Windows Release builds used MSVC 19.51, Vulkan SDK 1.4.350.0 and an NVIDIA
+RTX A5000 with driver 597.16 and Vulkan API 1.4.329. Each build ran the
+1M-particle fixture at 3840×2160 with three static and three moving samples
+per path, all four AOVs, and zero Vulkan validation messages. The baseline
+reproduced three mismatched `instanceId` pixels in the static CPU/GPU
+sorted-stream comparison. [Baseline run](https://github.com/animu-sphere/hydra-merlin/actions/runs/46132254685)
+
+In `48de9e3`, CPU and GPU preparation form the inverse conic with one rounded
+reciprocal per particle. All six comparisons passed. CPU and GPU sorted-stream
+color, depth, `primId` and `instanceId` matched exactly in both views. The
+moving flat Exact frame differed from the CPU reference by at most 1/255 in
+color. Exact and Adaptive matched all four AOVs in both views. The shared code
+also passed the Core preparation test and the Metal image, compute and
+residency tests with API and shader validation on Apple M3.
+[Corrected run](https://github.com/animu-sphere/hydra-merlin/actions/runs/46132727758) ·
+[4K workflow and artifact](../guides/benchmarking.md#gaussian-comparisons)
+
 ## Vulkan flat Gaussian tiles at 4K and 8K — 2026-11-28
 
 Windows Release build of `8dad694` with the benchmark capacity override,

@@ -52,6 +52,8 @@ after its public API and release process are established.
 - Hydra Smooth Shaded generates smooth vertex normals for subdivision cages
   without authored normals at Low complexity and after refinement falls back
   to the cage.
+- Gaussian CPU and GPU preparation use the same projected covariance inversion
+  order, fixing three differing particle IDs in the static Vulkan 4K fixture.
 
 ## [0.17.0] - 2026-11-25
 

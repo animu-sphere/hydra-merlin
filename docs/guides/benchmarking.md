@@ -212,6 +212,12 @@ The hardware gate defaults to 1M at 597x540 with four samples. Use the quoted
 to include 5M. These are capability/image gates, without timing thresholds.
 Add `ten-million-gaussians` to the same list for the dense-stack regression.
 
+Dispatch `suite=gaussian-4k` in the Vulkan and Hydra capability workflow to
+run the 1M fixture at 3840×2160 on the Windows GPU runner. The Release build
+captures three static and three moving samples per path with Vulkan validation
+enabled. The workflow uploads `gaussian-4k.json` when the image comparison
+passes or fails.
+
 For the host comparison, use a viewer-capable OpenUSD SDK built with Vulkan,
 and build hdMerlin against that same SDK. A GL-only lookdev artifact cannot
 select HgiVulkan. Keep its immutable artifact/OCI digest with the captures.

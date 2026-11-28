@@ -155,6 +155,12 @@ low-opacity composite as well as GPU execution. Early termination and
 arithmetic precision still require image tolerances. Depth and primId stay
 exact, and the existing bounded particle-ID rim policy remains in force.
 
+CPU and GPU preparation multiply the projected covariance adjugate by one
+rounded reciprocal of its determinant. They divide the components directly
+when the reciprocal would be subnormal. Sharing the reciprocal reduces
+rounding differences at the ellipse cutoff, where a coverage change can
+select a different particle ID at the same depth.
+
 The Vulkan working attachment belongs to the frame target and follows its
 completion/export-lease, resize, allocation-budget and retirement rules.
 Export, host GPU copy, CPU readback and native presentation consume the converted

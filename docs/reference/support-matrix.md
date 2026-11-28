@@ -385,11 +385,13 @@ implemented:
 
 ### Gaussian rendering
 
-- The Vulkan 1M fixture at 4K has a three-pixel `instanceId` difference between
-  the CPU and GPU sorted streams in the static comparison. At 8K, flat tile
-  raster exceeds the default pair budget and uses the GPU sorted stream. The
-  same 8K fixture passed native image comparisons on RTX A5000 with a larger
-  pair budget. See the
+- The Vulkan 1M fixture at 4K has exact CPU and GPU sorted-stream color, depth
+  and ID parity in static and moving comparisons on RTX A5000. All six image
+  comparisons pass, including flat Exact and Adaptive. See the
+  [4K validation](../reports/delivery-history.md#vulkan-4k-gaussian-id-parity--2026-11-28).
+- At 8K, flat tile raster exceeds the default pair budget and uses the GPU
+  sorted stream. The 8K fixture passed native image comparisons on RTX A5000
+  with a larger pair budget. See the
   [resolution measurements](../reports/delivery-history.md#vulkan-flat-gaussian-tiles-at-4k-and-8k--2026-11-28).
 
 ### Other
