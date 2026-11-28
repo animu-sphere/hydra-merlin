@@ -30,21 +30,19 @@ struct GaussianVertexInput
 struct GaussianVertexOutput
 {
     float4 position : SV_Position;
-    // Prepared attributes are constant across the quad. Interpolation can
-    // round the conic and opacity differently and move the ellipse cutoff.
     [[vk::location(0)]] nointerpolation float2 center_pixels : TEXCOORD0;
-    [[vk::location(1)]] nointerpolation float3 inverse_conic : TEXCOORD1;
-    [[vk::location(2)]] nointerpolation float3 radiance : COLOR0;
-    [[vk::location(3)]] nointerpolation float opacity : TEXCOORD2;
+    [[vk::location(1)]] float3 inverse_conic : TEXCOORD1;
+    [[vk::location(2)]] float3 radiance : COLOR0;
+    [[vk::location(3)]] float opacity : TEXCOORD2;
 };
 
 struct GaussianIdVertexOutput
 {
     float4 position : SV_Position;
     [[vk::location(0)]] nointerpolation float2 center_pixels : TEXCOORD0;
-    [[vk::location(1)]] nointerpolation float3 inverse_conic : TEXCOORD1;
-    [[vk::location(2)]] nointerpolation float3 radiance : COLOR0;
-    [[vk::location(3)]] nointerpolation float opacity : TEXCOORD2;
+    [[vk::location(1)]] float3 inverse_conic : TEXCOORD1;
+    [[vk::location(2)]] float3 radiance : COLOR0;
+    [[vk::location(3)]] float opacity : TEXCOORD2;
     [[vk::location(4)]] nointerpolation uint resource_id : RESOURCE_ID;
     [[vk::location(5)]] nointerpolation uint particle_id : PARTICLE_ID;
 };

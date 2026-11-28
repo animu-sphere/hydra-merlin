@@ -159,7 +159,17 @@ bool ProjectCovariance(float3x3 covariance, GaussianProjectionJacobian jacobian,
     float discriminant = sqrt(max(0.0f, (xx - yy) * (xx - yy) + 4.0f * xy * xy));
     float largest_eigenvalue = 0.5f * (xx + yy + discriminant);
     radius_pixels = gaussian_prepare_constants.sigma_extent * sqrt(max(largest_eigenvalue, 0.0f));
-    inverse_conic = float3(yy / determinant, -xy / determinant, xx / determinant);
+    // Match CPU preparation's rounded reciprocal at the ellipse cutoff.
+    float3 adjugate = float3(yy, -xy, xx);
+    if (determinant <= 0x1p126f)
+    {
+        float reciprocal = 1.0f / determinant;
+        inverse_conic = adjugate * reciprocal;
+    }
+    else
+    {
+        inverse_conic = adjugate / determinant;
+    }
     return IsFinite1(radius_pixels) && radius_pixels > 0.0f && IsFinite3(inverse_conic);
 }
 

@@ -275,7 +275,14 @@ bool ProjectCovariance(const Matrix3& camera_covariance,
   const auto largest_eigenvalue = 0.5F * (xx + yy + discriminant);
   radius_pixels = options.sigma_extent *
                   std::sqrt(std::max(largest_eigenvalue, 0.0F));
-  inverse_conic = {yy / determinant, -xy / determinant, xx / determinant};
+  // Match GPU preparation's rounded reciprocal at the ellipse cutoff.
+  // Divide directly when the reciprocal would be subnormal.
+  if (determinant <= 0x1p126F) {
+    const auto reciprocal = 1.0F / determinant;
+    inverse_conic = {yy * reciprocal, -xy * reciprocal, xx * reciprocal};
+  } else {
+    inverse_conic = {yy / determinant, -xy / determinant, xx / determinant};
+  }
   return std::isfinite(radius_pixels) && radius_pixels > 0.0F &&
          IsFinite(inverse_conic);
 }
