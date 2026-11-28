@@ -305,6 +305,53 @@ void VerifyStandardSurface(const char* texture_path) {
         textured.parameters.base_color.x == 0.25F &&
         textured.parameters.metallic == 0.5F && textured.parameters.roughness == 0.5F,
       "restoring images lost the base weight or metallic-roughness fallback values");
+
+  const TfToken transmission("transmission");
+  const TfToken transmission_color("transmission_color");
+  surface.inputConnections.erase(emission_color);
+  surface.inputConnections.erase(base);
+  surface.parameters[base] = VtValue(0.25F);
+  surface.parameters[transmission] = VtValue(0.5F);
+  surface.parameters[transmission_color] = VtValue(GfVec3f(0.25F, 0.5F, 1.0F));
+  const auto inline_transmission = sync();
+  Check(inline_transmission.parameters.transmission_weight == 0.5F &&
+        inline_transmission.parameters.transmission_color.x == 0.25F &&
+        inline_transmission.parameters.transmission_color.y == 0.5F &&
+        inline_transmission.parameters.transmission_color.z == 1.0F &&
+        inline_transmission.alpha_mode == merlin::AlphaMode::Opaque,
+      "authored transmission changed coverage or lost the tint");
+  scalar.parameters[value] = surface.parameters[transmission];
+  color.parameters[value] = surface.parameters[transmission_color];
+  surface.inputConnections[transmission] = {{scalar_path, out}};
+  surface.inputConnections[transmission_color] = {{color_path, out}};
+  const auto connected_transmission = sync();
+  color.parameters[value] = VtValue(GfVec3f(1.0F, 0.5F, 0.25F));
+  const auto edited_transmission = sync();
+  Check(connected_transmission.revision == inline_transmission.revision &&
+        edited_transmission.material == connected_transmission.material &&
+        edited_transmission.revision != connected_transmission.revision &&
+        edited_transmission.parameters.transmission_color.x == 1.0F,
+      "connected transmission tint edit did not update the existing material");
+  for (const auto* input : {"transmission_depth", "thin_walled"}) {
+    surface.parameters[TfToken(input)] =
+        std::string_view(input) == "thin_walled" ? VtValue(true) : VtValue(0.5F);
+    Check(sync().parameters.transmission_weight == 0.0F,
+        "unsupported dielectric mode did not fall back to zero transmission");
+    check_subset_diagnostic({input});
+    surface.parameters.erase(TfToken(input));
+  }
+  color.parameters[value] = VtValue(GfVec3f(-0.25F, 0.5F, 1.0F));
+  Check(sync().parameters.transmission_weight == 0.0F,
+      "invalid tint did not fall back to zero transmission");
+  check_subset_diagnostic({"transmission_color ("});
+  surface.inputConnections.erase(transmission_color);
+  surface.parameters.erase(transmission_color);
+  const auto default_tint = sync();
+  Check(default_tint.parameters.transmission_weight == 0.5F &&
+        default_tint.parameters.transmission_color.x == 1.0F &&
+        default_tint.parameters.transmission_color.y == 1.0F &&
+        default_tint.parameters.transmission_color.z == 1.0F,
+      "transmission did not recover with the default white tint");
 }
 
 } // namespace

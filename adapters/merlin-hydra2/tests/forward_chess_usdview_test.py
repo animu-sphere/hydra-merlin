@@ -101,6 +101,9 @@ def testUsdviewInputFunction(appController):
     with Usd.EditContext(stage, stage.GetSessionLayer()):
         material_differences = _check_chess_inputs(
             stage, pixels(material_pixels), capture, pixels)
+        settings.domeLightEnabled = True
+        transmission = _check_pawn_transmission(stage, pixels(dome_pixels), capture, pixels)
+        settings.domeLightEnabled = False
         specular, emission, opacity = _check_standard_surface(
             stage, settings, view, scene_camera, capture)
 
@@ -121,6 +124,7 @@ def testUsdviewInputFunction(appController):
         "normal_changed_pixels": changed_normal,
         "dome_changed_pixels": changed_dome,
         "authored_input_changed_pixels": material_differences,
+        "pawn_transmission_changed_pixels": transmission,
         "specular_probe": specular,
         "emission_probe": emission,
         "opacity_probe": opacity,
@@ -160,6 +164,26 @@ def _check_chess_inputs(stage, baseline, capture, pixels):
     _, restored = capture("chess-inputs-restored")
     assert pixels(restored) == baseline, "authored inputs did not restore"
     return differences
+
+
+def _check_pawn_transmission(stage, baseline, capture, pixels):
+    changed = {}
+    for group, suffix in (("Black", "B"), ("White", "W")):
+        # usdMtlx forwards the shader input from this material interface.
+        material = UsdShade.Material.Get(
+            stage, f"/ChessSet/{group}/Pawns/Pawn/Materials/M_Pawn_Top_{suffix}")
+        assert material, group
+        weight = material.GetInput("transmission")
+        assert weight.Get() == 1, group
+        weight.Set(0.0)
+        event, opaque = capture(f"chess-{group.lower()}-transmission-disabled")
+        changed[group] = _changed_pixels(baseline, pixels(opaque))
+        assert changed[group] > 8, (group, changed[group])
+        assert event["pipeline_creation_count"] == 0, event
+        weight.GetAttr().Clear()
+    _, restored = capture("chess-transmission-restored")
+    assert pixels(restored) == baseline, "pawn transmission did not restore"
+    return changed
 
 
 def _check_standard_surface(stage, settings, view, scene_camera, capture):

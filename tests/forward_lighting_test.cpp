@@ -68,6 +68,7 @@ void DrawPolicies() {
     merlin::Vec4 specular_environment_scale;
     merlin::Vec4 emissive_radiance;
     merlin::Vec4 specular_factors;
+    merlin::Vec4 transmission_factors;
   };
   merlin::extraction::MaterialRecord material;
   material.parameters.base_color = {0.1F, 0.2F, 0.3F, 0.4F};
@@ -80,6 +81,8 @@ void DrawPolicies() {
   material.parameters.specular_color = {1.0F, 0.5F, 0.0F};
   material.parameters.specular_weight = 0.25F;
   material.parameters.specular_ior = 2.0F;
+  material.parameters.transmission_color = {0.25F, 0.5F, 1.0F};
+  material.parameters.transmission_weight = 0.75F;
   merlin::render::ForwardLighting lighting;
   lighting.primary.direction_intensity = {0.0F, 1.0F, 0.0F, 0.0F};
   lighting.primary.color = {0.5F, 0.6F, 0.7F};
@@ -106,6 +109,9 @@ void DrawPolicies() {
          upload.emissive_radiance.z == 2.0F && upload.emissive_radiance.w == 0.0F);
   assert(upload.specular_factors.x == 0.25F && upload.specular_factors.y == 0.125F &&
          upload.specular_factors.z == 0.0F && upload.specular_factors.w == 1.0F / 9.0F);
+  assert(upload.surface_factors.w == 0.5F);
+  assert(upload.transmission_factors.x == 0.25F && upload.transmission_factors.y == 0.5F &&
+         upload.transmission_factors.z == 1.0F && upload.transmission_factors.w == 0.75F);
 }
 
 void ViewDirections() {

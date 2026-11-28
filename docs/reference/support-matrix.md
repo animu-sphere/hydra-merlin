@@ -122,7 +122,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Versioned dependency and package metadata | Supported | Available as installed JSON |
 | Tag-driven SDK release automation | Supported | Available for stable SemVer tags: Windows/Linux Core and macOS Apple Silicon Core + Metal, with metadata sidecars and SHA-256 checksums |
 | Hydra 2 indexed/face-varying mesh primvars and robust triangulation | Supported | Available with persistent per-path source caches, semantic revisions, and changed-range upload; OpenUSD 26.05 may emit a coarse `primvars` locator, which is value-compared before rebuild/upload |
-| Hydra material and light translation | Supported (subset) | Authored bindings, distant lights, basic `UsdPreviewSurface`/`UsdUVTexture`, and direct MaterialX Standard Surface base color, tangent-space normal maps, metalness, specular roughness, emissive color and cutout opacity on UV0. Standard Surface accepts a constant emissive weight. OpenUSD needs MaterialX file-format support for external `.mtlx` references. Transmission, subsurface and arbitrary MaterialX graphs remain outside the supported subset. See the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set). |
+| Hydra material and light translation | Supported (subset) | Authored bindings, distant lights, basic `UsdPreviewSurface`/`UsdUVTexture`, and direct MaterialX Standard Surface base color, tangent-space normal maps, metalness, specular roughness, emissive color and cutout opacity on UV0. Standard Surface accepts a constant emissive weight and constant transmission weight and tint for dome lighting. OpenUSD needs MaterialX file-format support for external `.mtlx` references. Scene refraction, subsurface and arbitrary MaterialX graphs remain outside the supported subset. See the [Open Chess Set gate](../guides/forward-validation.md#open-chess-set). |
 | Slang shader source and Metal compile gate | Supported | Slang is the Forward source of truth; conventional and bindless SPIR-V plus conventional Metal/reflection artifacts are packaged under `shaders/v2`, with Metal non-uniform bindless access explicitly falling back to conventional Forward |
 | Shader module and target-artifact identity | Supported | Available: one host-neutral contract keys generated and handwritten Slang. Module identity covers source and include content, recovered from the compiler's own depfile; a separate artifact key adds compiler, target, profile, capability, layout, optimization, debug, and target-option policy. The build writes both into the shader manifest and a test recomputes every one of them through the contract |
 | MaterialXGenSlang material-function prototype | Experimental | Available: optional `Merlin::MaterialX` emits deterministic graph-only Slang functions and renderer-owned minimum Standard Surface results for constants, image/UV0/world-normal, add/multiply/mix, `base`, `base_color`, `metalness`, `specular_roughness`, and `normal`. Portable library/include fingerprints feed topology-only module keys separated from parameter/resource state. Registered parameter-only and texture/sampler artifacts execute in renderer-owned Vulkan Forward after ABI/reflection checks, reuse pipelines across value and texture-content edits, and report structured fallback/capability telemetry. The same sources retain installed SPIR-V, Metal-target, and reflection evidence. Arbitrary graphs, generated tangent-space normal mapping, production IBL and generated Hydra execution remain outside the prototype. |
@@ -145,7 +145,7 @@ between separately produced OpenUSD SDKs remain the operator's responsibility.
 | Material diagnostic and fallback contract | Supported | `merlin.material-diagnostic/v1` is available in Core with stable per-category codes, material/element/node/input/document/target and generator/compiler context, the declared simplification, basic-material, and error-material ladder under host policy, and an evidence aggregate reporting the worst fallback reached. Records flatten onto `merlin-diagnostic/v1`, and Vulkan Forward exposes the aggregate through frame telemetry and the renderer capability report. |
 | Standard OpenUSD Gaussian ingestion and rendering | Validated (CPU reference); Experimental (opt-in GPU) | Available on Vulkan: OpenUSD 26.05/26.08 `ParticleField3DGaussianSplat` through Hydra `particleField`, deterministic CPU preparation and sorting, procedural ellipse rasterization, mixed Mesh composition, IDs/picking, generation-checked persistent device-local position/covariance/opacity/SH ranges, zero-work static reuse, and range-only edits. Opt-in GPU preparation, frame-wide radix sorting, and sorted-stream indirect raster produce the image without a CPU-prepared upload and match the CPU-sorted reference image. Opt-in GPU tile binning produces verified per-tile pair ranges with bounded overflow, and opt-in compute tile raster composites them front to back with early termination, matching the CPU-sorted reference's depth and primId exactly and its color within a few rounding steps; an overflowing frame keeps the sorted-stream draws on the device. GPU-sorted frames skip the CPU preparation and sort unless validation against the CPU reference is requested; the CPU-sorted raster path remains the reference and fallback. Hosts select GPU execution through renderer settings v4 `gpu_driven_gaussian`; Hydra hosts such as usdview use the `merlin:gpuDrivenGaussian:enabled` and `merlin:gpuDrivenGaussian:tiled` flag render settings, or the unlisted `merlin:gpuDrivenGaussian:mode` and `merlin:gpuDrivenGaussian:raster` names. Separate GPU preparation/sort/tile/raster timestamps and warmed static/motion 1M/5M/10M comparisons are available. Local RTX A5000 captures have exact sorted-stream four-AOV parity at all tiers. After the v0.16.0 quality fix, Vulkan CPU/GPU sorted-stream and tiled execution use an RGBA32F working attachment and one final RGBA8 conversion, with pixel-center ellipse evaluation. Current RTX A5000 1M/5M/10M static/motion captures pass the unchanged six-step tiled color bound; the prior 10M 8/10-step failing captures are retained as historical evidence. Float blend/blit support is negotiated and reported by `gaussian_float_color_frame_count`; tiled additionally requires float storage-image support, with required rejection/preferred sorted-stream fallback when unavailable. Gaussian reference images remove legacy per-splat quantization error. Depth/primId remain exact; depth-tied instanceId differences stay within the established 1% allowance. These local timings have unpinned clocks/power and are not universal gates. |
 | Adaptive Gaussian tile bounds | Experimental | Enable per frame with `merlin:gpuDrivenGaussian:adaptiveBounds` or `--gaussian-adaptive-bounds`. Exact is the default. Apple M3 and Vulkan RTX A5000 passed offscreen image, identity and overflow checks. In usdview, Adaptive matched Exact RGBA8 at 120 camera poses across three M3 scenes and 80 poses across two RTX A5000 scenes. Telemetry reports pre-sort rejections, pair savings, saturation and early termination. GPU stage costs and total time vary by scene. [Sequence and offscreen evidence](../reports/delivery-history.md#v0170-paired-gaussian-sequences-and-quality-thresholds--2026-11-23) |
-| CPU Catmull–Clark (OpenSubdiv) | Experimental | Opt-in uniform CPU refinement, exercised through native Core, native Vulkan and OpenUSD 26.08 usdview on Windows. See [Subdivision](#subdivision). |
+| CPU Catmull–Clark (OpenSubdiv) | Experimental | Uniform CPU refinement, enabled by default for Hydra and opt-in for standalone builds. See [Subdivision](#subdivision). |
 | GPU subdivision | Unsupported | Unavailable on Vulkan and Metal. |
 | Shadows, alpha blending, and production culling | Unsupported | Unavailable; supported Forward light types and limits are below. Basic Mesh and Gaussian ID picking is available |
 | Vulkan/Hgi low-copy host presentation | Validated (GPU copy); Unsupported (direct sharing) | Selected color/depth/ID GPU copy is available with the validated HgiVulkan packages; CPU readback/upload remains the universal fallback. Non-color RenderBuffer Map downloads the current Hgi target only when a CPU consumer requests it. Same-device direct sharing is explicitly rejected as `public-texture-import-unavailable` on OpenUSD 26.05/26.08, and other external interop is unsupported. |
@@ -200,7 +200,8 @@ they are not implied to work by the availability of the surrounding adapter.
   and [Metal verification](../releases/v0.16.8.md#verification-evidence).
 - Direct MaterialX [constant nodes](../design/forward-lighting.md#materialx-constant-nodes)
   supply Standard Surface base weight and color, metalness, specular roughness,
-  specular weight, tint and IOR, and emission weight and color. The Open Chess
+  specular weight, tint and IOR, emission weight and color, and transmission
+  weight and tint. The Open Chess
   Set gate checks matching results for directly authored values and live node
   edits on Windows Vulkan with OpenUSD 26.08.
 - Forward adds Standard Surface emission before the output transform.
@@ -217,6 +218,12 @@ they are not implied to work by the availability of the surrounding adapter.
   coverage. Windows usdview with OpenUSD 26.08 produced identical opacity
   images with Tier 0 readback and HgiVulkan GPU copy. Metal evidence covers
   shader compilation and reflection.
+- Standard Surface [dielectric transmission](../design/forward-lighting.md#dielectric-transmission)
+  uses the selected dome. Windows Vulkan covers all four native Forward paths.
+  The Open Chess Set pawn transmission captures match between Tier 0 and
+  HgiVulkan. Metal evidence covers shader compilation and reflection.
+  Scene refraction, thin-walled transmission and volumetric transport remain
+  outside this profile.
 - Custom Vulkan HDR environments have no Metal parity claim.
 - Cross-backend evidence compares center samples; full-image Vulkan/Metal
   rasterization parity is not yet validated.
@@ -343,11 +350,12 @@ implemented:
 
 ### Subdivision
 
-- **Schemes and levels.** With `MERLIN_ENABLE_OPENSUBDIV=ON`, explicit and
-  default USD `catmullClark` support uniform levels 1–3 and an estimated
-  128 MiB working-memory limit per mesh. usdview maps Medium through Very High
-  to these levels. Level zero, `none`, hull and points use the polygon cage.
-  Unsupported schemes such as `loop` and `bilinear` fall back to the cage.
+- **Schemes and levels.** Explicit and default USD `catmullClark` support
+  uniform levels 1–3. usdview maps Medium through Very High to these levels.
+  Hydra selects the highest level at or below the request that fits the
+  estimated 128 MiB working-memory limit per mesh. Low, `none`, hull and
+  points use the polygon cage. Unsupported schemes such as `loop` and
+  `bilinear` fall back to the cage.
 - **Surface attributes.** Boundary and face-varying rules, holes, creases,
   corners and indexed UV seams are supported. Refined UVs, display color and
   opacity feed the triangle stream. Refined normals and tangent frames are
@@ -355,7 +363,9 @@ implemented:
 - **Evidence.** Core positions and UVs pass comparison with OpenSubdiv Far at
   matching levels. Windows Vulkan usdview exercises the authored fixture,
   points, topology and sharpness edits, complexity changes and zero-work
-  static frames. The installed native Vulkan consumer renders Teapot and
+  static frames. Open Chess Set changes at every Complexity step in both
+  Storm and Merlin. Returning to Low restores the initial image in each
+  renderer. The installed native Vulkan consumer renders Teapot and
   the indexed-UV seam fixture. Teapot and Kitchen_set compare level 1
   with the polygon cage in Windows Vulkan usdview. Both reuse the plan
   for a points-only edit. See the

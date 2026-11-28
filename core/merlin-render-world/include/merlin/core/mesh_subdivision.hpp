@@ -92,6 +92,12 @@ public:
       std::span<const Vec3> points, const SubdivisionPrimvars& primvars,
       int level, std::string_view label, DiagnosticSink* sink = nullptr);
 
+  // Chooses the highest level at or below the requested display level that
+  // fits the working-memory budget. Level zero still uses the cage.
+  [[nodiscard]] SubdivisionResult RefineForDisplay(const SubdivisionTopology& topology,
+      std::span<const Vec3> points, const SubdivisionPrimvars& primvars,
+      int level, std::string_view label, DiagnosticSink* sink = nullptr);
+
   // Refined quad boundary edges, indexed into the last successful triangle
   // stream. This view is valid until the next Refine or Reset.
   [[nodiscard]] std::span<const std::array<std::uint32_t, 2>>
@@ -99,6 +105,10 @@ public:
   void Reset() noexcept;
 
 private:
+  [[nodiscard]] SubdivisionResult RefineImpl(const SubdivisionTopology& topology,
+      std::span<const Vec3> points, const SubdivisionPrimvars& primvars,
+      int level, std::string_view label, DiagnosticSink* sink, bool fit_budget);
+
   struct Plan;
   std::unique_ptr<Plan> plan_;
   bool refined_{};

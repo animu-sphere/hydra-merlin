@@ -165,8 +165,9 @@ material, lighting, fallback, compatibility, and performance evidence in the
   [OST recheck](../reports/ost/13-2026-09-26-v0.23.8-recheck-v0.24.0-asks.md).
 - **Forward alpha blending:** Define compositing order, depth writes and
   picking before enabling Standard Surface opacity blending.
-- **Standard Surface transmission:** Define lighting and refraction for
-  tinted transmission materials such as the Open Chess Set pawn tops.
+- **Advanced Standard Surface transmission:** Define thin-walled
+  transmission and multi-interface refraction before adding volumetric
+  absorption, scattering or dispersion.
 - **Advanced surface detail:** Displacement, parallax and advanced bump
   mapping, anisotropic tangent reconstruction, subdivision-specific tangents,
   and geometry/meshlet normal compression build on the

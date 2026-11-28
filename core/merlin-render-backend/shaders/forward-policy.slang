@@ -53,13 +53,14 @@ struct MaterialConstants
     float4 additional_light_directions[7];
     float4 additional_light_colors[7];
     float4x4 world_to_environment;
-    float4 surface_factors; // metallic, perceptual roughness, reserved, reserved
+    float4 surface_factors; // metallic, perceptual roughness, reserved, reciprocal IOR
     uint4 scalar_texture_resources; // metallic texture/sampler, roughness texture/sampler
     float4 clip_to_view_direction[3];
     float4 specular_environment_scale; // RGB dome radiance scale, w enables specular IBL
     float4 emissive_radiance; // scene-linear RGB, w is 1 for texture modulation
     uint4 emissive_opacity_texture_resources; // emissive texture/sampler, opacity texture/sampler
     float4 specular_factors; // RGB tint times weight, w dielectric F0
+    float4 transmission_factors; // scene-linear RGB tint, w transmission weight
 };
 
 static const float kSurfaceDebugGeometricNormal = 1.0f;
@@ -427,6 +428,14 @@ float3 EvaluateSurfaceDebugView(SurfaceGeometry surface, float view)
                                 : float3(0.0f, 0.0f, 0.0f);
 }
 
+[ForceInline]
+float ForwardSchlickWeight(float cosine)
+{
+    float edge = 1.0f - cosine;
+    float squared = edge * edge;
+    return squared * squared * edge;
+}
+
 // Isotropic GGX with correlated Smith visibility and Schlick Fresnel.
 [ForceInline]
 float3 ForwardSpecular(float3 normal, float3 view, float3 light,
@@ -445,9 +454,7 @@ float3 ForwardSpecular(float3 normal, float3 view, float3 light,
     float visibility = 0.5f /
         (n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0f - alpha_squared) + alpha_squared) +
          n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0f - alpha_squared) + alpha_squared));
-    float fresnel = 1.0f - v_dot_h;
-    float fresnel_squared = fresnel * fresnel;
-    float3 specular = lerp(f0, f90, fresnel_squared * fresnel_squared * fresnel);
+    float3 specular = lerp(f0, f90, ForwardSchlickWeight(v_dot_h));
     return specular * (distribution * visibility * n_dot_l);
 }
 
@@ -479,7 +486,7 @@ float4 ShadeForwardSurface(
     MaterialConstants material,
     float4 base_color,
     DrawConstants draw, ForwardSpecularSurface glossy, float3 environment_specular,
-    float3 emissive_sample)
+    float3 environment_transmission, float3 emissive_sample)
 {
     float4 shaded = base_color;
     if (material.surface_policy.y != 0.0f)
@@ -540,7 +547,10 @@ float4 ShadeForwardSurface(
                     ForwardSpecular(normal, glossy.view, light.xyz,
                         glossy.f0, glossy.f90, alpha * alpha);
             }
-            shaded.rgb = base_color.rgb * light_scale * (1.0f - glossy.metallic) + specular;
+            float transmission = material.transmission_factors.w;
+            shaded.rgb = (1.0f - glossy.metallic) *
+                (base_color.rgb * light_scale * (1.0f - transmission) +
+                    environment_transmission) + specular;
         }
         else
         {
@@ -595,6 +605,7 @@ float4 ShadeForward(
     base_color.a *= opacity_sample;
     ForwardSpecularSurface glossy = (ForwardSpecularSurface)0;
     float3 environment_specular = float3(0.0f);
+    float3 environment_transmission = float3(0.0f);
     if (material.surface_policy.y == 0.0f &&
         (draw.feature_mask & (kDirectionalLightFlag | kForwardSpecularFlag)) ==
             (kDirectionalLightFlag | kForwardSpecularFlag))
@@ -620,10 +631,24 @@ float4 ShadeForward(
             environment_specular = EvaluateSpecularEnvironment(specular_environment,
                 SafeNormalize(direction, normal), n_dot_v, glossy.roughness,
                 glossy.f0, glossy.f90) * material.specular_environment_scale.rgb;
+            if (material.transmission_factors.w > 0.0f && glossy.metallic < 1.0f)
+            {
+                // Approximate the visible air-to-dielectric interface. Reuse the
+                // prefiltered dome for incident radiance along the refracted ray.
+                float3 refracted = refract(-glossy.view, normal, material.surface_factors.w);
+                float3 environment_ray = mul(material.world_to_environment,
+                    float4(refracted, 0.0f)).xyz;
+                float3 fresnel = lerp(tint * dielectric_f0, dielectric_f90,
+                    ForwardSchlickWeight(n_dot_v));
+                environment_transmission = SamplePrefilteredEnvironment(specular_environment,
+                    SafeNormalize(environment_ray, -normal), glossy.roughness) *
+                    material.specular_environment_scale.rgb * (1.0f - fresnel) *
+                    material.transmission_factors.rgb * material.transmission_factors.w;
+            }
         }
     }
     float4 shaded = ShadeForwardSurface(surface, material, base_color, draw, glossy,
-        environment_specular, emissive_sample);
+        environment_specular, environment_transmission, emissive_sample);
     if ((draw.feature_mask & kOpacityTextureFlag) != 0u)
         shaded.a = 1.0f;
     return shaded;
@@ -637,7 +662,7 @@ float4 ShadeForwardSurface(SurfaceGeometry surface, MaterialConstants material,
 {
     draw.feature_mask &= ~kForwardSpecularFlag;
     return ShadeForwardSurface(surface, material, base_color, draw,
-        (ForwardSpecularSurface)0, float3(0.0f), DefaultEmissiveSample(material));
+        (ForwardSpecularSurface)0, float3(0.0f), float3(0.0f), DefaultEmissiveSample(material));
 }
 
 #ifndef MERLIN_EXPLICIT_DRAW_CONSTANTS

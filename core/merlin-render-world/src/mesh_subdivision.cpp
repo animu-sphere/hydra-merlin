@@ -620,6 +620,18 @@ MeshSubdivision::WireEdges() const noexcept {
 SubdivisionResult MeshSubdivision::Refine(const SubdivisionTopology& topology,
     std::span<const Vec3> points, const SubdivisionPrimvars& primvars,
     int level, std::string_view label, DiagnosticSink* sink) {
+  return RefineImpl(topology, points, primvars, level, label, sink, false);
+}
+
+SubdivisionResult MeshSubdivision::RefineForDisplay(const SubdivisionTopology& topology,
+    std::span<const Vec3> points, const SubdivisionPrimvars& primvars,
+    int level, std::string_view label, DiagnosticSink* sink) {
+  return RefineImpl(topology, points, primvars, level, label, sink, true);
+}
+
+SubdivisionResult MeshSubdivision::RefineImpl(const SubdivisionTopology& topology,
+    std::span<const Vec3> points, const SubdivisionPrimvars& primvars,
+    int level, std::string_view label, DiagnosticSink* sink, bool fit_budget) {
   refined_ = false;
   if (topology.scheme == SubdivisionScheme::None || level == 0) {
     Reset();
@@ -650,6 +662,7 @@ SubdivisionResult MeshSubdivision::Refine(const SubdivisionTopology& topology,
   }
 #ifndef MERLIN_HAS_OPENSUBDIV
   (void)primvars;
+  (void)fit_budget;
   return fallback("mesh.subdivision.unavailable", "OpenSubdiv CPU support is unavailable in this build");
 #else
   const auto options = SchemeOptions(topology);
@@ -657,8 +670,12 @@ SubdivisionResult MeshSubdivision::Refine(const SubdivisionTopology& topology,
     return fallback("mesh.subdivision.rule", "subdivision interpolation or creasing rule is unsupported");
   }
   const Channels channels{primvars.texcoords, primvars.colors, primvars.opacities};
-  if (!WithinBudget(topology, points.size(), channels, level)) {
-    return fallback("mesh.subdivision.budget", "estimated subdivision working memory exceeds 128 MiB");
+  const int requested_level = level;
+  while (!WithinBudget(topology, points.size(), channels, level)) {
+    if (!fit_budget || level == 1) {
+      return fallback("mesh.subdivision.budget", "estimated subdivision working memory exceeds 128 MiB");
+    }
+    --level;
   }
   for (const auto* channel : channels) {
     if (channel && !ValidPrimvar(*channel, ElementCount(channel->interpolation, topology, points.size()))) {
@@ -684,6 +701,13 @@ SubdivisionResult MeshSubdivision::Refine(const SubdivisionTopology& topology,
     plan_ = std::move(plan);
   }
   auto mesh = plan_->Evaluate(points, channels, label, sink);
+  if (level < requested_level && sink) {
+    sink->Report({kDiagnosticSchemaVersion, "mesh.subdivision.lower-level", DiagnosticSeverity::Warning,
+        DiagnosticDisposition::Fallback, std::string(label),
+        "requested level " + std::to_string(requested_level) +
+            " exceeds the working-memory budget; using level " + std::to_string(level),
+        "use-lower-refinement-level"});
+  }
   refined_ = true;
   return {SubdivisionStatus::Refined, std::move(mesh), rebuild};
 #endif

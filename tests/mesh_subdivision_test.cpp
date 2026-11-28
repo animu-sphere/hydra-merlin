@@ -265,6 +265,22 @@ int main() {
   topology.point_indices.resize(topology.face_counts.size() * 4U);
   assert(cache.Refine(topology, points, {}, 3, "over-budget", &sink).status == SubdivisionStatus::Fallback);
   assert(sink.diagnostics.back().code == "mesh.subdivision.budget");
+  // The same number of disconnected, valid quads fits at level 2.
+  std::vector<Vec3> large_cage;
+  large_cage.reserve(topology.point_indices.size());
+  for (std::size_t face = 0; face < topology.face_counts.size(); ++face) {
+    for (const auto& point : points) {
+      topology.point_indices[large_cage.size()] = static_cast<int>(large_cage.size());
+      large_cage.push_back({point.x + static_cast<float>(face) * 2.0F, point.y, point.z});
+    }
+  }
+  auto lower = cache.RefineForDisplay(topology, large_cage, {}, 3, "large-cage", &sink);
+  assert(lower.status == SubdivisionStatus::Refined && lower.rebuilt_plan);
+  assert(lower.mesh.indices.size() == topology.face_counts.size() * 16 * 6);
+  assert(sink.diagnostics.back().code == "mesh.subdivision.lower-level");
+  const auto exact = cache.RefineForDisplay(topology, large_cage, {}, 2, "large-cage");
+  assert(exact.status == SubdivisionStatus::Refined && !exact.rebuilt_plan);
+  assert(lower.mesh.indices == exact.mesh.indices);
 #else
   assert(cache.Refine(topology, points, {}, 1, "quad", &sink).status == SubdivisionStatus::Fallback);
   assert(sink.diagnostics.back().code == "mesh.subdivision.unavailable");

@@ -81,7 +81,8 @@ CHESS_PHASES = ("chess-dome", "chess-geometry", "chess-normal-base",
     f"chess-{group}-{material_input}"
     for group in ("chessboard", "black", "white")
     for material_input in ("base_color", "normal", "metalness", "specular_roughness")
-) + ("chess-inputs-restored",) + tuple(
+) + ("chess-inputs-restored", "chess-black-transmission-disabled",
+     "chess-white-transmission-disabled", "chess-transmission-restored") + tuple(
     f"specular-{source}-{lighting}-{surface}"
     for source in ("camera", "distant")
     for lighting in ("direct", "dome")

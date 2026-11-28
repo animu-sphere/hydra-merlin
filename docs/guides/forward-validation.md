@@ -153,6 +153,11 @@ coordinates and an explicit `st` connection, sRGB decoding, live intensity
 edits, and recovery after unsupported connections or missing assets.
 The opacity probe checks that a red/green UV0 image cuts the surface coverage
 in half and that missing UVs or a missing image restore the original coverage.
+With dome lighting on, the gate disables transmission on the black and white
+pawn tops one group at a time and checks that restoring their authored values
+restores the image. The native Vulkan Forward output fixtures also compare
+transmitted HDR radiance against the expected tint, Fresnel values and ray
+direction, and check roughness filtering, depth and picking IDs.
 Images, input counts and probe measurements are written to
 `adapters/merlin-hydra2/forward-chess-*-install` under the build directory. When a native Hgi bridge is available, the test compares its
 images with Tier 0. For a manual launch on Metal, set

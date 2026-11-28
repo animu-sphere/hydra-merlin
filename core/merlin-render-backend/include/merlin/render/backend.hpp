@@ -19,7 +19,7 @@ namespace merlin::render {
 
 struct GpuScenePackedFrameUpdate;
 
-inline constexpr std::uint32_t kBackendContractVersion = 15;
+inline constexpr std::uint32_t kBackendContractVersion = 16;
 inline constexpr std::uint32_t kRendererSettingsSchemaVersion = 4;
 
 enum class BackendKind { Vulkan,

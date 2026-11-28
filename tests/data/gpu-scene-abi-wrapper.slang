@@ -40,7 +40,7 @@ void gpu_scene_abi_test(uint3 dispatch_thread_id : SV_DispatchThreadID)
         material.normal_texcoord_set + material.reserved + material.scalar_texture_resources.x +
         asuint(material.emissive_radiance.x) + material.emissive_opacity_texture_resources.x +
         material.emissive_opacity_texture_resources.z +
-        asuint(material.specular_factors.x);
+        asuint(material.specular_factors.x) + asuint(material.transmission_factors.w);
     value += draw.geometry_index + draw.material_index + draw.instance_index +
         draw.primitive_base + draw.primitive_count + draw.flags +
         draw.draw_id_low + draw.draw_id_high;

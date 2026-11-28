@@ -6,6 +6,13 @@ Active and immediately next work only. Shipped changes are in the
 
 Deferred work and future milestones are in the [backlog](backlog.md).
 
+## Forward MaterialX transmission
+
+- Add opaque scene color and depth sampling for pawn-top refraction, and
+  verify that a surface behind the pawn is visible through the tinted head.
+  The initial [dome-lit transmission profile](../design/forward-lighting.md#dielectric-transmission)
+  supplies the material and lighting inputs.
+
 ## v0.18.0 — High-resolution Gaussian tiles
 
 - Resolve the 4K static Vulkan CPU/GPU sorted-stream `instanceId` mismatch
