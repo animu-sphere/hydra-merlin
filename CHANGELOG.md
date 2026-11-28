@@ -47,6 +47,12 @@ after its public API and release process are established.
   depth bindings.
   Rebuild SDK consumers and shader artifacts.
 
+### Fixed
+
+- Hydra Smooth Shaded generates smooth vertex normals for subdivision cages
+  without authored normals at Low complexity and after refinement falls back
+  to the cage.
+
 ## [0.17.0] - 2026-11-25
 
 ### Added

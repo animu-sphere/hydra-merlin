@@ -1,5 +1,6 @@
 """Exercise subdivision selection and live cage updates through usdview."""
 
+import math
 import os
 import runpy
 
@@ -151,3 +152,63 @@ def testUsdviewInputFunction(controller):
     assert counter(events, "subdivision_plan_count") == 1, events
     for field in ("covered_pixels", "covered_x_sum", "covered_y_sum"):
         assert events[-1][field] == seam_events[-1][field], field
+
+    fixture.SetActive(False)
+    settings.renderMode = RenderModes.SMOOTH_SHADED
+    view.SetRendererSetting("merlin:debugView", "shading-normal-base")
+    mesh = UsdGeom.Mesh.Define(stage, "/CageNormalProbe")
+    points = [(-1, 0, 0), (0, 0, 0), (0, 1, 0), (-1, 1, 0),
+              (1, 0, -0.75), (1, 1, -0.75), (0, 1, -1)]
+    counts = [4, 4, 3]
+    indices = [0, 3, 2, 1, 1, 2, 5, 4, 1, 6, 2]
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr(counts)
+    mesh.CreateFaceVertexIndicesAttr(indices)
+    mesh.CreateOrientationAttr(UsdGeom.Tokens.leftHanded)
+    mesh.CreateHoleIndicesAttr([2])
+    smooth, events = capture("cage-normals-smooth", complexity(RefinementComplexities.LOW))
+    assert counter(events, "subdivision_eval_count") == 0
+    assert events[-1]["covered_pixels"] > 1000
+
+    settings.renderMode = RenderModes.FLAT_SHADED
+    flat, _ = capture("cage-normals-flat")
+    assert smooth != flat, "smooth cage used triangle normals"
+    view.SetRendererSetting("merlin:debugView", "geometric-normal")
+    geometric, _ = capture("cage-normals-geometric")
+    assert flat == geometric
+
+    view.SetRendererSetting("merlin:debugView", "shading-normal-base")
+    settings.renderMode = RenderModes.SMOOTH_SHADED
+    scheme = mesh.GetSubdivisionSchemeAttr()
+    for token in (UsdGeom.Tokens.none, UsdGeom.Tokens.bilinear):
+        scheme.Set(token)
+        polygon, _ = capture(f"cage-normals-{token}")
+        assert polygon == flat
+    scheme.Clear()
+
+    # Each shared point receives one cross product from each visible quad.
+    # The hole shares the edge but contributes no normal.
+    shared = Gf.Vec3f(0.75, 0, 2).GetNormalized()
+    upright = Gf.Vec3f(0, 0, 1)
+    sloped = Gf.Vec3f(0.6, 0, 0.8)
+    authored = mesh.CreateNormalsAttr([upright, shared, shared, upright,
+                                       sloped, sloped, upright])
+    mesh.SetNormalsInterpolation(UsdGeom.Tokens.vertex)
+    reference, _ = capture("cage-normals-reference")
+    assert all(abs(a - b) <= 1 for a, b in zip(reference, smooth)), (
+        "generated normals differ from the polygon-corner oracle")
+    authored.Set([upright] * len(points))
+    override, _ = capture("cage-normals-authored")
+    assert override != smooth and override != flat
+    authored.Clear()
+
+    # An off-camera n-gon exceeds the stencil memory budget at level one.
+    sides = 1500
+    mesh.GetPointsAttr().Set(points + [
+        (100 + math.cos(angle), math.sin(angle), 0)
+        for angle in (math.tau * i / sides for i in range(sides))])
+    mesh.GetFaceVertexCountsAttr().Set(counts + [sides])
+    mesh.GetFaceVertexIndicesAttr().Set(indices + list(range(len(points), len(points) + sides)))
+    fallback, events = capture("cage-normals-budget", complexity(RefinementComplexities.MEDIUM))
+    assert counter(events, "subdivision_eval_count") == 0
+    assert fallback == smooth

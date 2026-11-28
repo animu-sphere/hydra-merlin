@@ -4614,6 +4614,64 @@ private:
     }
   }
 
+  std::vector<merlin::Vec3> GenerateSmoothCageNormals(
+      std::span<const merlin::Vec3> positions) const {
+    const auto& counts = topology_.GetFaceVertexCounts();
+    const auto& indices = topology_.GetFaceVertexIndices();
+    const auto& hole_indices = topology_.GetHoleIndices();
+    const std::unordered_set<int> holes(hole_indices.begin(), hole_indices.end());
+    std::vector<GfVec3d> point_normals(points_.size(), GfVec3d(0.0));
+    const double orientation =
+        topology_.GetOrientation() == HdTokens->leftHanded ? -1.0 : 1.0;
+    // The triangulation pass has validated the visible faces. Use their
+    // original polygon edges so the fan diagonals do not bias the normals.
+    std::size_t offset{};
+    for (std::size_t face = 0; face < counts.size(); ++face) {
+      const auto count = static_cast<std::size_t>(counts[face]);
+      if (!holes.contains(static_cast<int>(face))) {
+        for (std::size_t corner = 0; corner < count; ++corner) {
+          const int point = indices[offset + corner];
+          const int next = indices[offset + (corner + 1) % count];
+          const int previous = indices[offset + (corner + count - 1) % count];
+          const auto wedge = GfCross(points_[next] - points_[point],
+              points_[previous] - points_[point]);
+          if (std::isfinite(wedge[0]) && std::isfinite(wedge[1]) &&
+              std::isfinite(wedge[2])) {
+            point_normals[point] += wedge;
+          }
+        }
+      }
+      offset += count;
+    }
+    for (auto& normal : point_normals) {
+      const double length = normal.GetLength();
+      normal = length > 0.0 && std::isfinite(length)
+          ? (normal / length) * orientation : GfVec3d(0.0);
+    }
+
+    std::vector<merlin::Vec3> normals;
+    normals.reserve(packed_corners_.size());
+    for (std::size_t triangle = 0; triangle < packed_corners_.size(); triangle += 3U) {
+      std::optional<merlin::Vec3> geometric;
+      for (std::size_t local = 0; local < 3U; ++local) {
+        const auto& normal = point_normals[packed_corners_[triangle + local].point];
+        if (normal != GfVec3d(0.0)) {
+          normals.push_back({static_cast<float>(normal[0]),
+              static_cast<float>(normal[1]), static_cast<float>(normal[2])});
+          continue;
+        }
+        if (!geometric) {
+          geometric = merlin::TriangleGeometricNormal(
+              positions[packed_corners_[triangle].point],
+              positions[packed_corners_[triangle + 1U].point],
+              positions[packed_corners_[triangle + 2U].point]);
+        }
+        normals.push_back(*geometric);
+      }
+    }
+    return normals;
+  }
+
   void RebuildPackedMesh() {
     g_hydra_telemetry.packed_mesh_rebuild_count.fetch_add(
         1, std::memory_order_relaxed);
@@ -4629,9 +4687,6 @@ private:
           merlin::DiagnosticDisposition::Rejected, "reject-prim");
       return;
     }
-    // Shared Mesh attribute preparation owns the authored -> flat -> Ng
-    // priority, renormalization and degenerate fallback. Missing normals
-    // stay flat per triangle, matching the established Hydra baseline.
     const auto positions = MeshPositions();
     std::optional<merlin::NormalPrimvar> authored_normals;
     if (normals_.present) {
@@ -4644,11 +4699,18 @@ private:
         return;
       }
     }
-    const auto normals = merlin::PrepareCornerNormals(positions,
-        packed_corners_, authored_normals ? &*authored_normals : nullptr,
-        merlin::NormalGeneration::Flat, GetId().GetString(),
-        &g_diagnostic_sink);
-    if (!normals.accepted()) {
+    // Subdivision cages use smooth vertex normals at level zero and when
+    // refinement falls back. Flat Shaded selects Ng at draw time.
+    const auto& scheme = topology_.GetScheme();
+    const bool smooth_cage = !authored_normals &&
+        (scheme == PxOsdOpenSubdivTokens->catmullClark ||
+            scheme == PxOsdOpenSubdivTokens->loop);
+    auto corner_normals = smooth_cage ? GenerateSmoothCageNormals(positions)
+        : merlin::PrepareCornerNormals(positions, packed_corners_,
+              authored_normals ? &*authored_normals : nullptr,
+              merlin::NormalGeneration::Flat, GetId().GetString(),
+              &g_diagnostic_sink).normals;
+    if (!corner_normals) {
       return;
     }
     std::vector<merlin::Vec2> corner_texcoords;
@@ -4683,7 +4745,7 @@ private:
     std::optional<std::vector<merlin::Vec4>> corner_tangents;
     if (authored_tangents || !corner_texcoords.empty()) {
       auto tangents = merlin::PrepareCornerTangents(positions,
-          packed_corners_, *normals.normals, corner_texcoords,
+          packed_corners_, *corner_normals, corner_texcoords,
           authored_tangents ? &*authored_tangents : nullptr,
           GetId().GetString(), &g_diagnostic_sink);
       if (!tangents.accepted()) {
@@ -4696,7 +4758,7 @@ private:
       for (std::size_t local = 0; local < 3U; ++local) {
         const auto& corner = packed_corners_[triangle + local];
         descriptor_.positions.push_back(positions[corner.point]);
-        descriptor_.normals.push_back((*normals.normals)[triangle + local]);
+        descriptor_.normals.push_back((*corner_normals)[triangle + local]);
         merlin::Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
         merlin::Vec3 rgb;
         if (colors_.present && !ReadVec3(colors_, corner, rgb)) {

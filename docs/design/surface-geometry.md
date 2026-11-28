@@ -62,19 +62,21 @@ Ns_base + tangent frame + normal map ─► Ns ─► lighting
 ### Source priority
 
 1. Authored normals.
-2. Renderer-generated normals: flat (triangle `Ng`) or smooth (area-weighted
-   average over shared positions within one primitive).
-3. `Ng` when neither is available or the authored value is degenerate.
+2. Renderer-generated normals, either flat (triangle `Ng`) or smooth across
+   shared points within one primitive.
+3. `Ng` for degenerate corners.
 
 Authored normals are renormalized. A zero-length or non-finite authored normal
 falls back to `Ng` for that element and is counted in diagnostics; malformed
-primvar sizes or indices reject the primitive, as for other primvars. The
-generation mode is a host input to the shared preparation: Hydra keeps flat
-generation, and native indexed meshes, which store one normal per shared
-vertex, generate smooth normals and repair a degenerate vertex normal with the
-area-weighted `Ng` of its triangles. Smoothing
-groups, crease inference and angle thresholds are not inferred; a host that
-needs hard edges authors `faceVarying` or `uniform` normals.
+primvar sizes or indices reject the primitive, as for other primvars. Hydra
+generates smooth vertex normals for `catmullClark` and `loop` cages drawn at
+level zero or after a refinement fallback. Each visible polygon contributes
+the cross product of the incident edges at each corner, with the mesh's
+orientation applied. Hydra generates flat normals for other polygon meshes.
+Flat Shaded selects `Ng` at draw time. Native indexed meshes generate smooth
+normals and repair a degenerate vertex normal with the area-weighted `Ng` of
+its triangles. Authors can specify hard edges with `faceVarying` or `uniform`
+normals on the polygon path.
 
 ### Interpolation
 
