@@ -1579,29 +1579,55 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
     const HdMaterialNode2& surface, ParsedMaterial& result) {
   result.flip_texture_rows = true;
   auto& parameters = result.material.parameters;
+  const auto finite_rgb = [](const merlin::Vec4& color) {
+    return std::isfinite(color.x) && std::isfinite(color.y) && std::isfinite(color.z);
+  };
   parameters.base_color = {0.8F, 0.8F, 0.8F, 1.0F};
   if (const auto* value = FindParameter(surface, "base_color")) {
-    (void)ReadColor(*value, parameters.base_color);
+    auto color = parameters.base_color;
+    if (ReadColor(*value, color) && finite_rgb(color) && std::isfinite(color.w)) {
+      parameters.base_color = color;
+    } else {
+      result.materialx_unsupported_inputs.emplace_back("base_color (expected finite RGB)");
+    }
   }
   float base = 1.0F;
-  if (const auto* value = FindParameter(surface, "base")) {
-    (void)ReadScalar(*value, base);
+  if (!ReadMaterialXConstant(network, surface, "base", "ND_constant_float",
+          base, ReadScalar) || !std::isfinite(base)) {
+    base = 1.0F;
+    if (const auto* value = FindParameter(surface, "base")) {
+      float fallback{};
+      if (ReadScalar(*value, fallback) && std::isfinite(fallback)) {
+        base = fallback;
+      }
+    }
+    result.materialx_unsupported_inputs.emplace_back("base (expected a finite constant)");
   }
-  if (!InputConnections(surface, "base").empty()) {
-    result.materialx_unsupported_inputs.emplace_back("base");
-  }
-  if (!InputConnections(surface, "base_color").empty()) {
-    result.texture = ReadMaterialXImage(network,
-        ConnectedNode(network, surface, "base_color"), "ND_image_color3", result.sampler,
+  const auto* base_color_node = ConnectedNode(network, surface, "base_color");
+  if (base_color_node != nullptr && base_color_node->nodeTypeId == TfToken("ND_constant_color3")) {
+    merlin::Vec4 color{};
+    if (ReadMaterialXConstant(network, surface, "base_color", "ND_constant_color3",
+            color, ReadColor) && finite_rgb(color)) {
+      parameters.base_color = {color.x, color.y, color.z, 1.0F};
+    } else {
+      result.materialx_unsupported_inputs.emplace_back(
+          "base_color (expected a finite scene-linear RGB constant)");
+    }
+  } else if (!InputConnections(surface, "base_color").empty()) {
+    result.texture = ReadMaterialXImage(network, base_color_node, "ND_image_color3", result.sampler,
         result.diagnostic);
     if (result.texture) {
       parameters.base_color = {1.0F, 1.0F, 1.0F, 1.0F};
       result.material.features |= merlin::MaterialFeature::BaseColorTexture;
     }
   }
-  parameters.base_color.x *= base;
-  parameters.base_color.y *= base;
-  parameters.base_color.z *= base;
+  const auto& color = parameters.base_color;
+  const merlin::Vec4 weighted_color{color.x * base, color.y * base, color.z * base, color.w};
+  if (finite_rgb(weighted_color)) {
+    parameters.base_color = weighted_color;
+  } else {
+    result.materialx_unsupported_inputs.emplace_back("base (weighted base_color is out of range)");
+  }
   merlin::Vec4 opacity{1.0F, 1.0F, 1.0F, 1.0F};
   if (const auto* value = FindParameter(surface, "opacity")) {
     (void)ReadColor(*value, opacity);
@@ -1636,11 +1662,19 @@ void ParseMaterialXSurface(const HdMaterialNetwork2& network,
         result.materialx_unsupported_inputs.emplace_back(input);
       }
     }
-    if (!InputConnections(surface, input).empty()) {
+    const auto* node = ConnectedNode(network, surface, input);
+    if (node != nullptr && node->nodeTypeId == TfToken("ND_constant_float")) {
+      float value{};
+      if (ReadMaterialXConstant(network, surface, input, "ND_constant_float",
+              value, ReadScalar) && std::isfinite(value)) {
+        parameter = std::clamp(value, 0.0F, 1.0F);
+      } else {
+        result.materialx_unsupported_inputs.emplace_back(
+            std::string(input) + " (expected a finite constant)");
+      }
+    } else if (!InputConnections(surface, input).empty()) {
       std::string diagnostic;
-      image.texture = ReadMaterialXImage(network,
-          ConnectedNode(network, surface, input), "ND_image_float",
-          image.sampler, diagnostic);
+      image.texture = ReadMaterialXImage(network, node, "ND_image_float", image.sampler, diagnostic);
       if (image.texture) {
         result.material.features |= feature;
       } else {

@@ -146,9 +146,9 @@ compares smooth and rough metal with only the default dome illuminating the
 surface and its panorama hidden. With one light source active at a time, it
 checks specular weight, tint and IOR edits under the distant light and dome,
 including default fallback for invalid IOR and pipeline reuse. It compares
-directly authored emission and specular values with equivalent MaterialX
-`constant` connections and checks live node edits. With every light
-disabled, it checks constant emission, UV0 orientation with implicit
+directly authored base, metallic-roughness, specular and emission values with
+equivalent MaterialX `constant` connections and checks live node edits. With
+every light disabled, it checks constant emission, UV0 orientation with implicit
 coordinates and an explicit `st` connection, sRGB decoding, live intensity
 edits, and recovery after unsupported connections or missing assets.
 The opacity probe checks that a red/green UV0 image cuts the surface coverage
@@ -161,9 +161,10 @@ same heap size by default. For a close view, use **Camera → Free Camera
 Settings... → Override Near** and set it to `0.02` stage units.
 
 The `merlin-hydra2-materialx-uv` test also checks opacity binding and recovery,
-constant-node defaults and fallback without a GPU. The native
-`merlin-vulkan-output-*` and `merlin-metal-forward-lighting` tests check
-opacity against the color, depth, primId and instanceId outputs.
+constant-node defaults and fallback, and transitions between constants and
+images without a GPU. The native `merlin-vulkan-output-*` and
+`merlin-metal-forward-lighting` tests check opacity against the color, depth,
+primId and instanceId outputs.
 
 ## Metal host gates
 

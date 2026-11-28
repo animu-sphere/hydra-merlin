@@ -230,6 +230,7 @@ def _check_standard_surface(stage, settings, view, scene_camera, capture):
     assert min(sharp["center_red"], rough["center_red"]) > 0, (sharp, rough)
     assert sharp != rough, (sharp, rough)
     result["specular-dome-only"] = {"unlit": unlit, "sharp": sharp, "rough": rough}
+    _check_surface_constants(settings, shader, capture)
     result["authored_constants"] = _check_specular_constants(settings, view, shader, capture)
     settings.enableSceneLights = False
     settings.domeLightEnabled = False
@@ -242,6 +243,47 @@ def _define_constant(stage, path, node_type, value_type):
     shader = UsdShade.Shader.Define(stage, path)
     shader.CreateIdAttr(node_type)
     return shader.CreateInput("value", value_type), shader.CreateOutput("out", value_type)
+
+
+def _check_surface_constants(settings, shader, capture):
+    settings.domeLightEnabled = False
+    settings.enableSceneLights = True
+    stage = shader.GetPrim().GetStage()
+    inputs = []
+    constants = []
+    for name, node_type, value_type in (
+        ("base", "ND_constant_float", Sdf.ValueTypeNames.Float),
+        ("base_color", "ND_constant_color3", Sdf.ValueTypeNames.Color3f),
+        ("metalness", "ND_constant_float", Sdf.ValueTypeNames.Float),
+        ("specular_roughness", "ND_constant_float", Sdf.ValueTypeNames.Float),
+    ):
+        inputs.append(shader.CreateInput(name, value_type))
+        constants.append(_define_constant(stage, f"/SpecularMaterial/Constant_{name}",
+                                          node_type, value_type))
+
+    initial = (0.5, Gf.Vec3f(0.6, 0.2, 0.1), 0.0, 0.4)
+    edited = (0.8, Gf.Vec3f(0.1, 0.4, 0.6), 0.75, 0.6)
+
+    def sample(phase, attrs, values):
+        for attr, value in zip(attrs, values):
+            assert attr.Set(value)
+        event, image = capture(f"surface-constants-{phase}")
+        assert event["draw_count"] == 1 and event["material_fallbacks"] == 0, event
+        assert event["pipeline_creation_count"] == 0 and event["upload_bytes"] == 0, event
+        return image
+
+    inline = sample("inline", inputs, initial)
+    inline_edit = sample("inline-edit", inputs, edited)
+    assert inline != inline_edit
+    for attr, (_, output) in zip(inputs, constants):
+        assert attr.ConnectToSource(output)
+    node_values = [value for value, _ in constants]
+    assert sample("connected", node_values, initial) == inline
+    assert sample("connected-edit", node_values, edited) == inline_edit
+    for attr in inputs:
+        attr.ClearSources()
+    assert sample("disconnected", inputs, initial) == inline
+    inputs[0].GetAttr().Clear()
 
 
 def _check_specular_constants(settings, view, shader, capture):
