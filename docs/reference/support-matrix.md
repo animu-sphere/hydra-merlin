@@ -251,13 +251,14 @@ The [surface geometry contract](../design/surface-geometry.md) defines the
 semantics. Normals, tangent frames and tangent-space normal mapping are
 implemented:
 
-- Shared Mesh attribute preparation applies authored -> generated -> `Ng` for
-  native and Hydra meshes. Hydra accepts all five interpolations, indexed or
-  not, and keeps flat generation for missing normals; native meshes without
-  normals are generated smooth (area-weighted per shared vertex). Authored
-  values are renormalized; zero-length or non-finite values fall back to the
-  triangle `Ng` with a `mesh.normals.degenerate` diagnostic (native records
-  count them on the geometry record). Malformed primvars reject the prim.
+- Hydra accepts authored normals in all five interpolations, with optional
+  indices. Missing normals on `catmullClark` and `loop` cages are generated
+  smooth from the original polygons. Other Hydra polygon meshes generate
+  triangle normals. Native meshes generate smooth, area-weighted normals per
+  shared vertex. Authored values are renormalized. Zero-length or non-finite
+  Hydra normals fall back to the triangle `Ng` with a `mesh.normals.degenerate`
+  diagnostic. Native geometry records count degenerate normals. Malformed
+  primvars reject the prim.
 - Every Vulkan and Metal Forward entry, including generated material wrappers,
   builds one Slang surface context: `Ng` from screen derivatives of the
   object-space position, `Ns_base` from the inverse-transpose normal matrix,
